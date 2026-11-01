@@ -11,7 +11,7 @@ enum Repo {
 
     @discardableResult
     static func run(_ tool: String, _ args: [String], in dir: URL? = nil) -> (code: Int32, out: String) {
-        let proc = Process()
+        let proc = quiet(Process())
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         proc.arguments = [tool] + args
         proc.currentDirectoryURL = dir ?? root
@@ -32,9 +32,11 @@ enum Repo {
     @discardableResult
     static func commit(_ message: String, paths: [String] = []) -> String? {
         guard isGit else { return nil }
-        run("git", ["add", "-A", "--"] + (paths.isEmpty ? ["."] : paths))
-        guard git("diff", "--cached", "--quiet").code != 0 else { return nil }
-        guard git("commit", "-q", "-m", message).code == 0 else { return nil }
+        // Named paths commit on their own, so whatever Robert has staged stays out of it (M1).
+        let scope = ["--"] + (paths.isEmpty ? ["."] : paths)
+        run("git", ["add", "-A"] + scope)
+        guard run("git", ["diff", "--cached", "--quiet"] + scope).code != 0 else { return nil }
+        guard run("git", ["commit", "-q", "-m", message] + (paths.isEmpty ? [] : scope)).code == 0 else { return nil }
         return git("rev-parse", "--short", "HEAD").out
     }
 
@@ -84,7 +86,8 @@ enum Repo {
         guard push(branch: branch) else { throw Fail(5, "could not push \(branch) to origin") }
         let target = slug(remote)
         let head = remote == "upstream" ? "\(slug("origin").split(separator: "/").first ?? ""):\(branch)" : branch
-        let existing = run("gh", ["pr", "view", head, "--repo", target, "--json", "url", "-q", ".url"])
+        // --head matches the branch name alone; the owner:branch form is only for create (M2).
+        let existing = run("gh", ["pr", "list", "--repo", target, "--head", branch, "--state", "open", "--json", "url", "-q", ".[0].url"])
         if existing.code == 0, !existing.out.isEmpty { return "updated \(existing.out)\n\(commits)" }
         let count = commits.split(separator: "\n").count
         let title = a.pos.isEmpty ? (count == 1 ? String(commits.dropFirst(2)) : "Fixes and notes from \(host) (\(count) commits)") : a.pos.joined(separator: " ")
@@ -108,9 +111,19 @@ enum Repo {
 
     private static var fetcher: Process?
 
+    /// git and gh fail instead of asking for a login: the daemon may share Robert's terminal,
+    /// and a prompt there would hang the command and catch his keys (M6).
+    static func quiet(_ proc: Process) -> Process {
+        var env = ProcessInfo.processInfo.environment
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        env["GH_PROMPT_DISABLED"] = "1"
+        proc.environment = env
+        return proc
+    }
+
     private static func fetchInBackground(_ remote: String) {
         guard fetcher?.isRunning != true else { return }
-        let proc = Process()
+        let proc = quiet(Process())
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         proc.arguments = ["git", "fetch", "-q", remote]
         proc.currentDirectoryURL = root
@@ -145,6 +158,12 @@ enum Repo {
     /// Runs kit.sh, which builds, signs and swaps the binary in place, then stops the daemon so
     /// the next command starts the new one.
     private static func rebuild() throws -> String {
+        // Only the clone ~/.apprentice/notes links into is the installed one. kit.sh from any
+        // other clone (APPRENTICE_NOTES, a test copy) would reinstall from it and relink the notes (M7).
+        let installed = Store.dir.appendingPathComponent("notes").resolvingSymlinksInPath().deletingLastPathComponent()
+        guard installed.standardizedFileURL.path == root.standardizedFileURL.path else {
+            return "not rebuilt: \(root.path) is not the installed clone (\(installed.path))"
+        }
         let built = run("bash", [root.appendingPathComponent("kit.sh").path])
         guard built.code == 0 else { throw Fail(5, "the build failed; the commit stays, fix it and commit again:\n\(built.out.split(separator: "\n").suffix(15).joined(separator: "\n"))") }
         _ = Wire.stopDaemon()
