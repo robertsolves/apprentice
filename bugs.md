@@ -984,7 +984,7 @@ Filed by `apprentice bug` while working. Each has a suggested fix to review; non
 - Repro: Instagram in Chrome while a Claude in Chrome session also used the tab: the page moved to /explore/ and the window lost key focus; apprentice's keys landed nowhere and type still said ok
 - Last error: `approve → exit 5: the click did not reach 23 textarea "Add a comment…": something may cover it, such as a suggestion list. Nothing was typed`
 - Cause: Nothing compared the page with the one apprentice last led to; Keys.type cannot tell whether keys arrived
-- Suggested fix: Applied: prepare notes a page change apprentice did not make and adds it to the output. Next: after type, compare the field's value with the text when AX exposes it, and report 'keys did not arrive' instead of ok.
+- Suggested fix: Applied: prepare notes a page change apprentice did not make and adds it to the output. Then (2026-11-01): type also fails when the field still shows what it had before, and notes when it shows something other than the typed text. Both checks run before any return is pressed.
 
 ### F5 · Typed letters arrived as shortcuts after cmd+a — 2026-11-01 · **fixed 2026-11-01**
 - Repro: type into a field: cmd+a, then the text; nothing appeared (Instagram search), though a lone key press worked
