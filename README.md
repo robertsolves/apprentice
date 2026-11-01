@@ -2,9 +2,7 @@
 
 # apprentice
 
-apprentice lets a coding agent (Claude Code, opencode, Kilo) or a hosted model work one macOS app or website for you, the way a careful person would. It reads the window as a short numbered list, moves the real cursor and presses real keys. It proposes every change and waits for approval. When it is unsure it asks you, and it writes down what it learns so the next run is quicker.
-
-It is built for one person and their own accounts: it keeps to a human pace, with no bulk sending, scraping or multiple accounts.
+apprentice lets a coding agent or a hosted model work one macOS app or website for you, the way a careful person would. It reads the window as a short numbered list, moves the real cursor and presses real keys. It proposes every change and waits for approval. When it is unsure it asks you, and it writes down what it learns so the next run is quicker.
 
 ```
 $ apprentice session --app Safari
@@ -43,7 +41,8 @@ nothing was done. approve: apprentice approve 7c2e · deny: apprentice deny 7c2e
   When you are away from the Mac (`apprentice away on`, or nobody answers within a minute), the question comes back with exit 9 and the agent asks you in the chat instead.
 - **It fixes itself.** apprentice runs from your own local clone. When it gets something wrong, the agent fixes the note or the code and commits each small change with `apprentice commit`, which rebuilds, self-tests and restarts apprentice with the fix. Your commits stay in your clone.
 - **It updates itself.** Every few hours it checks its upstream. When there's something new, it rebases your commits onto it, rebuilds, runs its self-test and restarts between commands, and the next `session` tells you. If the build or test fails, it stays on the old version. Set `[update] auto = false` to only be told, then run `apprentice update`.
-- **It can keep the browser off your desktop.** `apprentice vm setup` makes a separate macOS in a VM (Tart, about 35 GB) that runs only the browser, with its own cursor and keyboard, so you can keep working. `apprentice vm on` sends browser sessions there. Questions and approvals still open on your Mac, and `apprentice vm call` brings you into the VM when only you can do a step.
+- **It can keep the browser off your desktop, and drive Linux too.** A small Linux VM (about 2 GB, under a gigabyte to download) runs Chromium, a terminal and any Linux app you install, with its own screen, cursor and keyboard, so the agent works while you keep working. Terminal first: the agent runs commands over plain ssh (`apprentice vm shell`) and takes the screen (`session --app <name> --on linux`) only where no command does it. Approvals, budgets and logs stay on your Mac; `apprentice vm look` shows you the VM, and `apprentice vm call "what"` asks you into it when a site needs a person. The VM is Linux only for now; a macOS VM, for Mac apps and Safari, is planned.
+- **One VM per job.** `APPRENTICE_VM=linkedin apprentice vm setup` makes another VM, and an agent session started with `APPRENTICE_VM=linkedin` works only there, so two agents run side by side without touching each other's browser. Each site's budgets and cooldowns count across all of them. Uploads and downloads move files between your Mac and the VM, and questions open on the VM's screen.
 - **It learns.** Notes about apps and sites live in this repo under `notes/`, so updates share them. `learn` turns a task that worked into a flow. `do <flow>` reruns it with one approval for the whole plan, and hands back to the agent if a step fails. Whenever asking you solved a problem, the note gets updated and a code fix is filed.
 
 ## Install
@@ -56,7 +55,7 @@ git clone https://github.com/robertsolves/apprentice.git ~/.apprentice/src && ~/
 
 `install.sh` clones into `~/.apprentice/src` (or `APPRENTICE_DIR`, or the clone of your last install, which it finds through `~/.apprentice/notes`). The clone is your copy: `upstream` is fetch-only, so your commits stay in it. Set `APPRENTICE_UPSTREAM` to install from another git URL (a server, a folder, another Mac's clone). Then it runs `kit.sh`. From a clone you already have, run `./kit.sh` directly.
 
-`kit.sh` builds a release binary, runs its self-test (a failure keeps the installed one), and installs it to `~/.local/bin/apprentice`. It signs it with a local identity named `apprentice`, which it creates in your login keychain the first time, so your permissions survive rebuilds (set `APPRENTICE_SIGN_IDENTITY` to use another). A running browser VM gets the new build too. It also:
+`kit.sh` builds a release binary, runs its self-test (a failure keeps the installed one), and installs it to `~/.local/bin/apprentice`. It signs it with a local identity named `apprentice`, which it creates in your login keychain the first time, so your permissions survive rebuilds (set `APPRENTICE_SIGN_IDENTITY` to use another). A running Linux VM gets the new build too. It also:
 - connects every AI assistant it finds on the Mac (`agent/connect.py`), and leaves out the ones that aren't installed:
   - the skill (`agent/SKILL.md`) goes to `~/.claude/skills` and the shared `~/.agents/skills`, which nearly every agent reads, and to `~/.factory/skills` (Factory Droid) and `~/.continue/skills` (Continue), which read only their own;
   - the instructions (`agent/AGENTS.md`) go between `<!-- apprentice -->` markers, replaced on every run, in the global rules file of each installed agent: Codex and the ChatGPT app, opencode, Kilo, Gemini CLI, Qwen Code, GitHub Copilot CLI, Amp, Factory Droid, Crush, Mistral Vibe, Continue, Augment's Auggie, and Freebuff and Codebuff (`~/.AGENTS.md`). The shared `~/.agents/AGENTS.md`, which Cline and goose read, always gets them. Kimi, Warp and Cursor's CLI have no global rules file and get the skill only;
@@ -65,7 +64,7 @@ git clone https://github.com/robertsolves/apprentice.git ~/.apprentice/src && ~/
 - links `~/.apprentice/notes` to the repo's `notes/`;
 - writes example `config.toml` and `routes.toml` files, if you have none yet.
 
-The installer also asks where to keep your settings: on this Mac only, or in a private GitHub repo (`<you>/apprentice-settings`) that every Mac you install on shares.
+`install.sh` also installs Tart and sets up the Linux VM (`APPRENTICE_SKIP_VM=1` skips it). There is no macOS VM yet.
 
 Then grant **Accessibility** and **Screen Recording** to `~/.local/bin/apprentice` in System Settings → Privacy & Security, and run `apprentice stop` so the next command starts a fresh daemon.
 
@@ -96,7 +95,7 @@ The first `session` after the daemon starts opens an options window:
 | `grow` · `bug "summary" --fix "…"` | What to improve next, and field reports |
 | `settings [github \| local \| sync]` | Keep settings on this Mac, or in a private GitHub repo shared by your Macs |
 | `commit "what and why"` · `update [--check]` · `selftest` · `repo` | A small commit (rebuilds on a source change), upstream fixes in by hand (it also updates itself), the built-in tests, and where the clone is |
-| `vm setup` · `vm on`/`off` · `vm up`/`down` · `vm look` · `vm call "what"` · `vm logs` | The browser VM: make it, send browser sessions to it, start or stop it, see it, bring the user into it, copy its logs here |
+| `vm setup` · `vm on`/`off` · `vm up`/`down` · `vm shell` · `vm look` · `vm call "what"` · `vm install` | The Linux VM: make it, send browser sessions to it, start or stop it, print its ssh config, see it, bring the user into it, update what runs in it |
 | `run "task" --model <name>` · `mcp` | A built-in loop for any OpenAI-compatible model, and an MCP server |
 
 Add `--json` to any command for the raw reply.
@@ -117,7 +116,7 @@ Add `--json` to any command for the raw reply.
 
 ## Configuration
 
-Settings are `config.toml` (see `agent/config.example.toml`), `routes.toml` and `budgets.json`, in `~/.apprentice/` on this Mac only. An older install that synced them with GitHub keeps reading them from `~/.apprentice/settings/` until `apprentice settings local` moves them back. Sessions, logs and screenshots stay on the Mac. The browser VM gets a copy of your settings each time `kit.sh` or `apprentice vm install` runs.
+Settings are `config.toml` (see `agent/config.example.toml`), `routes.toml` and `budgets.json`, in `~/.apprentice/` on this Mac only. An older install that synced them with GitHub keeps reading them from `~/.apprentice/settings/` until `apprentice settings local` moves them back. Sessions, logs and screenshots stay on the Mac. The Linux VM gets a copy of your settings each time `kit.sh` or `apprentice vm install` runs.
 
 `config.toml` has:
 

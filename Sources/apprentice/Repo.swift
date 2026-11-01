@@ -5,7 +5,10 @@ import Foundation
 /// only fetched. apprentice checks it every few hours and, unless `[update] auto = false`, rebases the
 /// local commits onto it, rebuilds, self-tests and restarts on its own.
 enum Repo {
-    static var root: URL { Notes.repo }
+    static var root: URL { testRoot ?? Notes.repo }
+    /// For `selftest`: a throwaway clone, and a build that stands in for kit.sh.
+    static var testRoot: URL?
+    static var testBuild: (() -> (code: Int32, out: String))?
     static var isGit: Bool { FileManager.default.fileExists(atPath: root.appendingPathComponent(".git").path) }
     /// install.sh names it `upstream`; an older plain clone only has origin.
     static var upstream: String { git("remote").out.split(separator: "\n").contains("upstream") ? "upstream" : "origin" }
@@ -119,6 +122,8 @@ enum Repo {
         let remote = upstream
         let fetched = root.appendingPathComponent(".git/FETCH_HEAD")
         let age = (try? fetched.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        // Only the main daemon updates; a VM's daemon reports what it sees.
+        let start = start && Store.vmName == nil
         if start, age.map({ Date().timeIntervalSince($0) > checkSeconds }) ?? true { checkInBackground() }
         let n = behind(remote)
         if n > 0, !updating {
@@ -179,16 +184,16 @@ enum Repo {
             let restart = applyUpdate()
             release()
             // Restarts between commands, never in the middle of one; the next command starts the new binary.
-            if restart { Daemon.queue.async { _ = Wire.stopDaemon() } }
+            if restart { Daemon.queue.async { Wire.stopVMDaemons(); _ = Wire.stopDaemon() } }
         }
     }
 
     /// The automatic update: only on a clean tree on the base branch, and back to where it was if the
     /// new build or its self-test fails. Returns whether the daemon should restart.
-    private static func applyUpdate() -> Bool {
+    static func applyUpdate() -> Bool {
         let remote = upstream
         let base = branch(remote)
-        guard installedHere else { return false }
+        guard installedHere || testRoot != nil else { return false }
         guard git("status", "--porcelain").out.isEmpty else {
             notice("apprentice: an update is waiting, but \(root.path) has uncommitted changes; once they are committed (`apprentice commit \"…\"`) it updates itself")
             return false
@@ -207,7 +212,7 @@ enum Repo {
             notice("apprentice: updated its notes and docs to \(to)")
             return false
         }
-        let built = run("bash", [root.appendingPathComponent("kit.sh").path])
+        let built = testBuild?() ?? run("bash", [root.appendingPathComponent("kit.sh").path])
         guard built.code == 0 else {
             // The tree was clean before the rebase, so this only undoes the update.
             git("reset", "-q", "--hard", before)
@@ -250,6 +255,7 @@ enum Repo {
         guard installedHere else { return "not rebuilt: \(root.path) is not the installed clone" }
         let built = run("bash", [root.appendingPathComponent("kit.sh").path])
         guard built.code == 0 else { throw Fail(5, "the build or self-test failed; the commit stays, fix it and commit again:\n\(built.out.split(separator: "\n").suffix(15).joined(separator: "\n"))") }
+        Wire.stopVMDaemons()
         _ = Wire.stopDaemon()
         return "rebuilt and restarted apprentice"
     }

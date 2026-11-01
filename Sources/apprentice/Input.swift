@@ -16,6 +16,16 @@ enum Pace {
         return min(max(gap, 0.04), 0.9)
     }
 
+    /// The pause between two steps of a flow, which an agent's thinking time would otherwise have
+    /// filled: a log-normal look around 0.9 s, about 120 ms more for each new thing on screen (at
+    /// most 4 s), and one step in eight a 2–5 s hesitation. A flow never runs at one steady beat.
+    static func lookGap(newLines: Int) -> Double {
+        var gap = 0.9 * exp(0.45 * gaussian())
+        gap += min(Double(newLines) * Double.random(in: 0.08...0.16), 4)
+        if Int.random(in: 0..<8) == 0 { gap += Double.random(in: 2...5) }
+        return min(max(gap, 0.35), 10)
+    }
+
     /// Never traps: NaN, infinity and huge values from config become a bounded wait (B4, D3).
     static func sleep(_ seconds: Double) {
         guard seconds.isFinite, seconds > 0 else { return }
@@ -99,6 +109,7 @@ enum Keys {
     /// A real key press on the system keyboard stream, as from a person's keyboard.
     static func press(_ combo: String) throws {
         let (code, flags) = try parse(combo)
+        if Remote.active { return try Remote.press(combo) }
         for down in [true, false] {
             guard let e = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down) else { continue }
             e.flags = flags
@@ -112,6 +123,7 @@ enum Keys {
             try? press("return")
             return
         }
+        if Remote.active { return Remote.typeChar(ch) }
         let units = Array(String(ch).utf16)
         // The key a person would press for it on the current layout; the Unicode string still
         // decides what is typed. Characters with no key keep code 0.
@@ -191,6 +203,8 @@ enum Keys {
     /// Pastes `text` with a real cmd+v, then puts the clipboard back. Only for places no website can
     /// see, such as the browser's address bar and system file dialogs; text inside pages is typed.
     static func paste(_ text: String) throws {
+        // The VM has no clipboard of this Mac's; its address bar is typed into quickly instead.
+        if Remote.active { return try type(text, fast: true) }
         let board = NSPasteboard.general
         let saved = board.pasteboardItems?.map { item in
             item.types.reduce(into: [NSPasteboard.PasteboardType: Data]()) { $0[$1] = item.data(forType: $1) }
@@ -214,6 +228,7 @@ enum Keys {
 
     /// Every event goes through the system input stream, like a person's mouse and keyboard.
     static func post(_ e: CGEvent) {
+        if Remote.active { return Remote.post(e) }
         e.setIntegerValueField(.eventSourceUserData, value: tag)
         Borrow.lastOwnPost = Date()
         e.post(tap: .cghidEventTap)
@@ -221,7 +236,7 @@ enum Keys {
 }
 
 enum Mouse {
-    static var location: CGPoint { CGEvent(source: nil)?.location ?? .zero }
+    static var location: CGPoint { Remote.active ? Remote.cursor : CGEvent(source: nil)?.location ?? .zero }
 
     /// A point near the middle of the target, clustered as people's clicks are, and never within 8%
     /// of its edge.
@@ -312,7 +327,7 @@ enum Mouse {
         while Date() < end {
             if KillSwitch.tripped || Watch.stopped { return }
             Pace.sleep(min(Double.random(in: 2...5), end.timeIntervalSinceNow))
-            guard Date() < end, Borrow.humanIdle > 1 else { continue }
+            guard Date() < end, Remote.active || Borrow.humanIdle > 1 else { continue }
             let from = location
             let angle = Double.random(in: 0..<(2 * .pi)), r = CGFloat.random(in: 5...20)
             stroke(from: from, to: CGPoint(x: from.x + r * CGFloat(cos(angle)), y: from.y + r * CGFloat(sin(angle))),

@@ -1,12 +1,14 @@
 # TODO
 
-## Browser VM
+## The VM
 
-- **Run it for real.** It has never been through `vm setup`. This Mac has 23 GB free and the VM needs about 35 GB (or set `[vm] home` to an external disk). Things to check: the ssh key install through `SSH_ASKPASS`, the guest LaunchAgent coming up in the login session, Screen Sharing for `vm look`, `systemsetup` setting the time zone, and the host-signed binary keeping its grants in the guest.
-- Tart's Homebrew tap formula fails on current Homebrew (`depends_on macos:` outside `on_macos`). `vm setup` falls back to the release app in `~/Applications`.
-- A VM session skips the start-up options window. Show it on the host, then pass the choices to the guest.
-- The guest keeps the image's `admin`/`admin` password. `vm setup` could change it once the ssh key is in.
-- `vm install` restarts the guest daemon, so a command in flight from the host fails with "daemon closed the connection". Wait for the guest to be idle first.
+It runs: Debian guests under Tart (2 GB disk, 2 GB memory each) or on a server (`[vm] host`), any number at once (`APPRENTICE_VM`), driven from `Remote.swift` with the same commands as the Mac, uploads, downloads, `shot`, `ocr`, `show` and questions on the VM's screen included. Still open:
+
+- **Working with the Mac off.** Asked for 2026-11-01: keep the settings in a server VM, synced with the Mac when it is on, so a Claude task, command or MCP server can drive the web while the Mac is off. Today the brain (approvals, budgets, pacing, logs) is the Mac's Swift daemon, so this needs it on Linux: either a Linux build of the parts that are not AppKit (`Remote`, `SiteRules`, `State`, `Config`, the wire), or a small daemon in the guest that speaks the same wire. Approvals would go to the chat (exit 9), since nobody is at a window.
+- **Linux app sessions are untested on a live VM** (openbox, wmctrl and xfce4-terminal were added to provision.sh).
+- A budgeted step is counted when it is approved, so an upload that then fails still uses up the site's budget (seen in testing: three failed tries reached the hourly cap). Count it once the step went through.
+- Characters with no key on the guest's US layout get a spare keycode, so their `code` is unusual. The Mac does the same for characters its layout lacks (code 0).
+- Several VMs share one ssh key. Per-VM keys would let one be revoked alone.
 
 ## Updates
 
@@ -14,8 +16,4 @@
 
 ## Tests
 
-`apprentice selftest` covers TOML, args, pace limits, the wire format, VM routing and `diff`. Still to add:
-
-- Approvals: propose → exit 8 → approve re-dispatches once; a stale token fails. This needs `Store` pointed at a temp folder.
-- `Repo.applyUpdate` against a temp git repo with a fake upstream: clean tree, dirty tree, conflict, failed build.
-- The routing checks only count when they fail. Make every check count.
+`apprentice selftest` covers TOML, args, pace limits, the wire format, VM routing, `diff`, the approval gate, shared site limits and the automatic update (against throwaway git repos), in a temporary home of its own. Still to add: the VM's helper (`agent/vm/helper.py`) has no tests of its own; it is checked against a live VM by hand.

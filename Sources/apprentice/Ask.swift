@@ -76,6 +76,11 @@ enum Ask {
     static func show(_ question: String, choices: [String], multi: Bool, withText: Bool, timeout: Double,
                      sendTitle: String = "Send", checked: Set<String> = [], placeholder: String? = nil,
                      initialText: String = "") -> Reply? {
+        // A session in a VM asks on the VM's screen, where the work is; this Mac shows a notification.
+        if let answer = Remote.askInVM(question, choices: choices, multi: multi, withText: withText, timeout: timeout,
+                                       sendTitle: sendTitle, checked: checked, placeholder: placeholder, initialText: initialText) {
+            return answer
+        }
         let width: CGFloat = 380
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: width, height: 160),
                             styleMask: [.titled, .closable], backing: .buffered, defer: false)

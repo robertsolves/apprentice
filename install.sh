@@ -67,3 +67,10 @@ git -C "$dir" config user.name >/dev/null || git -C "$dir" config user.name "app
 git -C "$dir" config user.email >/dev/null || git -C "$dir" config user.email "apprentice@$(hostname -s 2>/dev/null || echo mac).local"
 
 "$dir/kit.sh"
+
+# The browser VM: Tart and a small Debian guest with Chromium (under 1 GB to download, about 2 GB on
+# disk), so the agent browses with its own cursor and keyboard. APPRENTICE_SKIP_VM=1 skips it.
+if [ "${APPRENTICE_SKIP_VM:-0}" != 1 ]; then
+  bash "$dir/agent/vm/get-tart.sh" && env -u APPRENTICE_VM "$HOME/.local/bin/apprentice" vm setup ||
+    echo "warning: the browser VM is not set up; run \`apprentice vm setup\` later"
+fi

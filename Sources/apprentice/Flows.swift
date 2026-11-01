@@ -26,8 +26,10 @@ extension Commands {
         Approvals.planActive = true
         defer { Approvals.planActive = false }
         var out = ["flow \(note.path) · \(steps.count) steps"]
+        var lastResult: String?
         for (i, step) in steps.enumerated() {
             let n = i + 1
+            if let lastResult { look(after: lastResult) }
             guard step.hasPrefix("`") else {
                 out.append("\(n) · needs you: \(step)")
                 throw Fail(5, (out + [try screen()]).joined(separator: "\n"))
@@ -40,6 +42,7 @@ extension Commands {
                 tokens = try resolveRefs(tokens)
                 let cmd = tokens.removeFirst()
                 let result = try dispatch(Request(cmd: cmd, args: tokens))
+                lastResult = result
                 out.append("\(n) ✓ \(step) → \(result.split(separator: "\n").first ?? "")")
             } catch let f as Fail {
                 out.append("\(n) ✗ \(step) → \(f.message.split(separator: "\n").first ?? "")")
@@ -49,6 +52,22 @@ extension Commands {
         }
         out.append("done · if anything needed fixing, update \(note.path)")
         return out.joined(separator: "\n")
+    }
+
+    /// A person's pause between steps, longer when the last one brought more onto the screen. Long
+    /// pauses drift the pointer as `dwell` does. Fast-paced apps (`mode = "fast"`) skip it.
+    private static func look(after result: String) {
+        guard Config.current.pace.mode != "fast", !KillSwitch.tripped else { return }
+        let added = result.split(separator: "\n").filter { $0.hasPrefix("+ ") }.count
+        let gap = Pace.lookGap(newLines: added)
+        Timing.measure("gap") {
+            guard gap >= 2 else { return Pace.sleep(gap) }
+            if Session.stored?.vm == true {
+                if (try? Remote.act { Mouse.linger(gap) }) == nil { Pace.sleep(gap) }
+            } else {
+                Mouse.linger(gap)
+            }
+        }
     }
 
     /// The current screen, saved as the snapshot later ids refer to.

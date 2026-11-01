@@ -8,7 +8,7 @@ apprentice is a macOS 14+ CLI and daemon in one Swift binary. It lets coding age
 
 It is built for one person operating a handful of tools and accounts at a pace they could sustain by hand. The goal is to let a solo owner keep routine operations moving with the care of a larger team, and compete with better-funded teams on care and consistency rather than volume, without adding headcount. Budgets, allowlists, rate limits and approval gates are part of the product, not optional add-ons.
 
-Scope: the `run` loop targets hosted OpenAI-compatible APIs (Claude via an adapter, DeepSeek, OpenRouter). Local models (Ollama, LM Studio, llama.cpp, vLLM) are out of scope for now. Bulk outreach, mass following, scraping at volume, multi-account operation and parallel sessions are out of scope by design.
+Scope: the `run` loop targets hosted OpenAI-compatible APIs (Claude via an adapter, DeepSeek, OpenRouter). Local models (Ollama, LM Studio, llama.cpp, vLLM) are out of scope for now. Bulk outreach, mass following, scraping at volume and multi-account operation (several accounts on one site) are out of scope by design. Parallel sessions run one per browser VM (`APPRENTICE_VM`), each in its own daemon, with every site's budgets, cooldowns and challenges shared across them.
 
 ## Commands
 
@@ -73,7 +73,7 @@ Exit codes are part of the agent contract. They're listed in `SPEC.md` and `usag
 - `Capture.swift` handles ScreenCaptureKit window capture and Vision OCR for `shot` and `ocr`.
 - `AgentLoop.swift` holds the `run` loop and `replay`. `run` uses an OpenAI-compatible `/chat/completions` endpoint, takes one action per reply in a tiny grammar, and stops at 40 steps, 15 minutes, or 3 identical actions in a row.
 - `MCP.swift` is a stdio MCP server that maps tool calls to the same `Request`s.
-- `VM.swift` runs browser work in a Tart macOS guest, so it has its own cursor and keyboard. With `vm on`, `Wire.send` sends browser sessions and the commands after them over ssh to `apprentice wire` in the guest; native apps, `ask`, `awake` and `away` stay on the host, and `confirm` opens its window on the host. The guest runs the host's signed binary as a LaunchAgent (`vm install`), and its config (`[vm] guest = true`) refuses non-browser apps. The host's kill switch reaches it as `kill`.
+- `VM.swift` and `Remote.swift` run a small Debian guest under Tart, so Linux work has its own screen, cursor and keyboard. `agent/vm` holds what runs there: `provision.sh` (packages, the service), `session.sh` (Xvfb, VNC, openbox, the accessibility bus, Chromium) and `helper.py`, which reads any app's AT-SPI tree (Chromium as a page, GTK/Qt apps as a window, terminals as their lines) in the same labels as the macOS reader and plays input through XTest. Browser sessions with `vm on`, and any session with `--on linux`, are `Remote` sessions (`Session.vm`): the daemon keeps one ssh connection to the helper, and `Keys`/`Mouse` stream their events to it while `Remote.active`, so pacing, the gate, budgets, site rules, diffs and logs are the same code as a local session. `Remote.wants` is the routing; `Remote.unsupported` lists the commands the VM cannot do yet. Terminal work in the VM is plain ssh with `VM.sshConfig` (`vm shell` prints it), over the daemon's shared connection: no apprentice wrapper, just as the agent uses its own shell on macOS. Several VMs run at once: `APPRENTICE_VM=<name>` (or `apprentice --vm <name> …`) gives each its own daemon, socket and state folder (`Store.stateDir`, `~/.apprentice/vms/<name>/`: session, snapshot, pending approval, `pace.json`), while sites, budgets, logs, notes and settings stay shared in `Store.dir`; shared limits change only inside `Limits.update`, which holds a file lock. `Remote+More.swift` has the VM's file and screen commands (upload, download, shot, ocr, show, wait-for, drag) and `askInVM`, which opens `ask`/`confirm` on the VM's screen (`agent/vm/ask.py`).
 
 ## Agent docs
 
@@ -81,7 +81,7 @@ Exit codes are part of the agent contract. They're listed in `SPEC.md` and `usag
 
 ## Policy and start-up options
 
-- `[agent] ui_only` (or `APPRENTICE_UI_ONLY=1`, or the start-up window) decides whether agents may use shell commands for quick macOS tasks. Websites always go through the UI. `session` and `apprentice policy` print the `policy:` line agents follow.
+- Terminal first: agents do OS tasks with shell commands (their own shell on macOS, ssh in the Linux VM) and use the screen only where no command does it. `[agent] ui_only` (or `APPRENTICE_UI_ONLY=1`, or the start-up window) turns shell use off. Websites always go through the UI. `session` and `apprentice policy` print the `policy:` line agents follow.
 - The first `session` after the daemon starts opens the options window (UI only, keep awake, allowed sites, remember as defaults). Keep-awake (`Awake.swift`) holds IOKit power assertions against idle display and system sleep while commands run, releasing them 2 min after the last one; it cannot stop a logout, restart or closed lid on battery. `--no-options` or `[agent] ask_on_start = false` skips it.
 
 ## Growing the tool

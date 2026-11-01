@@ -86,14 +86,23 @@ model = "gpt-4o-mini"
 api_key = ""
 vision_model = ""
 
-# A separate Mac in a VM (Tart) that runs the browser, so browser work never borrows your cursor
-# and keyboard. `apprentice vm setup` makes it; `apprentice vm on` sends browser sessions there.
+# A small Linux VM (Tart, about 2 GB) that runs Chromium, so browser work never borrows your cursor
+# and keyboard. install.sh makes it (`apprentice vm setup`); `apprentice vm on` / `off` switches it.
 # [vm]
 # name = "apprentice-browser"
-# browser = "Safari"
-# cpu = 4
-# memory_mb = 4096
-# home = "/Volumes/SSD/tart"   # keep the VM (about 35 GB) on another disk
+# cpu = 2
+# memory_mb = 2048
+# password = "admin"            # the image's login, used once; `vm setup` gives a Tart VM its own
+# home = "/Volumes/SSD/tart"    # keep the VM on another disk
+# local = ["linkedin.com"]       # sites whose accounts stay on this Mac's own browser, never in a VM
+# host = "203.0.113.7"          # a Debian server elsewhere (a cloud VM) instead of Tart; user needs passwordless sudo
+# port = 22
+#
+# More VMs, one per agent session: `APPRENTICE_VM=linkedin apprentice vm setup` makes apprentice-linkedin,
+# and an agent session started with APPRENTICE_VM=linkedin works only there (`apprentice --vm linkedin
+# <command>` for one command). Its section overrides [vm]; name, host and port are never inherited.
+# [vm.linkedin]
+# memory_mb = 2048
 
 [update]
 # apprentice checks its upstream every check_hours and updates itself: it rebases your local commits,

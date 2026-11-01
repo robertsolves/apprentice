@@ -60,18 +60,20 @@ enum Notes {
     }
 
     /// App and site notes for this window; flows are left to `notes <query>`. `*` matches every session.
-    static func matching(app: String?, bundle: String?, host: String?) -> [Note] {
+    /// `system` is where the session runs, "macos" or "linux" (the VM): a note with `system:` in its front
+    /// matter only shows there, so the VM does not get the Mac's general facts.
+    static func matching(app: String?, bundle: String?, host: String?, system: String = "macos") -> [Note] {
         let keys = [app, bundle].compactMap { $0?.lowercased() }
         let h = host?.lowercased()
-        return all().filter { $0.meta["scope"] != "flow" }.filter { note in
+        return all().filter { $0.meta["scope"] != "flow" && ($0.meta["system"].map { $0 == system } ?? true) }.filter { note in
             note.match.contains { m in
                 m == "*" || keys.contains(m) || (h.map { $0 == m || $0.hasSuffix("." + m) } ?? false)
             }
         }
     }
 
-    static func hintLines(app: String?, bundle: String?, host: String?) -> [String] {
-        let notes = matching(app: app, bundle: bundle, host: host)
+    static func hintLines(app: String?, bundle: String?, host: String?, system: String = "macos") -> [String] {
+        let notes = matching(app: app, bundle: bundle, host: host, system: system)
         guard !notes.isEmpty else { return [] }
         var out: [String] = []
         for note in notes {
@@ -174,7 +176,7 @@ enum Notes {
     }
 
     private static func lastError() -> String? {
-        guard let session = VM.session,
+        guard let session = Session.stored,
               let text = try? String(contentsOf: Store.runFolder(session).appendingPathComponent("steps.jsonl"), encoding: .utf8) else { return nil }
         for row in text.split(separator: "\n").reversed() {
             guard let data = row.data(using: .utf8), let r = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -192,7 +194,7 @@ enum Notes {
     static func learn(_ a: Args) throws -> String {
         let task = a.pos.joined(separator: " ")
         guard !task.isEmpty else { throw Fail(5, "learn \"task\" [--name slug] [--force]") }
-        guard let session = VM.session else { throw Fail(5, "no session: learn drafts a flow from the current session's steps") }
+        guard let session = Session.stored else { throw Fail(5, "no session: learn drafts a flow from the current session's steps") }
         let steps = stepLines(session)
         // The session line is always there; a flow needs at least one action after it (D1).
         guard steps.count > 1 else { throw Fail(5, "no actions in this session's log yet: nothing to learn") }

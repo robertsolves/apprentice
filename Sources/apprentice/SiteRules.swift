@@ -30,13 +30,13 @@ enum Site {
 
     /// The checks every command on a page passes before it acts: the site's policy, then its
     /// cooldown and any challenge still on screen.
-    static func guardPage(_ target: Target, cmd: String) throws {
-        guard let host = hostOf(target.url) else { return }
+    static func guardPage(_ page: Page, cmd: String, read: () -> Snapshot) throws {
+        guard let host = hostOf(page.url) else { return }
         try Policies.check(host, cmd: cmd)
         if looking.contains(cmd) { return }
         // `open` may leave a cooling site; it checks the site it goes to itself.
         if cmd != "open" { try Cooldown.check(host) }
-        try Challenge.stillThere(host, target)
+        try Challenge.stillThere(host, read: read)
     }
 
     /// Looks at the screen after an action: a challenge or a throttling message stops work on the site.
@@ -170,7 +170,7 @@ enum Budgets {
         // the two together got twice the cap the alias promises.
         let kind = alias[raw] ?? raw
         let cap = cap(domain, kind)
-        var l = Limits.stored
+        let wait = try Limits.update { l -> Double in
         let now = Date().timeIntervalSince1970
         let times = (l.kinds?[domain]?[kind] ?? []).filter { now - $0 < 8 * 86_400 }
         let cal = Calendar.current
@@ -187,18 +187,21 @@ enum Budgets {
         try over(times.filter { now - $0 < 3600 }.count, cap.hour, "in the last hour")
         try over(times.filter { $0 >= day }.count, cap.day, "today")
         try over(times.filter { $0 >= week }.count, cap.week, "this week")
+        var wait = 0.0
         if let gap = cap.min_gap_s, let last = times.last, now - last < gap {
-            let wait = gap - (now - last)
+            wait = gap - (now - last)
             if wait > 30 {
                 throw Fail(4, "budget: the next \(kind.replacingOccurrences(of: "_", with: " ")) on \(domain) is allowed after \(Site.time(last + gap)) (\(Int(gap)) s apart)")
             }
-            if record { Timing.measure("gap") { Pace.sleep(wait) } }
         }
-        guard record else { return }
+        guard record else { return 0 }
+        // Counted now, at the time it will happen, so another VM's daemon sees it while this one waits.
         var kinds = l.kinds ?? [:]
-        kinds[domain, default: [:]][kind] = times + [Date().timeIntervalSince1970]
+        kinds[domain, default: [:]][kind] = times + [now + wait]
         l.kinds = kinds
-        Store.save(l, "limits.json")
+        return wait
+        }
+        if wait > 0 { Timing.measure("gap") { Pace.sleep(wait) } }
     }
 
     /// `apprentice budget [domain]`: what is left today and this hour, per kind, for the sites used lately.
@@ -244,18 +247,19 @@ enum Cooldown {
     /// Holds off 1 hour the first time, 6 hours the second, then 24. A week without a block resets it.
     static func start(_ host: String, _ phrase: String, session: Session) -> Fail {
         let domain = Site.domain(host)
-        var l = Limits.stored
         let now = Date().timeIntervalSince1970
-        var c = l.cooling?[domain] ?? Limits.Cooling(until: 0, strikes: 0, last: 0)
-        if now - c.last > 7 * 86_400 { c.strikes = 0 }
-        let hold = [3600.0, 21_600, 86_400][min(c.strikes, 2)]
-        c.strikes += 1
-        c.last = now
-        c.until = now + hold
-        var all = l.cooling ?? [:]
-        all[domain] = c
-        l.cooling = all
-        Store.save(l, "limits.json")
+        let c = Limits.update { l -> Limits.Cooling in
+            var c = l.cooling?[domain] ?? Limits.Cooling(until: 0, strikes: 0, last: 0)
+            if now - c.last > 7 * 86_400 { c.strikes = 0 }
+            let hold = [3600.0, 21_600, 86_400][min(c.strikes, 2)]
+            c.strikes += 1
+            c.last = now
+            c.until = now + hold
+            var all = l.cooling ?? [:]
+            all[domain] = c
+            l.cooling = all
+            return c
+        }
         Events.add(domain, "soft_block", ["phrase": phrase, "strike": c.strikes, "until": Site.time(c.until),
                                           "steps": Events.lastSteps(), "shot": Events.shot(session, "soft-block") ?? ""])
         Site.notify("apprentice stopped on \(domain)", "The site said \"\(phrase)\". Cooling until \(Site.time(c.until)).")
@@ -291,8 +295,7 @@ enum Cooldown {
                      choices: [clear, keep], multi: false, withText: false, timeout: 120)
         }
         guard let reply, reply.chosen == [clear] else { throw Fail(3, "the cooldown on \(domain) stays until \(Site.time(c.until))") }
-        l.cooling?[domain]?.until = now
-        Store.save(l, "limits.json")
+        Limits.update { $0.cooling?[domain]?.until = now }
         Events.add(domain, "cool_cleared", [:])
         return "cleared the cooldown on \(domain). The strike count stays, so the next one lasts longer"
     }
@@ -316,12 +319,13 @@ enum Challenge {
 
     static func start(_ host: String, _ marker: String, session: Session) -> Fail {
         let domain = Site.domain(host)
-        var l = Limits.stored
-        let first = l.challenged?[domain] == nil
-        var all = l.challenged ?? [:]
-        all[domain] = marker
-        l.challenged = all
-        Store.save(l, "limits.json")
+        let first = Limits.update { l -> Bool in
+            let first = l.challenged?[domain] == nil
+            var all = l.challenged ?? [:]
+            all[domain] = marker
+            l.challenged = all
+            return first
+        }
         if first {
             Events.add(domain, "challenge", ["marker": marker, "steps": Events.lastSteps(), "shot": Events.shot(session, "challenge") ?? ""])
             Site.notify("apprentice needs you on \(domain)", "A check is on screen (\(marker)). Only you can complete it.")
@@ -330,10 +334,10 @@ enum Challenge {
     }
 
     /// Refuses actions while the site's challenge is still on screen, and clears it once it is gone.
-    static func stillThere(_ host: String, _ target: Target) throws {
+    static func stillThere(_ host: String, read: () -> Snapshot) throws {
         let domain = Site.domain(host)
         guard Limits.stored.challenged?[domain] != nil else { return }
-        let snap = readSnapshot(target)
+        let snap = read()
         if let marker = find(snap) {
             throw Fail(4, "challenge: \(domain) still shows a check only the user may complete (\(marker)). Wait for them")
         }
@@ -341,9 +345,7 @@ enum Challenge {
     }
 
     static func clear(_ domain: String) {
-        var l = Limits.stored
-        guard l.challenged?.removeValue(forKey: domain) != nil else { return }
-        Store.save(l, "limits.json")
+        guard Limits.update({ $0.challenged?.removeValue(forKey: domain) != nil }) else { return }
         Events.add(domain, "challenge_cleared", [:])
     }
 }

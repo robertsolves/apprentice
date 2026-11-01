@@ -149,6 +149,16 @@ struct Target {
     let bounds: CGRect
     let url: String?
     let title: String
+
+    var page: Page { Page(url: url, title: title, scope: scope) }
+}
+
+/// What the approval gate and the site rules need to know about where an action happens, on this Mac
+/// or in the browser VM.
+struct Page {
+    var url: String?
+    var title: String
+    var scope: String
 }
 
 func locate(_ session: Session, scope wanted: String? = nil) throws -> Target {
@@ -311,6 +321,28 @@ func settle(_ t: Target, maxWait: Double = 4) -> Snapshot {
         last = next
     }
     return last
+}
+
+/// Gives each element the id it had in `old`, matched the way `diff` matches them, so an id from
+/// earlier output still names the same element after an action. New elements take ids above the
+/// highest one in use. `read` numbers from 1 again.
+func keepIds(_ old: Snapshot?, _ new: Snapshot) -> Snapshot {
+    guard let old, old.scope != "ocr", new.scope != "ocr" else { return new }
+    var buckets: [String: [Int]] = [:]
+    for e in old.elements { buckets[e.key, default: []].append(e.id) }
+    var next = (old.elements.map(\.id).max() ?? 0) + 1
+    var out = new
+    for n in out.elements.indices {
+        let key = out.elements[n].key
+        if var ids = buckets[key], !ids.isEmpty {
+            out.elements[n].id = ids.removeFirst()
+            buckets[key] = ids
+        } else {
+            out.elements[n].id = next
+            next += 1
+        }
+    }
+    return out
 }
 
 struct DiffResult {

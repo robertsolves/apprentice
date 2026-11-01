@@ -22,21 +22,53 @@ enum Store {
         return url
     }()
 
-    static var socketPath: String { dir.appendingPathComponent("sock").path }
-    static var pidPath: String { dir.appendingPathComponent("daemon.pid").path }
+    /// The browser VM this process works for (`APPRENTICE_VM`, or `apprentice --vm <name> …`), one per
+    /// agent session; nil is this Mac and the default VM.
+    static let vmName: String? = {
+        let raw = ProcessInfo.processInfo.environment["APPRENTICE_VM"] ?? ""
+        let name = String(raw.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "-" }.prefix(40))
+        return name.isEmpty ? nil : name
+    }()
+
+    /// One daemon runs per VM, each with its own socket and its own session, snapshot, pending approval
+    /// and pacing, so agent sessions on different VMs never touch each other's. Sites, budgets, logs,
+    /// notes and settings stay in `dir`, shared by all of them.
+    static let stateDir: URL = {
+        guard let vmName else { return dir }
+        let url = dir.appendingPathComponent("vms/\(vmName)")
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        return url
+    }()
+
+    /// Files that belong to one agent session; every other file is shared.
+    static let perSession: Set<String> = ["session.json", "snap.json", "pending.json", "pace.json"]
+
+    static func url(_ name: String) -> URL { (perSession.contains(name) ? stateDir : dir).appendingPathComponent(name) }
+
+    static var socketPath: String { stateDir.appendingPathComponent("sock").path }
+    static var pidPath: String { stateDir.appendingPathComponent("daemon.pid").path }
 
     static func load<T: Decodable>(_ type: T.Type, _ name: String) -> T? {
-        guard let data = try? Data(contentsOf: dir.appendingPathComponent(name)) else { return nil }
+        guard let data = try? Data(contentsOf: url(name)) else { return nil }
         return try? JSONDecoder().decode(type, from: data)
     }
 
     static func save<T: Encodable>(_ value: T, _ name: String) {
         guard let data = try? JSONEncoder().encode(value) else { return }
-        try? data.write(to: dir.appendingPathComponent(name), options: .atomic)
+        try? data.write(to: url(name), options: .atomic)
     }
 
     static func remove(_ name: String) {
-        try? FileManager.default.removeItem(at: dir.appendingPathComponent(name))
+        try? FileManager.default.removeItem(at: url(name))
+    }
+
+    /// Runs `body` holding a lock on `name` that other apprentice processes respect, for a shared file
+    /// that several VMs' daemons read, change and write back.
+    static func locked<T>(_ name: String, _ body: () throws -> T) rethrows -> T {
+        let fd = open(dir.appendingPathComponent(name + ".lock").path, O_CREAT | O_RDWR, 0o600)
+        if fd >= 0 { flock(fd, LOCK_EX) }
+        defer { if fd >= 0 { flock(fd, LOCK_UN); close(fd) } }
+        return try body()
     }
 
     static func day() -> String {
@@ -112,8 +144,11 @@ struct Session: Codable {
     var url: String?
     /// Chosen in the start-up options window; nil follows `[agent] ui_only`.
     var uiOnly: Bool?
+    /// The session is in the Linux VM (`Remote`): its browser or another Linux app, not a window on this Mac.
+    var vm: Bool?
 
     var isBrowser: Bool {
+        if vm == true { return app == "Chromium" }
         guard let bundle else { return false }
         return Session.webHandlers.contains(bundle) || Config.current.browsers.contains(bundle)
     }
@@ -226,17 +261,46 @@ struct Limits: Codable {
         var last: Double
     }
 
-    static var stored: Limits { Store.load(Limits.self, "limits.json") ?? Limits() }
+    /// This agent session's own rhythm (`pace.json`); everything else here is per site and shared by
+    /// every VM's daemon, so budgets and cooldowns hold across them.
+    struct SessionPace: Codable {
+        var lastAction: Double = 0
+        var pageAt: Double?
+        var burst: Int?
+        var burstAt: Int?
+    }
+
+    static var stored: Limits {
+        var l = Store.load(Limits.self, "limits.json") ?? Limits()
+        // Before pace.json, the default daemon kept its rhythm in limits.json; a VM's daemon starts fresh.
+        let p = Store.load(SessionPace.self, "pace.json")
+            ?? (Store.vmName == nil ? SessionPace(lastAction: l.lastAction, pageAt: l.pageAt, burst: l.burst, burstAt: l.burstAt) : SessionPace())
+        (l.lastAction, l.pageAt, l.burst, l.burstAt) = (p.lastAction, p.pageAt, p.burst, p.burstAt)
+        return l
+    }
+
+    /// Reads, changes and writes the limits under a lock other daemons respect, so two VMs counting
+    /// actions on one site never lose each other's. Keep waits out of `body`: they would hold the lock.
+    @discardableResult
+    static func update<T>(_ body: (inout Limits) throws -> T) rethrows -> T {
+        try Store.locked("limits.json") {
+            var l = stored
+            let result = try body(&l)
+            var shared = l
+            (shared.lastAction, shared.pageAt, shared.burst, shared.burstAt) = (0, nil, nil, nil)
+            Store.save(shared, "limits.json")
+            Store.save(SessionPace(lastAction: l.lastAction, pageAt: l.pageAt, burst: l.burst, burstAt: l.burstAt), "pace.json")
+            return result
+        }
+    }
 
     static func notePage() {
-        var l = stored
-        l.pageAt = Date().timeIntervalSince1970
-        Store.save(l, "limits.json")
+        update { $0.pageAt = Date().timeIntervalSince1970 }
     }
 
     static func checkNavigation(_ url: URL) throws {
         let cfg = Config.current.pace
-        var l = Store.load(Limits.self, "limits.json") ?? Limits()
+        let wait = try update { l -> Double in
         let domain = url.host ?? "local"
         let key = url.absoluteString
         let now = Date().timeIntervalSince1970
@@ -253,23 +317,26 @@ struct Limits: Codable {
         if Double(reloads) >= cfg.reloadMax {
             throw Fail(4, "refresh limit: \(reloads) loads of \(key) in \(Int(cfg.reloadWindow)) s")
         }
-        if let last = times.last, now - last < cfg.navGap {
-            Timing.measure("gap") { Pace.sleep(cfg.navGap - (now - last)) }
-        }
-        times.append(Date().timeIntervalSince1970)
+        var wait = 0.0
+        if let last = times.last, now - last < cfg.navGap { wait = cfg.navGap - (now - last) }
+        // Counted at the time it will happen, after the wait.
+        times.append(now + wait)
         loaded.append(key)
         l.navs[domain] = times
         l.navURLs = l.navURLs ?? [:]
         l.navURLs?[domain] = loaded
-        Store.save(l, "limits.json")
+        return wait
+        }
+        if wait > 0 { Timing.measure("gap") { Pace.sleep(wait) } }
     }
 
     /// Rate-limits actions on a host, then waits out the pause between web actions. One load, one save.
     static func beforeAction(host: String?, web: Bool) throws {
         guard web || !(host ?? "").isEmpty else { return }
         let cfg = Config.current.pace
-        var l = Store.load(Limits.self, "limits.json") ?? Limits()
+        let waits = try update { l -> (gap: Double, rest: Double) in
         let now = Date().timeIntervalSince1970
+        var gapWait = 0.0, restWait = 0.0
         if let host, !host.isEmpty {
             var times = (l.acts[host] ?? []).filter { now - $0 < 60 }
             if Double(times.count) >= cfg.actionsPerMin {
@@ -283,14 +350,14 @@ struct Limits: Codable {
             let gap = Double.random(in: cfg.betweenMin...cfg.betweenMax)
             if l.lastAction > 0 {
                 let since = now - l.lastAction
-                if since < gap { Timing.measure("gap") { Pace.sleep(gap - since) } }
+                if since < gap { gapWait = gap - since }
             }
             // A profile with `burst` rests after a run of quick actions, as a person pauses between bursts.
             if cfg.burstMax > 0 {
                 let count = l.lastAction > 0 && now - l.lastAction < 30 ? (l.burst ?? 0) + 1 : 1
                 let limit = l.burstAt ?? Int.random(in: Int(cfg.burstMin)...Int(cfg.burstMax))
                 if count > limit {
-                    Timing.measure("gap") { Pace.sleep(Double.random(in: cfg.restMin...cfg.restMax)) }
+                    restWait = Double.random(in: cfg.restMin...cfg.restMax)
                     l.burst = 1
                     l.burstAt = Int.random(in: Int(cfg.burstMin)...Int(cfg.burstMax))
                 } else {
@@ -298,9 +365,11 @@ struct Limits: Codable {
                     l.burstAt = limit
                 }
             }
-            l.lastAction = Date().timeIntervalSince1970
+            l.lastAction = now + gapWait + restWait
         }
-        Store.save(l, "limits.json")
+        return (gapWait, restWait)
+        }
+        if waits.gap + waits.rest > 0 { Timing.measure("gap") { Pace.sleep(waits.gap + waits.rest) } }
     }
 }
 
@@ -324,7 +393,7 @@ enum Gate {
     }
 
     /// Why an action deserves extra care. The caller can add `--gate`, never remove a warning.
-    static func warnings(_ element: Element?, _ t: Target, force: Bool = false) -> [String] {
+    static func warnings(_ element: Element?, _ t: Page, force: Bool = false) -> [String] {
         var out: [String] = []
         if force { out.append("marked --gate") }
         if sensitivePage(t.url) || sensitivePage(t.title) { out.append("settings, account or billing page") }

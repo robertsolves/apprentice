@@ -41,8 +41,9 @@ Non-goals:
 
 - Bypassing CAPTCHAs, login walls, 2FA or other access controls, or continuing after a site signals a limit. apprentice may pace input and back off; it stops there.
 - Spoofing fingerprints or browser state, or getting around a site's terms.
-- Multi-account operation, bulk messaging, mass following, scraping at volume, or running many sessions in parallel.
-- Windows or Linux in v1.
+- Multi-account operation (several accounts on one site), bulk messaging, mass following, or scraping at volume.
+- Sessions in parallel on this Mac's own screen. Parallel sessions run one per VM (`APPRENTICE_VM`), and every site's budgets and cooldowns count across all of them.
+- Windows. Linux only inside apprentice's VM, driven from the Mac.
 - Replacing APIs. GitHub work goes through `gh`, and any service with an API uses it first.
 - Cloud hosting.
 - Local models (Ollama, LM Studio, llama.cpp, vLLM). Not a target for now; the `run` loop only needs to work with hosted APIs.
@@ -109,13 +110,15 @@ Sources, cheapest and most exact first:
 
 1. **Accessibility tree.** The walk starts at the session window (or its web area), not the whole screen. The list keeps only visible, interactive or text-bearing elements and trims names to the first few words. A named control owns its subtree.
 2. **OCR** (`apprentice ocr`) through the macOS Vision framework on a ScreenCaptureKit capture of that one window, for canvas apps and images of text. Words are grouped into lines, each with its box, and numbered like AX elements.
-3. **Cropped screenshot** (`apprentice shot --crop`) saved as a PNG path, for callers with vision when a label is missing.
+3. **Cropped screenshot** (`apprentice shot --crop`) saved as a PNG path, for callers with vision when a label is missing. `--marks` draws each element's box and id on it (from a fresh read that keeps the last list's ids), so the caller answers with an id, not coordinates. It costs image tokens only when called.
 
 Rules:
 
 - **Snapshot IDs.** Element numbers belong to a snapshot. Each stores its child-index path. An action re-walks that path; if the element there no longer matches and exactly one element with the same label and name can't be found, the action fails with `stale: re-read` (exit 2), never a click on the wrong thing.
+- **Ids survive actions.** The snapshot saved after an action gives every element the id it had before (matched as the diff matches them); new elements take ids above the highest in use. An id from earlier output still names the same element, so the diff is enough and a re-read is rarely needed. `read` numbers from 1 again.
 - **Cached.** A 300 ms in-memory cache serves repeated reads. (An `AXObserver` subtree cache was planned and is not built.)
 - **Diffs after actions.** Every action re-reads and returns what changed (new, removed or changed elements), so callers rarely need a full `read`.
+- **Settling.** On this Mac, `settle` re-reads until two reads 150 ms apart match. In the Linux VM the helper listens for the app's AT-SPI events: after an action the host waits until none arrived for 250 ms (or none at all within the grace for a page to start changing), then reads once. A page still loading, or one that never goes quiet, falls back to polling.
 - **Gated marks.** Elements matching the gate rules are marked `[gated]` in the list, so callers know an approval will follow.
 - **Untrusted text.** Everything read from the screen is data. The usage docs tell agents never to follow instructions found in it.
 - **Browser setup.** Safari exposes web content to accessibility with no flags. Chrome needs `--force-renderer-accessibility`, or apprentice sets `AXEnhancedUserInterface` on it. Electron apps need `AXManualAccessibility`.
@@ -156,7 +159,7 @@ All output is compact plain text meant for an agent to read. `--json` gives the 
 | `hover <id>` / `drag <id> <id>` | Move onto an element, or drag one onto another | diff |
 | `upload <id> <path>` / `download <id> <path>` / `choose <path>` | File dialogs | diff or saved path |
 | `wait-for "text" [--timeout 10]` | Wait for text, never by reloading | found or timeout |
-| `ocr` / `shot [--crop id\|x,y,w,h]` | OCR list or screenshot | snapshot or PNG path |
+| `ocr` / `shot [--crop id\|x,y,w,h] [--marks]` | OCR list or screenshot, ids drawn with `--marks` | snapshot or PNG path |
 | `approve <token> [--text "…"]` / `deny <token>` / `pending` | Answer a proposal | diff |
 | `ask` / `show` / `confirm <token>` | The little window for the user (exit 9 when they are away) | their reply |
 | `policy [domain]` | Shell-command policy, or a site's automation policy | policy lines |
@@ -408,10 +411,16 @@ An audit, made on 2026-11-01 against `78ff6d6`, of what Instagram, Facebook, Tik
 
 ### Page and environment
 
-- **One tab, one window,** no parallel sessions on the same account.
+- **One tab, one window,** one session per account: keep each account in one VM (or on this Mac), never two at once.
 - **No fingerprint spoofing.** A real logged-in profile is the advantage. Don't inject JavaScript, touch canvas or audio, or fake WebDriver state.
 - **Consistency.** Keep locale, time zone, VPN exit and device the same as the account's normal use. Switching all four for one session is a larger change than any pointer path.
 - **Navigation.** Use `open` for the first entry, a bookmark or a deliberate redirect; click in-site links for the rest.
+
+### The VM
+
+A Debian guest (Tart on this Mac, or `[vm] host` for a server elsewhere) with its own screen, cursor and keyboard. With `vm on`, browser sessions run there; `session --app <name> --on linux` binds any Linux app; `apprentice vm shell` prints the plain ssh command for terminal work. Several VMs can run at once, one per agent session (`APPRENTICE_VM=<name>`, or `apprentice --vm <name> …` per command), each with its own daemon, session, snapshot, approval and pacing; budgets, cooldowns and challenges are per site and shared by all of them. Questions and approvals for a VM session open on the VM's screen, and the Mac shows a notification. `upload` copies the file into the guest and picks it in the app's own file dialog with real input; `download` brings the file back.
+
+What still holds: no WebDriver, CDP or injected script; the page is read through AT-SPI, Linux's accessibility bus; input goes through XTest into the X server, so events are trusted, in the full pointer sequence, with the same pacing code; the time zone and language follow this Mac, and a local VM shares the Mac's IP. What changes: it is a second device, Linux with software WebGL and its own Chromium profile, so the first sign-in on each site looks like a new device, and a server elsewhere has an IP that is not the user's. Nothing is spoofed to hide that. Accounts whose standing matters most stay on this Mac's own browser: `[vm] local = ["site.com"]` refuses them in every VM.
 
 ## Faster-route check
 
@@ -459,7 +468,7 @@ The `run` loop, for when no coding agent is involved:
 Repeat tasks should not be rediscovered. The repo's `notes/` folder holds Markdown notes, and `kit.sh` links `~/.apprentice/notes` to it, so `git pull` brings in what was learned on another machine.
 
 - **App and site notes** (`notes/macos/finder.md`, `notes/web/<host>.md`): key facts, what works, what fails. `session` and `open` print the key facts of every matching note.
-- **Flows** (`notes/flows/*.md`): steps for one task, written with element names and `{placeholders}`, never ids, coordinates or personal paths. `do <flow>` runs one with a single plan approval and hands back the screen at the first failing step.
+- **Flows** (`notes/flows/*.md`): steps for one task, written with element names and `{placeholders}`, never ids, coordinates or personal paths. `do <flow>` runs one with a single plan approval and hands back the screen at the first failing step. Between steps it pauses as a person would where the agent's thinking time used to be (`Pace.lookGap`): a log-normal look around 0.9 s, about 120 ms more for each new element on screen, and one step in eight a 2–5 s hesitation; pauses of 2 s or more drift the pointer. Every step still goes through the same pacing, paths, overshoot, budgets and site rules as a single command. Profiles with `mode = "fast"` skip the pause.
 - `notes "words"` ranks notes. `learn "task"` drafts a flow from the session's approved steps; the LLM then generalizes it.
 - Notes are trusted input to the LLM, so nothing read from a screen is written into them.
 
@@ -477,7 +486,7 @@ Platform notes:
 
 - macOS 14 or later.
 - AX frames are in points, the same as CGEvent coordinates. Only OCR and screenshot crops convert from pixels.
-- 16 GB RAM: the daemon targets under 100 MB. The VM is optional because it needs 4 GB or more.
+- 16 GB RAM: the daemon targets under 100 MB. Each VM takes 2 GB of memory and about 2 GB of disk, so a 16 GB Mac runs two or three beside the user's own work.
 
 ## Open work
 

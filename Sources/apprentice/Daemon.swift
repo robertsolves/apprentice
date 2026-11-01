@@ -11,7 +11,6 @@ enum KillSwitch {
             if flags == [.control, .option, .command], event.charactersIgnoringModifiers == "." || event.keyCode == 47 {
                 tripped = true
                 NSSound.beep()
-                DispatchQueue.global().async { VM.interrupt() }
                 Daemon.queue.async { Store.log(["kill_switch": true]) }
             }
         }
@@ -36,7 +35,7 @@ enum Daemon {
         Events.prune()
         KillSwitch.install()
         Borrow.watchHuman()
-        Repo.scheduleChecks()
+        if Store.vmName == nil { Repo.scheduleChecks() }
         if Config.current.keepAwake { Awake.set(true) }
 
         let server = UnixServer(path: Store.socketPath) { req -> (Response, Bool) in

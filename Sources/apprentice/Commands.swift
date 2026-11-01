@@ -157,7 +157,7 @@ func prepare(checkAllow: Bool = true) throws -> (Session, Target, Snapshot?) {
     // Pacing profiles follow the page the window is on now, not the page it was attached to.
     Config.activate(Config.profileKey(session: session, url: target.url))
     if checkAllow { try allowCheck(session, target.url) }
-    try Site.guardPage(target, cmd: Approvals.request.cmd)
+    try Site.guardPage(target.page, cmd: Approvals.request.cmd) { readSnapshot(target) }
     return (session, target, SnapStore.current)
 }
 
@@ -183,7 +183,14 @@ func beforeAction(_ session: Session, url: String?) throws {
 func finish(_ command: String, _ session: Session, _ target: Target, _ old: Snapshot?,
             extra: [String] = [], log fields: [String: Any] = [:]) throws -> String {
     let new = Timing.measure("settle") { settle(target) }
+    return try finish(command, session, url: target.url, old, new, extra: extra, log: fields)
+}
+
+/// The rest of `finish` once the screen has settled, shared with the browser VM.
+func finish(_ command: String, _ session: Session, url: String?, _ old: Snapshot?, _ new: Snapshot,
+            extra: [String] = [], log fields: [String: Any] = [:]) throws -> String {
     var session = session
+    let new = keepIds(old, new)
     session.track(new.url)
     SnapStore.save(new)
     SnapshotCache.put(session.wid, new)
@@ -198,7 +205,7 @@ func finish(_ command: String, _ session: Session, _ target: Target, _ old: Snap
         + r.bools.subtracting(["json"]).sorted().map { "--\($0)" }).joined(separator: " ")
     var row = fields.merging(["cmd": command, "snap": new.snap, "diff": d.summary, "flags": flags]) { $1 }
     // The site and the budgeted kind let `activity` count actions per site across sessions.
-    if let host = hostOf(target.url) ?? hostOf(new.url) { row["host"] = Site.domain(host) }
+    if let host = hostOf(url) ?? hostOf(new.url) { row["host"] = Site.domain(host) }
     if let kind = Commands.charged { row["kind"] = kind }
     Commands.charged = nil
     Store.log(row)
@@ -218,6 +225,22 @@ func saveGateShot(_ session: Session, _ action: String) {
 /// request, it throws exit 8 with a proposal; flagged proposals also keep a screenshot in the log.
 func gate(_ session: Session, _ target: Target, _ e: Element?, _ summary: String,
           details: [String] = [], warn: [String] = [], force: Bool = false) throws {
+    let kind = try approveStep(session, target.page, e, summary, details: details, warn: warn, force: force)
+    try Watch.begin()
+    if NSWorkspace.shared.frontmostApplication?.processIdentifier != session.pid {
+        target.app.set(kAXFrontmostAttribute, kCFBooleanTrue)
+        target.window.set(kAXMainAttribute, kCFBooleanTrue)
+        target.window.perform(kAXRaiseAction)
+        Pace.sleep(Double.random(in: 0.25...0.6))
+    }
+    if kind != nil { Site.dwell() }
+}
+
+/// The approval and the site's budget for one step, wherever it runs. Returns the budgeted kind it
+/// was counted as, if any.
+@discardableResult
+func approveStep(_ session: Session, _ target: Page, _ e: Element?, _ summary: String,
+                 details: [String] = [], warn: [String] = [], force: Bool = false) throws -> String? {
     let warnings = Gate.warnings(e, target, force: force) + warn
     // A like, follow, comment or other budgeted action is checked against the site's budget before it
     // is proposed, and counted once approved. Typing counts only when return sends it.
@@ -228,22 +251,16 @@ func gate(_ session: Session, _ target: Target, _ e: Element?, _ summary: String
     var kind = sends ? Budgets.kind(e.map { "\($0.label) \($0.name)" } ?? summary, gated: !warnings.isEmpty || e?.gated == true) : nil
     if request.cmd == "upload" { kind = "upload" } else if kind == "default", onSettings { kind = "settings" }
     if let host, let kind { try Budgets.check(host, kind, record: false) }
-    if !warnings.isEmpty, !Approvals.approved { saveGateShot(session, summary) }
+    if !warnings.isEmpty, !Approvals.approved, session.vm != true { saveGateShot(session, summary) }
     let place = "\(session.app) · \(target.url ?? target.title)"
-    try Approvals.check(summary, details: [place] + details + ["uses the real cursor and keyboard, with \(session.app) in front"],
-                        warnings: warnings, element: e?.key)
+    let how = session.vm == true ? "uses the Linux VM's own cursor and keyboard; this Mac's are not touched"
+        : "uses the real cursor and keyboard, with \(session.app) in front"
+    try Approvals.check(summary, details: [place] + details + [how], warnings: warnings, element: e?.key)
     if let host, let kind {
         try Budgets.check(host, kind, record: true)
         Commands.charged = kind
     }
-    try Watch.begin()
-    if NSWorkspace.shared.frontmostApplication?.processIdentifier != session.pid {
-        target.app.set(kAXFrontmostAttribute, kCFBooleanTrue)
-        target.window.set(kAXMainAttribute, kCFBooleanTrue)
-        target.window.perform(kAXRaiseAction)
-        Pace.sleep(Double.random(in: 0.25...0.6))
-    }
-    if kind != nil { Site.dwell() }
+    return kind
 }
 
 // MARK: - Actions
@@ -300,8 +317,8 @@ enum Commands {
 
     static func dispatch(_ req: Request) throws -> String {
         Config.reloadIfChanged()
-        let req = try VM.guestRequest(req)
         Approvals.request = req
+        if let out = try Remote.dispatch(req) { return out }
         let a = Args.parse(req.args)
         switch req.cmd {
         case "ping": return "pong"
@@ -414,11 +431,11 @@ enum Commands {
     }
 
     /// The start-up options window is shown once per daemon run, on its first `session`.
-    private static var optionsAsked = false
+    static var optionsAsked = false
 
     /// Asks the user how this run should work. Skipping keeps the defaults; "Remember" saves them.
-    private static func startOptions(_ s: Session) -> Session {
-        let uiOnly = "UI only: no shell commands for macOS tasks"
+    static func startOptions(_ s: Session) -> Session {
+        let uiOnly = "UI only: no shell commands for OS tasks"
         let awake = "Keep the Mac awake while a task runs"
         let remember = "Remember these as defaults"
         var s = s
@@ -443,8 +460,8 @@ enum Commands {
     }
 
     /// Key facts from the notes for this app and page, printed under `session` and `focus`.
-    private static func notesLines(_ s: Session) -> String {
-        let lines = Notes.hintLines(app: s.app, bundle: s.bundle, host: hostOf(s.url))
+    static func notesLines(_ s: Session) -> String {
+        let lines = Notes.hintLines(app: s.app, bundle: s.bundle, host: hostOf(s.url), system: s.vm == true ? "linux" : "macos")
         return lines.isEmpty ? "" : "\n" + lines.joined(separator: "\n")
     }
 
@@ -663,7 +680,7 @@ enum Commands {
         if rect == nil {
             try Capture.ensure()
             let (image, frame) = try capture(session, target, Args())
-            let lines = Capture.ocr(image, windowFrame: frame)
+            let lines = Capture.ocr(image, windowFrame: frame, merge: false)
             let line = lines.first { $0.text.lowercased() == needle } ?? lines.first { $0.text.lowercased().contains(needle) }
             guard let line else { throw Fail(5, "no \"\(words)\" on screen, in the list or by OCR") }
             rect = line.box
@@ -866,7 +883,7 @@ enum Commands {
         let (_, src) = try resolve(from, target)
         let (_, dst) = try resolve(to, target)
         try gate(session, target, src, "drag \(src.short) onto \(dst.short)",
-                 warn: Gate.warnings(dst, target).filter { $0.hasPrefix("may") })
+                 warn: Gate.warnings(dst, target.page).filter { $0.hasPrefix("may") })
         try beforeAction(session, url: target.url)
         try Borrow.run(target) {
             let start = Mouse.landing(in: src.rect)
@@ -1097,14 +1114,22 @@ enum Commands {
 
     static func shot(_ a: Args) throws -> String {
         try Capture.ensure()
-        let (session, target, _) = try prepare()
-        let (image, _) = try capture(session, target, a)
+        let (session, target, old) = try prepare()
+        var (image, frame) = try capture(session, target, a)
+        var marked: Snapshot?
+        if a.has("marks") {
+            // A fresh read with the ids of the last list, so the boxes match what the caller has seen.
+            let snap = keepIds(old, readSnapshot(target))
+            SnapStore.save(snap)
+            image = Capture.mark(image, frame: frame, snap.elements)
+            marked = snap
+        }
         let formatter = DateFormatter()
         formatter.dateFormat = "HHmmss"
         let url = Store.runFolder().appendingPathComponent("shots/shot-\(formatter.string(from: Date())).png")
         try Capture.save(image, to: url)
-        Store.log(["cmd": "shot", "path": url.path])
-        return url.path
+        Store.log(["cmd": "shot", "path": url.path, "marks": marked != nil])
+        return url.path + (marked.map { " · snap \($0.snap) · \($0.elements.filter { !$0.offscreen }.count) ids marked" } ?? "")
     }
 
     static func log(_ a: Args) throws -> String {
@@ -1159,7 +1184,7 @@ enum Commands {
         return (cropped, rect)
     }
 
-    private static func render(_ s: Snapshot, app: String, lines: [String], max: Int) -> String {
+    static func render(_ s: Snapshot, app: String, lines: [String], max: Int) -> String {
         let shown = lines.prefix(Swift.max(max, 0))
         var out = "<screen>\n" + header(s, app: app, shown: shown.count) + "\n"
         out += shown.joined(separator: "\n")

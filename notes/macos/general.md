@@ -1,5 +1,6 @@
 ---
 scope: system
+system: macos
 match: *
 tags: input, cursor, keyboard, focus, no change, stuck
 lang: any

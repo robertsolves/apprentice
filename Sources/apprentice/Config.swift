@@ -211,10 +211,14 @@ struct Config {
     }
 
     /// What the LLM may use besides the UI. The user sets this; agents never change it.
+    /// Terminal first: the screen is for what no command can do. Websites always go through the UI.
     static var policyLine: String {
-        (Session.stored?.uiOnly ?? current.uiOnly)
-            ? "policy: UI only. Do every task through apprentice, including files and folders; no shell commands for them."
-            : "policy: websites only through the UI. Quick macOS tasks (files, folders, opening apps) may use shell commands."
+        if Session.stored?.uiOnly ?? current.uiOnly {
+            return "policy: UI only. Do every task through apprentice, including files and folders; no shell commands for them."
+        }
+        var line = "policy: terminal first, the screen only where no command does it. Websites only through the UI. macOS: your own shell"
+        if FileManager.default.fileExists(atPath: VM.sshConfig.path) { line += "; Linux: \(VM.shell) '<command>'" }
+        return line + "."
     }
 
     /// Sets `key = value` under `[section]` in config.toml, adding either if missing. Used only for

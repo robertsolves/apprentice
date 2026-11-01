@@ -19,6 +19,10 @@ enum SelfTest {
         wire()
         routing()
         diffs()
+        approvals()
+        limits()
+        updates()
+        try? FileManager.default.removeItem(at: Store.dir)
         if failures.isEmpty {
             print("selftest: \(count) checks passed")
             exit(0)
@@ -76,23 +80,24 @@ enum SelfTest {
     }
 
     private static func routing() {
-        func place(_ cmd: String, _ args: [String] = [], on: Bool = true, target: String = "vm") -> VM.Place {
-            VM.place(Request(cmd: cmd, args: args), on: on, target: target)
+        func vm(_ cmd: String, _ args: [String] = [], on: Bool = true, bound: Bool = false, vmSession: Bool = true) -> Bool {
+            Remote.wants(Request(cmd: cmd, args: args), on: on, bound: bound, vmSession: vmSession)
         }
-        if case .local(nil) = place("click", ["3"], on: false) {} else { check(false, "with the VM off everything is local") }
-        if case .remote(let r, true) = place("session") {
-            check(r.args == ["--app", VM.browser], "a bare session goes to the VM's browser")
-        } else { check(false, "a bare session goes to the VM") }
-        if case .remote(_, true) = place("session", ["--app", "Safari"], target: "local") {} else { check(false, "a browser session goes to the VM") }
-        if case .local("local") = place("session", ["--app", "Finder"]) {} else { check(false, "a native app stays on this Mac and takes the session back") }
-        if case .local("local") = place("focus", ["Finder"]) {} else { check(false, "focusing a native app stays local") }
-        if case .remote(_, true) = place("focus", ["Google Chrome"], target: "local") {} else { check(false, "focusing a browser goes to the VM") }
-        if case .remote(_, false) = place("click", ["3"]) {} else { check(false, "actions follow a VM session") }
-        if case .local(nil) = place("click", ["3"], target: "local") {} else { check(false, "actions follow a local session") }
-        for cmd in ["ask", "awake", "away", "kill"] {
-            if case .local(nil) = place(cmd) {} else { check(false, "\(cmd) stays with the user on this Mac") }
+        check(!vm("session", on: false, vmSession: false) && !vm("click", ["3"], on: false, vmSession: false), "with the VM off everything is local")
+        check(vm("session", vmSession: false), "a bare session goes to the VM's browser")
+        check(vm("session", ["--app", "Safari"], vmSession: false), "a browser session goes to the VM")
+        check(!vm("session", ["--app", "Finder"]), "a native app stays on this Mac")
+        check(!vm("focus", ["Finder"]) && vm("focus", ["Google Chrome"], vmSession: false), "focus follows the app")
+        check(vm("click", ["3"]) && !vm("click", ["3"], vmSession: false), "actions follow the session")
+        check(vm("ocr") && vm("show"), "commands the VM cannot do yet are answered there, not run on this Mac")
+        check(vm("session", ["--app", "mousepad", "--on", "linux"], on: false, vmSession: false), "--on linux binds a Linux app")
+        check(vm("focus", ["xfce4-terminal", "--on", "linux"], on: false), "focus --on linux stays in the VM")
+        check(!vm("session", ["--app", "Safari", "--on", "mac"]), "--on mac keeps a browser on this Mac")
+        check(vm("session", ["--app", "mousepad"], on: false, bound: true, vmSession: false), "a daemon bound to a VM binds its apps")
+        check(vm("menu", ["File > Save"]), "menus work in the VM")
+        for cmd in ["ask", "confirm", "approve", "deny", "awake", "away", "log"] {
+            check(!vm(cmd), "\(cmd) stays on this Mac")
         }
-        if case .confirm = place("confirm", ["ab12"]) {} else { check(false, "confirm opens on this Mac for a VM step") }
         check(VM.isBrowser("Safari") && VM.isBrowser("Brave Browser.app") && !VM.isBrowser("Finder"), "browser names")
     }
 
@@ -107,5 +112,100 @@ enum SelfTest {
         check(d.changed.count == 1 && d.changed[0].contains("value=\"on\""), "a changed value is a change")
         check(d.summary == "+1 -1 ~1", "the summary counts")
         check(diff(nil, snap([el(1, "A")])).added.count == 1, "everything is new against no snapshot")
+        // After an action the list shifts: Save keeps its id, the new element takes one never used.
+        let kept = keepIds(snap([el(1, "Menu"), el(2, "Save"), el(3, "Cancel")]), snap([el(1, "Banner"), el(2, "Menu"), el(3, "Save")]))
+        check(kept.elements.map(\.id) == [4, 1, 2], "ids survive an action and new ones are fresh")
+        check(keepIds(nil, snap([el(1, "A")])).elements[0].id == 1, "no old snapshot keeps the numbering")
+    }
+
+    /// The approval gate, against this run's own temporary ~/.apprentice.
+    private static func approvals() {
+        Approvals.granted = nil
+        Approvals.request = Request(cmd: "click", args: ["3"])
+        var token = ""
+        do {
+            try Approvals.check("click 3 button \"Post\"", details: [], warnings: [], element: "button|Post")
+            check(false, "an unapproved step is proposed, not run")
+        } catch let f as Fail {
+            check(f.code == 8, "an unapproved step exits 8")
+            token = Approvals.pending?.token ?? ""
+        } catch { check(false, "an unapproved step exits 8") }
+        check(Approvals.pending?.cmd == "click" && Approvals.pending?.args == ["3"], "the proposal saves the request")
+        check((try? Approvals.take("zzzz")) == nil && Approvals.pending != nil, "a wrong token takes nothing")
+        let p = try? Approvals.take(token)
+        check(p != nil && (try? Approvals.take(token)) == nil, "a token is used once")
+        Approvals.granted = p
+        check((try? Approvals.check("click 3", details: [], warnings: [], element: "button|Post")) != nil, "the approved request runs")
+        Approvals.request = Request(cmd: "click", args: ["4"])
+        check((try? Approvals.check("click 4", details: [], warnings: [])) == nil, "an approval covers only its own request")
+        Approvals.request = Request(cmd: "click", args: ["3"])
+        do {
+            try Approvals.check("click 3", details: [], warnings: [], element: "button|Delete")
+            check(false, "an approval for another element is stale")
+        } catch let f as Fail { check(f.code == 2, "an approval for another element is stale (exit 2)") } catch {}
+        Approvals.granted = nil
+        Store.save(Approvals.Pending(token: "old1", cmd: "click", args: ["3"], summary: "click 3", snap: nil,
+                                     at: Date().timeIntervalSince1970 - Approvals.ttl - 1, element: nil), "pending.json")
+        check((try? Approvals.take("old1")) == nil && Approvals.pending == nil, "an expired approval is refused and dropped")
+        Approvals.request = Request(cmd: "")
+    }
+
+    /// Site counts are shared by every VM's daemon; a session's own rhythm stays in pace.json.
+    private static func limits() {
+        Limits.update { l in
+            l.lastAction = 42
+            l.kinds = ["example.com": ["like": [1, 2]]]
+        }
+        let shared = Store.load(Limits.self, "limits.json")
+        check(shared?.lastAction == 0 && shared?.kinds?["example.com"]?["like"]?.count == 2, "site counts are shared, the rhythm is not")
+        check(Store.load(Limits.SessionPace.self, "pace.json")?.lastAction == 42 && Limits.stored.lastAction == 42, "the rhythm is kept per session")
+    }
+
+    /// The automatic update against throwaway git repos: a clean update, a dirty tree, a conflict and a
+    /// failed build.
+    private static func updates() {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("apprentice-repo-\(getpid())")
+        defer {
+            try? FileManager.default.removeItem(at: base)
+            Repo.testRoot = nil
+            Repo.testBuild = nil
+        }
+        let up = base.appendingPathComponent("up"), clone = base.appendingPathComponent("clone")
+        func sh(_ script: String, in dir: URL) -> Int32 {
+            Repo.run("sh", ["-c", "git -c init.defaultBranch=main " + script], in: dir).code
+        }
+        try? FileManager.default.createDirectory(at: up.appendingPathComponent("Sources"), withIntermediateDirectories: true)
+        let id = "-c user.name=t -c user.email=t@t"
+        guard sh("init -q && echo one > Sources/a.swift && git \(id) add -A && git \(id) commit -qm one", in: up) == 0,
+              Repo.run("git", ["clone", "-q", "-o", "upstream", up.path, clone.path], in: base).code == 0 else {
+            check(false, "git is needed for the update checks")
+            return
+        }
+        Repo.git("-C", clone.path, "config", "user.name", "t")
+        Repo.git("-C", clone.path, "config", "user.email", "t@t")
+        Repo.testRoot = clone
+        Repo.testBuild = { (0, "built") }
+        func head() -> String { Repo.git("rev-parse", "HEAD").out }
+        func upstreamCommit(_ text: String, _ file: String = "Sources/a.swift") {
+            _ = sh("\(id) commit -qm x --allow-empty && echo '\(text)' > \(file) && git \(id) add -A && git \(id) commit -qm '\(text)'", in: up)
+            Repo.git("fetch", "-q", "upstream")
+        }
+        upstreamCommit("two")
+        let before = head()
+        check(Repo.applyUpdate() && head() != before, "a clean clone updates and asks for a restart")
+        upstreamCommit("three")
+        try? "x".write(to: clone.appendingPathComponent("Sources/dirty.swift"), atomically: true, encoding: .utf8)
+        let dirty = head()
+        check(!Repo.applyUpdate() && head() == dirty, "a clone with uncommitted changes is left alone")
+        try? FileManager.default.removeItem(at: clone.appendingPathComponent("Sources/dirty.swift"))
+        try? "mine".write(to: clone.appendingPathComponent("Sources/a.swift"), atomically: true, encoding: .utf8)
+        Repo.git("commit", "-qam", "mine")
+        let mine = head()
+        check(!Repo.applyUpdate() && head() == mine && Repo.git("status", "--porcelain").out.isEmpty, "a conflict changes nothing")
+        Repo.git("reset", "-q", "--hard", "upstream/main")
+        upstreamCommit("four", "Sources/b.swift")
+        Repo.testBuild = { (1, "error: broken") }
+        let good = head()
+        check(!Repo.applyUpdate() && head() == good, "a failed build goes back to the old commit")
     }
 }

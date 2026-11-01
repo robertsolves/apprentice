@@ -36,10 +36,10 @@ enum Wire {
         return addr
     }
 
-    static func connect() -> Int32? {
+    static func connect(_ path: String = Store.socketPath) -> Int32? {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else { return nil }
-        guard var addr = address(Store.socketPath) else { close(fd); return nil }
+        guard var addr = address(path) else { close(fd); return nil }
         let size = socklen_t(MemoryLayout<sockaddr_un>.size)
         let result = withUnsafePointer(to: &addr) {
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bindPtr in
@@ -97,11 +97,8 @@ enum Wire {
         return readAll(fd)
     }
 
-    /// Browser work goes to the VM when `apprentice vm on` is set; everything else to this Mac's daemon.
-    static func send(_ req: Request) throws -> Response {
-        if let routed = try VM.send(req) { return routed }
-        return try sendLocal(req)
-    }
+    /// Every request goes to this Mac's daemon; it drives the browser VM itself (`Remote`).
+    static func send(_ req: Request) throws -> Response { try sendLocal(req) }
 
     static func sendLocal(_ req: Request) throws -> Response {
         var fd = connect()
@@ -133,7 +130,7 @@ enum Wire {
 
     static func startDaemon() throws {
         if ping() { return }
-        let logPath = Store.dir.appendingPathComponent("daemon.err")
+        let logPath = Store.stateDir.appendingPathComponent("daemon.err")
         FileManager.default.createFile(atPath: logPath.path, contents: nil)
         let log = try? FileHandle(forWritingTo: logPath)
         let proc = Process()
@@ -161,6 +158,17 @@ enum Wire {
     }
 
     /// Whether the daemon is gone afterwards, and what happened.
+    /// Stops the other VMs' daemons too, after a rebuild or an update: each runs the old binary.
+    static func stopVMDaemons() {
+        let root = Store.dir.appendingPathComponent("vms")
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? [] {
+            let path = root.appendingPathComponent("\(name)/sock").path
+            guard path != Store.socketPath, let fd = connect(path) else { continue }
+            setTimeout(fd, 5)
+            _ = roundTrip(fd, Request(cmd: "stop"))
+        }
+    }
+
     static func stopDaemon() -> (Bool, String) {
         if let fd = connect() {
             setTimeout(fd, 5)
@@ -264,11 +272,6 @@ final class UnixServer {
             // ping and stop never wait behind a running command, such as an open question window (H1).
             if req.cmd == "ping" {
                 response = Response(code: 0, out: "pong")
-            } else if req.cmd == "kill" {
-                // The host's kill switch reaching a guest, mid-command like the hotkey.
-                KillSwitch.tripped = true
-                Store.log(["kill_switch": true, "from": "host"])
-                response = Response(code: 0, out: "stopping")
             } else if req.cmd == "stop" {
                 Store.log(["cmd": "stop"])
                 response = Response(code: 0, out: "stopped")

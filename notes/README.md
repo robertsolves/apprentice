@@ -19,6 +19,7 @@ What an LLM learned driving apps and sites, kept so the next run does not have t
 ---
 scope: app | site | system | flow
 match: Finder, com.apple.finder        # app names, bundle ids or hosts; * matches every session
+system: macos                          # optional: macos or linux (the VM); the note shows only there
 tags: files, folder, rename
 lang: en                               # menu and button titles are in this language
 verified: 2026-11-01, macOS 26.2

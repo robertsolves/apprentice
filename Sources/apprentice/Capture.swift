@@ -90,6 +90,41 @@ enum Capture {
         return image.cropping(to: r.integral)
     }
 
+    /// `shot --marks`: each listed element's box and id drawn on the image, so a caller with vision
+    /// can answer with an id instead of guessing coordinates. `frame` is the screen area the image shows.
+    static func mark(_ image: CGImage, frame: CGRect, _ elements: [Element]) -> CGImage {
+        guard frame.width > 0, frame.height > 0,
+              let ctx = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return image }
+        let sx = CGFloat(image.width) / frame.width, sy = CGFloat(image.height) / frame.height
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        // Screen points are top-down; the bitmap is bottom-up.
+        ctx.translateBy(x: 0, y: CGFloat(image.height))
+        ctx.scaleBy(x: 1, y: -1)
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: ctx, flipped: true)
+        let colors: [NSColor] = [.systemRed, .systemBlue, .systemGreen, .systemOrange, .systemPurple, .systemPink]
+        let font = NSFont.boldSystemFont(ofSize: 11 * sy)
+        for e in elements where !e.offscreen && e.frame.count == 4 {
+            let r = CGRect(x: (e.rect.minX - frame.minX) * sx, y: (e.rect.minY - frame.minY) * sy,
+                           width: e.rect.width * sx, height: e.rect.height * sy)
+            guard r.intersects(CGRect(x: 0, y: 0, width: image.width, height: image.height)) else { continue }
+            let color = colors[e.id % colors.count]
+            ctx.setStrokeColor(color.cgColor)
+            ctx.setLineWidth(1.5 * sx)
+            ctx.stroke(r)
+            let label = NSAttributedString(string: "\(e.id)", attributes: [.font: font, .foregroundColor: NSColor.white])
+            let size = label.size()
+            let tag = CGRect(x: r.minX, y: max(r.minY - size.height, 0), width: size.width + 4 * sx, height: size.height)
+            ctx.setFillColor(color.cgColor)
+            ctx.fill(tag)
+            label.draw(at: CGPoint(x: tag.minX + 2 * sx, y: tag.minY))
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        return ctx.makeImage() ?? image
+    }
+
     static func save(_ image: CGImage, to url: URL) throws {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         let rep = NSBitmapImageRep(cgImage: image)
@@ -99,8 +134,10 @@ enum Capture {
         try data.write(to: url)
     }
 
-    /// Vision OCR. Boxes are converted from image pixels to screen points.
-    static func ocr(_ image: CGImage, windowFrame: CGRect) -> [OCRLine] {
+    /// Vision OCR. Boxes are converted from image pixels to screen points. Phrases on one row are joined
+    /// for reading; `merge: false` keeps each phrase with its own box, for finding something to click
+    /// (a menu item beside a link would otherwise share one box with it).
+    static func ocr(_ image: CGImage, windowFrame: CGRect, merge: Bool = true) -> [OCRLine] {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = true
@@ -118,8 +155,8 @@ enum Capture {
             return Word(text: text, box: obs.boundingBox)
         }
 
-        var rows: [[Word]] = []
-        for w in words.sorted(by: { $0.box.midY > $1.box.midY }) {
+        var rows: [[Word]] = merge ? [] : words.map { [$0] }
+        for w in merge ? words.sorted(by: { $0.box.midY > $1.box.midY }) : [] {
             if var last = rows.last, let first = last.first, abs(first.box.midY - w.box.midY) < 0.012 {
                 last.append(w)
                 rows[rows.count - 1] = last

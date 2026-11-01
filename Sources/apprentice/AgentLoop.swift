@@ -47,11 +47,11 @@ enum AgentLoop {
             var args = ["--app", app]
             if a.has("new-window") { args.append("--new-window") }
             try call(Request(cmd: "session", args: args))
-        } else if VM.session == nil {
+        } else if Session.stored == nil {
             try call(Request(cmd: "session"))
         }
 
-        let notes = Notes.context(task: task, session: VM.session)
+        let notes = Notes.context(task: task, session: Session.stored)
         var transcript: [[String: Any]] = []
         var used: [[String: Any]] = []
         // A run that ends early (a busy model, a stop) still keeps the steps it finished (G2).

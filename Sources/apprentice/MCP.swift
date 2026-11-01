@@ -10,7 +10,7 @@ enum MCP {
     }
 
     static let tools: [[String: Any]] = [
-        tool("session", "Attach to one app window", ["app": ["type": "string"], "new_window": ["type": "boolean"], "allow": ["type": "string"]]),
+        tool("session", "Attach to one app window; on: mac (default) or linux, the VM", ["app": ["type": "string"], "on": ["type": "string"], "new_window": ["type": "boolean"], "allow": ["type": "string"]]),
         tool("read", "Numbered element list for the session window", ["max": ["type": "integer"], "filter": ["type": "string"]]),
         tool("click", "Click an element by number, or visible text with 'on' (OCR when it is not listed)", ["id": ["type": "integer"], "on": ["type": "string"], "right": ["type": "boolean"], "double": ["type": "boolean"]]),
         tool("type", "Type text into an element", ["id": ["type": "integer"], "text": ["type": "string"], "enter": ["type": "boolean"], "pace": ["type": "string"]], ["id", "text"]),
@@ -20,10 +20,10 @@ enum MCP {
         tool("hover", "Move the pointer over an element", ["id": ["type": "integer"]], ["id"]),
         tool("open", "Navigate the session browser window", ["url": ["type": "string"]], ["url"]),
         tool("wait_for", "Wait for text to appear without reloading", ["text": ["type": "string"], "timeout": ["type": "number"]], ["text"]),
-        tool("shot", "Save a PNG of the window or a crop", ["crop": ["type": "string"]]),
+        tool("shot", "Save a PNG of the window or a crop; marks draws each element's id on it", ["crop": ["type": "string"], "marks": ["type": "boolean"]]),
         tool("ocr", "OCR the window into numbered lines", ["crop": ["type": "string"]]),
         tool("route", "Check for a faster API, CLI or connector route", ["task": ["type": "string"]], ["task"]),
-        tool("focus", "Switch the session to another running app", ["app": ["type": "string"]], ["app"]),
+        tool("focus", "Switch the session to another running app; on: mac or linux", ["app": ["type": "string"], "on": ["type": "string"]], ["app"]),
         tool("drag", "Drag one element onto another", ["from": ["type": "integer"], "to": ["type": "integer"]], ["from", "to"]),
         tool("upload", "Click a file control and pick a file in the dialog", ["id": ["type": "integer"], "path": ["type": "string"]], ["id", "path"]),
         tool("download", "Save a linked file or image to a path", ["id": ["type": "integer"], "path": ["type": "string"]], ["id", "path"]),
@@ -112,6 +112,7 @@ enum MCP {
         case "session":
             var a: [String] = []
             if let app = s("app") { a += ["--app", app] }
+            if let on = s("on") { a += ["--on", on] }
             if b("new_window") { a.append("--new-window") }
             if let allow = s("allow") { a += ["--allow", allow] }
             return Request(cmd: "session", args: a)
@@ -150,11 +151,12 @@ enum MCP {
         case "shot", "ocr":
             var a: [String] = []
             if let crop = s("crop") { a += ["--crop", crop] }
+            if name == "shot", args["marks"] as? Bool == true { a.append("--marks") }
             return Request(cmd: name, args: a)
         case "route":
             return Request(cmd: "route", args: [s("task") ?? ""])
         case "focus":
-            return Request(cmd: "focus", args: [s("app") ?? ""])
+            return Request(cmd: "focus", args: [s("app") ?? ""] + (s("on").map { ["--on", $0] } ?? []))
         case "drag":
             return Request(cmd: "drag", args: [s("from") ?? "", s("to") ?? ""])
         case "upload", "download":

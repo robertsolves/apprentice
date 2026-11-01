@@ -3,6 +3,19 @@ import Darwin
 
 signal(SIGPIPE, SIG_IGN)
 
+// The self-test works in a folder of its own, never the user's ~/.apprentice.
+if CommandLine.arguments.count > 1, CommandLine.arguments[1] == "selftest" {
+    setenv("APPRENTICE_HOME", NSTemporaryDirectory() + "apprentice-selftest-\(getpid())", 1)
+    unsetenv("APPRENTICE_VM")
+}
+
+// `apprentice --vm <name> …` is APPRENTICE_VM for one command: the agent session's own browser VM.
+var argvRaw = CommandLine.arguments
+if argvRaw.count > 2, argvRaw[1] == "--vm" {
+    setenv("APPRENTICE_VM", argvRaw[2], 1)
+    argvRaw.removeSubrange(1...2)
+}
+
 let version = "0.1.0"
 
 func usage() {
@@ -10,9 +23,9 @@ func usage() {
     apprentice \(version) · text-first control of one Mac app or browser window
 
     usage:
-      apprentice session [--app Safari] [--new-window] [--allow a.com,b.com] [--no-options]
+      apprentice session [--app Safari] [--on mac|linux] [--new-window] [--allow a.com,b.com] [--no-options]
       apprentice open <url>
-      apprentice focus <app>
+      apprentice focus <app> [--on mac|linux]
       apprentice read [--max 80] [--filter text]
       apprentice click <id> | --on "text" | --at x,y [--double|--right]
       apprentice type <id|focused> "text" [--enter] [--pace fast] [--tier 3]
@@ -28,7 +41,7 @@ func usage() {
       apprentice approve <token> [--text "edited text"] | deny <token> | pending
       apprentice wait-for "text" [--timeout 10]
       apprentice ocr [--crop id|x,y,w,h]
-      apprentice shot [--crop id|x,y,w,h]
+      apprentice shot [--crop id|x,y,w,h] [--marks]
       apprentice ask "question" [--choices "A|B|C" [--multi] [--text]]   a little window for the user; prints their reply
       apprentice show "what"                    the user points the cursor at it; prints the element there
       apprentice confirm <token> [--why "…"]    the user approves or denies a pending step in the little window
@@ -53,7 +66,7 @@ func usage() {
       apprentice run "task" --model <name> [--base-url url] [--screen-anyway] [--save name]
       apprentice replay <name> [--from n] [--approve]
       apprentice mcp
-      apprentice vm setup | up [--window] | down | on | off | look | call "what" | logs | status   a separate Mac in a VM for the browser
+      apprentice vm setup | install | up | down | on | off | look | call "what" | shell | status   a small Linux VM with its own screen, cursor and keyboard: its browser and Linux apps (--on linux); shell prints the ssh command for its terminal
       apprentice serve [--background] | stop
 
     output is compact text for an agent. add --json for the raw reply.
@@ -65,7 +78,7 @@ func usage() {
     """)
 }
 
-let argv = Array(CommandLine.arguments.dropFirst())
+let argv = Array(argvRaw.dropFirst())
 // No command is a usage error, so an empty interpolation never reads as success (E4).
 guard let command = argv.first else {
     usage()
@@ -85,12 +98,6 @@ func fail(_ error: Error) -> Never {
 func attempt(_ body: () throws -> Void) -> Never {
     do { try body() } catch { fail(error) }
     exit(0)
-}
-
-// Site records live where the browser runs; with the VM on, that is the VM.
-if ["budget", "activity", "flag"].contains(command), let (code, out) = VM.forward(argv) {
-    if !out.isEmpty { print(out) }
-    exit(code)
 }
 
 switch command {
@@ -142,7 +149,6 @@ case "activity":
 case "flag":
     attempt { print(try Events.flag(Args.parse(rest))) }
 case "grow":
-    VM.pullLogs()
     print(Grow.digest(days: Args.parse(rest).int("days", 14)))
     exit(0)
 case "run":
@@ -155,8 +161,6 @@ case "mcp":
     exit(0)
 case "vm":
     attempt { print(try VM.command(Args.parse(rest))) }
-case "wire":
-    VM.wire()
 case "selftest":
     SelfTest.run()
 default:
