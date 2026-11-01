@@ -45,13 +45,13 @@ nothing was done. approve: apprentice approve 7c2e · deny: apprentice deny 7c2e
 
 ## Install
 
-You need macOS 14 or later and Swift 5.9 (Xcode or the command-line tools).
+You need macOS 14 or later and Swift 5.9 (Xcode or the command-line tools). One command installs it, and running it again updates:
 
 ```sh
-git clone https://github.com/robertsolves/apprentice.git
-cd apprentice
-./kit.sh
+gh api repos/robertsolves/apprentice/contents/install.sh -H "Accept: application/vnd.github.raw" | bash
 ```
+
+`install.sh` clones the repo to `~/.apprentice/src` (set `APPRENTICE_DIR` to put it elsewhere), or pulls if it is already there, then runs `kit.sh`. The repo is private, so it clones with your `gh` login, or with your SSH key when `gh` is not signed in. From a clone you already have, run `./kit.sh` directly.
 
 `kit.sh` builds a release binary into `~/.local/bin/apprentice` and signs it. Set `APPRENTICE_SIGN_IDENTITY`, or keep a keychain identity named `apprentice`, so your permissions survive rebuilds. It also:
 - installs the Claude Code skill (`agent/SKILL.md`) and the opencode section (`agent/AGENTS.md`);
