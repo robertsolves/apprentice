@@ -49,7 +49,11 @@ if [ -d "$dir/.git" ]; then
   remote=origin
   git -C "$dir" remote | grep -qx upstream && remote=upstream
   git -C "$dir" fetch -q "$remote"
-  git -C "$dir" rebase -q --autostash "$remote/main"
+  git -C "$dir" rebase -q --autostash "$remote/main" || {
+    git -C "$dir" rebase --abort
+    echo "your commits in $dir conflict with $remote; nothing changed. Resolve by hand: git -C $dir rebase $remote/main" >&2
+    exit 1
+  }
 elif [ "$account" = "${upstream%%/*}" ]; then
   echo "cloning $upstream into $dir…"
   mkdir -p "$(dirname "$dir")"
