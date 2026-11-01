@@ -15,7 +15,9 @@ struct Fail: Error, CustomStringConvertible {
 enum Store {
     static let dir: URL = {
         let home = FileManager.default.homeDirectoryForCurrentUser
-        let url = home.appendingPathComponent(".apprentice")
+        // APPRENTICE_HOME puts all state somewhere else, e.g. to try a change without touching yours.
+        let custom = ProcessInfo.processInfo.environment["APPRENTICE_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
+        let url = custom ?? home.appendingPathComponent(".apprentice")
         // The tool was called deskkontrol: carry its sessions, config, notes link and logs over once.
         let old = home.appendingPathComponent(".deskkontrol")
         if !FileManager.default.fileExists(atPath: url.path), FileManager.default.fileExists(atPath: old.path) {
