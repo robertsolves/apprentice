@@ -74,20 +74,16 @@ func poll<T>(timeout: Double, interval: Double = 0.25, _ check: () -> T?) -> T? 
     return check()
 }
 
-/// Opens a window through the app's own menu: the first "New … Window" item, else its first "New" item,
-/// else cmd+n. Waits for the window, since a just-launched app may not have its menu bar yet.
+/// Opens a window as a person would: the app in front, then cmd+n. Waits for the window, since a
+/// just-launched app may not be ready for keys yet.
 func makeNewWindow(_ app: NSRunningApplication) {
     let ax = appElement(app.processIdentifier)
-    let item: AXUIElement? = poll(timeout: 4) {
-        let bar = ax.attr(kAXMenuBarAttribute) as! AXUIElement?
-        let items = (bar?.children ?? []).dropFirst().flatMap { $0.children.first?.children ?? [] }
-        let titled = items.map { ($0, ($0.string(kAXTitleAttribute) ?? "").lowercased()) }
-        return (titled.first { $0.1.hasPrefix("new") && $0.1.contains("window") } ?? titled.first { $0.1.hasPrefix("new") })?.0
-    }
-    if item?.perform(kAXPressAction) != .success { try? Keys.press("cmd+n", pid: app.processIdentifier) }
-    if poll(timeout: 3, { pickWindow(ax) }) == nil {
-        try? Keys.press("cmd+n", pid: app.processIdentifier)
-        _ = poll(timeout: 2) { pickWindow(ax) }
+    app.activate()
+    _ = poll(timeout: 3) { NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier ? true : nil }
+    Pace.sleep(0.4)
+    for _ in 0..<2 where pickWindow(ax) == nil {
+        try? Keys.press("cmd+n")
+        _ = poll(timeout: 3) { pickWindow(ax) }
     }
 }
 
@@ -158,7 +154,7 @@ func beforeAction(_ session: Session, url: String?) throws {
 }
 
 /// Settles, saves and diffs the new snapshot, and writes the one log row for the action.
-func finish(_ command: String, tier: Int, _ session: Session, _ target: Target, _ old: Snapshot?,
+func finish(_ command: String, _ session: Session, _ target: Target, _ old: Snapshot?,
             extra: [String] = [], log fields: [String: Any] = [:]) -> String {
     let new = settle(target)
     var session = session
@@ -170,7 +166,11 @@ func finish(_ command: String, tier: Int, _ session: Session, _ target: Target, 
     if !extra.isEmpty { out += "\n" + extra.joined(separator: "\n") }
     if !d.lines.isEmpty { out += "\n" + d.lines.prefix(25).joined(separator: "\n") }
     if d.lines.count > 25 { out += "\n… \(d.lines.count - 25) more changes, run `deskkontrol read`" }
-    Store.log(fields.merging(["cmd": command, "tier": tier, "snap": new.snap, "diff": d.summary]) { $1 })
+    // Flags only, never typed text: `learn` turns these rows into flows.
+    let r = Args.parse(Approvals.request.args)
+    let flags = (r.flags.filter { $0.key != "json" }.sorted { $0.key < $1.key }.map { "--\($0.key) \($0.value)" }
+        + r.bools.subtracting(["json"]).sorted().map { "--\($0)" }).joined(separator: " ")
+    Store.log(fields.merging(["cmd": command, "snap": new.snap, "diff": d.summary, "flags": flags]) { $1 })
     return out
 }
 
@@ -189,9 +189,10 @@ func gate(_ session: Session, _ target: Target, _ e: Element?, _ summary: String
     let warnings = Gate.warnings(e, target, force: force) + warn
     if !warnings.isEmpty, !Approvals.approved { saveGateShot(session, summary) }
     let place = "\(session.app) · \(target.url ?? target.title)"
-    let front = session.front == true ? ["brings \(session.app) to the front first"] : []
-    try Approvals.check(summary, details: [place] + details + front, warnings: warnings)
-    if session.front == true, NSWorkspace.shared.frontmostApplication?.processIdentifier != session.pid {
+    try Approvals.check(summary, details: [place] + details + ["uses the real cursor and keyboard, with \(session.app) in front"],
+                        warnings: warnings)
+    try Watch.begin()
+    if NSWorkspace.shared.frontmostApplication?.processIdentifier != session.pid {
         target.app.set(kAXFrontmostAttribute, kCFBooleanTrue)
         target.window.set(kAXMainAttribute, kCFBooleanTrue)
         target.window.perform(kAXRaiseAction)
@@ -201,17 +202,23 @@ func gate(_ session: Session, _ target: Target, _ e: Element?, _ summary: String
 
 // MARK: - Actions
 
-/// Presses or focuses the element through accessibility, without moving the mouse.
-func pressElement(_ el: AXUIElement?) -> Bool {
-    guard let el else { return false }
-    if el.actionNames.contains(kAXPressAction), el.perform(kAXPressAction) == .success { return true }
-    return el.set(kAXFocusedAttribute, kCFBooleanTrue) == .success
+/// True when `el` contains `node`, as a web field contains its editable text.
+func isAncestor(_ el: AXUIElement, of node: AXUIElement) -> Bool {
+    var cur: AXUIElement? = node
+    for _ in 0..<12 {
+        guard let parent = cur?.attr(kAXParentAttribute) as! AXUIElement? else { return false }
+        if CFEqual(parent, el) { return true }
+        cur = parent
+    }
+    return false
 }
 
-func mouseClick(_ e: Element, pid: pid_t, right: Bool = false, double: Bool = false) {
-    let point = Mouse.landing(in: e.rect)
-    Mouse.move(to: point, size: e.rect.size, pid: pid)
-    Mouse.click(at: point, right: right, double: double, pid: pid)
+/// Sheets and dialog windows of the app: a file picker is the one that was not there before.
+func fileDialogs(_ app: AXUIElement) -> [AXUIElement] {
+    windows(of: app).flatMap { [$0] + $0.children }.filter { el in
+        let role = el.string(kAXRoleAttribute) ?? "", sub = el.string(kAXSubroleAttribute) ?? ""
+        return role == "AXSheet" || (role == "AXWindow" && (sub == "AXDialog" || sub == "AXSystemDialog"))
+    }
 }
 
 // MARK: - Commands
@@ -219,12 +226,17 @@ func mouseClick(_ e: Element, pid: pid_t, right: Bool = false, double: Bool = fa
 enum Commands {
     static func run(_ req: Request) throws -> String {
         if KillSwitch.tripped, req.cmd != "ping" { throw Fail(6, "interrupted: the kill switch was pressed") }
-        let out = try dispatch(req)
+        Borrow.interrupted = false
+        let result = Result { try dispatch(req) }
+        if Watch.end() {
+            throw Fail(6, "interrupted: you used the keyboard or mouse while deskkontrol acted in front, so it stopped. Check the screen with `read`, then retry")
+        }
+        let out = try result.get()
         if KillSwitch.tripped, req.cmd != "ping" { throw Fail(6, "interrupted: the kill switch was pressed") }
         return out
     }
 
-    private static func dispatch(_ req: Request) throws -> String {
+    static func dispatch(_ req: Request) throws -> String {
         Config.reloadIfChanged()
         Approvals.request = req
         let a = Args.parse(req.args)
@@ -245,6 +257,11 @@ enum Commands {
         case "hover": return try hover(a)
         case "drag": return try drag(a)
         case "upload": return try upload(a)
+        case "choose": return try choose(a)
+        case "do": return try runFlow(a)
+        case "ask": return try Ask.run(a)
+        case "show": return try Ask.pointAt(a)
+        case "confirm": return try Ask.confirm(a)
         case "download": return try download(a)
         case "wait-for": return try waitFor(a)
         case "ocr": return try ocr(a)
@@ -287,17 +304,18 @@ enum Commands {
         guard let app = requested ?? NSWorkspace.shared.frontmostApplication, let name = app.localizedName else {
             throw Fail(5, "no app found")
         }
-        if a.has("front") {
-            app.activate()
-            Pace.sleep(0.3)
-        }
         if a.has("new-window") { makeNewWindow(app) }
-        let s = try attach(app, name, a)
+        var s = try attach(app, name, a)
+        if !optionsAsked, Config.current.askOnStart, !a.has("no-options") {
+            optionsAsked = true
+            s = startOptions(s)
+        }
         var out = "session \(s.id ?? "-") · \(name) · window \(s.wid)"
         if let url = s.url { out += " · \(url)" }
-        if s.front == true { out += " · front: each action brings the window forward" }
         let hints = Routes.hintLines(for: hostOf(s.url))
         if !hints.isEmpty { out += "\n" + hints.joined(separator: "\n") }
+        out += "\n" + Config.policyLine
+        out += notesLines(s)
         Store.log(["cmd": "session", "app": name, "wid": Int(s.wid), "url": s.url ?? ""])
         return out
     }
@@ -309,7 +327,40 @@ enum Commands {
         let s = try attach(app, name, a, keep: Session.stored)
         var out = "focus · \(name) · window \(s.wid)"
         if let url = s.url { out += " · \(url)" }
+        out += notesLines(s)
         return out
+    }
+
+    /// The start-up options window is shown once per daemon run, on its first `session`.
+    private static var optionsAsked = false
+
+    /// Asks Robert how this run should work. Skipping keeps the defaults; "Remember" saves them.
+    private static func startOptions(_ s: Session) -> Session {
+        let uiOnly = "UI only: no shell commands for macOS tasks"
+        let remember = "Remember these as defaults"
+        var s = s
+        let reply = DispatchQueue.main.sync {
+            Ask.show("deskkontrol is starting with \(s.app). Options for this session:",
+                     choices: [uiOnly, remember], multi: true, withText: true, timeout: 120,
+                     sendTitle: "Start", checked: Config.current.uiOnly ? [uiOnly] : [],
+                     placeholder: "Allowed sites, comma separated (empty: any)", initialText: s.allow.joined(separator: ", "))
+        }
+        guard let reply else { return s }
+        s.uiOnly = reply.chosen.contains(uiOnly)
+        s.allow = Config.parseAllow(reply.text).filter { !$0.isEmpty }
+        s.save()
+        if reply.chosen.contains(remember) {
+            Config.remember("agent", "ui_only", s.uiOnly == true ? "true" : "false")
+            Config.remember("session", "allow", "[" + s.allow.map { "\"\($0)\"" }.joined(separator: ", ") + "]")
+        }
+        Store.log(["options": true, "ui_only": s.uiOnly == true, "allow": s.allow.joined(separator: ",")])
+        return s
+    }
+
+    /// Key facts from the notes for this app and page, printed under `session` and `focus`.
+    private static func notesLines(_ s: Session) -> String {
+        let lines = Notes.hintLines(app: s.app, bundle: s.bundle, host: hostOf(s.url))
+        return lines.isEmpty ? "" : "\n" + lines.joined(separator: "\n")
     }
 
     /// Picks the app's main window and saves it as the session. `keep` carries over its id and allowlist.
@@ -317,13 +368,18 @@ enum Commands {
         enableWebAccessibility(appElement(running.processIdentifier))
         Pace.sleep(0.3)
         let app = runningApp(named: name) ?? running
-        guard let window = pickWindow(appElement(app.processIdentifier)) else {
+        var picked = pickWindow(appElement(app.processIdentifier))
+        if picked == nil {
+            // A fresh daemon may see the app's windows half-described until it is active.
+            app.activate()
+            picked = poll(timeout: 2) { pickWindow(appElement(app.processIdentifier)) }
+        }
+        guard let window = picked else {
             throw Fail(5, "\(name) has no window: open one, or run `deskkontrol session --new-window`")
         }
         var s = try makeSession(app: app, window: window)
-        if let keep { s.id = keep.id; s.allow = keep.allow; s.front = keep.front }
+        if let keep { s.id = keep.id; s.allow = keep.allow }
         if let allow = a.value("allow") { s.allow = Config.parseAllow(allow) }
-        if a.has("front") { s.front = true } else if a.has("background") { s.front = nil }
         // A window with no URL yet (a fresh blank tab) is attached; its actions are checked later.
         if let url = s.url { try allowCheck(s, url) }
         s.save()
@@ -337,6 +393,7 @@ enum Commands {
         if !raw.contains("://") { raw = "https://" + raw }
         guard let url = URL(string: raw), let hostname = url.host else { throw Fail(5, "bad URL \"\(raw)\"") }
         let (session, target, old) = try prepare(checkAllow: false)
+        guard session.isBrowser else { throw Fail(5, "open works in browser sessions; in \(session.app), use its own controls") }
         guard session.allows(url: raw) else {
             throw Fail(4, "blocked by allowlist: \(hostname) is not in \(session.allow.joined(separator: ","))")
         }
@@ -344,18 +401,19 @@ enum Commands {
         try Limits.checkNavigation(url)
         Config.activate(Config.profileKey(session: session, url: raw))
         try beforeAction(session, url: raw)
-        if session.isBrowser {
-            try Keys.press("cmd+l", pid: session.pid)
-            try Keys.press("cmd+a", pid: session.pid)
-            Keys.type(raw, pid: session.pid)
+        // As a person does it: the address bar, then type the address and press return.
+        try Borrow.run(target) {
+            try Keys.press("cmd+l")
+            try Keys.press("cmd+a")
+            Keys.type(raw)
             Pace.sleep(Double.random(in: 0.2...0.5))
-            try Keys.press("return", pid: session.pid)
-        } else {
-            target.window.set(kAXDocumentAttribute, raw as NSString)
+            try Borrow.checkpoint()
+            try Keys.press("return")
         }
         Pace.sleep(0.6)
-        let extra = ["→ \(raw)"] + Routes.hintLines(for: hostname)
-        return finish("open", tier: 2, session, target, old, extra: extra, log: ["url": raw])
+        let notes = hostname == hostOf(target.url) ? [] : Notes.hintLines(app: nil, bundle: nil, host: hostname)
+        let extra = ["→ \(raw)"] + Routes.hintLines(for: hostname) + notes
+        return finish("open", session, target, old, extra: extra, log: ["url": raw])
     }
 
     static func read(_ a: Args) throws -> String {
@@ -372,46 +430,68 @@ enum Commands {
     }
 
     static func click(_ a: Args) throws -> String {
-        guard let id = a.pos.first.flatMap(Int.init) else { throw Fail(5, "click <id>") }
+        if let at = a.value("at") { return try clickAt(at, a) }
+        guard let id = a.pos.first.flatMap(Int.init) else { throw Fail(5, "click <id> | click --at x,y") }
         let (session, target, old) = try prepare()
         let (el, e) = try resolve(id, target)
         let right = a.has("right"), double = a.has("double")
         let verb = right ? "right-click" : double ? "double-click" : "click"
         try gate(session, target, e, "\(verb) \(e.short)", force: a.has("gate"))
         try beforeAction(session, url: target.url)
-        let forced = a.int("tier", 0)
-        let tier: Int
-        if forced == 3 {
-            tier = 3
-        } else if right || double || forced == 2 {
-            tier = 2
-        } else if pressElement(el) {
-            tier = 1
-        } else if forced == 1 {
-            // --tier 1 is the fast escape and must never move the pointer, so a failed AX press errors.
-            throw Fail(5, "element \(id) \(e.label) \"\(e.name)\" has no accessibility press: drop --tier 1 to click with the pointer")
-        } else {
-            tier = 2
+        try Borrow.run(target) { try realClick(el?.frame ?? e.rect, right: right, double: double) }
+        return finish("click", session, target, old, log: ["id": id, "label": e.label, "name": e.name])
+    }
+
+    /// Moves the real cursor into `rect` along a curved path and clicks. Call inside `Borrow.run`.
+    static func realClick(_ rect: CGRect, right: Bool = false, double: Bool = false) throws {
+        let point = Mouse.landing(in: rect)
+        Mouse.move(to: point, size: rect.size)
+        try Borrow.checkpoint()
+        Mouse.click(at: point, right: right, double: double)
+    }
+
+    /// Clicks into a field, checks it took focus, selects what is there and types over it, all with
+    /// real input. Call inside `Borrow.run`. `focused` skips the click for the field that already has focus.
+    static func typeInto(_ el: AXUIElement?, _ rect: CGRect, _ text: String, _ target: Target,
+                         focused: Bool = false, fast: Bool = false, label: String = "the field") throws {
+        if !focused {
+            try realClick(rect)
+            Pace.sleep(0.2)
         }
-        switch tier {
-        case 1:
-            break
-        case 2:
-            mouseClick(e, pid: session.pid, right: right, double: double)
-        default:
-            try Borrow.run(target) {
-                let rect = el?.frame ?? e.rect
-                let point = Mouse.landing(in: rect)
-                Mouse.move(to: point, size: rect.size)
-                try Borrow.checkpoint()
-                Mouse.click(at: point, right: right, double: double)
-            }
+        try Borrow.checkpoint()
+        // cmd+a would wipe whatever has focus, so check that the click reached the field. Browsers
+        // report the new focus a moment late, so give it up to a second.
+        let reached = { () -> Bool? in
+            guard let el, let now = target.app.attr(kAXFocusedUIElementAttribute) as! AXUIElement? else { return true }
+            return CFEqual(now, el) || isAncestor(el, of: now) ? true : nil
         }
-        return finish("click", tier: tier, session, target, old, log: ["id": id, "label": e.label, "name": e.name])
+        if !focused, poll(timeout: 1, interval: 0.1, reached) == nil {
+            throw Fail(5, "the click did not reach \(label): something may cover it, such as a suggestion list. Nothing was typed")
+        }
+        try Keys.press("cmd+a")
+        Keys.type(text, fast: fast)
+    }
+
+    /// `click --at x,y`: a real click at a screen point, for things `read` cannot list (from `show`).
+    private static func clickAt(_ raw: String, _ a: Args) throws -> String {
+        let parts = raw.split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+        guard parts.count == 2 else { throw Fail(5, "click --at x,y") }
+        let point = CGPoint(x: parts[0], y: parts[1])
+        let (session, target, old) = try prepare()
+        guard target.window.frame?.contains(point) ?? false else { throw Fail(4, "\(raw) is outside the session window") }
+        let right = a.has("right"), double = a.has("double")
+        try gate(session, target, nil, "\(right ? "right-click" : double ? "double-click" : "click") at \(raw)", force: a.has("gate"))
+        try beforeAction(session, url: target.url)
+        try Borrow.run(target) {
+            Mouse.move(to: point)
+            try Borrow.checkpoint()
+            Mouse.click(at: point, right: right, double: double)
+        }
+        return finish("click", session, target, old, extra: ["→ at \(raw)"], log: ["at": raw])
     }
 
     static func type(_ a: Args) throws -> String {
-        let usage = Fail(5, "type <id|focused> \"text\"")
+        let usage = Fail(5, "type <id|focused> \"text\" [--enter] [--pace fast]")
         guard let first = a.pos.first, a.pos.count >= 2 else { throw usage }
         let focused = first == "focused"
         guard focused || Int(first) != nil else { throw usage }
@@ -425,48 +505,16 @@ enum Commands {
                     + (enter ? ["then presses return"] : []),
                  warn: enter ? ["return may submit or send"] : [], force: a.has("gate"))
         try beforeAction(session, url: target.url)
-        let fast = a.value("pace") == "fast" || a.int("tier", 0) == 1 || Config.current.pace.mode == "fast"
-        let tier: Int
-        if a.int("tier", 0) == 3 {
-            // Tier 3: real keyboard and pointer, for windows that ignore events posted to the app,
-            // such as system save panels. Posted events are tagged, so Borrow ignores them.
-            try Borrow.run(target) {
-                if !focused, !pressElement(el) {
-                    let point = Mouse.landing(in: e.rect)
-                    Mouse.move(to: point, size: e.rect.size)
-                    try Borrow.checkpoint()
-                    Mouse.click(at: point)
-                }
+        let fast = a.value("pace") == "fast" || Config.current.pace.mode == "fast"
+        try Borrow.run(target) {
+            try typeInto(el, el?.frame ?? e.rect, text, target, focused: focused, fast: fast, label: e.short)
+            if enter {
                 Pace.sleep(0.2)
-                try Borrow.checkpoint()
-                try Keys.press("cmd+a", pid: nil)
-                Keys.type(text, pid: nil)
-                if enter {
-                    Pace.sleep(0.2)
-                    try Keys.press("return", pid: nil)
-                }
-                Pace.sleep(0.3)
+                try Keys.press("return")
             }
-            tier = 3
-        } else if fast, let el, el.set(kAXValueAttribute, text as NSString) == .success {
-            tier = 1
-        } else {
-            // OCR elements have no AX element, so they are focused by clicking their frame.
-            if !focused, !pressElement(el) { mouseClick(e, pid: session.pid) }
-            Pace.sleep(0.15)
-            try Keys.press("cmd+a", pid: session.pid)
-            Keys.type(text, pid: session.pid)
-            tier = 2
+            Pace.sleep(0.3)
         }
-        if enter, tier < 3 {
-            Pace.sleep(0.2)
-            // A value set through AX is committed by the field's own confirm, which is its return key.
-            if tier == 1, let el, el.actionNames.contains(kAXConfirmAction), el.perform(kAXConfirmAction) == .success {
-            } else {
-                try Keys.press("return", pid: session.pid)
-            }
-        }
-        return finish("type", tier: tier, session, target, old, log: ["id": id, "chars": text.count])
+        return finish("type", session, target, old, log: ["id": id, "chars": text.count, "label": e.label, "name": e.name])
     }
 
     /// The element that has keyboard focus, such as an inline rename field that `read` cannot list.
@@ -495,16 +543,13 @@ enum Commands {
         let submits = ["return", "enter"].contains { combo.lowercased().contains($0) }
         try gate(session, target, nil, "press \(combo)", warn: submits ? ["\(combo) may submit or send"] : [])
         try beforeAction(session, url: target.url)
-        if a.int("tier", 2) == 3 {
-            try Borrow.run(target) { try Keys.press(combo, pid: nil) }
-        } else {
-            try Keys.press(combo, pid: session.pid)
-        }
+        try Borrow.run(target) { try Keys.press(combo) }
         Pace.sleep(0.2)
-        return finish("key", tier: a.int("tier", 2) == 3 ? 3 : 2, session, target, old, extra: ["→ \(combo)"], log: ["combo": combo])
+        return finish("key", session, target, old, extra: ["→ \(combo)"], log: ["combo": combo])
     }
 
-    /// Picks a menu-bar item through accessibility, e.g. `menu "File > New Folder"`. Works in the background.
+    /// Picks a menu-bar item the way a person does, e.g. `menu "File > New Folder"`: a real click on the
+    /// menu title, the cursor over each submenu, and a click on the item. The path is checked first.
     static func menu(_ a: Args) throws -> String {
         func norm(_ s: String) -> String {
             s.replacingOccurrences(of: "…", with: "").replacingOccurrences(of: "...", with: "")
@@ -514,11 +559,9 @@ enum Commands {
         guard !path.isEmpty else { throw Fail(5, "menu \"File > New Folder\"") }
         let (session, target, old) = try prepare()
         guard let bar = target.app.attr(kAXMenuBarAttribute) as! AXUIElement? else { throw Fail(5, "\(session.app) has no menu bar") }
-        // Menu items act on the app's main window, so make that the session window. The app stays in the background.
-        target.window.set(kAXMainAttribute, kCFBooleanTrue)
-        Pace.sleep(0.1)
-        var node = bar
+        var nodes: [AXUIElement] = []
         var titles: [String] = []
+        var node = bar
         for (n, name) in path.enumerated() {
             // Menu-bar items and submenu items hold their entries in a single AXMenu child.
             let items = n == 0 ? node.children : (node.children.first?.children ?? [])
@@ -526,45 +569,61 @@ enum Commands {
                 let names = items.compactMap { $0.string(kAXTitleAttribute) }.filter { !$0.isEmpty }
                 throw Fail(5, "no menu item \"\(name)\" in \(titles.isEmpty ? "the menu bar" : titles.joined(separator: " > ")): \(names.joined(separator: ", "))")
             }
+            nodes.append(next)
             node = next
             titles.append(next.string(kAXTitleAttribute) ?? name)
         }
         let label = titles.joined(separator: " > ")
-        var warn = Gate.matches(titles.last ?? "") ? ["may be irreversible: \(titles.last ?? "")"] : []
-        // AppKit validates items only when a menu opens, so a background app's flag can be stale.
-        let borrow = a.int("tier", 1) == 3
-        if !borrow, node.attr(kAXEnabledAttribute) as? Bool == false {
-            warn.append("the menu last showed this item as disabled; some apps enable it only in front, so try --tier 3")
-        }
-        try gate(session, target, nil, "menu \(label)", details: borrow ? ["brings the window forward, then puts focus back"] : [], warn: warn)
+        try gate(session, target, nil, "menu \(label)",
+                 warn: Gate.matches(titles.last ?? "") ? ["may be irreversible: \(titles.last ?? "")"] : [])
         try beforeAction(session, url: target.url)
-        let press = { () throws in
-            guard node.perform(kAXPressAction) == .success else { throw Fail(5, "could not press \"\(label)\"") }
-            Pace.sleep(0.3)
+        try Borrow.run(target) {
+            for (i, item) in nodes.enumerated() {
+                // An item has a place on screen only once its menu is open.
+                guard let f = poll(timeout: 2, { item.frame.flatMap { $0.width > 0 && $0.height > 0 ? $0 : nil } }) else {
+                    try? Keys.press("esc")
+                    throw Fail(5, "menu item \"\(titles[i])\" did not appear")
+                }
+                let last = i == nodes.count - 1
+                if last, item.attr(kAXEnabledAttribute) as? Bool == false {
+                    try? Keys.press("esc")
+                    throw Fail(5, "menu item \"\(label)\" is disabled right now")
+                }
+                if i == 0 || last {
+                    try realClick(f)
+                } else {
+                    // Submenus open when the cursor rests on them.
+                    Mouse.move(to: Mouse.landing(in: f), size: f.size)
+                    try Borrow.checkpoint()
+                    Pace.sleep(0.35)
+                }
+                Pace.sleep(0.25)
+            }
         }
-        if borrow { try Borrow.run(target, press) } else { try press() }
-        return finish("menu", tier: borrow ? 3 : 1, session, target, old, extra: ["→ \(label)"], log: ["menu": label])
+        return finish("menu", session, target, old, extra: ["→ \(label)"], log: ["menu": label])
     }
 
     static func scroll(_ a: Args) throws -> String {
         guard let direction = a.pos.first?.lowercased(), direction == "up" || direction == "down" else {
             throw Fail(5, "scroll <up|down> [n] [--in id]")
         }
-        let count = a.pos.count > 1 ? Int(a.pos[1]) ?? 3 : 3
+        let count = min(max(a.pos.count > 1 ? Int(a.pos[1]) ?? 3 : 3, 1), 50)
         let (session, target, old) = try prepare()
         try beforeAction(session, url: target.url)
-        var point = CGPoint(x: target.bounds.midX, y: target.bounds.midY)
-        if let raw = a.value("in"), let id = Int(raw) {
-            let (_, e) = try resolve(id, target)
-            point = CGPoint(x: e.rect.midX, y: e.rect.midY)
-            Mouse.move(to: point, size: e.rect.size, pid: session.pid)
-        }
+        var rect = CGRect(x: target.bounds.midX - 20, y: target.bounds.midY - 20, width: 40, height: 40)
+        if let raw = a.value("in"), let id = Int(raw) { rect = try resolve(id, target).1.rect }
         let wheel = Int32((direction == "down" ? -1 : 1) * count * 3)
-        if let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: wheel, wheel2: 0, wheel3: 0) {
-            event.location = point
-            Keys.post(event, session.pid)
+        try Borrow.run(target) {
+            // The wheel scrolls whatever is under the cursor, so the cursor goes there first.
+            let point = Mouse.landing(in: rect)
+            Mouse.move(to: point, size: rect.size)
+            try Borrow.checkpoint()
+            if let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: wheel, wheel2: 0, wheel3: 0) {
+                event.location = point
+                Keys.post(event)
+            }
         }
-        return finish("scroll", tier: 2, session, target, old, extra: ["→ \(direction) \(count)"],
+        return finish("scroll", session, target, old, extra: ["→ \(direction) \(count)"],
                       log: ["direction": direction, "count": count])
     }
 
@@ -573,9 +632,8 @@ enum Commands {
         let (session, target, old) = try prepare()
         let (_, e) = try resolve(id, target)
         try beforeAction(session, url: target.url)
-        let point = Mouse.landing(in: e.rect)
-        Mouse.move(to: point, size: e.rect.size, pid: session.pid)
-        return finish("hover", tier: 2, session, target, old, log: ["id": id])
+        try Borrow.run(target) { Mouse.move(to: Mouse.landing(in: e.rect), size: e.rect.size) }
+        return finish("hover", session, target, old, log: ["id": id, "label": e.label, "name": e.name])
     }
 
     static func drag(_ a: Args) throws -> String {
@@ -584,7 +642,7 @@ enum Commands {
         let (_, src) = try resolve(from, target)
         let (_, dst) = try resolve(to, target)
         try gate(session, target, src, "drag \(src.short) onto \(dst.short)",
-                 details: ["borrows the real pointer"], warn: Gate.warnings(dst, target).filter { $0.hasPrefix("may") })
+                 warn: Gate.warnings(dst, target).filter { $0.hasPrefix("may") })
         try beforeAction(session, url: target.url)
         try Borrow.run(target) {
             let start = Mouse.landing(in: src.rect)
@@ -594,7 +652,106 @@ enum Commands {
             Pace.sleep(0.2)
             try Mouse.drag(from: start, to: end)
         }
-        return finish("drag", tier: 3, session, target, old, extra: ["→ \(from) onto \(to)"], log: ["from": from, "to": to])
+        return finish("drag", session, target, old, extra: ["→ \(from) onto \(to)"], log: ["from": from, "to": to, "label": src.label, "name": src.name, "to_label": dst.label, "to_name": dst.name])
+    }
+
+    /// `choose <path>`: drives the open or save dialog on the session window. An existing file is
+    /// selected and opened; a folder is gone to; a new file name goes to its folder and the name field.
+    static func choose(_ a: Args) throws -> String {
+        let path = (a.pos.joined(separator: " ") as NSString).expandingTildeInPath
+        guard !path.isEmpty else { throw Fail(5, "choose <path>") }
+        let (session, target, old) = try prepare()
+        let app = appElement(session.pid)
+        let dialogs = fileDialogs(app)
+        guard let dialog = dialogs.first(where: { $0.string(kAXRoleAttribute) == "AXSheet" }) ?? dialogs.first else {
+            throw Fail(5, "no open or save dialog on the session window: press the control that opens one first")
+        }
+        var isDir: ObjCBool = false
+        let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDir)
+        let file = exists && !isDir.boolValue
+        let folder = exists ? path : (path as NSString).deletingLastPathComponent
+        let summary = file ? "choose and open \(path)" : exists ? "go to \(path)" : "save as \(path)"
+        try gate(session, target, nil, summary + " in the file dialog",
+                 warn: file ? ["opens or attaches the file in \(session.app)"] : [])
+        try beforeAction(session, url: nil)
+        try choosePath(file ? path : folder, in: dialog, app: app, target, open: file)
+        if !exists { try fillName((path as NSString).lastPathComponent, in: dialog, target) }
+        let next = file ? "chose \(path)" : exists ? "in \(path)" : "name set: press the dialog's Save button"
+        return finish("choose", session, target, old, extra: [next], log: ["path": path])
+    }
+
+    /// Goes to `path` through the dialog's Go to Folder sheet, then opens it when `open` is set.
+    /// Everything is real input: the panel runs in a system process and takes keys once it has focus.
+    private static func choosePath(_ path: String, in dialog: AXUIElement, app: AXUIElement, _ target: Target, open: Bool) throws {
+        let gone = { fileDialogs(app).contains { CFEqual($0, dialog) } ? nil : true }
+        // The dialog is itself a sheet, so look for Go to Folder among its descendants only.
+        let goField = { () -> AXUIElement? in
+            dialog.children.lazy.compactMap { child in
+                child.string(kAXRoleAttribute) == "AXSheet" ? child : findFirst(child, limit: 4000) { $0.role == "AXSheet" }
+            }.first.flatMap { sheet in
+                findFirst(sheet, limit: 500) { $0.role == "AXTextField" || $0.role == "AXComboBox" }
+            }
+        }
+        let search = findFirst(dialog, limit: 4000, where: { $0.subrole == "AXSearchField" })
+        let list = findFirst(dialog, limit: 4000, where: { $0.role == "AXOutline" || $0.role == "AXTable" })
+        try Borrow.run(target) {
+            Pace.sleep(0.4)
+            // Text left in the search field turns the list into search results: clear it as a person would.
+            if let search, !(search.string(kAXValueAttribute) ?? "").isEmpty, let f = search.frame {
+                try realClick(f)
+                try Keys.press("cmd+a")
+                try Keys.press("backspace")
+            }
+            // The panel takes keys only once it has focus. The bottom edge of the file list is usually
+            // empty, so a click there gives focus and selects nothing.
+            if goField() == nil, let f = list?.frame ?? dialog.frame, f.height > 30 {
+                try realClick(CGRect(x: f.minX + 20, y: f.maxY - 14, width: f.width - 40, height: 10))
+                Pace.sleep(0.3)
+            }
+            if goField() == nil { try Keys.press("cmd+shift+g") }
+            // With focus in the search field the shortcut does nothing; "/" typed in the file list opens it too.
+            if poll(timeout: 1.5, goField) == nil { try Keys.press("/") }
+            guard let field = poll(timeout: 3, goField) else { throw Fail(5, "Go to Folder did not open in the file dialog") }
+            // Typed key by key, each key replaces the completion the field offers, as it does for a
+            // person. If the field still shows something else, type it again more slowly.
+            for attempt in 0..<2 where field.string(kAXValueAttribute) != path {
+                try Borrow.checkpoint()
+                try Keys.press("cmd+a")
+                Keys.type(path, fast: attempt == 0)
+                Pace.sleep(1.5)
+            }
+            guard field.string(kAXValueAttribute) == path else {
+                throw Fail(5, "Go to Folder shows \"\(field.string(kAXValueAttribute) ?? "")\", not the path: nothing was chosen")
+            }
+            try Keys.press("return")
+            guard open else { return }
+            // A file path selects the file; some panels open it on the same return, others need Open.
+            if poll(timeout: 1.5, gone) == nil {
+                let button = findFirst(dialog, limit: 4000) { i in
+                    i.role == "AXButton" && ["open", "choose", "upload", "select"].contains((i.title ?? "").lowercased())
+                }
+                if let f = button?.frame { try realClick(f) } else { try Keys.press("return") }
+            }
+        }
+        if open, poll(timeout: 5, gone) == nil {
+            throw Fail(5, "the file dialog is still open: `read` shows it; press its Open or Cancel button")
+        }
+    }
+
+    /// Types a file name into the save dialog's name field: the first text field outside lists and sheets.
+    private static func fillName(_ name: String, in dialog: AXUIElement, _ target: Target) throws {
+        func walk(_ el: AXUIElement, _ depth: Int) -> AXUIElement? {
+            guard depth < 12 else { return nil }
+            for child in el.children {
+                let role = child.string(kAXRoleAttribute) ?? ""
+                if ["AXOutline", "AXTable", "AXSheet", "AXList"].contains(role) { continue }
+                if role == "AXTextField", child.string(kAXSubroleAttribute) != "AXSearchField" { return child }
+                if let hit = walk(child, depth + 1) { return hit }
+            }
+            return nil
+        }
+        guard let field = walk(dialog, 0), let f = field.frame else { throw Fail(5, "the save dialog has no name field") }
+        try Borrow.run(target) { try typeInto(field, f, name, target, label: "the name field") }
     }
 
     static func upload(_ a: Args) throws -> String {
@@ -605,64 +762,58 @@ enum Commands {
         let (el, e) = try resolve(id, target)
         try gate(session, target, e, "upload \(path) through \(e.short)", warn: ["sends a file to \(hostOf(target.url) ?? session.app)"])
         try beforeAction(session, url: target.url)
-        guard pressElement(el) else { throw Fail(5, "element \(id) does not open a file dialog") }
         let app = appElement(session.pid)
-        let sheet = poll(timeout: 6) {
-            findFirst(app, limit: 9000) { i in
-                i.role == "AXSheet" || (i.role == "AXWindow" && (i.title ?? "").lowercased().contains("open"))
-                    || (i.role == "AXWindow" && (i.title ?? "").lowercased().contains("choose"))
-            }
+        let before = fileDialogs(app)
+        // A picker already open on the session window, say from an earlier attempt, is used as it is.
+        var found: AXUIElement? = before.first { $0.string(kAXRoleAttribute) == "AXSheet" }
+        if found == nil {
+            try Borrow.run(target) { try realClick(el?.frame ?? e.rect) }
+            found = poll(timeout: 6) { fileDialogs(app).first { d in !before.contains { CFEqual($0, d) } } }
         }
-        guard let sheet else { throw Fail(5, "file dialog did not appear") }
-        guard let field = findFirst(sheet, limit: 4000, where: { $0.role == "AXTextField" || $0.role == "AXComboBox" }) else {
-            throw Fail(5, "file dialog has no path field")
-        }
-        field.set(kAXValueAttribute, path as NSString)
-        Pace.sleep(0.25)
-        let confirm = findFirst(sheet, limit: 4000) { i in
-            guard i.role == "AXButton", let title = i.title?.lowercased() else { return false }
-            return ["open", "choose", "upload", "select", "ok"].contains(title)
-        }
-        if let confirm { _ = confirm.perform(kAXPressAction) } else { try Keys.press("return", pid: session.pid) }
-        return finish("upload", tier: 1, session, target, old, extra: ["uploaded \(path)"], log: ["id": id, "path": path])
+        guard let dialog = found else { throw Fail(5, "no file dialog appeared after clicking \(e.short)") }
+        try choosePath(path, in: dialog, app: app, target, open: true)
+        return finish("upload", session, target, old, extra: ["uploaded \(path)"], log: ["id": id, "path": path, "label": e.label, "name": e.name])
     }
 
     static func download(_ a: Args) throws -> String {
         guard let id = a.pos.first.flatMap(Int.init), a.pos.count >= 2 else { throw Fail(5, "download <id> <path>") }
-        let path = a.pos.dropFirst().joined(separator: " ")
+        let path = (a.pos.dropFirst().joined(separator: " ") as NSString).expandingTildeInPath
         let (session, target, old) = try prepare()
         let (el, e) = try resolve(id, target)
         let source = el?.string("AXURL") ?? e.value ?? ""
         try gate(session, target, e, "download \(e.short) to \(path)", details: ["source: \(source)"])
         try beforeAction(session, url: target.url)
-        mouseClick(e, pid: session.pid, right: true)
-        Pace.sleep(0.4)
         let app = appElement(session.pid)
-        let menu = poll(timeout: 4) {
-            findFirst(app, limit: 9000) { i in
-                guard i.role == "AXMenuItem", let t = i.title?.lowercased() else { return false }
-                return t.contains("save image as") || t.contains("download linked file") || t.contains("save link as") || t.contains("download image")
+        let before = fileDialogs(app)
+        try Borrow.run(target) {
+            try realClick(el?.frame ?? e.rect, right: true)
+            Pace.sleep(0.4)
+            let item = poll(timeout: 4) {
+                findFirst(app, limit: 9000) { i in
+                    guard i.role == "AXMenuItem", let t = i.title?.lowercased() else { return false }
+                    return t.contains("save image as") || t.contains("download linked file") || t.contains("save link as") || t.contains("download image")
+                }
             }
+            guard let f = item?.frame else {
+                try? Keys.press("esc")
+                throw Fail(5, "no Save Image As / Download Linked File item for \(id)")
+            }
+            try realClick(f)
         }
-        guard let menu else { throw Fail(5, "no Save Image As / Download Linked File item for \(id)") }
-        _ = menu.perform(kAXPressAction)
-        let sheet = poll(timeout: 6) {
-            findFirst(app, limit: 9000) { i in
-                (i.role == "AXSheet" || i.role == "AXWindow") && (i.title ?? "").lowercased().contains("save")
+        let saved: Bool
+        if let dialog = poll(timeout: 6, { fileDialogs(app).first { d in !before.contains { CFEqual($0, d) } } }) {
+            try choosePath((path as NSString).deletingLastPathComponent, in: dialog, app: app, target, open: false)
+            try fillName((path as NSString).lastPathComponent, in: dialog, target)
+            if let f = findFirst(dialog, limit: 4000, where: { $0.role == "AXButton" && ($0.title ?? "").lowercased() == "save" })?.frame {
+                try Borrow.run(target) { try realClick(f) }
             }
+            saved = poll(timeout: 6) { FileManager.default.fileExists(atPath: path) ? true : nil } != nil
+        } else {
+            // Some browsers save straight to Downloads without asking.
+            saved = false
         }
-        if let sheet {
-            if let field = findFirst(sheet, limit: 4000, where: { $0.role == "AXTextField" || $0.role == "AXComboBox" }) {
-                field.set(kAXValueAttribute, path as NSString)
-                Pace.sleep(0.2)
-            }
-            if let save = findFirst(sheet, limit: 4000, where: { $0.role == "AXButton" && ($0.title ?? "").lowercased() == "save" }) {
-                _ = save.perform(kAXPressAction)
-            }
-        }
-        let saved = poll(timeout: 4) { FileManager.default.fileExists(atPath: path) ? true : nil } != nil
-        return finish("download", tier: 2, session, target, old, extra: [(saved ? "saved " : "requested ") + path],
-                      log: ["id": id, "path": path, "source": source])
+        return finish("download", session, target, old, extra: [(saved ? "saved " : "requested ") + path],
+                      log: ["id": id, "path": path, "source": source, "label": e.label, "name": e.name])
     }
 
     static func waitFor(_ a: Args) throws -> String {

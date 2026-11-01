@@ -34,6 +34,16 @@ if touch "$agents" && ! grep -q "<!-- deskkontrol -->" "$agents" 2>/dev/null; th
   echo "appended the deskkontrol section to $agents"
 fi
 
+# Notes live in the repo, so `git pull` brings in what was learned on other machines,
+# and `deskkontrol learn` writes new flows straight into the working tree to commit.
+notes="$HOME/.deskkontrol/notes"
+if [ -L "$notes" ] || [ ! -e "$notes" ]; then
+  ln -sfn "$root/notes" "$notes"
+  echo "linked $notes → $root/notes"
+else
+  echo "warning: $notes is a real folder; move its files into $root/notes, delete it, and re-run"
+fi
+
 if [ ! -f "$HOME/.deskkontrol/config.toml" ]; then
   cp "$root/agent/config.example.toml" "$HOME/.deskkontrol/config.toml"
   echo "wrote ~/.deskkontrol/config.toml"

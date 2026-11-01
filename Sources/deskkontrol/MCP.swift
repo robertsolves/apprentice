@@ -23,6 +23,11 @@ enum MCP {
         tool("shot", "Save a PNG of the window or a crop", ["crop": ["type": "string"]]),
         tool("ocr", "OCR the window into numbered lines", ["crop": ["type": "string"]]),
         tool("route", "Check for a faster API, CLI or connector route", ["task": ["type": "string"]], ["task"]),
+        tool("choose", "In an open or save dialog, go to a path: picks a file or fills in a new name", ["path": ["type": "string"]], ["path"]),
+        tool("do", "Run a flow from notes/flows with one approval. vars: {\"name\": \"value\"} fills {name}", ["flow": ["type": "string"], "vars": ["type": "object"]], ["flow"]),
+        tool("ask", "When stuck or deciding, show Robert a little window: free text, or choices (multi for checkboxes, text to add a reply field). Returns his reply",
+             ["question": ["type": "string"], "choices": ["type": "array", "items": ["type": "string"]], "multi": ["type": "boolean"], "text": ["type": "boolean"]], ["question"]),
+        tool("confirm", "Show Robert a pending step with Approve and Deny; runs it if he approves. Use for ⚠ steps", ["token": ["type": "string"], "why": ["type": "string"]], ["token"]),
         tool("approve", "Run a proposed action. Optional text replaces the text of a proposed type", ["token": ["type": "string"], "text": ["type": "string"]], ["token"]),
         tool("deny", "Drop a proposed action", ["token": ["type": "string"]], ["token"]),
     ]
@@ -115,6 +120,22 @@ enum MCP {
             return Request(cmd: name, args: a)
         case "route":
             return Request(cmd: "route", args: [s("task") ?? ""])
+        case "choose":
+            return Request(cmd: "choose", args: [s("path") ?? ""])
+        case "do":
+            var a = [s("flow") ?? ""]
+            for (k, v) in (args["vars"] as? [String: Any] ?? [:]).sorted(by: { $0.key < $1.key }) { a += ["--\(k)", "\(v)"] }
+            return Request(cmd: "do", args: a)
+        case "ask":
+            var a = [s("question") ?? ""]
+            if let choices = args["choices"] as? [String], !choices.isEmpty { a += ["--choices", choices.joined(separator: "|")] }
+            if b("multi") { a.append("--multi") }
+            if b("text") { a.append("--text") }
+            return Request(cmd: "ask", args: a)
+        case "confirm":
+            var a = [s("token") ?? ""]
+            if let why = s("why") { a += ["--why", why] }
+            return Request(cmd: "confirm", args: a)
         case "approve":
             var a = [s("token") ?? ""]
             if let text = s("text") { a += ["--text", text] }

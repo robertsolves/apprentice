@@ -42,6 +42,8 @@ enum Daemon {
                 let out = try Commands.run(req)
                 return (Response(code: 0, out: out), false)
             } catch let fail as Fail {
+                // Proposals are not errors; everything else is kept so `bug` can quote it.
+                if fail.code != 8 { Store.log(["error": String(fail.message.prefix(300)), "code": Int(fail.code), "failed": req.cmd]) }
                 return (Response(code: fail.code, out: fail.message), false)
             } catch {
                 return (Response(code: 5, out: "\(error)"), false)

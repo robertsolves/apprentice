@@ -20,6 +20,16 @@ mode = "fast"
 # Empty means unrestricted. Example: allow = ["github.com", "robertsolves.com"]
 allow = []
 
+[agent]
+# false: the LLM may use quick shell commands for macOS tasks (files, folders, opening apps).
+# true: everything goes through the UI. Websites always go through the UI.
+# DESKKONTROL_UI_ONLY=1 sets it for one shell.
+ui_only = false
+# The first `session` after deskkontrol starts opens a little window asking for these options.
+ask_on_start = true
+# Sound when deskkontrol's little window pops up: a system sound name (Ping, Glass, Pop…) or "none".
+ask_sound = "Ping"
+
 [run]
 base_url = "https://api.openai.com/v1"
 model = "gpt-4o-mini"

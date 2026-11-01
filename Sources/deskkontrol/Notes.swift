@@ -1,0 +1,267 @@
+import Foundation
+
+/// Learned notes: Markdown files about apps, sites and flows, kept in the repo's `notes/`
+/// (linked to ~/.deskkontrol/notes by kit.sh), so `git pull` brings in what was learned elsewhere.
+enum Notes {
+    struct Note {
+        var url: URL
+        var path: String
+        var meta: [String: String]
+        var title: String
+        var body: String
+
+        var match: [String] {
+            (meta["match"] ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces).lowercased() }.filter { !$0.isEmpty }
+        }
+
+        /// Bullets under "## Key facts", the part `session` prints.
+        var keyFacts: [String] {
+            var out: [String] = []
+            var inside = false
+            for line in body.components(separatedBy: .newlines) {
+                if line.hasPrefix("## ") { inside = line.lowercased().hasPrefix("## key facts"); continue }
+                if inside, line.hasPrefix("- ") { out.append(String(line.dropFirst(2))) }
+            }
+            return out
+        }
+    }
+
+    static var dir: URL {
+        if let custom = ProcessInfo.processInfo.environment["DESKKONTROL_NOTES"], !custom.isEmpty {
+            return URL(fileURLWithPath: (custom as NSString).expandingTildeInPath)
+        }
+        return Store.dir.appendingPathComponent("notes")
+    }
+
+    static func all() -> [Note] {
+        let root = dir.resolvingSymlinksInPath()
+        guard let walk = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil) else { return [] }
+        var out: [Note] = []
+        for case let url as URL in walk where url.pathExtension == "md" && url.lastPathComponent != "README.md" {
+            guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+            let path = String(url.resolvingSymlinksInPath().path.dropFirst(root.path.count + 1))
+            out.append(parse(text, url: url, path: path))
+        }
+        return out.sorted { $0.path < $1.path }
+    }
+
+    static func parse(_ text: String, url: URL, path: String) -> Note {
+        var meta: [String: String] = [:]
+        var lines = text.components(separatedBy: .newlines)
+        if lines.first == "---", let end = lines.dropFirst().firstIndex(of: "---") {
+            for line in lines[1..<end] {
+                guard let colon = line.firstIndex(of: ":") else { continue }
+                meta[line[..<colon].trimmingCharacters(in: .whitespaces)] = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+            }
+            lines = Array(lines[(end + 1)...])
+        }
+        let title = lines.first { $0.hasPrefix("# ") }.map { String($0.dropFirst(2)) } ?? url.deletingPathExtension().lastPathComponent
+        return Note(url: url, path: path, meta: meta, title: title, body: lines.joined(separator: "\n"))
+    }
+
+    /// App and site notes for this window; flows are left to `notes <query>`. `*` matches every session.
+    static func matching(app: String?, bundle: String?, host: String?) -> [Note] {
+        let keys = [app, bundle].compactMap { $0?.lowercased() }
+        let h = host?.lowercased()
+        return all().filter { $0.meta["scope"] != "flow" }.filter { note in
+            note.match.contains { m in
+                m == "*" || keys.contains(m) || (h.map { $0 == m || $0.hasSuffix("." + m) } ?? false)
+            }
+        }
+    }
+
+    static func hintLines(app: String?, bundle: String?, host: String?) -> [String] {
+        let notes = matching(app: app, bundle: bundle, host: host)
+        guard !notes.isEmpty else { return [] }
+        var out: [String] = []
+        for note in notes {
+            out.append("notes · \(note.path)")
+            out += note.keyFacts.prefix(6).map { "  - \($0)" }
+        }
+        out.append("more: deskkontrol notes \"<words>\"")
+        return out
+    }
+
+    /// Ranks notes by how many query words they contain and shows the matching lines.
+    static func search(_ query: String) -> String {
+        let root = dir.resolvingSymlinksInPath()
+        guard FileManager.default.fileExists(atPath: root.path) else {
+            return "no notes at \(dir.path): run ./kit.sh to link the repo's notes/, or set DESKKONTROL_NOTES"
+        }
+        let notes = all()
+        let words = query.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init).filter { $0.count > 1 }
+        if words.isEmpty {
+            return (["notes in \(root.path)"] + notes.map { "\($0.path) · \($0.title)" }).joined(separator: "\n")
+        }
+        let ranked = notes.map { note -> (Note, Int) in
+            let text = (note.path + " " + note.title + " " + (note.meta["tags"] ?? "") + " " + note.body).lowercased()
+            return (note, words.filter { text.contains($0) }.count)
+        }.filter { $0.1 > 0 }.sorted { $0.1 > $1.1 }
+        guard !ranked.isEmpty else { return "no notes match \"\(query)\": work it out on screen, then `deskkontrol learn`" }
+        var out: [String] = []
+        for (note, _) in ranked.prefix(5) {
+            out.append("\(note.path) · \(note.title)")
+            let hits = note.body.components(separatedBy: .newlines).filter { line in
+                !line.hasPrefix("#") && words.contains { line.lowercased().contains($0) }
+            }
+            out += hits.prefix(6).map { "  \($0.trimmingCharacters(in: .whitespaces))" }
+        }
+        out.append("full note: cat \(root.path)/<path>")
+        return out.joined(separator: "\n")
+    }
+
+    /// Note text for the `run` loop: the window's notes plus the best-matching flow.
+    static func context(task: String, session: Session?) -> String {
+        var parts = hintLines(app: session?.app, bundle: session?.bundle, host: hostOf(session?.url))
+        let words = task.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init).filter { $0.count > 2 }
+        let flows = all().filter { $0.meta["scope"] == "flow" }.map { note -> (Note, Int) in
+            let text = (note.title + " " + (note.meta["tags"] ?? "") + " " + (note.meta["match"] ?? "")).lowercased()
+            return (note, words.filter { text.contains($0) }.count)
+        }.filter { $0.1 > 0 }.sorted { $0.1 > $1.1 }
+        if let (flow, _) = flows.first { parts.append("flow · \(flow.path)\n\(flow.body.trimmingCharacters(in: .whitespacesAndNewlines))") }
+        return parts.joined(separator: "\n")
+    }
+
+    static func flow(named name: String) -> Note? {
+        let flows = all().filter { $0.meta["scope"] == "flow" }
+        return flows.first { $0.url.deletingPathExtension().lastPathComponent == name || $0.path == name }
+    }
+
+    /// Numbered lines under "## Steps", without their numbers.
+    static func steps(_ note: Note) -> [String] {
+        var out: [String] = []
+        var inside = false
+        for line in note.body.components(separatedBy: .newlines) {
+            if line.hasPrefix("## ") { inside = line.lowercased().hasPrefix("## steps"); continue }
+            guard inside, let dot = line.firstIndex(of: "."), line[..<dot].allSatisfy(\.isNumber), !line[..<dot].isEmpty else { continue }
+            out.append(line[line.index(after: dot)...].trimmingCharacters(in: .whitespaces))
+        }
+        return out
+    }
+
+    // MARK: - bug
+
+    /// The repo that holds the notes (kit.sh links ~/.deskkontrol/notes into it).
+    static var repo: URL { dir.resolvingSymlinksInPath().deletingLastPathComponent() }
+
+    /// `bug "summary" [--repro …] [--cause …] [--fix …]`: appends a field report to the repo's bugs.md,
+    /// with the last error from the log. The LLM reads the source first and suggests the fix.
+    static func fileBug(_ a: Args) throws -> String {
+        let summary = a.pos.joined(separator: " ")
+        guard !summary.isEmpty else { throw Fail(5, "bug \"summary\" [--repro \"…\"] [--cause \"file:line …\"] [--fix \"…\"]") }
+        let file = repo.appendingPathComponent("bugs.md")
+        var text = (try? String(contentsOf: file, encoding: .utf8)) ?? "# deskkontrol — bug audit\n"
+        if !text.contains("## Field reports") {
+            text += "\n## Field reports\n\nFiled by `deskkontrol bug` while working. Each has a suggested fix to review; none is applied.\n"
+        }
+        let count = text.components(separatedBy: "\n### F").count
+        var entry = "\n### F\(count) · \(summary) — \(Store.day())\n"
+        if let r = a.value("repro") { entry += "- Repro: \(r)\n" }
+        if let error = lastError() { entry += "- Last error: `\(error)`\n" }
+        if let c = a.value("cause") { entry += "- Cause: \(c)\n" }
+        if let f = a.value("fix") { entry += "- Suggested fix: \(f)\n" }
+        try (text + entry).write(to: file, atomically: true, encoding: .utf8)
+        return "filed F\(count) in \(file.path)"
+    }
+
+    private static func lastError() -> String? {
+        guard let session = Session.stored,
+              let text = try? String(contentsOf: Store.runFolder(session).appendingPathComponent("steps.jsonl"), encoding: .utf8) else { return nil }
+        for row in text.split(separator: "\n").reversed() {
+            guard let data = row.data(using: .utf8), let r = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let error = r["error"] as? String else { continue }
+            return "\(r["failed"] ?? "?") → exit \(r["code"] ?? "?"): \(error.split(separator: "\n").first ?? "")"
+        }
+        return nil
+    }
+
+    // MARK: - learn
+
+    static let actions: Set<String> = ["open", "click", "type", "key", "menu", "scroll", "hover", "drag", "upload", "download", "choose"]
+
+    /// Drafts a flow from the approved steps of the current session. The caller generalizes it.
+    static func learn(_ a: Args) throws -> String {
+        let task = a.pos.joined(separator: " ")
+        guard !task.isEmpty else { throw Fail(5, "learn \"task\" [--name slug] [--force]") }
+        guard let session = Session.stored else { throw Fail(5, "no session: learn drafts a flow from the current session's steps") }
+        let steps = stepLines(session)
+        guard !steps.isEmpty else { throw Fail(5, "no actions in this session's log yet") }
+        let slug = a.value("name") ?? slugify("\(session.app) \(task)")
+        let url = dir.appendingPathComponent("flows/\(slug).md")
+        if FileManager.default.fileExists(atPath: url.path), !a.has("force") {
+            throw Fail(5, "\(url.path) exists: edit it, or pass --force to replace it")
+        }
+        let text = draft(task, session, steps)
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try text.write(to: url, atomically: true, encoding: .utf8)
+        return "wrote \(url.resolvingSymlinksInPath().path)\nedit it now: generalize names, drop dead steps, add Fails\n\n" + text
+    }
+
+    static func stepLines(_ session: Session) -> [String] {
+        let file = Store.runFolder(session).appendingPathComponent("steps.jsonl")
+        guard let text = try? String(contentsOf: file, encoding: .utf8) else { return [] }
+        var out = ["`session --app \"\(session.app)\"`"]
+        for row in text.split(separator: "\n") {
+            guard let data = row.data(using: .utf8),
+                  let r = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let cmd = r["cmd"] as? String, actions.contains(cmd), r["diff"] != nil else { continue }
+            func el(_ prefix: String = "") -> String {
+                let label = r[prefix + "label"] as? String ?? "element"
+                if label.hasPrefix("focused") { return "focused" }
+                let name = (r[prefix + "name"] as? String ?? "").replacingOccurrences(of: "\"", with: "\\\"")
+                return "#\(label) \"\(name)\""
+            }
+            var line: String
+            switch cmd {
+            case "open": line = "open \(r["url"] as? String ?? "{url}")"
+            case "click": line = "click \(el())"
+            case "type": line = "type \(el()) \"{text}\""
+            case "key": line = "key \(r["combo"] as? String ?? "")"
+            case "menu": line = "menu \"\(r["menu"] as? String ?? "")\""
+            case "scroll": line = "scroll \(r["direction"] as? String ?? "down") \(r["count"] ?? 3)"
+            case "hover": line = "hover \(el())"
+            case "drag": line = "drag \(el()) \(el("to_"))"
+            case "upload": line = "upload \(el()) \"{file}\""
+            case "choose": line = "choose \"{path}\""
+            default: line = "download \(el()) \"{path}\""
+            }
+            if let flags = r["flags"] as? String, !flags.isEmpty { line += " " + flags }
+            line = "`\(line)`"
+            if r["diff"] as? String == "+0 -0 ~0" { line += " — no visible change: drop it if it was not needed" }
+            out.append(line)
+        }
+        return out
+    }
+
+    static func draft(_ task: String, _ session: Session, _ steps: [String]) -> String {
+        let os = ProcessInfo.processInfo.operatingSystemVersion
+        let lang = Locale.preferredLanguages.first ?? "en"
+        let match = hostOf(session.url) ?? session.app
+        let tags = Set(task.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init).filter { $0.count > 2 }).sorted()
+        return """
+        ---
+        scope: flow
+        match: \(match)
+        tags: \(tags.joined(separator: ", "))
+        lang: \(lang)
+        verified: \(Store.day()), macOS \(os.majorVersion).\(os.minorVersion)
+        status: draft
+        ---
+        # \(task)
+
+        Drafted by `deskkontrol learn` from approved steps. Run it with `deskkontrol do <this file's name> --key value`. Before committing: replace names from this screen with {placeholders}, delete steps that did nothing, and note what failed.
+
+        ## Steps
+        \(steps.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n"))
+
+        ## Fails
+        -
+
+        """
+    }
+
+    static func slugify(_ s: String) -> String {
+        let parts = s.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+        return parts.prefix(8).joined(separator: "-")
+    }
+}

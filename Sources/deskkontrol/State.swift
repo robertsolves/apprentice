@@ -96,8 +96,8 @@ struct Session: Codable {
     var allow: [String]
     var id: String?
     var url: String?
-    /// Act with the window in front, for apps that ignore background input. Set by `session --front`.
-    var front: Bool?
+    /// Chosen in the start-up options window; nil follows `[agent] ui_only`.
+    var uiOnly: Bool?
 
     var isBrowser: Bool {
         ["com.google.Chrome", "com.apple.Safari", "com.brave.Browser", "com.microsoft.edgemac"].contains(bundle ?? "")
@@ -257,7 +257,11 @@ enum Approvals {
 
     static var pending: Pending? { Store.load(Pending.self, "pending.json") }
 
+    /// Set while an approved `do` runs its steps: the plan was approved as a whole.
+    static var planActive = false
+
     static var approved: Bool {
+        if planActive { return true }
         guard let g = granted else { return false }
         return g.cmd == request.cmd && g.args == request.args
     }

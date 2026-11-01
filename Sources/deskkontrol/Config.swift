@@ -106,6 +106,11 @@ struct Config {
     var defaultPace = PaceConfig()
     var profiles: [String: PaceConfig] = [:]
     var allow: [String] = []
+    /// When true, macOS tasks go through the UI too; the LLM may not use shell commands for them.
+    var uiOnly = false
+    var askOnStart = true
+    /// The system sound played when the little window pops up; "none" turns it off.
+    var askSound = "Ping"
     var runURL = "https://api.openai.com/v1"
     var runModel = "gpt-4o-mini"
     var runKey = ""
@@ -125,6 +130,35 @@ struct Config {
         current.pace = current.defaultPace
     }
 
+    /// What the LLM may use besides the UI. Robert sets this; agents never change it.
+    static var policyLine: String {
+        (Session.stored?.uiOnly ?? current.uiOnly)
+            ? "policy: UI only. Do every task through deskkontrol, including files and folders; no shell commands for them."
+            : "policy: websites only through the UI. Quick macOS tasks (files, folders, opening apps) may use shell commands."
+    }
+
+    /// Sets `key = value` under `[section]` in config.toml, adding either if missing. Used only for
+    /// choices Robert makes in the start-up window; the LLM has no command for it.
+    static func remember(_ section: String, _ key: String, _ value: String) {
+        var lines = ((try? String(contentsOf: path, encoding: .utf8)) ?? "").components(separatedBy: "\n")
+        let header = "[\(section)]"
+        if let start = lines.firstIndex(of: header) {
+            var i = start + 1
+            while i < lines.count, !lines[i].hasPrefix("[") {
+                if lines[i].trimmingCharacters(in: .whitespaces).hasPrefix(key + " ") || lines[i].hasPrefix(key + "=") {
+                    lines[i] = "\(key) = \(value)"
+                    try? lines.joined(separator: "\n").write(to: path, atomically: true, encoding: .utf8)
+                    return
+                }
+                i += 1
+            }
+            lines.insert("\(key) = \(value)", at: start + 1)
+        } else {
+            lines += ["", header, "\(key) = \(value)"]
+        }
+        try? lines.joined(separator: "\n").write(to: path, atomically: true, encoding: .utf8)
+    }
+
     static func parseAllow(_ raw: String) -> [String] {
         raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }
     }
@@ -142,6 +176,9 @@ struct Config {
             if let a = s["allow"].flatMap(Toml.array) { c.allow = a }
             else if let one = s["allow"] { c.allow = parseAllow(Toml.unquote(one)) }
         }
+        if let v = toml["agent"]?["ui_only"] { c.uiOnly = Toml.unquote(v) == "true" }
+        if let v = toml["agent"]?["ask_on_start"] { c.askOnStart = Toml.unquote(v) != "false" }
+        if let v = toml["agent"]?["ask_sound"] { c.askSound = Toml.unquote(v) }
         if let r = toml["run"] {
             if let v = r["base_url"] { c.runURL = Toml.unquote(v) }
             if let v = r["model"] { c.runModel = Toml.unquote(v) }
@@ -156,6 +193,7 @@ struct Config {
             case "OPENAI_BASE_URL": if c.runKey.isEmpty || c.runURL.contains("openai.com") { c.runURL = v }
             case "OPENAI_API_KEY": c.runKey = v
             case "OPENAI_MODEL": c.runModel = v
+            case "DESKKONTROL_UI_ONLY": c.uiOnly = ["1", "true", "yes"].contains(v.lowercased())
             default: break
             }
         }

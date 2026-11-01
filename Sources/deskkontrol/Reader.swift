@@ -107,10 +107,13 @@ final class Walker {
         self.includeOffscreen = includeOffscreen
     }
 
-    func walk(_ el: AXUIElement, path: [Int], depth: Int) {
+    func walk(_ el: AXUIElement, path: [Int], depth: Int, fieldValue: String? = nil) {
         visited += 1
         guard visited < 40000, depth < 90 else { return }
         let i = info(el)
+        // Text inside a field that repeats its value; anything else in there (suggestions) is kept.
+        if let fieldValue, i.role == "AXStaticText", let t = i.value.flatMap(stringify) ?? i.title,
+           fieldValue.contains(t) { return }
         let onscreen = i.frame.map { $0.width > 0 && $0.height > 0 && $0.intersects(bounds) } ?? false
         if let (label, kind) = classify(i.role, i.subrole) {
             let name = elementName(i, kind)
@@ -126,11 +129,14 @@ final class Walker {
                     frame: [f.minX, f.minY, f.width, f.height].map { Double($0) },
                     offscreen: !onscreen, gated: kind == .control && Gate.matches(name)))
             }
-            return  // a named control owns its subtree; its text is already in its name
+            // A named button or link owns its subtree: its text is already in its name. Fields and
+            // popups do not, since suggestion lists and menus can hang off them as children.
+            if kind != .input, label != "popup", label != "menubutton" { return }
         }
         // Skip subtrees whose box lies wholly outside the view.
         if !includeOffscreen, let f = i.frame, f.width > 0, f.height > 0, !f.intersects(bounds) { return }
-        for (n, child) in i.children.enumerated() { walk(child, path: path + [n], depth: depth + 1) }
+        let value = classify(i.role, i.subrole)?.kind == .input ? (i.value.flatMap(stringify) ?? "") : fieldValue
+        for (n, child) in i.children.enumerated() { walk(child, path: path + [n], depth: depth + 1, fieldValue: value) }
     }
 }
 
@@ -147,12 +153,27 @@ struct Target {
 
 func locate(_ session: Session, scope wanted: String? = nil) throws -> Target {
     let app = appElement(session.pid)
-    let all = windows(of: app)
-    guard let window = all.first(where: { $0.windowID == session.wid }) else {
+    // A fresh daemon must turn Chrome's web accessibility back on before it lists its windows.
+    let find = { windows(of: app).first(where: { $0.windowID == session.wid }) }
+    var found = find()
+    if found == nil {
+        // After a daemon restart Chrome lists no windows until web accessibility is back on and it is active.
+        enableWebAccessibility(app)
+        NSRunningApplication(processIdentifier: session.pid)?.activate()
+        found = poll(timeout: 2, find)
+    }
+    guard let window = found else {
         throw Fail(5, "window \(session.wid) not found: it may be closed, minimised or on another Space. Run `deskkontrol session` again")
     }
     let title = window.string(kAXTitleAttribute) ?? ""
     let wframe = window.frame ?? .zero
+    // A modal sheet (save or open panel, alert) covers the page, so it is what a person sees and acts on.
+    // Nested sheets, such as Go to Folder inside a file picker, win over their parent.
+    if wanted != "window", var sheet = window.children.first(where: { $0.string(kAXRoleAttribute) == "AXSheet" }) {
+        while let inner = sheet.children.first(where: { $0.string(kAXRoleAttribute) == "AXSheet" }) { sheet = inner }
+        return Target(pid: session.pid, app: app, window: window, root: sheet, scope: "sheet",
+                      bounds: sheet.frame ?? wframe, url: nil, title: title)
+    }
     if wanted != "window", let web = findFirst(window, where: { $0.role == "AXWebArea" }) {
         let wb = web.frame.map { $0.intersection(wframe) } ?? wframe
         return Target(pid: session.pid, app: app, window: window, root: web, scope: "web",

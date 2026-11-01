@@ -10,35 +10,45 @@ func usage() {
     deskkontrol \(version) · text-first control of one Mac app or browser window
 
     usage:
-      deskkontrol session [--app Safari] [--new-window] [--allow a.com,b.com] [--front]
+      deskkontrol session [--app Safari] [--new-window] [--allow a.com,b.com] [--no-options]
       deskkontrol open <url>
       deskkontrol focus <app>
       deskkontrol read [--max 80] [--filter text]
-      deskkontrol click <id> [--double|--right] [--tier 1|2|3]
+      deskkontrol click <id> | --at x,y [--double|--right]
       deskkontrol type <id|focused> "text" [--enter] [--pace fast] [--tier 3]
       deskkontrol key <combo> [--tier 3]
       deskkontrol menu "File > New Folder" [--tier 3]
       deskkontrol scroll up|down [n] [--in id]
       deskkontrol hover <id>
       deskkontrol drag <id> <id>
-      deskkontrol upload <id> <path>
+      deskkontrol upload <id> <path> [--tier 3]
+      deskkontrol choose <path>                  drive the open or save dialog on the window
+      deskkontrol do <flow> [--key value ...]    run a flow from notes/flows with one approval
       deskkontrol download <id> <path>
       deskkontrol approve <token> [--text "edited text"] | deny <token> | pending
       deskkontrol wait-for "text" [--timeout 10]
       deskkontrol ocr [--crop id|x,y,w,h]
       deskkontrol shot [--crop id|x,y,w,h]
+      deskkontrol ask "question" [--choices "A|B|C" [--multi] [--text]]   a little window for Robert; prints his reply
+      deskkontrol show "what"                    Robert points the cursor at it; prints the element there
+      deskkontrol confirm <token> [--why "…"]    Robert approves or denies a pending step in the little window
+      deskkontrol bug "summary" [--repro …] [--cause …] [--fix …]   file a field report in the repo's bugs.md
+      deskkontrol policy                         may the LLM use shell commands for macOS tasks? ([agent] ui_only)
+      deskkontrol grow [--days 14]               improvement digest: repeated errors, questions asked, open bug reports
       deskkontrol log [--tail n]
       deskkontrol route "task"
+      deskkontrol notes ["words"]                      learned app, site and flow notes
+      deskkontrol learn "task" [--name slug] [--force]  draft a flow from this session's steps
       deskkontrol run "task" --model <name> [--base-url url] [--screen-anyway] [--save name]
       deskkontrol replay <name> [--from n] [--approve]
       deskkontrol mcp
       deskkontrol serve [--background] | stop
 
     output is compact text for an agent. add --json for the raw reply.
-    open, click, type, key, menu, drag, upload and download only propose: they exit 8 with a token,
+    open, click, type, key, menu, drag, upload, download, choose and do only propose: they exit 8 with a token,
     and act once you run `deskkontrol approve <token>`.
-    exit codes: 0 ok · 2 stale, re-read · 4 blocked or rate limited · 5 not found or timeout ·
-                6 interrupted · 7 permission missing · 8 approval needed, nothing done yet
+    exit codes: 0 ok · 2 stale, re-read · 3 Robert denied · 4 blocked or rate limited ·
+                5 not found or timeout · 6 interrupted · 7 permission missing · 8 approval needed, nothing done yet
     """)
 }
 
@@ -78,6 +88,19 @@ case "stop":
     exit(0)
 case "route":
     print(Routes.answer(rest.joined(separator: " ")))
+    exit(0)
+case "notes":
+    print(Notes.search(rest.joined(separator: " ")))
+    exit(0)
+case "learn":
+    attempt { print(try Notes.learn(Args.parse(rest))) }
+case "bug":
+    attempt { print(try Notes.fileBug(Args.parse(rest))) }
+case "policy":
+    print(Config.policyLine)
+    exit(0)
+case "grow":
+    print(Grow.digest(days: Args.parse(rest).int("days", 14)))
     exit(0)
 case "run":
     attempt { try AgentLoop.run(Args.parse(rest)) }

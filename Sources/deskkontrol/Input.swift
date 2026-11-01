@@ -47,38 +47,56 @@ enum Keys {
         return (key, flags)
     }
 
-    /// pid != nil sends to that app only (works in the background); nil posts to the real HID stream.
-    static func press(_ combo: String, pid: pid_t?) throws {
+    /// A real key press on the system keyboard stream, as from a person's keyboard.
+    static func press(_ combo: String) throws {
         let (code, flags) = try parse(combo)
         for down in [true, false] {
             guard let e = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down) else { continue }
             e.flags = flags
-            post(e, pid)
+            post(e)
             Pace.sleep(down ? Double.random(in: 0.03...0.07) : 0.02)
         }
     }
 
-    static func typeChar(_ ch: Character, pid: pid_t?) {
+    static func typeChar(_ ch: Character) {
         if ch == "\n" {
-            try? press("return", pid: pid)
+            try? press("return")
             return
         }
         let units = Array(String(ch).utf16)
+        // The key a person would press for it, so key codes match the character (US layout); the
+        // Unicode string still decides what is typed. Characters with no key keep code 0.
+        let (code, shift) = keyFor(ch)
         for down in [true, false] {
-            guard let e = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: down) else { continue }
+            guard let e = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down) else { continue }
+            if shift { e.flags = .maskShift }
             e.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
-            post(e, pid)
+            post(e)
             if down { Pace.sleep(Double.random(in: 0.02...0.05)) }
         }
     }
 
-    static func type(_ text: String, pid: pid_t?) {
+    static let shifted: [Character: Character] = [
+        "!": "1", "@": "2", "#": "3", "$": "4", "%": "5", "^": "6", "&": "7", "*": "8", "(": "9", ")": "0",
+        "_": "-", "+": "=", "{": "[", "}": "]", "|": "\\", ":": ";", "\"": "'", "<": ",", ">": ".", "?": "/", "~": "`",
+    ]
+
+    static func keyFor(_ ch: Character) -> (CGKeyCode, Bool) {
+        if ch == " " { return (codes["space"] ?? 49, false) }
+        if let base = shifted[ch], let code = codes[String(base)] { return (code, true) }
+        let lower = Character(ch.lowercased())
+        if let code = codes[String(lower)] { return (code, ch != lower) }
+        return (0, false)
+    }
+
+    /// Types like a person, key by key. `fast` shortens the gaps; every key is still a real key.
+    static func type(_ text: String, fast: Bool = false) {
         Pace.sleep(Double.random(in: 0.15...0.35))
         var prev: Character?
         for ch in text {
-            if KillSwitch.tripped { return }
-            typeChar(ch, pid: pid)
-            Pace.sleep(Pace.keyGap(after: prev))
+            if KillSwitch.tripped || Watch.stopped { return }
+            typeChar(ch)
+            Pace.sleep(Pace.keyGap(after: prev) * (fast ? 0.35 : 1))
             prev = ch
         }
     }
@@ -86,9 +104,10 @@ enum Keys {
     /// Marks every event deskkontrol posts, so monitors can tell them from the person's own input.
     static let tag: Int64 = 0x646B_6374
 
-    static func post(_ e: CGEvent, _ pid: pid_t?) {
+    /// Every event goes through the system input stream, like a person's mouse and keyboard.
+    static func post(_ e: CGEvent) {
         e.setIntegerValueField(.eventSourceUserData, value: tag)
-        if let pid { e.postToPid(pid) } else { e.post(tap: .cghidEventTap) }
+        e.post(tap: .cghidEventTap)
     }
 }
 
@@ -102,7 +121,7 @@ enum Mouse {
     }
 
     /// Cubic Bézier path, Fitts' law duration, ease-in-out speed, slight wobble.
-    static func move(to target: CGPoint, size: CGSize = CGSize(width: 20, height: 20), pid: pid_t? = nil) {
+    static func move(to target: CGPoint, size: CGSize = CGSize(width: 20, height: 20)) {
         let start = location
         let dx = target.x - start.x, dy = target.y - start.y
         let dist = max(hypot(dx, dy), 1)
@@ -129,7 +148,7 @@ enum Mouse {
                 p.y += CGFloat.random(in: -0.6...0.6)
             }
             if let e = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: p, mouseButton: .left) {
-                Keys.post(e, pid)
+                Keys.post(e)
             }
             Borrow.noteMove(p)
             Pace.sleep(duration / Double(steps))
@@ -139,39 +158,39 @@ enum Mouse {
     /// Throws exit 6 when the person takes over mid-drag; the drag is cancelled, not dropped where they are.
     static func drag(from start: CGPoint, to end: CGPoint) throws {
         guard let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: start, mouseButton: .left) else { return }
-        Keys.post(down, nil)
+        Keys.post(down)
         Pace.sleep(0.12)
         let steps = max(Int(hypot(end.x - start.x, end.y - start.y) / 6), 12)
         for n in 1...steps {
             if KillSwitch.tripped || Borrow.interrupted {
-                try? Keys.press("esc", pid: nil)
+                try? Keys.press("esc")
                 if let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: start, mouseButton: .left) {
-                    Keys.post(up, nil)
+                    Keys.post(up)
                 }
                 throw Fail(6, "interrupted: the drag was cancelled before the drop")
             }
             let t = CGFloat(n) / CGFloat(steps)
             let p = CGPoint(x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t)
             if let move = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged, mouseCursorPosition: p, mouseButton: .left) {
-                Keys.post(move, nil)
+                Keys.post(move)
             }
             Borrow.noteMove(p)
             Pace.sleep(0.012)
         }
         Pace.sleep(0.12)
         if let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: end, mouseButton: .left) {
-            Keys.post(up, nil)
+            Keys.post(up)
         }
     }
 
-    static func click(at p: CGPoint, right: Bool = false, double: Bool = false, pid: pid_t? = nil) {
+    static func click(at p: CGPoint, right: Bool = false, double: Bool = false) {
         let (down, up, button): (CGEventType, CGEventType, CGMouseButton) =
             right ? (.rightMouseDown, .rightMouseUp, .right) : (.leftMouseDown, .leftMouseUp, .left)
         for n in 1...(double ? 2 : 1) {
             for type in [down, up] {
                 guard let e = CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: p, mouseButton: button) else { continue }
                 e.setIntegerValueField(.mouseEventClickState, value: Int64(n))
-                Keys.post(e, pid)
+                Keys.post(e)
                 Pace.sleep(type == down ? Double.random(in: 0.05...0.1) : 0.02)
             }
             if double { Pace.sleep(0.08) }
@@ -203,17 +222,21 @@ enum Borrow {
         CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: UInt32.max)!)
     }
 
-    /// Tier 3: wait until the person is idle, bring the session window forward, act, put everything back.
-    static func run<T>(_ t: Target, _ body: () throws -> T) throws -> T {
+    static func waitIdle(_ seconds: Double = 1) throws {
         let deadline = Date().addingTimeInterval(30)
-        while idleSeconds < 2 {
+        while idleSeconds < seconds {
             if Date() > deadline { throw Fail(6, "interrupted: you were active for 30 s, try again") }
             Pace.sleep(0.2)
         }
-        let previous = NSWorkspace.shared.frontmostApplication
-        let cursor = Mouse.location
+    }
+
+    /// Every action runs here: wait until the person is idle, bring the session window forward, then
+    /// act with the real cursor and keyboard. Like a person, it leaves the cursor where it landed.
+    static func run<T>(_ t: Target, _ body: () throws -> T) throws -> T {
+        try waitIdle()
         active = true
-        interrupted = false
+        // Under Watch, an interruption before this point still counts.
+        if !Watch.on { interrupted = false }
         lastPosted = nil
         // Monitors belong to the main run loop, which stays free while commands run on their own queue.
         let monitor = DispatchQueue.main.sync {
@@ -228,12 +251,35 @@ enum Borrow {
         defer {
             active = false
             if let monitor { DispatchQueue.main.sync { NSEvent.removeMonitor(monitor) } }
-            // If the person took the pointer, it is theirs now; do not pull it back.
-            if !interrupted { CGWarpMouseCursorPosition(cursor) }
-            if let previous, previous.processIdentifier != t.pid {
-                appElement(previous.processIdentifier).set(kAXFrontmostAttribute, kCFBooleanTrue)
-            }
         }
         return try body()
+    }
+}
+
+/// While a command acts with the window in front, the person's own keys and clicks stop it,
+/// so their typing never mixes with deskkontrol's. Posted events carry `Keys.tag` and are ignored.
+enum Watch {
+    private static var monitor: Any?
+    static var on: Bool { monitor != nil }
+    static var stopped: Bool { (on || Borrow.active) && Borrow.interrupted }
+
+    /// Waits until the person has been idle for a moment, then starts watching.
+    static func begin() throws {
+        guard monitor == nil else { return }
+        try Borrow.waitIdle(1)
+        Borrow.interrupted = false
+        monitor = DispatchQueue.main.sync {
+            NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown]) { event in
+                if event.cgEvent?.getIntegerValueField(.eventSourceUserData) != Keys.tag { Borrow.interrupted = true }
+            }
+        }
+    }
+
+    /// Stops watching. True when the person interrupted.
+    static func end() -> Bool {
+        guard let m = monitor else { return false }
+        DispatchQueue.main.sync { NSEvent.removeMonitor(m) }
+        monitor = nil
+        return Borrow.interrupted
     }
 }

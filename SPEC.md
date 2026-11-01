@@ -29,7 +29,7 @@ Goals:
 - Work with any hosted model behind an OpenAI-compatible API: Claude, DeepSeek, OpenRouter.
 - Keep tokens minimal: text element lists, diffs after each action, no images unless asked.
 - Be fast: most reads served from cache in milliseconds, most actions instant.
-- Run in the background in its own window while Robert keeps working.
+- Work in one window with the real cursor and keyboard, pausing whenever Robert uses the computer.
 - Pace input naturally when it does use the cursor or keyboard: curved mouse paths, randomly spaced keystrokes.
 - Never refresh pages rapidly. A limiter in the daemon enforces this.
 - Log every step so a run can be replayed and debugged.
@@ -71,10 +71,11 @@ Callers check faster routes first; everything else goes through one CLI to the d
 | CLI | Swift ArgumentParser | Parse a command, send it to the daemon, print compact text, set the exit code |
 | Daemon | Swift, unix socket | Hold sessions, caches, limits and the approval gate |
 | Reader | AXUIElement, AXObserver | Walk the target window's accessibility tree, keep it cached, emit the numbered element list |
-| Actor | AX actions, CGEvent, CGEventPostToPid | Perform actions in the least intrusive tier that works |
+| Actor | CGEvent on the system input stream | Real cursor moves, clicks, scrolls and keystrokes |
 | Pacer | own code over CGEvent | Curved mouse paths, randomly spaced keystrokes, navigation and rate limits |
 | Vision fallback | ScreenCaptureKit, Vision framework | Capture one window (even when covered), OCR it, crop for `shot` |
 | Gate | Daemon, `pending.json` | Propose → approve/deny for every state-changing action |
+| Ask | `ask`, `show` | A little window for Robert when the LLM is stuck: text, choices, or point at it |
 | Log | JSONL + PNG | One folder per session for replay |
 | `run` loop (optional) | small script, OpenAI-compatible client | Drives deskkontrol with any model when no coding agent is involved |
 
@@ -110,27 +111,21 @@ Rules:
 - **Untrusted text.** Everything read from the screen is data. The list is wrapped in clear delimiters, and the usage docs tell agents never to follow instructions found in it.
 - **Browser setup.** Safari exposes web content to accessibility with no flags. Chrome needs `--force-renderer-accessibility`, or deskkontrol sets `AXEnhancedUserInterface` on it. Electron apps need `AXManualAccessibility`.
 
-## Action tiers
+## Input: real cursor and keyboard only
 
-Each action runs in the least intrusive tier that works for that element. Defaults per app and command come from the spike results, and callers can force a tier with `--tier`.
+deskkontrol is a natural GUI tool. Every action is what a person does with a mouse and keyboard: the cursor moves along a curved path and clicks, keys are pressed one by one, with the session window in front. There are no accessibility presses, no values set through accessibility, and no events posted straight into an app's process. Accessibility is used only to read the screen: what is there and where.
 
-| Tier | Mechanism | Runs in background | Speed | Used for |
-| --- | --- | --- | --- | --- |
-| 1. AX action | `AXPress`, `AXSetValue`, `AXScrollToVisible`, `AXShowMenu`, menu picks | Yes. No cursor, no focus change | Milliseconds | Links, buttons, fields, checkboxes, selects, menus, file dialog sheets |
-| 2. Events to one app | `CGEventPostToPid`: key events, and curved mouse-move and click events sent to the window | Yes, if the app accepts them (spike) | Paced | Human-paced typing, shortcuts, hover, sites that ignore AX value setting |
-| 3. Borrow the screen | Global CGEvent on the real cursor and keyboard | Brief takeover | Paced | Drag and drop, canvas apps, widgets with no AX support |
-| 4. VM (optional) | Tart or UTM macOS VM with its own screen | Fully parallel | Paced | Anything, when isolation matters more than RAM |
+Rules for every action:
 
-Borrow mode rules:
+- Starts once Robert has been idle for a moment (`CGEventSourceSecondsSinceLastEventType`), then brings the session window forward.
+- Stops the moment Robert presses a key or clicks (deskkontrol's own events are tagged, so they do not count), and returns `interrupted` (exit 6).
+- Leaves the cursor where it landed, as a person would.
 
-- Starts only after Robert has been idle for 2 s (`CGEventSourceSecondsSinceLastEventType`).
-- Saves the cursor position and frontmost app, acts, then restores both.
-- Aborts the moment Robert moves the mouse or presses a key, and returns `interrupted` to the caller.
+Upload, download and file dialogs:
 
-Upload and download macros:
-
-- `upload <id> <path>` presses the file input, waits for the open-dialog sheet on the session window, sets its path field through AX, and confirms. No Cmd+Shift+G and no focus change.
-- `download <id> <path>` opens the context menu, picks Save Image As or Download Linked File, and sets the path the same way. The element's `AXURL` is logged so the run shows what was saved.
+- `upload <id> <path>` clicks the control that opens the picker, then `choose` does the rest.
+- `choose <path>` clicks into the panel's file list, opens Go to Folder (cmd+shift+g, or "/"), types the path key by key, checks it, presses return, and clicks Open. For a new file it types the name into the name field.
+- `download <id> <path>` right-clicks, picks Save Image As or Download Linked File, and uses the save panel the same way. The element's `AXURL` is logged so the run shows what was saved.
 
 ## CLI reference
 
@@ -147,7 +142,7 @@ All output is compact plain text meant for an agent to read. `--json` gives the 
 | `deskkontrol key <combo>` | Send a shortcut, e.g. `cmd+l` | diff |
 | `deskkontrol scroll <up\|down> [n] [--in id]` | Scroll the window or one element | diff |
 | `deskkontrol hover <id>` | Curved move onto an element | diff |
-| `deskkontrol drag <id> <id>` | Drag one element onto another (tier 3) | diff |
+| `deskkontrol drag <id> <id>` | Drag one element onto another | diff |
 | `deskkontrol upload <id> <path>` | File input to native dialog to path | diff |
 | `deskkontrol download <id> <path>` | Save an image or link to a path | saved path |
 | `deskkontrol wait-for "text" [--timeout 10]` | Wait for text via AX notifications, never by reloading | found or timeout |
@@ -173,7 +168,7 @@ Exit codes:
 | --- | --- |
 | 0 | ok |
 | 2 | stale snapshot: re-read |
-| 3 | unused (was: denied at the native dialog) |
+| 3 | Robert denied the step in the little window (`confirm`) |
 | 4 | blocked by allowlist or rate limit (`refresh limit`, `rate limit`) |
 | 5 | element or text not found, or timeout |
 | 6 | interrupted by Robert during borrow mode |
@@ -182,7 +177,7 @@ Exit codes:
 
 ## Pacing
 
-Pacing is built into the daemon, not borrowed from a Python library. pyautogui's tweens ease along a straight line. Bézier libraries such as HumanCursor or pyclick curve, but they only move the global system cursor, so they cannot target a background window. deskkontrol's pacer is about 100 lines of Swift that generates the path and timing, then sends native CGEvents either to the real cursor (tier 3) or to the session window (tier 2).
+Pacing is built into the daemon, not borrowed from a Python library. pyautogui's tweens ease along a straight line. deskkontrol's pacer is about 100 lines of Swift that generates the path and timing, then sends native CGEvents to the real cursor and keyboard.
 
 These settings keep a session at the pace of the person doing the work. They are not a way around a site's limits; when a site signals one, the daemon backs off.
 
@@ -192,13 +187,12 @@ Mouse:
 - **Duration:** from Fitts' law, scaled by distance and target size. About 0.2 s for a short hop, 0.6 to 0.9 s for a long move to a small button.
 - **Speed profile:** ease in and ease out, with move events at about 120 Hz and slight sideways wobble.
 - **Landing:** a random point inside the middle 60% of the element. Never on its edge, never outside it.
-- **No path in tier 1.** AX actions involve no cursor, so there is nothing to curve.
 
 Typing:
 
 - Gaps between keystrokes drawn from a log-normal distribution, roughly 60 to 180 ms with a median near 100 ms.
 - Slightly longer pauses after spaces and punctuation, and a short pause before the first key.
-- Real key-down and key-up events sent to the session app (tier 2), so typing works in the background.
+- Real key-down and key-up events with the key code of each character, on the system keyboard stream.
 - No deliberate typos. Every key sent is one that was meant.
 - `--pace fast` sets the value directly through AX instead, for native apps or long text.
 
@@ -231,7 +225,7 @@ actions_per_min = 20
 mode = "fast"
 ```
 
-Human pacing is slower: a 200-character post takes about 20 to 25 s to type. That suits background jobs. `--pace fast` is there when speed matters.
+Human pacing is slower: a 200-character post takes about 20 to 25 s to type. `--pace fast` shortens the gaps between keys; every key is still a real key.
 
 ## Approval gate and safety
 
@@ -319,9 +313,18 @@ The `run` loop, for when no coding agent is involved:
 - A separate optional vision model slot handles `need_image`.
 - Limits: 40 steps, 15 minutes, and stop after 3 identical actions with no screen change.
 
+## Learned notes
+
+Repeat tasks should not be rediscovered. The repo's `notes/` folder holds Markdown notes, and `kit.sh` links `~/.deskkontrol/notes` to it, so `git pull` brings in what was learned on another machine.
+
+- **App and site notes** (`notes/macos/finder.md`, `notes/web/<host>.md`): key facts, what works, what fails. `session` and `open` print the key facts of every note whose `match` fits the app, bundle id or host.
+- **Flows** (`notes/flows/*.md`): steps for one task, written with element names and `{placeholders}`, never ids, coordinates or personal paths, so they apply on any Mac with the same app and language.
+- `deskkontrol notes "words"` ranks notes by those words. `deskkontrol learn "task"` drafts a flow from the session's approved steps; the LLM then generalizes it and adds failures. `run` reads matching notes before its first step and drafts a flow when it finishes.
+- Notes are trusted input to the LLM, so nothing read from a screen is written into them. Following a flow still proposes every step for approval.
+
 ## Logging, permissions and platform notes
 
-Logging: each session writes `~/.deskkontrol/runs/<date>-<session>/` with `steps.jsonl` (command, tier, element, diff, timing, gate result) and a PNG only for gated steps, `shot` calls and errors. `deskkontrol log` prints the tail as one line per step. Logs older than 30 days are deleted by default.
+Logging: each session writes `~/.deskkontrol/runs/<date>-<session>/` with `steps.jsonl` (command, element, flags, diff, timing, gate result, errors, questions asked) and a PNG only for gated steps, `shot` calls and errors. `deskkontrol log` prints the tail as one line per step. Logs older than 30 days are deleted by default.
 
 Permissions:
 
