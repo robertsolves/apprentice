@@ -615,7 +615,8 @@ enum Commands {
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
             // "2026-11-01T12:34:56Z" → "12:34:56"
             let time = (obj["ts"] as? String).map { String($0.suffix(9).prefix(8)) } ?? ""
-            let cmd = obj["cmd"] as? String ?? obj["gate"] as? String ?? "step"
+            let cmd = obj["cmd"] as? String ?? obj["gate"] as? String
+                ?? (obj["proposed"] as? String).map { "proposed \($0)" } ?? "step"
             var bits = ["\(time)", cmd]
             if let tier = obj["tier"] { bits.append("tier \(tier)") }
             if let snap = obj["snap"] { bits.append("snap \(snap)") }
