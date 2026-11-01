@@ -469,7 +469,14 @@ enum Commands {
         // report the new focus a moment late, so give it up to a second.
         let reached = { () -> Bool? in
             guard let el, let now = target.app.attr(kAXFocusedUIElementAttribute) as! AXUIElement? else { return true }
-            return CFEqual(now, el) || isAncestor(el, of: now) ? true : nil
+            if CFEqual(now, el) || isAncestor(el, of: now) { return true }
+            // Pages often replace a field with a fresh element when it gains focus: the same kind of
+            // field with the same name, or one sitting where we clicked, is still the field.
+            let sameKind = now.string(kAXRoleAttribute) == el.string(kAXRoleAttribute)
+            let sameName = (now.string(kAXDescriptionAttribute) ?? now.string(kAXTitleAttribute))
+                == (el.string(kAXDescriptionAttribute) ?? el.string(kAXTitleAttribute))
+            let overlaps = now.frame.map { $0.intersects(rect) } ?? false
+            return sameKind && (sameName || overlaps) ? true : nil
         }
         if !focused, poll(timeout: 1, interval: 0.1, reached) == nil {
             throw Fail(5, "the click did not reach \(label): something may cover it, such as a suggestion list. Nothing was typed")

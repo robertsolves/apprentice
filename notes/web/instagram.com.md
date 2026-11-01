@@ -18,6 +18,9 @@ SPEC.md keeps Instagram out of the allowlist (its terms forbid automated actions
 - `button "Share"` publishes at once. Never press it unless Robert asks for that exact step.
 
 ## Works
+- Comment on a post: open it, `type #textarea "Add a comment" "{comment}"`, then `click #button "Post"`. The comment shows at once with your name and "2s".
+- Leaving the composer: Escape does nothing; click the dark area outside it, then `click #button "Discard"`.
+- Your profile is `click #link "{username}'s profile picture"`; the grid's first tile can be a pinned post, so check the date inside.
 - Caption and hashtags: `type #textarea "Add a caption" "{caption}"`. The counter button shows the length.
 - The Facebook cross-post setting sits under the caption. Leave it alone unless asked.
 

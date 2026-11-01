@@ -892,3 +892,9 @@ K1, K2, L1.
 - Repro: click into a web field, then check AXFocusedUIElement after 0.2 s: still the previous field
 - Cause: Commands.typeInto checked focus once, 0.2 s after the click
 - Suggested fix: Applied: poll the focus for up to 1 s. Keep it as a regression note.
+
+### F3 · Fields that re-render on focus failed type's focus check — 2026-11-01
+- Repro: Instagram post page: type into Add a comment; focus moves to a fresh AXTextArea with the same name, not the element read listed
+- Last error: `approve → exit 5: the click did not reach 23 textarea "Add a comment…": something may cover it, such as a suggestion list. Nothing was typed`
+- Cause: Commands.typeInto compared the focused element with CFEqual and ancestry only
+- Suggested fix: Applied: also accept a focused element of the same role with the same name, or one overlapping the clicked rect.
