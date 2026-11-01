@@ -1,10 +1,11 @@
 # apprentice — bug audit
 
-53 findings in `apprentice` (CLI + daemon), none fixed. They are separate from the
-13 fixes already applied: allowlist enforcement on every action, per-URL reload cap,
-`beforeAction` timestamp recording, live frames in `resolve`, `--tier 1` click, `--enter`
-with fast typing, stuck detector, log timestamp, socket path length, `routes.toml` comments
-and `pickWindow` nil window id.
+59 findings from the 2026-11-01 audit of `apprentice` (CLI + daemon), all fixed on
+2026-11-01, plus section 13 (the self-update and settings code added later that day, also
+fixed) and the field reports at the end. The audit came after 13 earlier fixes: allowlist
+enforcement on every action, per-URL reload cap, `beforeAction` timestamp recording, live
+frames in `resolve`, `--tier 1` click, `--enter` with fast typing, stuck detector, log
+timestamp, socket path length, `routes.toml` comments and `pickWindow` nil window id.
 
 **Severity.** 9 **high** (wrong or lost work, or the daemon dies),
 19 **medium** (wrong result or blocked workflow), 25 **low**
@@ -899,6 +900,69 @@ request is never cancelled), K3 (a timed-out capture races its handler).
 
 **7. Polish and portability:** B9, B11, B12, B14, B15, B16, B17, B18, B23, D2, D6, D7, H3,
 K1, K2, L1.
+
+## 13. Self-update and settings
+
+Found on 2026-11-01 by reading `Repo.swift`, `Settings.swift` and `install.sh` right after
+they were written, and by running them against scratch clones and bare repos standing in for
+GitHub. Nothing here was run against GitHub itself: `pr`, the fork in `install.sh` and
+`settings github` still need a live pass.
+
+### M1 · `bug` and `learn` commit whatever else is staged — medium **[verified]** · **fixed 2026-11-01**
+`Repo.commit(message, paths:)` staged the named file, then ran a plain `git commit`, which
+takes the whole index.
+- Repro: stage an edit to `Package.swift`, run `apprentice bug "probe"`: the commit
+  "Field report F7: probe" held both `bugs.md` and `Package.swift`.
+- Fix: with named paths, check and commit only those paths (`git commit -- <paths>`).
+
+### M2 · A second `pr` fails instead of updating the open pull request — medium **[by inspection]** · **fixed 2026-11-01**
+`pr` looked for the open pull request with `gh pr view owner:branch --repo upstream`.
+`gh pr view` takes a number, URL or branch, so from a fork the lookup missed it, and
+`gh pr create` then failed because a pull request for that branch already existed.
+- Fix: `gh pr list --repo <upstream> --head <branch> --state open`; the owner:branch form is
+  kept for `create` only.
+
+### M3 · A conflicting re-install leaves the clone mid-rebase — low **[by inspection]** · **fixed 2026-11-01**
+Re-running `install.sh` on an existing clone ran `git rebase` under `set -e`. A conflict
+stopped the script with the rebase still in progress, and the next `apprentice` command found
+a clone in that state.
+- Fix: abort the rebase and say how to resolve it by hand.
+
+### M4 · A half-made settings folder blocks `settings github` for good — low **[by inspection]** · **fixed 2026-11-01**
+`settings github` cloned into `~/.apprentice/settings`. If an earlier clone failed and left
+the folder, every later try failed with "already exists".
+- Fix: remove the folder when it is empty; otherwise say what to move before trying again.
+
+### M5 · Switching to GitHub a second time can fail on the `.local` copy — low **[by inspection]** · **fixed 2026-11-01**
+When the repo already had a file, the local copy moved to `~/.apprentice/<file>.local`. The
+code cleared an old `.local` from the settings repo instead of from `~/.apprentice`, so after
+`settings local` and then `settings github` again, the move failed.
+- Fix: clear `~/.apprentice/<file>.local` before the move.
+
+### M6 · Background git can prompt for a login in Robert's terminal — medium **[by inspection]** · **fixed 2026-11-01**
+The daily `git fetch` and the settings sync run from the daemon, which can share the terminal
+that started it. With no stored login, git would ask for a username there: it would hang and
+catch his keys.
+- Fix: every git and gh call apprentice makes runs with `GIT_TERMINAL_PROMPT=0` and
+  `GH_PROMPT_DISABLED=1` (`Repo.quiet`), so it fails instead of asking.
+
+### M7 · `commit` in any clone reinstalls apprentice from that clone — high **[verified]** · **fixed 2026-11-01**
+A source change made `commit` run that clone's `kit.sh`. With `APPRENTICE_NOTES` pointing at
+a test clone, that replaced `~/.local/bin/apprentice`, relinked `~/.apprentice/notes` into
+the test clone, rewrote the AI assistants' rules files and stopped the daemon.
+- Repro: it happened during the M1 probe. A scratch clone with a staged `Package.swift`
+  reinstalled the tool and relinked the notes. Running `./kit.sh` in the real repo put it back.
+- Fix: rebuild only when the clone is the installed one (the one `~/.apprentice/notes`
+  links into); otherwise commit and say it was not rebuilt.
+
+### M8 · `bug` never adds the Field reports heading here — low **[verified]** · **fixed 2026-11-01**
+`fileBug` added `## Field reports` only when the file did not contain that text anywhere.
+This file quotes it in L1, so F1–F6 landed under "Suggested order" with no heading.
+- Fix: look for the heading on a line of its own. This file now has the heading.
+
+## Field reports
+
+Filed by `apprentice bug` while working. Each has a suggested fix to review; none is applied.
 
 ### F1 · Dropdowns drawn outside the accessibility tree cannot be read or clicked by name — 2026-11-01 · **fixed 2026-11-01**
 - Repro: Instagram composer: type into Add location; the place suggestions show on screen, but read lists nothing and an AX hit-test at the suggestion returns the field underneath (Add collaborators)
