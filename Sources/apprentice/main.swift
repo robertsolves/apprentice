@@ -33,6 +33,10 @@ func usage() {
       apprentice show "what"                    Robert points the cursor at it; prints the element there
       apprentice confirm <token> [--why "…"]    Robert approves or denies a pending step in the little window
       apprentice bug "summary" [--repro …] [--cause …] [--fix …]   file a field report in the repo's bugs.md
+      apprentice commit "what and why"          one small commit in the repo; a source change rebuilds and restarts
+      apprentice update [--build]               rebase onto upstream, push to your fork, rebuild if the source changed
+      apprentice pr ["title"]                   send your local commits upstream as a pull request
+      apprentice repo                           the clone apprentice runs from
       apprentice policy                         may the LLM use shell commands for macOS tasks? ([agent] ui_only)
       apprentice awake on|off|status            keep the Mac from idle sleep and locking while tasks run
       apprentice away on|off|status             Robert is away: questions come back as exit 9 for the chat
@@ -105,6 +109,15 @@ case "learn":
     attempt { print(try Notes.learn(Args.parse(rest))) }
 case "bug":
     attempt { print(try Notes.fileBug(Args.parse(rest))) }
+case "commit":
+    attempt { print(try Repo.commitCommand(Args.parse(rest))) }
+case "update":
+    attempt { print(try Repo.update(Args.parse(rest))) }
+case "pr":
+    attempt { print(try Repo.pr(Args.parse(rest))) }
+case "repo":
+    print(Repo.root.path)
+    exit(0)
 case "policy":
     print(Config.policyLine)
     exit(0)

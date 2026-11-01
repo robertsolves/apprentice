@@ -168,7 +168,8 @@ enum Notes {
         if let c = a.value("cause") { entry += "- Cause: \(c)\n" }
         if let f = a.value("fix") { entry += "- Suggested fix: \(f)\n" }
         try (text + entry).write(to: file, atomically: true, encoding: .utf8)
-        return "filed F\(count) in \(file.path)"
+        let hash = Repo.commit("Field report F\(count): \(summary)", paths: [file.path])
+        return "filed F\(count) in \(file.path)" + (hash.map { " (commit \($0))" } ?? "")
     }
 
     private static func lastError() -> String? {
@@ -203,7 +204,10 @@ enum Notes {
         let text = draft(task, session, steps)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try text.write(to: url, atomically: true, encoding: .utf8)
-        return "wrote \(url.resolvingSymlinksInPath().path)\nedit it now: generalize names, drop dead steps, add Fails\n\n" + text
+        let path = url.resolvingSymlinksInPath().path
+        let hash = Repo.commit("Draft flow \(slug): \(task)", paths: [path])
+        return "wrote \(path)" + (hash.map { " (commit \($0))" } ?? "")
+            + "\nedit it now: generalize names, drop dead steps, add Fails; then `apprentice commit \"…\"`\n\n" + text
     }
 
     static func stepLines(_ session: Session) -> [String] {

@@ -353,6 +353,7 @@ enum Commands {
         if !hints.isEmpty { out += "\n" + hints.joined(separator: "\n") }
         out += "\n" + Config.policyLine
         if Awake.enabled { out += "\n" + Awake.status }
+        if let update = Repo.updateLine() { out += "\n" + update }
         out += notesLines(s)
         Store.log(["cmd": "session", "app": name, "wid": Int(s.wid), "url": s.url ?? ""])
         return out
