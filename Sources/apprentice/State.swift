@@ -142,6 +142,7 @@ struct Session: Codable {
         guard let url, url != self.url else { return }
         self.url = url
         save()
+        Limits.notePage()
     }
 
     static func current() throws -> Session {
@@ -207,6 +208,31 @@ struct Limits: Codable {
     var navURLs: [String: [String]]?
     var acts: [String: [Double]] = [:]
     var lastAction: Double = 0
+    /// Times of each budgeted action, per site and kind, kept for 8 days (`Budgets`).
+    var kinds: [String: [String: [Double]]]?
+    /// Sites that signalled a rate limit, and how long apprentice leaves them alone (`Cooldown`).
+    var cooling: [String: Cooling]?
+    /// Sites showing a challenge only the user can complete, with the marker that was seen.
+    var challenged: [String: String]?
+    /// When the window last arrived on a new page, for the dwell before acting on it.
+    var pageAt: Double?
+    /// Web actions in the current burst, and how many the burst may hold before a rest.
+    var burst: Int?
+    var burstAt: Int?
+
+    struct Cooling: Codable {
+        var until: Double
+        var strikes: Int
+        var last: Double
+    }
+
+    static var stored: Limits { Store.load(Limits.self, "limits.json") ?? Limits() }
+
+    static func notePage() {
+        var l = stored
+        l.pageAt = Date().timeIntervalSince1970
+        Store.save(l, "limits.json")
+    }
 
     static func checkNavigation(_ url: URL) throws {
         let cfg = Config.current.pace
@@ -258,6 +284,19 @@ struct Limits: Codable {
             if l.lastAction > 0 {
                 let since = now - l.lastAction
                 if since < gap { Timing.measure("gap") { Pace.sleep(gap - since) } }
+            }
+            // A profile with `burst` rests after a run of quick actions, as a person pauses between bursts.
+            if cfg.burstMax > 0 {
+                let count = l.lastAction > 0 && now - l.lastAction < 30 ? (l.burst ?? 0) + 1 : 1
+                let limit = l.burstAt ?? Int.random(in: Int(cfg.burstMin)...Int(cfg.burstMax))
+                if count > limit {
+                    Timing.measure("gap") { Pace.sleep(Double.random(in: cfg.restMin...cfg.restMax)) }
+                    l.burst = 1
+                    l.burstAt = Int.random(in: Int(cfg.burstMin)...Int(cfg.burstMax))
+                } else {
+                    l.burst = count
+                    l.burstAt = limit
+                }
             }
             l.lastAction = Date().timeIntervalSince1970
         }

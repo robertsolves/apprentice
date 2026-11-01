@@ -47,11 +47,11 @@ enum AgentLoop {
             var args = ["--app", app]
             if a.has("new-window") { args.append("--new-window") }
             try call(Request(cmd: "session", args: args))
-        } else if Session.stored == nil {
+        } else if VM.session == nil {
             try call(Request(cmd: "session"))
         }
 
-        let notes = Notes.context(task: task, session: Session.stored)
+        let notes = Notes.context(task: task, session: VM.session)
         var transcript: [[String: Any]] = []
         var used: [[String: Any]] = []
         // A run that ends early (a busy model, a stop) still keeps the steps it finished (G2).
@@ -136,6 +136,10 @@ enum AgentLoop {
                     } else {
                         turn(reply, "Image saved at \(shot.out) but could not be read.")
                     }
+                } else {
+                    // Without a word back the model repeated need_image until the step limit.
+                    print("step \(step) · need_image → \(shot.out)")
+                    turn(reply, "No screenshot: \(shot.out)")
                 }
                 continue
             }

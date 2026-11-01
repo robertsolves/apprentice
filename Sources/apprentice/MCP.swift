@@ -33,7 +33,8 @@ enum MCP {
         tool("learn", "Draft a flow from this session's approved steps", ["task": ["type": "string"], "name": ["type": "string"]], ["task"]),
         tool("show", "Ask the user to point at something on screen; returns the element there", ["what": ["type": "string"]], ["what"]),
         tool("away", "The user is away (on) or back (off): questions go to the chat while away", ["state": ["type": "string"]], ["state"]),
-        tool("policy", "Whether quick macOS tasks may use shell commands", [:]),
+        tool("policy", "Whether quick macOS tasks may use shell commands; with a domain, whether apprentice may work on that site", ["domain": ["type": "string"]]),
+        tool("budget", "What is left of today's and this hour's action caps per site and kind", ["domain": ["type": "string"]]),
         tool("choose", "In an open or save dialog, go to a path: picks a file or fills in a new name", ["path": ["type": "string"]], ["path"]),
         tool("do", "Run a flow from notes/flows with one approval. vars: {\"name\": \"value\"} fills {name}", ["flow": ["type": "string"], "vars": ["type": "object"]], ["flow"]),
         tool("ask", "When stuck or deciding, show the user a little window: free text, or choices (multi for checkboxes, text to add a reply field). Returns their reply",
@@ -94,7 +95,8 @@ enum MCP {
             var a = [args["task"] as? String ?? ""]
             if let n = args["name"] as? String { a += ["--name", n] }
             return try Notes.learn(Args.parse(a))
-        case "policy": return Config.policyLine
+        case "policy": return (args["domain"] as? String).map(Policies.describe) ?? Config.policyLine
+        case "budget": return Budgets.report(args["domain"] as? String)
         default: return nil
         }
     }

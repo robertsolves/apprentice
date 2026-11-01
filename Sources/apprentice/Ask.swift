@@ -236,6 +236,10 @@ extension Ask {
         let still = 5.0
         var last = Mouse.location
         var restingSince = Date()
+        // The rest is counted from Start, not from when the window appeared: someone who reads the
+        // prompt for five seconds and then presses Start must not be answered at once, with the
+        // cursor still wherever it was.
+        var begun = false
         while Date() < deadline, !handler.skipped {
             // Hand mouse and key events to the window; running the run loop alone leaves it frozen.
             let until = Date().addingTimeInterval(0.1)
@@ -243,6 +247,12 @@ extension Ask {
                 NSApplication.shared.sendEvent(event)
             }
             guard handler.started else { continue }
+            if !begun {
+                begun = true
+                last = Mouse.location
+                restingSince = Date()
+                continue
+            }
             let now = Mouse.location
             if hypot(now.x - last.x, now.y - last.y) > 2 {
                 last = now

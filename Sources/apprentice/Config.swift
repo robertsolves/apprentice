@@ -76,6 +76,16 @@ struct PaceConfig {
     var reloadWindow = 120.0
     var actionsPerMin = 30.0
     var mode = "human"
+    /// Least time on a page before a budgeted action there (a like, follow, comment…); 0 is off.
+    var dwellMin = 0.0
+    var dwellMax = 0.0
+    /// Web actions in a row before a rest; 0 is off.
+    var burstMin = 0.0
+    var burstMax = 0.0
+    var restMin = 20.0
+    var restMax = 90.0
+    /// Share of letters typed wrong, then backspaced and retyped; 0 is off. Never in password fields.
+    var keyErrorRate = 0.0
 
     init() {}
 
@@ -99,6 +109,19 @@ struct PaceConfig {
         }
         if let v = values["actions_per_min"].flatMap(Double.init) { p.actionsPerMin = v }
         if let m = values["mode"] { p.mode = Toml.unquote(m) }
+        if let a = values["dwell_s"].flatMap(Toml.doubles), a.count >= 2 {
+            p.dwellMin = a[0]
+            p.dwellMax = a[1]
+        }
+        if let a = values["burst"].flatMap(Toml.doubles), a.count >= 2 {
+            p.burstMin = a[0]
+            p.burstMax = a[1]
+        }
+        if let a = values["rest_s"].flatMap(Toml.doubles), a.count >= 2 {
+            p.restMin = a[0]
+            p.restMax = a[1]
+        }
+        if let v = values["key_error_rate"].flatMap(Double.init) { p.keyErrorRate = v }
         self = p.sanitized()
     }
 
@@ -122,6 +145,18 @@ struct PaceConfig {
         p.reloadMax = ok(reloadMax, 1, 1000, d.reloadMax)
         p.reloadWindow = ok(reloadWindow, 1, 86_400, d.reloadWindow)
         p.actionsPerMin = ok(actionsPerMin, 1, 10_000, d.actionsPerMin)
+        p.dwellMin = ok(dwellMin, 0, 120, d.dwellMin)
+        p.dwellMax = ok(dwellMax, 0, 120, d.dwellMax)
+        if p.dwellMin > p.dwellMax { swap(&p.dwellMin, &p.dwellMax) }
+        p.burstMin = ok(burstMin.rounded(), 0, 1000, d.burstMin)
+        p.burstMax = ok(burstMax.rounded(), 0, 1000, d.burstMax)
+        if p.burstMin > p.burstMax { swap(&p.burstMin, &p.burstMax) }
+        if p.burstMin < 1 { p.burstMin = p.burstMax }
+        // Rests stay short enough to finish inside one command.
+        p.restMin = ok(restMin, 0, 120, d.restMin)
+        p.restMax = ok(restMax, 0, 120, d.restMax)
+        if p.restMin > p.restMax { swap(&p.restMin, &p.restMax) }
+        p.keyErrorRate = ok(keyErrorRate, 0, 0.1, d.keyErrorRate)
         return p
     }
 }
@@ -148,6 +183,18 @@ struct Config {
     var runModel = "gpt-4o-mini"
     var runKey = ""
     var visionModel = ""
+    /// Text a site shows when it throttles the account; seeing one after an action cools the site down.
+    var softBlockPhrases = [
+        "try again later", "you're doing that too much", "you are doing that too much", "temporarily restricted",
+        "temporarily blocked", "unusual activity", "we limit how often", "rate limit", "too many requests",
+        "action blocked", "suspicious activity",
+    ]
+    /// Signs of a CAPTCHA or identity check, which only the user may complete.
+    var challengeMarkers = [
+        "captcha", "verify you are human", "verify you're human", "i'm not a robot", "i am not a robot",
+        "are you a robot", "confirm it's you", "confirm it is you", "enter the code", "security check",
+        "press and hold", "help us confirm",
+    ]
 
     static var current = Config.load()
     static var path: URL { Settings.dir.appendingPathComponent("config.toml") }
@@ -216,6 +263,8 @@ struct Config {
         if let v = toml["agent"]?["ask_in"] { c.askIn = Toml.unquote(v) }
         if let v = toml["agent"]?["download_menu"].flatMap(Toml.array) { c.downloadMenu = v.map { $0.lowercased() } }
         if let v = toml["agent"]?["browsers"].flatMap(Toml.array) { c.browsers = v }
+        if let v = toml["sites"]?["soft_block"].flatMap(Toml.array) { c.softBlockPhrases = v.map { $0.lowercased() } }
+        if let v = toml["sites"]?["challenge"].flatMap(Toml.array) { c.challengeMarkers = v.map { $0.lowercased() } }
         if let v = toml["agent"]?["ask_window_s"].flatMap({ Double(Toml.unquote($0)) }) { c.askWindowSeconds = v }
         if let r = toml["run"] {
             if let v = r["base_url"] { c.runURL = Toml.unquote(v) }
@@ -244,7 +293,14 @@ struct Config {
     }
 
     static func profileKey(session: Session, url: String?) -> String {
-        if let host = hostOf(url), current.profiles[host] != nil { return host }
+        // `[pace."linkedin.com"]` also covers www.linkedin.com and any other subdomain.
+        if var host = hostOf(url)?.lowercased() {
+            while true {
+                if current.profiles[host] != nil { return host }
+                guard let dot = host.firstIndex(of: "."), host[host.index(after: dot)...].contains(".") else { break }
+                host = String(host[host.index(after: dot)...])
+            }
+        }
         if current.profiles[session.app] != nil { return session.app }
         return session.isBrowser ? "web" : "native"
     }

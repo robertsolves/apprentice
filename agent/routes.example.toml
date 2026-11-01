@@ -7,3 +7,20 @@ label = "admin"
 keywords = ["article", "publish", "draft"]
 faster = "POST https://example.com/admin/api/articles"
 remaining = "image upload and preview only"
+
+# Site policies: whether a site's terms allow automated use. Fill one in only after reading the terms.
+# automation: "allowed", "read-only" (open, read, scroll only) or "forbidden" (apprentice refuses the site).
+# Built in as forbidden: instagram.com, facebook.com, messenger.com, tiktok.com. An entry here replaces one.
+# `apprentice policy <domain>` prints the entry in force.
+#
+# [policy."linkedin.com"]
+# automation = "forbidden"
+# terms_url = "https://www.linkedin.com/help/linkedin/answer/a1341387"
+# checked = "2026-11-01"
+# api = "LinkedIn Marketing and Community Management APIs"
+#
+# [policy."x.com"]
+# automation = "forbidden"
+# terms_url = "https://help.x.com/en/rules-and-policies/x-automation"
+# checked = "2026-11-01"
+# api = "X API"

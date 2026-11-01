@@ -1,12 +1,13 @@
 import Foundation
 
-/// The clone apprentice runs from: install.sh makes it a fork of the upstream repo (or the
-/// upstream itself for its owner). Fixes made while using the tool become small commits here,
-/// `update` brings in upstream and rebuilds, and `pr` sends the local commits upstream.
+/// The clone apprentice runs from. It is the user's own copy: fixes made while using the tool become
+/// small commits here and stay here. `upstream` (any git URL: a server, a folder, another Mac's clone) is
+/// only fetched. apprentice checks it every few hours and, unless `[update] auto = false`, rebases the
+/// local commits onto it, rebuilds, self-tests and restarts on its own.
 enum Repo {
     static var root: URL { Notes.repo }
     static var isGit: Bool { FileManager.default.fileExists(atPath: root.appendingPathComponent(".git").path) }
-    /// Forks have an `upstream` remote (gh adds it on clone); the owner's clone pushes to origin.
+    /// install.sh names it `upstream`; an older plain clone only has origin.
     static var upstream: String { git("remote").out.split(separator: "\n").contains("upstream") ? "upstream" : "origin" }
 
     /// The upstream's default branch, as the clone recorded it; "main" when it never did.
@@ -15,6 +16,11 @@ enum Repo {
         guard head.code == 0, let name = head.out.split(separator: "/", maxSplits: 1).last, !name.isEmpty else { return "main" }
         return String(name)
     }
+
+    static var settings: [String: String] { Toml.load(Config.path)["update"] ?? [:] }
+    /// On unless the user sets `[update] auto = false`; then `session` only says an update is waiting.
+    static var auto: Bool { settings["auto"].map(Toml.unquote) != "false" }
+    static var checkSeconds: Double { max(settings["check_hours"].flatMap { Double(Toml.unquote($0)) } ?? 6, 1) * 3600 }
 
     @discardableResult
     static func run(_ tool: String, _ args: [String], in dir: URL? = nil) -> (code: Int32, out: String) {
@@ -60,86 +66,166 @@ enum Repo {
         return out
     }
 
-    /// `update`: rebases the local commits onto upstream, pushes them to the fork, and rebuilds
-    /// when the source changed.
+    /// `update [--check] [--build]`: rebases the local commits onto upstream and rebuilds when the source
+    /// changed. `--check` only says whether one is waiting.
     static func update(_ a: Args) throws -> String {
         guard isGit else { throw Fail(5, "\(root.path) is not a git clone: reinstall with install.sh") }
-        try requireClean()
         let remote = upstream
-        guard git("fetch", "-q", remote).code == 0 else { throw Fail(5, "could not fetch \(remote): check `gh auth status`") }
-        let base = branch(remote)
+        guard git("fetch", "-q", remote).code == 0 else { throw Fail(5, "could not fetch \(remote) (\(git("remote", "get-url", remote).out))") }
+        if a.has("check") {
+            let n = behind(remote)
+            return n == 0 ? "up to date with \(remote)" : "\(n) new upstream commit\(n == 1 ? "" : "s"):\n" + git("log", "--format=  %h %s", "HEAD..\(remote)/\(branch(remote))").out
+        }
+        try requireClean()
         let before = git("rev-parse", "HEAD").out
+        try rebase(remote)
+        var out = before == git("rev-parse", "HEAD").out ? "already up to date" : "updated to \(git("log", "-1", "--format=%h %s").out)"
+        if touchesSource(since: before) || a.has("build") { out += "\n" + (try rebuild()) }
+        return out
+    }
+
+    private static func rebase(_ remote: String) throws {
+        let base = branch(remote)
         let rebase = git("rebase", "-q", "\(remote)/\(base)")
         if rebase.code != 0 {
             git("rebase", "--abort")
             throw Fail(5, "your commits conflict with upstream; nothing changed. Resolve by hand in \(root.path): git rebase \(remote)/\(base)\n\(rebase.out)")
         }
-        var out = before == git("rev-parse", "HEAD").out ? "already up to date" : "updated to \(git("log", "-1", "--format=%h %s").out)"
-        if remote == "upstream" { push(branch: base) }
-        if touchesSource(since: before) || a.has("build") { out += "\n" + (try rebuild()) }
-        return out
     }
 
-    /// `pr ["title"]`: pushes the local commits to a branch of the fork and opens (or updates)
-    /// a pull request upstream.
-    static func pr(_ a: Args) throws -> String {
-        guard isGit else { throw Fail(5, "\(root.path) is not a git clone: reinstall with install.sh") }
-        try requireClean()
-        let remote = upstream
-        git("fetch", "-q", remote)
-        let base = branch(remote)
-        let commits = git("log", "--reverse", "--format=- %s", "\(remote)/\(base)..HEAD").out
-        guard !commits.isEmpty else { return "no local commits to send" }
-        let host = Host.current().localizedName.map(Notes.slugify) ?? "mac"
-        let branch = "apprentice/\(host.isEmpty ? "mac" : host)"
-        guard push(branch: branch) else { throw Fail(5, "could not push \(branch) to origin") }
-        let target = slug(remote)
-        let head = remote == "upstream" ? "\(slug("origin").split(separator: "/").first ?? ""):\(branch)" : branch
-        // --head matches the branch name alone; the owner:branch form is only for create (M2).
-        let existing = run("gh", ["pr", "list", "--repo", target, "--head", branch, "--state", "open", "--json", "url", "-q", ".[0].url"])
-        if existing.code == 0, !existing.out.isEmpty { return "updated \(existing.out)\n\(commits)" }
-        let count = commits.split(separator: "\n").count
-        let title = a.pos.isEmpty ? (count == 1 ? String(commits.dropFirst(2)) : "Fixes and notes from \(host) (\(count) commits)") : a.pos.joined(separator: " ")
-        let body = "Small commits made by apprentice while it was used:\n\n\(commits)\n"
-        let made = run("gh", ["pr", "create", "--repo", target, "--base", base, "--head", head, "--title", title, "--body", body])
-        guard made.code == 0 else { throw Fail(5, "gh pr create failed: \(made.out)") }
-        return made.out.split(separator: "\n").last.map(String.init) ?? made.out
+    static func behind(_ remote: String) -> Int {
+        Int(git("rev-list", "--count", "HEAD..\(remote)/\(branch(remote))").out) ?? 0
     }
 
-    /// The line `session` prints when upstream has commits this clone lacks. Fetches in the
-    /// background at most once a day, so the check itself stays instant.
-    static func updateLine() -> String? {
+    // MARK: - telling the user, and updating on its own
+
+    /// One line about the last automatic update, shown by the next `session` and then dropped.
+    struct Notice: Codable { var text: String }
+
+    static func notice(_ text: String) {
+        Store.save(Notice(text: text), "update.json")
+        Store.log(["update": text])
+    }
+
+    /// What `session` prints about updates: the last automatic update, or one that is waiting. Only the
+    /// daemon starts an update (`start`); a client process would exit in the middle of it.
+    static func updateLine(start: Bool = true) -> String? {
         guard isGit else { return nil }
+        var lines: [String] = []
+        if let n = Store.load(Notice.self, "update.json") {
+            lines.append(n.text)
+            Store.remove("update.json")
+        }
         let remote = upstream
         let fetched = root.appendingPathComponent(".git/FETCH_HEAD")
         let age = (try? fetched.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-        if age.map({ Date().timeIntervalSince($0) > 86_400 }) ?? true { fetchInBackground(remote) }
-        guard let behind = Int(git("rev-list", "--count", "HEAD..\(remote)/\(branch(remote))").out), behind > 0 else { return nil }
-        return "apprentice: \(behind) new upstream commit\(behind == 1 ? "" : "s"); tell the user, who runs `apprentice update`"
+        if start, age.map({ Date().timeIntervalSince($0) > checkSeconds }) ?? true { checkInBackground() }
+        let n = behind(remote)
+        if n > 0, !updating {
+            let commits = "\(n) new upstream commit\(n == 1 ? "" : "s")"
+            if auto {
+                if start { startUpdate() }
+                lines.append("apprentice: updating itself in the background (\(commits))")
+            } else {
+                lines.append("apprentice: \(commits); auto-update is off, so tell the user, who runs `apprentice update`")
+            }
+        }
+        return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
 
-    private static var fetcher: Process?
+    /// The daemon checks upstream a minute after it starts and then every `[update] check_hours`.
+    static func scheduleChecks() {
+        let timer = DispatchSource.makeTimerSource(queue: .global(qos: .utility))
+        timer.schedule(deadline: .now() + 60, repeating: checkSeconds)
+        timer.setEventHandler { checkInBackground() }
+        timer.resume()
+        checkTimer = timer
+    }
 
-    /// git and gh fail instead of asking for a login: the daemon may share the user's terminal,
-    /// and a prompt there would hang the command and catch their keys (M6).
+    private static var checkTimer: DispatchSourceTimer?
+    private static let lock = NSLock()
+    private static var busy = false
+    private static var updating: Bool { lock.lock(); defer { lock.unlock() }; return busy }
+
+    private static func claim() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        if busy { return false }
+        busy = true
+        return true
+    }
+
+    private static func release() {
+        lock.lock()
+        busy = false
+        lock.unlock()
+    }
+
+    /// Fetches off the command queue, then updates when that is on and there is something new.
+    static func checkInBackground() {
+        guard isGit, claim() else { return }
+        DispatchQueue.global(qos: .utility).async {
+            let remote = upstream
+            git("fetch", "-q", remote)
+            let waiting = behind(remote) > 0
+            release()
+            if waiting, auto { startUpdate() }
+        }
+    }
+
+    private static func startUpdate() {
+        guard claim() else { return }
+        DispatchQueue.global(qos: .utility).async {
+            let restart = applyUpdate()
+            release()
+            // Restarts between commands, never in the middle of one; the next command starts the new binary.
+            if restart { Daemon.queue.async { _ = Wire.stopDaemon() } }
+        }
+    }
+
+    /// The automatic update: only on a clean tree on the base branch, and back to where it was if the
+    /// new build or its self-test fails. Returns whether the daemon should restart.
+    private static func applyUpdate() -> Bool {
+        let remote = upstream
+        let base = branch(remote)
+        guard installedHere else { return false }
+        guard git("status", "--porcelain").out.isEmpty else {
+            notice("apprentice: an update is waiting, but \(root.path) has uncommitted changes; once they are committed (`apprentice commit \"…\"`) it updates itself")
+            return false
+        }
+        guard git("branch", "--show-current").out == base else {
+            notice("apprentice: an update is waiting, but \(root.path) is not on \(base); `apprentice update` there brings it in")
+            return false
+        }
+        let before = git("rev-parse", "HEAD").out
+        do { try rebase(remote) } catch {
+            notice("apprentice: could not update itself, because local commits conflict with upstream; nothing changed. `apprentice update` shows where")
+            return false
+        }
+        let to = git("log", "-1", "--format=%h %s").out
+        guard touchesSource(since: before) else {
+            notice("apprentice: updated its notes and docs to \(to)")
+            return false
+        }
+        let built = run("bash", [root.appendingPathComponent("kit.sh").path])
+        guard built.code == 0 else {
+            // The tree was clean before the rebase, so this only undoes the update.
+            git("reset", "-q", "--hard", before)
+            let tail = built.out.split(separator: "\n").suffix(5).joined(separator: "\n")
+            notice("apprentice: the update to \(to) failed its build or self-test, so apprentice stayed on the old version:\n\(tail)")
+            return false
+        }
+        notice("apprentice: updated itself to \(to)")
+        return true
+    }
+
+    /// git fails instead of asking for a login: the daemon may share the user's terminal, and a prompt
+    /// there would hang the command and catch their keys (M6).
     static func quiet(_ proc: Process) -> Process {
         var env = ProcessInfo.processInfo.environment
         env["GIT_TERMINAL_PROMPT"] = "0"
-        env["GH_PROMPT_DISABLED"] = "1"
         proc.environment = env
         return proc
-    }
-
-    private static func fetchInBackground(_ remote: String) {
-        guard fetcher?.isRunning != true else { return }
-        let proc = quiet(Process())
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        proc.arguments = ["git", "fetch", "-q", remote]
-        proc.currentDirectoryURL = root
-        proc.standardOutput = FileHandle.nullDevice
-        proc.standardError = FileHandle.nullDevice
-        try? proc.run()
-        fetcher = proc
     }
 
     private static func requireClean() throws {
@@ -148,33 +234,22 @@ enum Repo {
     }
 
     private static func touchesSource(since rev: String) -> Bool {
-        !git("diff", "--name-only", rev, "HEAD", "--", "Sources", "Package.swift").out.isEmpty
+        !git("diff", "--name-only", rev, "HEAD", "--", "Sources", "Package.swift", "kit.sh").out.isEmpty
     }
 
-    @discardableResult
-    private static func push(branch: String) -> Bool {
-        git("push", "-q", "--force-with-lease", "origin", "HEAD:refs/heads/\(branch)").code == 0
+    /// Only the clone ~/.apprentice/notes links into is the installed one. kit.sh from any other clone
+    /// (APPRENTICE_NOTES, a test copy) would reinstall from it and relink the notes (M7).
+    private static var installedHere: Bool {
+        let installed = Store.dir.appendingPathComponent("notes").resolvingSymlinksInPath().deletingLastPathComponent()
+        return installed.standardizedFileURL.path == root.standardizedFileURL.path
     }
 
-    /// owner/name of a GitHub remote.
-    private static func slug(_ remote: String) -> String {
-        var url = git("remote", "get-url", remote).out
-        if url.hasSuffix(".git") { url.removeLast(4) }
-        let parts = url.replacingOccurrences(of: ":", with: "/").split(separator: "/")
-        return parts.suffix(2).joined(separator: "/")
-    }
-
-    /// Runs kit.sh, which builds, signs and swaps the binary in place, then stops the daemon so
+    /// Runs kit.sh, which builds, self-tests, signs and swaps the binary in place, then stops the daemon so
     /// the next command starts the new one.
     private static func rebuild() throws -> String {
-        // Only the clone ~/.apprentice/notes links into is the installed one. kit.sh from any
-        // other clone (APPRENTICE_NOTES, a test copy) would reinstall from it and relink the notes (M7).
-        let installed = Store.dir.appendingPathComponent("notes").resolvingSymlinksInPath().deletingLastPathComponent()
-        guard installed.standardizedFileURL.path == root.standardizedFileURL.path else {
-            return "not rebuilt: \(root.path) is not the installed clone (\(installed.path))"
-        }
+        guard installedHere else { return "not rebuilt: \(root.path) is not the installed clone" }
         let built = run("bash", [root.appendingPathComponent("kit.sh").path])
-        guard built.code == 0 else { throw Fail(5, "the build failed; the commit stays, fix it and commit again:\n\(built.out.split(separator: "\n").suffix(15).joined(separator: "\n"))") }
+        guard built.code == 0 else { throw Fail(5, "the build or self-test failed; the commit stays, fix it and commit again:\n\(built.out.split(separator: "\n").suffix(15).joined(separator: "\n"))") }
         _ = Wire.stopDaemon()
         return "rebuilt and restarted apprentice"
     }

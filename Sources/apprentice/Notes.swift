@@ -174,7 +174,7 @@ enum Notes {
     }
 
     private static func lastError() -> String? {
-        guard let session = Session.stored,
+        guard let session = VM.session,
               let text = try? String(contentsOf: Store.runFolder(session).appendingPathComponent("steps.jsonl"), encoding: .utf8) else { return nil }
         for row in text.split(separator: "\n").reversed() {
             guard let data = row.data(using: .utf8), let r = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -192,7 +192,7 @@ enum Notes {
     static func learn(_ a: Args) throws -> String {
         let task = a.pos.joined(separator: " ")
         guard !task.isEmpty else { throw Fail(5, "learn \"task\" [--name slug] [--force]") }
-        guard let session = Session.stored else { throw Fail(5, "no session: learn drafts a flow from the current session's steps") }
+        guard let session = VM.session else { throw Fail(5, "no session: learn drafts a flow from the current session's steps") }
         let steps = stepLines(session)
         // The session line is always there; a flow needs at least one action after it (D1).
         guard steps.count > 1 else { throw Fail(5, "no actions in this session's log yet: nothing to learn") }

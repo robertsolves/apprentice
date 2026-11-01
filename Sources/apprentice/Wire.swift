@@ -97,7 +97,13 @@ enum Wire {
         return readAll(fd)
     }
 
+    /// Browser work goes to the VM when `apprentice vm on` is set; everything else to this Mac's daemon.
     static func send(_ req: Request) throws -> Response {
+        if let routed = try VM.send(req) { return routed }
+        return try sendLocal(req)
+    }
+
+    static func sendLocal(_ req: Request) throws -> Response {
         var fd = connect()
         if fd == nil {
             try startDaemon()
@@ -162,18 +168,27 @@ enum Wire {
             let gone = poll(timeout: 3, interval: 0.1) { ping() ? nil : true } != nil
             return gone ? (true, "stopped") : (false, "the daemon is still running: it may be busy with a command")
         }
-        defer {
+        // No socket: either nothing runs, or the daemon is too busy to accept. Clear what a crash
+        // left behind only once the process is gone, so a second `stop` still finds a live pid.
+        func clear() {
             unlink(Store.socketPath)
             try? FileManager.default.removeItem(atPath: Store.pidPath)
         }
         guard let raw = try? String(contentsOfFile: Store.pidPath, encoding: .utf8),
-              let pid = pid_t(raw.trimmingCharacters(in: .whitespacesAndNewlines)) else { return (true, "not running") }
+              let pid = pid_t(raw.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            clear()
+            return (true, "not running")
+        }
         // A pid left by a crash may now belong to another program: only signal apprentice (E2).
         var buffer = [CChar](repeating: 0, count: 4096)
         guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0,
-              String(cString: buffer).hasSuffix("/apprentice") else { return (true, "not running (cleared a stale pid file)") }
+              String(cString: buffer).hasSuffix("/apprentice") else {
+            clear()
+            return (true, "not running (cleared a stale pid file)")
+        }
         kill(pid, SIGTERM)
         let gone = poll(timeout: 3, interval: 0.1) { kill(pid, 0) == 0 ? nil : true } != nil
+        if gone { clear() }
         return gone ? (true, "stopped") : (false, "pid \(pid) did not stop")
     }
 }
@@ -249,6 +264,11 @@ final class UnixServer {
             // ping and stop never wait behind a running command, such as an open question window (H1).
             if req.cmd == "ping" {
                 response = Response(code: 0, out: "pong")
+            } else if req.cmd == "kill" {
+                // The host's kill switch reaching a guest, mid-command like the hotkey.
+                KillSwitch.tripped = true
+                Store.log(["kill_switch": true, "from": "host"])
+                response = Response(code: 0, out: "stopping")
             } else if req.cmd == "stop" {
                 Store.log(["cmd": "stop"])
                 response = Response(code: 0, out: "stopped")

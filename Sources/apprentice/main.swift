@@ -34,11 +34,15 @@ func usage() {
       apprentice confirm <token> [--why "…"]    the user approves or denies a pending step in the little window
       apprentice bug "summary" [--repro …] [--cause …] [--fix …]   file a field report in the repo's bugs.md
       apprentice commit "what and why"          one small commit in the repo; a source change rebuilds and restarts
-      apprentice update [--build]               rebase onto upstream, push to your fork, rebuild if the source changed
-      apprentice pr ["title"]                   send your local commits upstream as a pull request
-      apprentice settings [github [--repo name] | local | sync]   settings on this Mac only, or in a private GitHub repo
+      apprentice update [--check] [--build]     rebase onto upstream and rebuild (it also does this on its own unless [update] auto = false)
+      apprentice selftest                       the built-in tests; kit.sh runs them before installing a build
+      apprentice settings [local]               where the settings are; local moves an old synced copy back
       apprentice repo                           the clone apprentice runs from
-      apprentice policy                         may the LLM use shell commands for macOS tasks? ([agent] ui_only)
+      apprentice policy [domain]                may the LLM use shell commands for macOS tasks? With a domain: may apprentice work there?
+      apprentice budget [domain]                what is left of today's and this hour's caps per site and kind
+      apprentice cool [--clear domain]          sites cooling down after a rate limit; clearing asks the user
+      apprentice activity <domain> [--days 7]   actions per day, rate limits, challenges and flags on one site
+      apprentice flag <domain> "what you saw"   record when the user saw a warning or restriction
       apprentice awake on|off|status            keep the Mac from idle sleep and locking while tasks run
       apprentice away on|off|status             the user is away: questions come back as exit 9 for the chat
       apprentice grow [--days 14]               improvement digest: repeated errors, questions asked, open bug reports
@@ -49,12 +53,13 @@ func usage() {
       apprentice run "task" --model <name> [--base-url url] [--screen-anyway] [--save name]
       apprentice replay <name> [--from n] [--approve]
       apprentice mcp
+      apprentice vm setup | up [--window] | down | on | off | look | call "what" | logs | status   a separate Mac in a VM for the browser
       apprentice serve [--background] | stop
 
     output is compact text for an agent. add --json for the raw reply.
     open, click, type, key, menu, drag, upload, download, choose and do only propose: they exit 8 with a token,
     and act once you run `apprentice approve <token>`.
-    exit codes: 0 ok · 2 stale, re-read · 3 the user denied · 4 blocked or rate limited ·
+    exit codes: 0 ok · 2 stale, re-read · 3 the user denied · 4 blocked, rate limited, over budget, cooling or a challenge ·
                 5 not found or timeout · 6 interrupted · 7 permission missing · 8 approval needed, nothing done yet ·
                 9 ask the user in the chat (they are away or did not answer the window)
     """)
@@ -80,6 +85,12 @@ func fail(_ error: Error) -> Never {
 func attempt(_ body: () throws -> Void) -> Never {
     do { try body() } catch { fail(error) }
     exit(0)
+}
+
+// Site records live where the browser runs; with the VM on, that is the VM.
+if ["budget", "activity", "flag"].contains(command), let (code, out) = VM.forward(argv) {
+    if !out.isEmpty { print(out) }
+    exit(code)
 }
 
 switch command {
@@ -114,17 +125,24 @@ case "commit":
     attempt { print(try Repo.commitCommand(Args.parse(rest))) }
 case "update":
     attempt { print(try Repo.update(Args.parse(rest))) }
-case "pr":
-    attempt { print(try Repo.pr(Args.parse(rest))) }
 case "settings":
     attempt { print(try Settings.run(Args.parse(rest))) }
 case "repo":
     print(Repo.root.path)
     exit(0)
 case "policy":
-    print(Config.policyLine)
+    let a = Args.parse(rest)
+    print(a.pos.first.map { Policies.describe($0.contains("://") ? (hostOf($0) ?? $0) : $0) } ?? Config.policyLine)
     exit(0)
+case "budget":
+    print(Budgets.report(Args.parse(rest).pos.first))
+    exit(0)
+case "activity":
+    attempt { print(try Events.activity(Args.parse(rest))) }
+case "flag":
+    attempt { print(try Events.flag(Args.parse(rest))) }
 case "grow":
+    VM.pullLogs()
     print(Grow.digest(days: Args.parse(rest).int("days", 14)))
     exit(0)
 case "run":
@@ -135,6 +153,12 @@ case "replay":
 case "mcp":
     MCP.run()
     exit(0)
+case "vm":
+    attempt { print(try VM.command(Args.parse(rest))) }
+case "wire":
+    VM.wire()
+case "selftest":
+    SelfTest.run()
 default:
     do {
         let response = try Wire.send(Request(cmd: command, args: rest))

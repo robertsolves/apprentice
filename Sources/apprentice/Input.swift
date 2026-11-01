@@ -123,9 +123,16 @@ enum Keys {
             e.flags = shift ? .maskShift : []
             e.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
             post(e)
-            if down { Pace.sleep(Double.random(in: 0.02...0.05)) }
+            if down { Pace.sleep(Double.random(in: 0.05...0.11)) }
         }
     }
+
+    /// Keys next to each letter on a QWERTY board, for the occasional slip that is then corrected.
+    static let neighbours: [Character: String] = [
+        "q": "wa", "w": "qes", "e": "wrd", "r": "etf", "t": "ryg", "y": "tuh", "u": "yij", "i": "uok", "o": "ipl",
+        "p": "ol", "a": "qsz", "s": "awdx", "d": "sefc", "f": "drgv", "g": "fthb", "h": "gyjn", "j": "hukm",
+        "k": "jil", "l": "ko", "z": "asx", "x": "zsc", "c": "xdv", "v": "cfb", "b": "vgn", "n": "bhm", "m": "nj",
+    ]
 
     static let shifted: [Character: Character] = [
         "!": "1", "@": "2", "#": "3", "$": "4", "%": "5", "^": "6", "&": "7", "*": "8", "(": "9", ")": "0",
@@ -142,21 +149,41 @@ enum Keys {
     }
 
     /// Types like a person, key by key. `fast` shortens the gaps; every key is still a real key.
+    /// At the profile's `key_error_rate`, a letter is first mistyped as a neighbouring key and corrected
+    /// with backspace, never in a password field (`corrections: false`) or with `fast`.
     /// Throws exit 6 when the person or the kill switch stops it partway, so nothing after it (such as
     /// a return that would send a half-typed message) runs (D8).
-    static func type(_ text: String, fast: Bool = false) throws {
+    static func type(_ text: String, fast: Bool = false, corrections: Bool = false) throws {
         let began = Date()
         defer { Timing.add("type", Date().timeIntervalSince(began)) }
         Pace.sleep(Double.random(in: 0.08...0.2))
+        let rate = fast || !corrections ? 0 : Config.current.pace.keyErrorRate
         var prev: Character?
         var sent = 0
+        var slips = 0
+        var nextPause = Int.random(in: 20...40)
         for ch in text {
             if KillSwitch.tripped || Watch.stopped {
                 throw Fail(6, "interrupted after \(sent) of \(text.count) characters: you used the keyboard or mouse. Check the field before retrying")
             }
             sent += 1
+            // Character(String) traps when a letter lowercases to two characters (İ): skip those.
+            let lower = ch.lowercased()
+            if slips < 3, rate > 0, lower.count == 1, let key = lower.first,
+               Double.random(in: 0..<1) < rate, let near = neighbours[key]?.randomElement() {
+                slips += 1
+                typeChar(ch.isUppercase ? Character(near.uppercased()) : near)
+                Pace.sleep(Double.random(in: 0.1...0.35))
+                try press("delete")
+                Pace.sleep(Double.random(in: 0.08...0.2))
+            }
             typeChar(ch)
             Pace.sleep(Pace.keyGap(after: prev) * (fast ? 0.35 : 1))
+            // A pause to think now and then, at the end of a word.
+            if !fast, ch == " " || ch.isPunctuation, sent >= nextPause {
+                Pace.sleep(Double.random(in: 0.5...1.8))
+                nextPause = sent + Int.random(in: 20...40)
+            }
             prev = ch
         }
     }
@@ -196,13 +223,15 @@ enum Keys {
 enum Mouse {
     static var location: CGPoint { CGEvent(source: nil)?.location ?? .zero }
 
-    /// A random point in the middle 60% of the target, never on its edge.
+    /// A point near the middle of the target, clustered as people's clicks are, and never within 8%
+    /// of its edge.
     static func landing(in r: CGRect) -> CGPoint {
-        CGPoint(x: r.midX + CGFloat.random(in: -0.3...0.3) * r.width,
-                y: r.midY + CGFloat.random(in: -0.3...0.3) * r.height)
+        func offset() -> CGFloat { CGFloat(min(max(Pace.gaussian() * Double.random(in: 0.12...0.18), -0.42), 0.42)) }
+        return CGPoint(x: r.midX + offset() * r.width, y: r.midY + offset() * r.height)
     }
 
-    /// Cubic Bézier path, Fitts' law duration, ease-in-out speed, slight wobble.
+    /// Fitts' law duration along a curved path. Longer moves arrive in two phases, as a hand does: a
+    /// fast reach that stops a little short of or past the target, then a slower correction onto it.
     static func move(to target: CGPoint, size: CGSize = CGSize(width: 20, height: 20)) {
         let began = Date()
         defer { Timing.add("move", Date().timeIntervalSince(began)) }
@@ -212,30 +241,82 @@ enum Mouse {
         let width = max(min(size.width, size.height), 8)
         let p = Config.current.pace
         let duration = min(max(0.12 + 0.11 * log2(dist / width + 1), p.moveMin), p.moveMax)
+        guard dist > 120 else {
+            stroke(from: start, to: target, duration: duration, bend: 0.5)
+            return
+        }
+        let ux = dx / dist, uy = dy / dist
+        // One move in three overshoots by a few pixels; the rest stop 3–8% short, slightly off the line.
+        let along = Int.random(in: 0..<3) == 0 ? dist + CGFloat.random(in: 2...8) : dist * CGFloat.random(in: 0.92...0.97)
+        let off = CGFloat.random(in: -1...1) * min(dist * 0.02, 6)
+        let reach = CGPoint(x: start.x + ux * along - uy * off, y: start.y + uy * along + ux * off)
+        stroke(from: start, to: reach, duration: duration * 0.85, bend: 1)
+        if KillSwitch.tripped || Borrow.interrupted { return }
+        stroke(from: reach, to: target, duration: Double.random(in: 0.04...0.14), bend: 0.2)
+    }
+
+    /// One curved stroke. Speed peaks before the middle and tails off into the end, and the
+    /// samples are a little uneven in time, as a real mouse reports them.
+    private static func stroke(from start: CGPoint, to end: CGPoint, duration: Double, bend: CGFloat) {
+        let dx = end.x - start.x, dy = end.y - start.y
+        let dist = max(hypot(dx, dy), 1)
         let normal = CGPoint(x: -dy / dist, y: dx / dist)
         let side: CGFloat = Bool.random() ? 1 : -1
-        let bend1 = side * dist * CGFloat.random(in: 0.08...0.25)
-        let bend2 = side * dist * CGFloat.random(in: 0.03...0.15)
+        let bend1 = side * dist * CGFloat.random(in: 0.08...0.25) * bend
+        let bend2 = side * dist * CGFloat.random(in: 0.03...0.15) * bend
         let c1 = CGPoint(x: start.x + dx * 0.3 + normal.x * bend1, y: start.y + dy * 0.3 + normal.y * bend1)
         let c2 = CGPoint(x: start.x + dx * 0.7 + normal.x * bend2, y: start.y + dy * 0.7 + normal.y * bend2)
-        let steps = min(max(Int(duration.isFinite ? duration * 120 : 8), 8), 600)
+        let steps = min(max(Int(duration.isFinite ? duration * 120 : 8), 4), 600)
+        let skew = Double.random(in: 0.75...0.9)
         for n in 1...steps {
             if KillSwitch.tripped || Borrow.interrupted { break }
-            let lin = Double(n) / Double(steps)
+            let lin = pow(Double(n) / Double(steps), skew)
             let t = CGFloat(lin < 0.5 ? 2 * lin * lin : 1 - pow(-2 * lin + 2, 2) / 2)
             let u = 1 - t
             var p = CGPoint(
-                x: u * u * u * start.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * target.x,
-                y: u * u * u * start.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * target.y)
+                x: u * u * u * start.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * end.x,
+                y: u * u * u * start.y + 3 * u * u * t * c1.y + 3 * u * t * t * c2.y + t * t * t * end.y)
             if n < steps {
                 p.x += CGFloat.random(in: -0.6...0.6)
                 p.y += CGFloat.random(in: -0.6...0.6)
             }
-            if let e = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: p, mouseButton: .left) {
-                Keys.post(e)
-            }
-            Borrow.noteMove(p)
-            Pace.sleep(duration / Double(steps))
+            post(p)
+            Pace.sleep(duration / Double(steps) * Double.random(in: 0.7...1.3))
+        }
+    }
+
+    private static func post(_ p: CGPoint) {
+        if let e = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: p, mouseButton: .left) {
+            Keys.post(e)
+        }
+        Borrow.noteMove(p)
+    }
+
+    /// The hand coming to rest over a target: 40–120 ms with a pixel or so of movement. Returns
+    /// where the cursor ended, which is where the click lands.
+    static func settle(at p: CGPoint) -> CGPoint {
+        var at = p
+        for _ in 0..<Int.random(in: 1...3) {
+            Pace.sleep(Double.random(in: 0.015...0.04))
+            at = CGPoint(x: p.x + CGFloat.random(in: -1.5...1.5), y: p.y + CGFloat.random(in: -1.5...1.5))
+            post(at)
+        }
+        Pace.sleep(Double.random(in: 0.02...0.05))
+        return at
+    }
+
+    /// Rests for `seconds` while a page is being read, drifting the cursor a few pixels every few
+    /// seconds. It stops drifting while the person moves the mouse themselves.
+    static func linger(_ seconds: Double) {
+        let end = Date().addingTimeInterval(seconds)
+        while Date() < end {
+            if KillSwitch.tripped || Watch.stopped { return }
+            Pace.sleep(min(Double.random(in: 2...5), end.timeIntervalSinceNow))
+            guard Date() < end, Borrow.humanIdle > 1 else { continue }
+            let from = location
+            let angle = Double.random(in: 0..<(2 * .pi)), r = CGFloat.random(in: 5...20)
+            stroke(from: from, to: CGPoint(x: from.x + r * CGFloat(cos(angle)), y: from.y + r * CGFloat(sin(angle))),
+                   duration: Double.random(in: 0.12...0.3), bend: 0.3)
         }
     }
 
@@ -275,9 +356,9 @@ enum Mouse {
                 guard let e = CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: p, mouseButton: button) else { continue }
                 e.setIntegerValueField(.mouseEventClickState, value: Int64(n))
                 Keys.post(e)
-                Pace.sleep(type == down ? Double.random(in: 0.05...0.1) : 0.02)
+                Pace.sleep(type == down ? Double.random(in: 0.06...0.14) : 0.02)
             }
-            if double { Pace.sleep(0.08) }
+            if double { Pace.sleep(Double.random(in: 0.07...0.13)) }
         }
     }
 }
@@ -358,7 +439,7 @@ enum Borrow {
             t.app.set(kAXFrontmostAttribute, kCFBooleanTrue)
             t.window.set(kAXMainAttribute, kCFBooleanTrue)
             t.window.perform(kAXRaiseAction)
-            Pace.sleep(0.2)
+            Pace.sleep(Double.random(in: 0.25...0.6))
         }
         defer {
             active = false

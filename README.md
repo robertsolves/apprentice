@@ -41,20 +41,22 @@ nothing was done. approve: apprentice approve 7c2e · deny: apprentice deny 7c2e
   - `confirm` puts a risky step in front of you to approve or deny.
 
   When you are away from the Mac (`apprentice away on`, or nobody answers within a minute), the question comes back with exit 9 and the agent asks you in the chat instead.
-- **It fixes itself.** apprentice runs from your own fork. When it gets something wrong, the agent fixes the note or the code and commits each small change with `apprentice commit`, which rebuilds and restarts apprentice with the fix. `apprentice update` brings in everyone else's fixes, and `apprentice pr` sends yours upstream as a pull request.
-- **It learns.** Notes about apps and sites live in this repo under `notes/`, so a `git pull` shares them between machines. `learn` turns a task that worked into a flow. `do <flow>` reruns it with one approval for the whole plan, and hands back to the agent if a step fails. Whenever asking you solved a problem, the note gets updated and a code fix is filed.
+- **It fixes itself.** apprentice runs from your own local clone. When it gets something wrong, the agent fixes the note or the code and commits each small change with `apprentice commit`, which rebuilds, self-tests and restarts apprentice with the fix. Your commits stay in your clone.
+- **It updates itself.** Every few hours it checks its upstream. When there's something new, it rebases your commits onto it, rebuilds, runs its self-test and restarts between commands, and the next `session` tells you. If the build or test fails, it stays on the old version. Set `[update] auto = false` to only be told, then run `apprentice update`.
+- **It can keep the browser off your desktop.** `apprentice vm setup` makes a separate macOS in a VM (Tart, about 35 GB) that runs only the browser, with its own cursor and keyboard, so you can keep working. `apprentice vm on` sends browser sessions there. Questions and approvals still open on your Mac, and `apprentice vm call` brings you into the VM when only you can do a step.
+- **It learns.** Notes about apps and sites live in this repo under `notes/`, so updates share them. `learn` turns a task that worked into a flow. `do <flow>` reruns it with one approval for the whole plan, and hands back to the agent if a step fails. Whenever asking you solved a problem, the note gets updated and a code fix is filed.
 
 ## Install
 
-You need macOS 14 or later, Swift 5.9 (Xcode or the command-line tools) and the GitHub CLI (`brew install gh`). One command installs it, and running it again updates:
+You need macOS 14 or later and Swift 5.9 (Xcode or the command-line tools). One command installs it, and running it again updates:
 
 ```sh
-gh api repos/robertsolves/apprentice/contents/install.sh -H "Accept: application/vnd.github.raw" | bash
+git clone https://github.com/robertsolves/apprentice.git ~/.apprentice/src && ~/.apprentice/src/install.sh
 ```
 
-`install.sh` asks which GitHub account or organisation to use (signing you in to `gh` if needed). It reuses your fork if you have one, whatever it is called, forks the repo if you don't, and clones it to `~/.apprentice/src`. The repo's owner gets a clone of the repo itself. Running it again updates the clone of your last install, wherever it is (it follows `~/.apprentice/notes`), and fixes its remotes: `origin` is where your commits go, and `upstream` is this repo. Set `APPRENTICE_DIR` to pick the folder. Then it runs `kit.sh`. The repo is private, so your account needs access to it. From a clone you already have, run `./kit.sh` directly.
+`install.sh` clones into `~/.apprentice/src` (or `APPRENTICE_DIR`, or the clone of your last install, which it finds through `~/.apprentice/notes`). The clone is your copy: `upstream` is fetch-only, so your commits stay in it. Set `APPRENTICE_UPSTREAM` to install from another git URL (a server, a folder, another Mac's clone). Then it runs `kit.sh`. From a clone you already have, run `./kit.sh` directly.
 
-`kit.sh` builds a release binary into `~/.local/bin/apprentice` and signs it. Set `APPRENTICE_SIGN_IDENTITY`, or keep a keychain identity named `apprentice`, so your permissions survive rebuilds. It also:
+`kit.sh` builds a release binary, runs its self-test (a failure keeps the installed one), and installs it to `~/.local/bin/apprentice`. It signs it with a local identity named `apprentice`, which it creates in your login keychain the first time, so your permissions survive rebuilds (set `APPRENTICE_SIGN_IDENTITY` to use another). A running browser VM gets the new build too. It also:
 - connects every AI assistant it finds on the Mac (`agent/connect.py`), and leaves out the ones that aren't installed:
   - the skill (`agent/SKILL.md`) goes to `~/.claude/skills` and the shared `~/.agents/skills`, which nearly every agent reads, and to `~/.factory/skills` (Factory Droid) and `~/.continue/skills` (Continue), which read only their own;
   - the instructions (`agent/AGENTS.md`) go between `<!-- apprentice -->` markers, replaced on every run, in the global rules file of each installed agent: Codex and the ChatGPT app, opencode, Kilo, Gemini CLI, Qwen Code, GitHub Copilot CLI, Amp, Factory Droid, Crush, Mistral Vibe, Continue, Augment's Auggie, and Freebuff and Codebuff (`~/.AGENTS.md`). The shared `~/.agents/AGENTS.md`, which Cline and goose read, always gets them. Kimi, Warp and Cursor's CLI have no global rules file and get the skill only;
@@ -93,7 +95,8 @@ The first `session` after the daemon starts opens an options window:
 | `policy` · `away on\|off` · `awake on\|off` | Settings for shell use, remote questions and keep-awake |
 | `grow` · `bug "summary" --fix "…"` | What to improve next, and field reports |
 | `settings [github \| local \| sync]` | Keep settings on this Mac, or in a private GitHub repo shared by your Macs |
-| `commit "what and why"` · `update` · `pr` · `repo` | A small commit (rebuilds on a source change), upstream fixes in, your fixes out as a pull request, and where the clone is |
+| `commit "what and why"` · `update [--check]` · `selftest` · `repo` | A small commit (rebuilds on a source change), upstream fixes in by hand (it also updates itself), the built-in tests, and where the clone is |
+| `vm setup` · `vm on`/`off` · `vm up`/`down` · `vm look` · `vm call "what"` · `vm logs` | The browser VM: make it, send browser sessions to it, start or stop it, see it, bring the user into it, copy its logs here |
 | `run "task" --model <name>` · `mcp` | A built-in loop for any OpenAI-compatible model, and an MCP server |
 
 Add `--json` to any command for the raw reply.
@@ -114,13 +117,7 @@ Add `--json` to any command for the raw reply.
 
 ## Configuration
 
-Settings are `config.toml` (see `agent/config.example.toml`) and `routes.toml`. They live in `~/.apprentice/` on this Mac only, or in `~/.apprentice/settings/` when they sync with GitHub:
-- `apprentice settings` says which;
-- `apprentice settings github [--repo name]` moves them into a private repo, creating it if needed. On a second Mac it uses the repo's copies and keeps the local ones as `.local`;
-- `apprentice settings sync` syncs now. Changes also sync in the background: when you save choices in the options window, and at most hourly when a session starts;
-- `apprentice settings local` moves them back to this Mac and leaves the repo alone.
-
-Only those two files sync. Sessions, logs and screenshots stay on the Mac, and a config with an `api_key` in it is never pushed (use `APPRENTICE_API_KEY`).
+Settings are `config.toml` (see `agent/config.example.toml`), `routes.toml` and `budgets.json`, in `~/.apprentice/` on this Mac only. An older install that synced them with GitHub keeps reading them from `~/.apprentice/settings/` until `apprentice settings local` moves them back. Sessions, logs and screenshots stay on the Mac. The browser VM gets a copy of your settings each time `kit.sh` or `apprentice vm install` runs.
 
 `config.toml` has:
 

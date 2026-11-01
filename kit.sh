@@ -13,9 +13,44 @@ mkdir -p "$(dirname "$bin")"
 # its own copy, so `apprentice commit` and `update` can rebuild themselves.
 new="$bin.new"
 cp "$root/.build/release/apprentice" "$new"
+# The new build tests itself before it replaces the old one; a failure keeps the old binary.
+if ! "$new" selftest; then
+  rm -f "$new"
+  echo "self-test failed: kept the installed apprentice" >&2
+  exit 1
+fi
 
 id="${APPRENTICE_SIGN_IDENTITY:-}"
-if [ -z "$id" ] && security find-identity -v -p codesigning 2>/dev/null | grep -q '"apprentice"'; then
+# A stable local identity, made once, so Accessibility and Screen Recording grants survive rebuilds.
+# It is self-signed and untrusted, which codesign and the permission checks accept; the VM gets the
+# signed binary as is, so it needs no identity of its own.
+# Read once into a variable: with pipefail, `security … | grep -q` can fail when grep stops reading early.
+identities="$(security find-identity -p codesigning 2>/dev/null || true)"
+if [ -z "$id" ] && [[ "$identities" != *'"apprentice"'* ]]; then
+  echo "creating the local signing identity \"apprentice\"…"
+  tmp="$(mktemp -d)"
+  cat >"$tmp/cert.cnf" <<'EOF'
+[req]
+distinguished_name = dn
+x509_extensions = ext
+prompt = no
+[dn]
+CN = apprentice
+[ext]
+basicConstraints = critical, CA:false
+keyUsage = critical, digitalSignature
+extendedKeyUsage = critical, codeSigning
+EOF
+  # macOS's own openssl (LibreSSL) writes a .p12 that `security import` reads.
+  /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 3650 -config "$tmp/cert.cnf" \
+    -keyout "$tmp/key.pem" -out "$tmp/cert.pem" 2>/dev/null
+  /usr/bin/openssl pkcs12 -export -inkey "$tmp/key.pem" -in "$tmp/cert.pem" -out "$tmp/id.p12" -passout pass:apprentice
+  security import "$tmp/id.p12" -k "$HOME/Library/Keychains/login.keychain-db" -P apprentice -T /usr/bin/codesign >/dev/null \
+    || echo "warning: could not add the identity to the login keychain"
+  rm -rf "$tmp"
+  identities="$(security find-identity -p codesigning 2>/dev/null || true)"
+fi
+if [ -z "$id" ] && [[ "$identities" == *'"apprentice"'* ]]; then
   id="apprentice"
 fi
 if [ -n "$id" ]; then
@@ -29,10 +64,15 @@ fi
 
 mv -f "$new" "$bin"
 
+# The browser VM runs a copy of this binary; a running one gets the new build too.
+if [[ "$("$bin" vm status 2>/dev/null || true)" == *' · running · '* ]]; then
+  "$bin" vm install || echo "warning: could not update the VM; run \`apprentice vm install\` once it is up"
+fi
+
 # Every coding agent on the Mac gets the skill and/or its global rules; the Claude and Cursor apps get the MCP server.
 python3 "$root/agent/connect.py" "$bin"
 
-# Notes live in the repo, so `git pull` brings in what was learned on other machines,
+# Notes live in the repo, so an update brings in what was learned upstream,
 # and `apprentice learn` writes new flows straight into the working tree to commit.
 notes="$HOME/.apprentice/notes"
 if [ -L "$notes" ] || [ ! -e "$notes" ]; then
@@ -42,7 +82,7 @@ else
   echo "warning: $notes is a real folder; move its files into $root/notes, delete it, and re-run"
 fi
 
-# Settings live in ~/.apprentice/settings when they sync with GitHub (`apprentice settings github`).
+# Settings live in ~/.apprentice; an older install that synced them keeps them in ~/.apprentice/settings.
 settings="$HOME/.apprentice"
 [ -d "$settings/settings/.git" ] && settings="$settings/settings"
 if [ ! -f "$settings/config.toml" ]; then
@@ -52,6 +92,10 @@ fi
 if [ ! -f "$settings/routes.toml" ]; then
   cp "$root/agent/routes.example.toml" "$settings/routes.toml"
   echo "wrote $settings/routes.toml"
+fi
+if [ ! -f "$settings/budgets.json" ]; then
+  cp "$root/agent/budgets.example.json" "$settings/budgets.json"
+  echo "wrote $settings/budgets.json"
 fi
 
 echo

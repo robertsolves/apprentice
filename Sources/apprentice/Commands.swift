@@ -157,6 +157,7 @@ func prepare(checkAllow: Bool = true) throws -> (Session, Target, Snapshot?) {
     // Pacing profiles follow the page the window is on now, not the page it was attached to.
     Config.activate(Config.profileKey(session: session, url: target.url))
     if checkAllow { try allowCheck(session, target.url) }
+    try Site.guardPage(target, cmd: Approvals.request.cmd)
     return (session, target, SnapStore.current)
 }
 
@@ -168,6 +169,7 @@ func allowCheck(_ s: Session, _ url: String?) throws {
     guard s.allows(url: url) else {
         throw Fail(4, "blocked by allowlist: \(hostOf(url) ?? s.app) is not in \(s.allow.joined(separator: ","))")
     }
+    try Policies.check(hostOf(url), cmd: Approvals.request.cmd)
 }
 
 /// Pacing and per-host rate limits, charged to `url`: the page acted on, or the page `open` goes to.
@@ -176,9 +178,10 @@ func beforeAction(_ session: Session, url: String?) throws {
     try Limits.beforeAction(host: host, web: host != nil || session.isBrowser)
 }
 
-/// Settles, saves and diffs the new snapshot, and writes the one log row for the action.
+/// Settles, saves and diffs the new snapshot, and writes the one log row for the action. Throws exit 4,
+/// with the diff, when the site answered with a challenge or a throttling message.
 func finish(_ command: String, _ session: Session, _ target: Target, _ old: Snapshot?,
-            extra: [String] = [], log fields: [String: Any] = [:]) -> String {
+            extra: [String] = [], log fields: [String: Any] = [:]) throws -> String {
     let new = Timing.measure("settle") { settle(target) }
     var session = session
     session.track(new.url)
@@ -193,7 +196,13 @@ func finish(_ command: String, _ session: Session, _ target: Target, _ old: Snap
     let r = Args.parse(Approvals.request.args)
     let flags = (r.flags.filter { $0.key != "json" }.sorted { $0.key < $1.key }.map { "--\($0.key) \($0.value)" }
         + r.bools.subtracting(["json"]).sorted().map { "--\($0)" }).joined(separator: " ")
-    Store.log(fields.merging(["cmd": command, "snap": new.snap, "diff": d.summary, "flags": flags]) { $1 })
+    var row = fields.merging(["cmd": command, "snap": new.snap, "diff": d.summary, "flags": flags]) { $1 }
+    // The site and the budgeted kind let `activity` count actions per site across sessions.
+    if let host = hostOf(target.url) ?? hostOf(new.url) { row["host"] = Site.domain(host) }
+    if let kind = Commands.charged { row["kind"] = kind }
+    Commands.charged = nil
+    Store.log(row)
+    if let stop = Site.inspect(command, old, new, session: session) { throw Fail(stop.code, out + "\n" + stop.message) }
     return out
 }
 
@@ -210,17 +219,31 @@ func saveGateShot(_ session: Session, _ action: String) {
 func gate(_ session: Session, _ target: Target, _ e: Element?, _ summary: String,
           details: [String] = [], warn: [String] = [], force: Bool = false) throws {
     let warnings = Gate.warnings(e, target, force: force) + warn
+    // A like, follow, comment or other budgeted action is checked against the site's budget before it
+    // is proposed, and counted once approved. Typing counts only when return sends it.
+    let host = hostOf(target.url)
+    let request = Approvals.request
+    let sends = request.cmd == "click" || (request.cmd == "type" && Args.parse(request.args).has("enter"))
+    let onSettings = Gate.sensitivePage(target.url) || Gate.sensitivePage(target.title)
+    var kind = sends ? Budgets.kind(e.map { "\($0.label) \($0.name)" } ?? summary, gated: !warnings.isEmpty || e?.gated == true) : nil
+    if request.cmd == "upload" { kind = "upload" } else if kind == "default", onSettings { kind = "settings" }
+    if let host, let kind { try Budgets.check(host, kind, record: false) }
     if !warnings.isEmpty, !Approvals.approved { saveGateShot(session, summary) }
     let place = "\(session.app) · \(target.url ?? target.title)"
     try Approvals.check(summary, details: [place] + details + ["uses the real cursor and keyboard, with \(session.app) in front"],
                         warnings: warnings, element: e?.key)
+    if let host, let kind {
+        try Budgets.check(host, kind, record: true)
+        Commands.charged = kind
+    }
     try Watch.begin()
     if NSWorkspace.shared.frontmostApplication?.processIdentifier != session.pid {
         target.app.set(kAXFrontmostAttribute, kCFBooleanTrue)
         target.window.set(kAXMainAttribute, kCFBooleanTrue)
         target.window.perform(kAXRaiseAction)
-        Pace.sleep(0.2)
+        Pace.sleep(Double.random(in: 0.25...0.6))
     }
+    if kind != nil { Site.dwell() }
 }
 
 // MARK: - Actions
@@ -249,6 +272,8 @@ func fileDialogs(_ app: AXUIElement) -> [AXUIElement] {
 enum Commands {
     /// A warning for the caller, added to this command's output.
     static var notice: String?
+    /// The budgeted kind the current action was counted as, for its log row.
+    static var charged: String?
 
     static func run(_ req: Request) throws -> String {
         // A press stops the action under way; it is then cleared, so the tool does not stay locked (B5).
@@ -258,6 +283,7 @@ enum Commands {
             throw Fail(6, "interrupted: the kill switch was pressed, so this command was not run. Run it again to carry on")
         }
         Borrow.interrupted = false
+        charged = nil
         Timing.begin()
         let result = Result { try Awake.busy { try dispatch(req) } }
         if Watch.end() {
@@ -274,6 +300,7 @@ enum Commands {
 
     static func dispatch(_ req: Request) throws -> String {
         Config.reloadIfChanged()
+        let req = try VM.guestRequest(req)
         Approvals.request = req
         let a = Args.parse(req.args)
         switch req.cmd {
@@ -305,6 +332,7 @@ enum Commands {
         case "ocr": return try ocr(a)
         case "shot": return try shot(a)
         case "log": return try log(a)
+        case "cool": return try Cooldown.command(a)
         case "route": return Routes.answer(a.pos.joined(separator: " "))
         default: throw Fail(5, "unknown command \"\(req.cmd)\"")
         }
@@ -314,9 +342,22 @@ enum Commands {
     static func approve(_ a: Args) throws -> String {
         guard let token = a.pos.first else { throw Fail(5, "approve <token> [--text \"edited text\"]") }
         var p = try Approvals.take(token)
-        let edited = a.value("text")
+        // `--text` is a bare switch (it turns on the reply field for `ask --text`), so the parser
+        // leaves the replacement text in the positional list: `approve 7c2e --text "new words"`
+        // is the token, then the words. Reading only the flag silently typed the old text (I4).
+        var edited = a.value("text")
+        if edited == nil, a.has("text") {
+            let words = a.pos.dropFirst().joined(separator: " ")
+            guard !words.isEmpty else { throw Fail(5, "approve <token> --text \"edited text\"") }
+            edited = words
+        }
         if let edited {
-            guard p.cmd == "type" else { throw Fail(5, "--text only applies to a pending type") }
+            guard p.cmd == "type" else {
+                // Nothing was done, so the proposal stays pending: a flag in the wrong command must
+                // not throw away the approval the caller meant to give.
+                Store.save(p, "pending.json")
+                throw Fail(5, "--text only applies to a pending type")
+            }
             let o = Args.parse(p.args)
             p.args = [o.pos.first ?? "", edited]
                 + o.flags.sorted { $0.key < $1.key }.flatMap { ["--\($0.key)", $0.value] }
@@ -350,12 +391,11 @@ enum Commands {
         }
         var out = "session \(s.id ?? "-") · \(name) · window \(s.wid)"
         if let url = s.url { out += " · \(url)" }
-        let hints = Routes.hintLines(for: hostOf(s.url))
+        let hints = Routes.hintLines(for: hostOf(s.url)) + Policies.lines(for: hostOf(s.url))
         if !hints.isEmpty { out += "\n" + hints.joined(separator: "\n") }
         out += "\n" + Config.policyLine
         if Awake.enabled { out += "\n" + Awake.status }
         if let update = Repo.updateLine() { out += "\n" + update }
-        if let settings = Settings.syncSoon() { out += "\n" + settings }
         out += notesLines(s)
         Store.log(["cmd": "session", "app": name, "wid": Int(s.wid), "url": s.url ?? ""])
         return out
@@ -397,7 +437,6 @@ enum Commands {
             Config.remember("agent", "ui_only", s.uiOnly == true ? "true" : "false")
             Config.remember("agent", "keep_awake", Awake.enabled ? "true" : "false")
             Config.remember("session", "allow", "[" + s.allow.map { "\"\($0)\"" }.joined(separator: ", ") + "]")
-            _ = Settings.syncSoon(force: true)
         }
         Store.log(["options": true, "ui_only": s.uiOnly == true, "allow": s.allow.joined(separator: ",")])
         return s
@@ -424,7 +463,9 @@ enum Commands {
             throw Fail(5, "\(name) has no window: open one, or run `apprentice session --new-window`")
         }
         var s = try makeSession(app: app, window: window)
-        if let keep { s.id = keep.id; s.allow = keep.allow }
+        // `focus` keeps the session: its id, its allowlist and the UI-only choice made in the
+        // start-up window, which would otherwise fall back to the config default (E5).
+        if let keep { s.id = keep.id; s.allow = keep.allow; s.uiOnly = keep.uiOnly }
         if let allow = a.value("allow") { s.allow = Config.parseAllow(allow) }
         // A window with no URL yet (a fresh blank tab) is attached; its actions are checked later.
         if let url = s.url { try allowCheck(s, url) }
@@ -443,9 +484,13 @@ enum Commands {
         guard session.allows(url: raw) else {
             throw Fail(4, "blocked by allowlist: \(hostname) is not in \(session.allow.joined(separator: ","))")
         }
+        try Policies.check(hostname, cmd: "open")
+        try Cooldown.check(hostname)
         try gate(session, target, nil, "open \(raw)")
-        try Limits.checkNavigation(url)
+        // The profile for the page being opened sets the navigation gap and reload cap, not the
+        // profile of the page the window is on now.
         Config.activate(Config.profileKey(session: session, url: raw))
+        try Limits.checkNavigation(url)
         try beforeAction(session, url: raw)
         // The address bar belongs to the browser, not the site, so the address is pasted there.
         try Borrow.run(target) {
@@ -468,8 +513,8 @@ enum Commands {
             throw Fail(5, "the window did not go to \(hostname): it shows \((try? locate(session).url) ?? "no page"). Check it with `read`")
         }
         let notes = hostname == hostOf(target.url) ? [] : Notes.hintLines(app: nil, bundle: nil, host: hostname)
-        let extra = ["→ \(raw)"] + Routes.hintLines(for: hostname) + notes
-        return finish("open", session, target, old, extra: extra, log: ["url": raw])
+        let extra = ["→ \(raw)"] + Routes.hintLines(for: hostname) + Policies.lines(for: hostname) + notes
+        return try finish("open", session, target, old, extra: extra, log: ["url": raw])
     }
 
     static func read(_ a: Args) throws -> String {
@@ -482,7 +527,19 @@ enum Commands {
             lines = lines.filter { $0.lowercased().contains(filter) }
         }
         Store.log(["cmd": "read", "snap": snapshot.snap, "shown": min(lines.count, maxLines), "total": snapshot.total])
-        return render(snapshot, app: session.app, lines: lines, max: maxLines)
+        let out = render(snapshot, app: session.app, lines: lines, max: maxLines)
+        // A challenge stops work on the site until the user completes it; reading shows when it is gone.
+        if let host = hostOf(snapshot.url) {
+            if let marker = Challenge.find(snapshot) {
+                let stop = Challenge.start(host, marker, session: session)
+                throw Fail(stop.code, out + "\n" + stop.message)
+            }
+            if Limits.stored.challenged?[Site.domain(host)] != nil {
+                Challenge.clear(Site.domain(host))
+                return out + "\nchallenge gone: \(Site.domain(host)) can be used again"
+            }
+        }
+        return out
     }
 
     static func click(_ a: Args) throws -> String {
@@ -497,7 +554,7 @@ enum Commands {
         try beforeAction(session, url: target.url)
         let (_, rect) = liveRect(el, e, target)
         try Borrow.run(target) { try realClick(rect, right: right, double: double) }
-        return finish("click", session, target, old, log: ["id": id, "label": e.label, "name": e.name])
+        return try finish("click", session, target, old, log: ["id": id, "label": e.label, "name": e.name])
     }
 
     /// Where an element is right now. Panels slide in and pages replace elements, so the snapshot's
@@ -527,7 +584,10 @@ enum Commands {
         let point = Mouse.landing(in: rect)
         Mouse.move(to: point, size: rect.size)
         try Borrow.checkpoint()
-        Mouse.click(at: point, right: right, double: double)
+        // A person's hand comes to rest over the target before pressing.
+        let rest = Mouse.settle(at: point)
+        try Borrow.checkpoint()
+        Mouse.click(at: rest, right: right, double: double)
     }
 
     /// Clicks into a field, checks it took focus, selects what is there and types over it, all with
@@ -564,8 +624,11 @@ enum Commands {
             return now.string(kAXValueAttribute)
         }
         let before = shown()
-        try Keys.press("cmd+a")
-        try Keys.type(text, fast: fast)
+        // Select all only to replace something; an empty field is typed into as it is.
+        if before != "" { try Keys.press("cmd+a") }
+        let secret = (target.app.attr(kAXFocusedUIElementAttribute) as! AXUIElement?)?.string(kAXSubroleAttribute) == "AXSecureTextField"
+            || label.lowercased().contains("password")
+        try Keys.type(text, fast: fast, corrections: !secret)
         // Keys can land nowhere (another app or tool has focus) while every step "works" (F4). Checked
         // before any return is pressed, so nothing half-typed is sent.
         guard !text.isEmpty else { return nil }
@@ -612,7 +675,7 @@ enum Commands {
                  warn: listed == nil && Gate.matches(words) ? ["may be irreversible: \"\(words)\""] : [], force: a.has("gate"))
         try beforeAction(session, url: target.url)
         try Borrow.run(target) { try realClick(rect, right: right, double: double) }
-        return finish("click", session, target, old, extra: ["→ \"\(words)\""], log: ["on": words])
+        return try finish("click", session, target, old, extra: ["→ \"\(words)\""], log: ["on": words])
     }
 
     /// `click --at x,y`: a real click at a screen point, for things `read` cannot list (from `show`).
@@ -628,9 +691,10 @@ enum Commands {
         try Borrow.run(target) {
             Mouse.move(to: point)
             try Borrow.checkpoint()
+            Pace.sleep(Double.random(in: 0.04...0.12))
             Mouse.click(at: point, right: right, double: double)
         }
-        return finish("click", session, target, old, extra: ["→ at \(raw)"], log: ["at": raw])
+        return try finish("click", session, target, old, extra: ["→ at \(raw)"], log: ["at": raw])
     }
 
     static func type(_ a: Args) throws -> String {
@@ -659,7 +723,7 @@ enum Commands {
             }
             Pace.sleep(0.1)
         }
-        return finish("type", session, target, old, extra: note.map { [$0] } ?? [],
+        return try finish("type", session, target, old, extra: note.map { [$0] } ?? [],
                       log: ["id": id, "chars": text.count, "label": e.label, "name": e.name])
     }
 
@@ -691,7 +755,7 @@ enum Commands {
         try beforeAction(session, url: target.url)
         try Borrow.run(target) { try Keys.press(combo) }
         Pace.sleep(0.1)
-        return finish("key", session, target, old, extra: ["→ \(combo)"], log: ["combo": combo])
+        return try finish("key", session, target, old, extra: ["→ \(combo)"], log: ["combo": combo])
     }
 
     /// Picks a menu-bar item the way a person does, e.g. `menu "File > New Folder"`: a real click on the
@@ -746,7 +810,7 @@ enum Commands {
                 Pace.sleep(0.25)
             }
         }
-        return finish("menu", session, target, old, extra: ["→ \(label)"], log: ["menu": label])
+        return try finish("menu", session, target, old, extra: ["→ \(label)"], log: ["menu": label])
     }
 
     static func scroll(_ a: Args) throws -> String {
@@ -762,18 +826,28 @@ enum Commands {
         try beforeAction(session, url: target.url)
         var rect = CGRect(x: target.bounds.midX - 20, y: target.bounds.midY - 20, width: 40, height: 40)
         if let raw = a.value("in"), let id = Int(raw) { rect = try resolve(id, target).1.rect }
-        let wheel = Int32((direction == "down" ? -1 : 1) * count * 3)
+        let sign: Int32 = direction == "down" ? -1 : 1
         try Borrow.run(target) {
             // The wheel scrolls whatever is under the cursor, so the cursor goes there first.
             let point = Mouse.landing(in: rect)
             Mouse.move(to: point, size: rect.size)
             try Borrow.checkpoint()
-            if let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: wheel, wheel2: 0, wheel3: 0) {
-                event.location = point
-                Keys.post(event)
+            Pace.sleep(Double.random(in: 0.15...0.4))
+            // One wheel notch at a time, as a wheel turns: a few lines each, with short uneven gaps
+            // and a pause now and then, instead of one jump of every line at once.
+            var left = count * 3
+            while left > 0 {
+                if KillSwitch.tripped || Borrow.interrupted { break }
+                let lines = min(left, Int.random(in: 1...3))
+                left -= lines
+                if let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: sign * Int32(lines), wheel2: 0, wheel3: 0) {
+                    event.location = point
+                    Keys.post(event)
+                }
+                Pace.sleep(Double.random(in: 0.03...0.09) + (Int.random(in: 0..<6) == 0 ? Double.random(in: 0.15...0.4) : 0))
             }
         }
-        return finish("scroll", session, target, old, extra: ["→ \(direction) \(count)"],
+        return try finish("scroll", session, target, old, extra: ["→ \(direction) \(count)"],
                       log: ["direction": direction, "count": count])
     }
 
@@ -783,7 +857,7 @@ enum Commands {
         let (_, e) = try resolve(id, target)
         try beforeAction(session, url: target.url)
         try Borrow.run(target) { Mouse.move(to: Mouse.landing(in: e.rect), size: e.rect.size) }
-        return finish("hover", session, target, old, log: ["id": id, "label": e.label, "name": e.name])
+        return try finish("hover", session, target, old, log: ["id": id, "label": e.label, "name": e.name])
     }
 
     static func drag(_ a: Args) throws -> String {
@@ -802,7 +876,7 @@ enum Commands {
             Pace.sleep(0.2)
             try Mouse.drag(from: start, to: end)
         }
-        return finish("drag", session, target, old, extra: ["→ \(from) onto \(to)"], log: ["from": from, "to": to, "label": src.label, "name": src.name, "to_label": dst.label, "to_name": dst.name])
+        return try finish("drag", session, target, old, extra: ["→ \(from) onto \(to)"], log: ["from": from, "to": to, "label": src.label, "name": src.name, "to_label": dst.label, "to_name": dst.name])
     }
 
     /// `choose <path>`: drives the open or save dialog on the session window. An existing file is
@@ -827,7 +901,7 @@ enum Commands {
         try choosePath(file ? path : folder, in: dialog, app: app, target, open: file)
         if !exists { try fillName((path as NSString).lastPathComponent, in: dialog, target) }
         let next = file ? "chose \(path)" : exists ? "in \(path)" : "name set: press the dialog's Save button"
-        return finish("choose", session, target, old, extra: [next], log: ["path": path])
+        return try finish("choose", session, target, old, extra: [next], log: ["path": path])
     }
 
     /// Goes to `path` through the dialog's Go to Folder sheet, then opens it when `open` is set.
@@ -888,8 +962,10 @@ enum Commands {
         }
     }
 
-    /// Types a file name into the save dialog's name field: the first text field outside lists and sheets.
-    private static func fillName(_ name: String, in dialog: AXUIElement, _ target: Target) throws {
+    /// Types a file name into the save dialog's name field: the first text field outside lists and
+    /// sheets. Returns the note `typeInto` makes when the field ends up showing something else.
+    @discardableResult
+    private static func fillName(_ name: String, in dialog: AXUIElement, _ target: Target) throws -> String? {
         func walk(_ el: AXUIElement, _ depth: Int) -> AXUIElement? {
             guard depth < 12 else { return nil }
             for child in el.children {
@@ -901,7 +977,7 @@ enum Commands {
             return nil
         }
         guard let field = walk(dialog, 0), let f = field.frame else { throw Fail(5, "the save dialog has no name field") }
-        _ = try Borrow.run(target) { try typeInto(field, f, name, target, label: "the name field") }
+        return try Borrow.run(target) { try typeInto(field, f, name, target, label: "the name field") }
     }
 
     static func upload(_ a: Args) throws -> String {
@@ -925,7 +1001,7 @@ enum Commands {
         }
         guard let dialog = found else { throw Fail(5, "no file dialog appeared after clicking \(e.short)") }
         try choosePath(path, in: dialog, app: app, target, open: true)
-        return finish("upload", session, target, old, extra: ["uploaded \(path)"], log: ["id": id, "path": path, "label": e.label, "name": e.name])
+        return try finish("upload", session, target, old, extra: ["uploaded \(path)"], log: ["id": id, "path": path, "label": e.label, "name": e.name])
     }
 
     static func download(_ a: Args) throws -> String {
@@ -978,7 +1054,7 @@ enum Commands {
             // Some browsers save straight to Downloads without asking.
             throw Fail(5, "nothing new was saved at \(path). The browser may have saved it to Downloads without asking; check there")
         }
-        return finish("download", session, target, old, extra: ["saved " + path],
+        return try finish("download", session, target, old, extra: ["saved " + path],
                       log: ["id": id, "path": path, "source": source, "label": e.label, "name": e.name])
     }
 

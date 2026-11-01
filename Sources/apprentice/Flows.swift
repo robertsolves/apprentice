@@ -93,7 +93,10 @@ extension Commands {
 
     private static func fill(_ step: String, _ vars: [String: String], _ missing: inout Set<String>) -> String {
         var s = step
-        while let open = s.range(of: "{"), let close = s.range(of: "}", range: open.upperBound..<s.endIndex) {
+        // A value that brings its own placeholder back would substitute for ever and wedge the
+        // daemon; the count bounds that, and anything left stays visible as a marker.
+        for _ in 0..<200 {
+            guard let open = s.range(of: "{"), let close = s.range(of: "}", range: open.upperBound..<s.endIndex) else { break }
             let key = s[open.upperBound..<close.lowerBound].lowercased().replacingOccurrences(of: " ", with: "-")
             guard let value = vars[key] else {
                 missing.insert(key)

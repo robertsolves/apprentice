@@ -15,8 +15,45 @@ actions_per_min = 30
 [pace."github.com"]
 # actions_per_min = 20
 
+# Social sites: a person's pace. Reads a page before acting on it (dwell_s), rests after a few quick
+# actions (burst, rest_s), and moves and types at hand speed. Budgets per action kind are in budgets.json.
+# A profile covers its subdomains too (www.linkedin.com).
+[pace."linkedin.com"]
+move_ms = [200, 900]
+between_actions_ms = [3000, 12000]
+dwell_s = [3, 8]
+burst = [4, 6]
+rest_s = [20, 90]
+actions_per_min = 6
+key_error_rate = 0.015
+
+[pace."x.com"]
+move_ms = [200, 900]
+between_actions_ms = [2000, 8000]
+dwell_s = [2, 6]
+burst = [4, 6]
+rest_s = [20, 90]
+actions_per_min = 8
+key_error_rate = 0.015
+
+[pace."reddit.com"]
+move_ms = [200, 900]
+between_actions_ms = [2000, 8000]
+dwell_s = [2, 6]
+burst = [4, 6]
+rest_s = [20, 90]
+actions_per_min = 8
+key_error_rate = 0.015
+
 [pace.native]
 mode = "fast"   # shorter key gaps in native apps
+
+# Text that means a site is throttling the account (seen after an action: the site cools down for
+# 1 h, then 6 h, then 24 h) and signs of a check only the user may complete. These replace the
+# built-in lists; matched lower case, no commas inside a phrase.
+[sites]
+# soft_block = ["try again later", "temporarily restricted", "unusual activity", "rate limit"]
+# challenge = ["captcha", "verify you are human", "confirm it's you", "enter the code"]
 
 [session]
 # Empty means unrestricted. Example: allow = ["github.com", "example.com"]
@@ -48,3 +85,19 @@ base_url = "https://api.openai.com/v1"
 model = "gpt-4o-mini"
 api_key = ""
 vision_model = ""
+
+# A separate Mac in a VM (Tart) that runs the browser, so browser work never borrows your cursor
+# and keyboard. `apprentice vm setup` makes it; `apprentice vm on` sends browser sessions there.
+# [vm]
+# name = "apprentice-browser"
+# browser = "Safari"
+# cpu = 4
+# memory_mb = 4096
+# home = "/Volumes/SSD/tart"   # keep the VM (about 35 GB) on another disk
+
+[update]
+# apprentice checks its upstream every check_hours and updates itself: it rebases your local commits,
+# rebuilds, runs its self-test and restarts between commands. A failed build or test keeps the old
+# version. Set auto = false to only be told (`session` prints it) and run `apprentice update` yourself.
+auto = true
+check_hours = 6
