@@ -1,6 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="apprentice">
-  <rect width="64" height="64" rx="14" fill="#1E2A33"/>
-  <circle cx="27" cy="38" r="11" fill="none" stroke="#F2EFE6" stroke-width="6"/>
-  <path d="M41 25 V49" stroke="#F2EFE6" stroke-width="6" stroke-linecap="round"/>
-  <path transform="translate(43 9) scale(0.6)" d="M0 0 L0 25 L6.2 19.2 L10.4 28.6 L14.6 26.8 L10.4 17.6 L18.8 17.6 Z" fill="#E8A33D" stroke="#1E2A33" stroke-width="2.6" stroke-linejoin="round"/>
-</svg>

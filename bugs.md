@@ -994,4 +994,4 @@ Filed by `apprentice bug` while working. Each has a suggested fix to review; non
 ### F6 · Clicking a field that slides in lands on its old position — 2026-11-01 · **fixed 2026-11-01**
 - Repro: Instagram: click Search, then type into the search field at once; the panel animates and the field moves (new element), so the click hits where it was
 - Cause: resolve returns the snapshot's frame when the element was replaced
-- Suggested fix: In typeInto and realClick, when the element is gone or its frame changed since the snapshot, re-read and re-resolve by label and name before clicking; wait until the frame is stable for 200 ms.
+- Suggested fix: Applied: `Commands.liveRect` re-finds a replaced element by label and name and reads its frame until it holds still before the click.
