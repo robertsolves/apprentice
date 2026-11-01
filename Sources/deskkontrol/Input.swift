@@ -83,7 +83,11 @@ enum Keys {
         }
     }
 
+    /// Marks every event deskkontrol posts, so monitors can tell them from the person's own input.
+    static let tag: Int64 = 0x646B_6374
+
     static func post(_ e: CGEvent, _ pid: pid_t?) {
+        e.setIntegerValueField(.eventSourceUserData, value: tag)
         if let pid { e.postToPid(pid) } else { e.post(tap: .cghidEventTap) }
     }
 }
@@ -135,28 +139,28 @@ enum Mouse {
     /// Throws exit 6 when the person takes over mid-drag; the drag is cancelled, not dropped where they are.
     static func drag(from start: CGPoint, to end: CGPoint) throws {
         guard let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: start, mouseButton: .left) else { return }
-        down.post(tap: .cghidEventTap)
+        Keys.post(down, nil)
         Pace.sleep(0.12)
         let steps = max(Int(hypot(end.x - start.x, end.y - start.y) / 6), 12)
         for n in 1...steps {
             if KillSwitch.tripped || Borrow.interrupted {
                 try? Keys.press("esc", pid: nil)
                 if let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: start, mouseButton: .left) {
-                    up.post(tap: .cghidEventTap)
+                    Keys.post(up, nil)
                 }
                 throw Fail(6, "interrupted: the drag was cancelled before the drop")
             }
             let t = CGFloat(n) / CGFloat(steps)
             let p = CGPoint(x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t)
             if let move = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged, mouseCursorPosition: p, mouseButton: .left) {
-                move.post(tap: .cghidEventTap)
+                Keys.post(move, nil)
             }
             Borrow.noteMove(p)
             Pace.sleep(0.012)
         }
         Pace.sleep(0.12)
         if let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: end, mouseButton: .left) {
-            up.post(tap: .cghidEventTap)
+            Keys.post(up, nil)
         }
     }
 
@@ -179,11 +183,14 @@ enum Borrow {
     static var active = false
     static var interrupted = false
 
+    private static var lastPosted: CGPoint?
+
+    /// The cursor can trail the last posted move by one event, so it may sit at this point or the one before.
     static func noteMove(_ intended: CGPoint) {
+        defer { lastPosted = intended }
         guard active, !interrupted, let actual = CGEvent(source: nil)?.location else { return }
-        if hypot(actual.x - intended.x, actual.y - intended.y) > 10 {
-            interrupted = true
-        }
+        let near = [intended, lastPosted ?? intended].contains { hypot(actual.x - $0.x, actual.y - $0.y) <= 10 }
+        if !near { interrupted = true }
     }
 
     /// Call before the step that commits an action: once it has happened, interruption is no longer an error.
@@ -207,10 +214,12 @@ enum Borrow {
         let cursor = Mouse.location
         active = true
         interrupted = false
+        lastPosted = nil
         // Monitors belong to the main run loop, which stays free while commands run on their own queue.
-        // Keys only: our own posted clicks would trip a mouse-down monitor.
         let monitor = DispatchQueue.main.sync {
-            NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { _ in interrupted = true }
+            NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown]) { event in
+                if event.cgEvent?.getIntegerValueField(.eventSourceUserData) != Keys.tag { interrupted = true }
+            }
         }
         t.app.set(kAXFrontmostAttribute, kCFBooleanTrue)
         t.window.set(kAXMainAttribute, kCFBooleanTrue)

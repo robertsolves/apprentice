@@ -8,6 +8,7 @@ enum AgentLoop {
     click <id> --right
     type <id> "text"
     key <combo>            e.g. key cmd+l
+    menu <path>            e.g. menu File > New Folder
     scroll up|down [n]
     open <url>
     wait-for "text"
@@ -206,6 +207,10 @@ enum AgentLoop {
         if lower.hasPrefix("key ") {
             let combo = String(line.dropFirst(4)).trimmingCharacters(in: .whitespaces)
             return .request(Request(cmd: "key", args: [combo]), combo)
+        }
+        if lower.hasPrefix("menu ") {
+            let path = unquote(String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces))
+            return .request(Request(cmd: "menu", args: [path]), path)
         }
         if lower.hasPrefix("scroll ") {
             let args = line.split(separator: " ").map(String.init)

@@ -22,12 +22,12 @@ deskkontrol type 16 "new bio" --enter
 - Act only on ids from the latest list. Trust the returned diff; do not re-read after every action.
 - Re-read only on exit code 2 (`stale`).
 - `read --filter text` and `read --max 40` keep context small.
-- `open <url>`, `key cmd+l`, `wait-for "Saved"`, `scroll down`, `hover`, `upload`, `download`, `shot`, `ocr` are also available.
+- `open <url>`, `key cmd+l`, `menu "File > New Folder"`, `wait-for "Saved"`, `scroll down`, `hover`, `upload`, `download`, `shot`, `ocr` are also available.
 - `--json` gives the raw reply for scripts.
 - Use `--pace fast` only for native fields or long text.
 
 ## Approval
-`open`, `click`, `type`, `key`, `drag`, `upload` and `download` first exit 8 with `approve? …` and a token. Nothing has happened yet.
+`open`, `click`, `type`, `key`, `menu`, `drag`, `upload` and `download` first exit 8 with `approve? …` and a token. Nothing has happened yet.
 ```
 deskkontrol approve a3f9                  # run it
 deskkontrol approve a3f9 --text "fixed"   # a pending type, with new text

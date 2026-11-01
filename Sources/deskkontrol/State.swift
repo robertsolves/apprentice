@@ -96,6 +96,8 @@ struct Session: Codable {
     var allow: [String]
     var id: String?
     var url: String?
+    /// Act with the window in front, for apps that ignore background input. Set by `session --front`.
+    var front: Bool?
 
     var isBrowser: Bool {
         ["com.google.Chrome", "com.apple.Safari", "com.brave.Browser", "com.microsoft.edgemac"].contains(bundle ?? "")

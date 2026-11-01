@@ -237,7 +237,7 @@ Human pacing is slower: a 200-character post takes about 20 to 25 s to type. Tha
 
 deskkontrol is driven by an LLM, and the LLM talks to Robert: CLI ↔ LLM ↔ Robert. The CLI never asks Robert directly. Every action that can change state is proposed first, and the LLM approves it, denies it, or asks Robert.
 
-What needs approval: `open`, `click`, `type`, `key`, `drag`, `upload` and `download`. Reading (`read`, `ocr`, `shot`, `wait-for`) and moving the view (`scroll`, `hover`) do not.
+What needs approval: `open`, `click`, `type`, `key`, `menu`, `drag`, `upload` and `download`. Reading (`read`, `ocr`, `shot`, `wait-for`) and moving the view (`scroll`, `hover`) do not.
 
 How it works:
 

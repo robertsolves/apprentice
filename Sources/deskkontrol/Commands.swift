@@ -74,26 +74,27 @@ func poll<T>(timeout: Double, interval: Double = 0.25, _ check: () -> T?) -> T? 
     return check()
 }
 
+/// Opens a window through the app's own menu: the first "New … Window" item, else its first "New" item,
+/// else cmd+n. Waits for the window, since a just-launched app may not have its menu bar yet.
 func makeNewWindow(_ app: NSRunningApplication) {
-    let name = app.localizedName ?? "Safari"
-    let command: String
-    if name.contains("Safari") {
-        command = "tell application \"Safari\" to make new document"
-    } else {
-        command = "tell application \"\(name)\" to make new window"
+    let ax = appElement(app.processIdentifier)
+    let item: AXUIElement? = poll(timeout: 4) {
+        let bar = ax.attr(kAXMenuBarAttribute) as! AXUIElement?
+        let items = (bar?.children ?? []).dropFirst().flatMap { $0.children.first?.children ?? [] }
+        let titled = items.map { ($0, ($0.string(kAXTitleAttribute) ?? "").lowercased()) }
+        return (titled.first { $0.1.hasPrefix("new") && $0.1.contains("window") } ?? titled.first { $0.1.hasPrefix("new") })?.0
     }
-    // NSAppleScript is not thread-safe, and commands run off the main thread.
-    DispatchQueue.main.sync {
-        guard let script = NSAppleScript(source: command) else { return }
-        var error: NSDictionary?
-        script.executeAndReturnError(&error)
+    if item?.perform(kAXPressAction) != .success { try? Keys.press("cmd+n", pid: app.processIdentifier) }
+    if poll(timeout: 3, { pickWindow(ax) }) == nil {
+        try? Keys.press("cmd+n", pid: app.processIdentifier)
+        _ = poll(timeout: 2) { pickWindow(ax) }
     }
-    Pace.sleep(0.7)
 }
 
 func pickWindow(_ app: AXUIElement) -> AXUIElement? {
     let list = windows(of: app).filter { el in
-        guard let f = el.frame, f.width > 40, f.height > 40 else { return false }
+        // No window id means no real window, such as Finder's desktop.
+        guard el.windowID != nil, let f = el.frame, f.width > 40, f.height > 40 else { return false }
         let subrole = el.string(kAXSubroleAttribute) ?? ""
         return subrole.isEmpty || subrole == "AXStandardWindow" || subrole == "AXDialog"
     }
@@ -188,7 +189,14 @@ func gate(_ session: Session, _ target: Target, _ e: Element?, _ summary: String
     let warnings = Gate.warnings(e, target, force: force) + warn
     if !warnings.isEmpty, !Approvals.approved { saveGateShot(session, summary) }
     let place = "\(session.app) · \(target.url ?? target.title)"
-    try Approvals.check(summary, details: [place] + details, warnings: warnings)
+    let front = session.front == true ? ["brings \(session.app) to the front first"] : []
+    try Approvals.check(summary, details: [place] + details + front, warnings: warnings)
+    if session.front == true, NSWorkspace.shared.frontmostApplication?.processIdentifier != session.pid {
+        target.app.set(kAXFrontmostAttribute, kCFBooleanTrue)
+        target.window.set(kAXMainAttribute, kCFBooleanTrue)
+        target.window.perform(kAXRaiseAction)
+        Pace.sleep(0.3)
+    }
 }
 
 // MARK: - Actions
@@ -232,6 +240,7 @@ enum Commands {
         case "click": return try click(a)
         case "type": return try type(a)
         case "key": return try key(a)
+        case "menu": return try menu(a)
         case "scroll": return try scroll(a)
         case "hover": return try hover(a)
         case "drag": return try drag(a)
@@ -278,10 +287,15 @@ enum Commands {
         guard let app = requested ?? NSWorkspace.shared.frontmostApplication, let name = app.localizedName else {
             throw Fail(5, "no app found")
         }
+        if a.has("front") {
+            app.activate()
+            Pace.sleep(0.3)
+        }
         if a.has("new-window") { makeNewWindow(app) }
         let s = try attach(app, name, a)
         var out = "session \(s.id ?? "-") · \(name) · window \(s.wid)"
         if let url = s.url { out += " · \(url)" }
+        if s.front == true { out += " · front: each action brings the window forward" }
         let hints = Routes.hintLines(for: hostOf(s.url))
         if !hints.isEmpty { out += "\n" + hints.joined(separator: "\n") }
         Store.log(["cmd": "session", "app": name, "wid": Int(s.wid), "url": s.url ?? ""])
@@ -307,8 +321,9 @@ enum Commands {
             throw Fail(5, "\(name) has no window: open one, or run `deskkontrol session --new-window`")
         }
         var s = try makeSession(app: app, window: window)
-        if let keep { s.id = keep.id; s.allow = keep.allow }
+        if let keep { s.id = keep.id; s.allow = keep.allow; s.front = keep.front }
         if let allow = a.value("allow") { s.allow = Config.parseAllow(allow) }
+        if a.has("front") { s.front = true } else if a.has("background") { s.front = nil }
         // A window with no URL yet (a fresh blank tab) is attached; its actions are checked later.
         if let url = s.url { try allowCheck(s, url) }
         s.save()
@@ -396,32 +411,81 @@ enum Commands {
     }
 
     static func type(_ a: Args) throws -> String {
-        guard let id = a.pos.first.flatMap(Int.init), a.pos.count >= 2 else { throw Fail(5, "type <id> \"text\"") }
+        let usage = Fail(5, "type <id|focused> \"text\"")
+        guard let first = a.pos.first, a.pos.count >= 2 else { throw usage }
+        let focused = first == "focused"
+        guard focused || Int(first) != nil else { throw usage }
+        let id = Int(first) ?? 0
         let text = a.pos.dropFirst().joined(separator: " ")
         let (session, target, old) = try prepare()
-        let (el, e) = try resolve(id, target)
+        let (el, e) = focused ? try focusedElement(target) : try resolve(id, target)
         let enter = a.has("enter")
         try gate(session, target, e, "type into \(e.short)",
-                 details: ["replaces its text with: \(text)"] + (enter ? ["then presses return"] : []),
+                 details: (e.value.map { ["current text: \($0)"] } ?? []) + ["replaces it with: \(text)"]
+                    + (enter ? ["then presses return"] : []),
                  warn: enter ? ["return may submit or send"] : [], force: a.has("gate"))
         try beforeAction(session, url: target.url)
         let fast = a.value("pace") == "fast" || a.int("tier", 0) == 1 || Config.current.pace.mode == "fast"
         let tier: Int
-        if fast, let el, el.set(kAXValueAttribute, text as NSString) == .success {
+        if a.int("tier", 0) == 3 {
+            // Tier 3: real keyboard and pointer, for windows that ignore events posted to the app,
+            // such as system save panels. Posted events are tagged, so Borrow ignores them.
+            try Borrow.run(target) {
+                if !focused, !pressElement(el) {
+                    let point = Mouse.landing(in: e.rect)
+                    Mouse.move(to: point, size: e.rect.size)
+                    try Borrow.checkpoint()
+                    Mouse.click(at: point)
+                }
+                Pace.sleep(0.2)
+                try Borrow.checkpoint()
+                try Keys.press("cmd+a", pid: nil)
+                Keys.type(text, pid: nil)
+                if enter {
+                    Pace.sleep(0.2)
+                    try Keys.press("return", pid: nil)
+                }
+                Pace.sleep(0.3)
+            }
+            tier = 3
+        } else if fast, let el, el.set(kAXValueAttribute, text as NSString) == .success {
             tier = 1
         } else {
             // OCR elements have no AX element, so they are focused by clicking their frame.
-            if !pressElement(el) { mouseClick(e, pid: session.pid) }
+            if !focused, !pressElement(el) { mouseClick(e, pid: session.pid) }
             Pace.sleep(0.15)
             try Keys.press("cmd+a", pid: session.pid)
             Keys.type(text, pid: session.pid)
             tier = 2
         }
-        if enter {
+        if enter, tier < 3 {
             Pace.sleep(0.2)
-            try Keys.press("return", pid: session.pid)
+            // A value set through AX is committed by the field's own confirm, which is its return key.
+            if tier == 1, let el, el.actionNames.contains(kAXConfirmAction), el.perform(kAXConfirmAction) == .success {
+            } else {
+                try Keys.press("return", pid: session.pid)
+            }
         }
         return finish("type", tier: tier, session, target, old, log: ["id": id, "chars": text.count])
+    }
+
+    /// The element that has keyboard focus, such as an inline rename field that `read` cannot list.
+    /// It must be inside the session window.
+    private static func focusedElement(_ t: Target) throws -> (AXUIElement?, Element) {
+        guard let el = t.app.attr(kAXFocusedUIElementAttribute) as! AXUIElement? else {
+            throw Fail(5, "nothing has keyboard focus in \(t.title)")
+        }
+        let f = el.frame ?? .zero
+        // Field editors such as an inline rename hang off the application with no window,
+        // so they count as inside when they sit within the session window's frame.
+        if let window = el.attr(kAXWindowAttribute) as! AXUIElement? {
+            guard window.windowID == t.window.windowID else { throw Fail(4, "the focused element is outside the session window") }
+        } else {
+            guard let wf = t.window.frame, !f.isEmpty, wf.contains(f) else { throw Fail(4, "the focused element is outside the session window") }
+        }
+        let name = el.string(kAXTitleAttribute) ?? el.string(kAXDescriptionAttribute) ?? ""
+        return (el, Element(id: 0, path: [], label: "focused \(el.string(kAXRoleAttribute) ?? "element")", name: name, value: el.string(kAXValueAttribute),
+                            frame: [f.minX, f.minY, f.width, f.height].map(Double.init), offscreen: false, gated: Gate.matches(name)))
     }
 
     static func key(_ a: Args) throws -> String {
@@ -431,9 +495,55 @@ enum Commands {
         let submits = ["return", "enter"].contains { combo.lowercased().contains($0) }
         try gate(session, target, nil, "press \(combo)", warn: submits ? ["\(combo) may submit or send"] : [])
         try beforeAction(session, url: target.url)
-        try Keys.press(combo, pid: session.pid)
+        if a.int("tier", 2) == 3 {
+            try Borrow.run(target) { try Keys.press(combo, pid: nil) }
+        } else {
+            try Keys.press(combo, pid: session.pid)
+        }
         Pace.sleep(0.2)
-        return finish("key", tier: 2, session, target, old, extra: ["→ \(combo)"], log: ["combo": combo])
+        return finish("key", tier: a.int("tier", 2) == 3 ? 3 : 2, session, target, old, extra: ["→ \(combo)"], log: ["combo": combo])
+    }
+
+    /// Picks a menu-bar item through accessibility, e.g. `menu "File > New Folder"`. Works in the background.
+    static func menu(_ a: Args) throws -> String {
+        func norm(_ s: String) -> String {
+            s.replacingOccurrences(of: "…", with: "").replacingOccurrences(of: "...", with: "")
+                .trimmingCharacters(in: .whitespaces).lowercased()
+        }
+        let path = a.pos.joined(separator: " ").split(separator: ">").map { norm(String($0)) }.filter { !$0.isEmpty }
+        guard !path.isEmpty else { throw Fail(5, "menu \"File > New Folder\"") }
+        let (session, target, old) = try prepare()
+        guard let bar = target.app.attr(kAXMenuBarAttribute) as! AXUIElement? else { throw Fail(5, "\(session.app) has no menu bar") }
+        // Menu items act on the app's main window, so make that the session window. The app stays in the background.
+        target.window.set(kAXMainAttribute, kCFBooleanTrue)
+        Pace.sleep(0.1)
+        var node = bar
+        var titles: [String] = []
+        for (n, name) in path.enumerated() {
+            // Menu-bar items and submenu items hold their entries in a single AXMenu child.
+            let items = n == 0 ? node.children : (node.children.first?.children ?? [])
+            guard let next = items.first(where: { norm($0.string(kAXTitleAttribute) ?? "") == name }) else {
+                let names = items.compactMap { $0.string(kAXTitleAttribute) }.filter { !$0.isEmpty }
+                throw Fail(5, "no menu item \"\(name)\" in \(titles.isEmpty ? "the menu bar" : titles.joined(separator: " > ")): \(names.joined(separator: ", "))")
+            }
+            node = next
+            titles.append(next.string(kAXTitleAttribute) ?? name)
+        }
+        let label = titles.joined(separator: " > ")
+        var warn = Gate.matches(titles.last ?? "") ? ["may be irreversible: \(titles.last ?? "")"] : []
+        // AppKit validates items only when a menu opens, so a background app's flag can be stale.
+        let borrow = a.int("tier", 1) == 3
+        if !borrow, node.attr(kAXEnabledAttribute) as? Bool == false {
+            warn.append("the menu last showed this item as disabled; some apps enable it only in front, so try --tier 3")
+        }
+        try gate(session, target, nil, "menu \(label)", details: borrow ? ["brings the window forward, then puts focus back"] : [], warn: warn)
+        try beforeAction(session, url: target.url)
+        let press = { () throws in
+            guard node.perform(kAXPressAction) == .success else { throw Fail(5, "could not press \"\(label)\"") }
+            Pace.sleep(0.3)
+        }
+        if borrow { try Borrow.run(target, press) } else { try press() }
+        return finish("menu", tier: borrow ? 3 : 1, session, target, old, extra: ["→ \(label)"], log: ["menu": label])
     }
 
     static func scroll(_ a: Args) throws -> String {

@@ -10,13 +10,14 @@ func usage() {
     deskkontrol \(version) · text-first control of one Mac app or browser window
 
     usage:
-      deskkontrol session [--app Safari] [--new-window] [--allow a.com,b.com]
+      deskkontrol session [--app Safari] [--new-window] [--allow a.com,b.com] [--front]
       deskkontrol open <url>
       deskkontrol focus <app>
       deskkontrol read [--max 80] [--filter text]
       deskkontrol click <id> [--double|--right] [--tier 1|2|3]
-      deskkontrol type <id> "text" [--enter] [--pace fast]
-      deskkontrol key <combo>
+      deskkontrol type <id|focused> "text" [--enter] [--pace fast] [--tier 3]
+      deskkontrol key <combo> [--tier 3]
+      deskkontrol menu "File > New Folder" [--tier 3]
       deskkontrol scroll up|down [n] [--in id]
       deskkontrol hover <id>
       deskkontrol drag <id> <id>
@@ -34,7 +35,7 @@ func usage() {
       deskkontrol serve [--background] | stop
 
     output is compact text for an agent. add --json for the raw reply.
-    open, click, type, key, drag, upload and download only propose: they exit 8 with a token,
+    open, click, type, key, menu, drag, upload and download only propose: they exit 8 with a token,
     and act once you run `deskkontrol approve <token>`.
     exit codes: 0 ok · 2 stale, re-read · 4 blocked or rate limited · 5 not found or timeout ·
                 6 interrupted · 7 permission missing · 8 approval needed, nothing done yet

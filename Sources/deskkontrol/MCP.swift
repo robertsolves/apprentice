@@ -15,6 +15,7 @@ enum MCP {
         tool("click", "Press an element by number", ["id": ["type": "integer"], "right": ["type": "boolean"], "double": ["type": "boolean"]], ["id"]),
         tool("type", "Type text into an element", ["id": ["type": "integer"], "text": ["type": "string"], "enter": ["type": "boolean"], "pace": ["type": "string"]], ["id", "text"]),
         tool("key", "Send a keyboard shortcut", ["combo": ["type": "string"]], ["combo"]),
+        tool("menu", "Pick a menu-bar item, e.g. File > New Folder", ["path": ["type": "string"]], ["path"]),
         tool("scroll", "Scroll the window or an element", ["direction": ["type": "string"], "count": ["type": "integer"], "in": ["type": "integer"]], ["direction"]),
         tool("hover", "Move the pointer over an element", ["id": ["type": "integer"]], ["id"]),
         tool("open", "Navigate the session browser window", ["url": ["type": "string"]], ["url"]),
@@ -93,6 +94,8 @@ enum MCP {
             return Request(cmd: "type", args: a)
         case "key":
             return Request(cmd: "key", args: [s("combo") ?? ""])
+        case "menu":
+            return Request(cmd: "menu", args: [s("path") ?? ""])
         case "scroll":
             var a = [s("direction") ?? "down"]
             if let count = s("count") { a.append(count) }

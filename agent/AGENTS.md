@@ -17,11 +17,11 @@ deskkontrol type 16 "new bio" --enter
 
 - Use only ids from the latest read. Trust diffs; do not re-read after every action. Re-read only on exit code 2 (`stale`).
 - Narrow with `read --filter text` or `--max 40`.
-- Also: `open`, `key cmd+l`, `wait-for "text"`, `scroll`, `hover`, `upload`, `download`, `shot`, `ocr`, `log`, `route`.
+- Also: `open`, `key cmd+l`, `menu "File > New Folder"`, `wait-for "text"`, `scroll`, `hover`, `upload`, `download`, `shot`, `ocr`, `log`, `route`.
 - `--json` for scripts; `--pace fast` only for native fields or long text.
 
 Approval:
-- `open`, `click`, `type`, `key`, `drag`, `upload`, `download` first exit 8 with `approve? …` and a token. Nothing is done yet.
+- `open`, `click`, `type`, `key`, `menu`, `drag`, `upload`, `download` first exit 8 with `approve? …` and a token. Nothing is done yet.
 - `deskkontrol approve <token>` runs it; `approve <token> --text "fixed"` changes a pending type; `deny <token>` drops it.
 - Approve only steps the task needs. `⚠` lines (send, post, delete, settings, uploads) need Robert's go-ahead unless he asked for that exact step.
 - Tokens are single-use, expire after 5 minutes, and die if you `read` again first.
