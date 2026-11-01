@@ -90,3 +90,6 @@ apprentice improves from use. When you start work in this repo:
 2. Propose code changes for the top items before anything else: a repeated error is a bug, a question that keeps coming up is a missing note or a missing generic feature, and a workaround that several notes repeat belongs in the code. Every time asking Robert solved a problem, make (or propose) the code change that means the next run will not need to ask.
 3. Keep fixes generic. App and site knowledge goes in `notes/`, never in code paths for one app.
 4. After a fix lands, mark its field report fixed in `bugs.md` and update any note that described the workaround.
+5. Commit each small change on its own with `apprentice commit "what and why"` (it rebuilds and restarts apprentice when the source changed). `bug` and `learn` commit themselves.
+
+Each install is a fork made by `install.sh`, with the upstream repo as the `upstream` remote (`Repo.swift`). `apprentice update` rebases the local commits onto upstream and pushes them to the fork; `apprentice pr` pushes them to the branch `apprentice/<mac name>` and opens a pull request upstream. Merge those pull requests with a merge or rebase, not a squash, so `update` drops the commits cleanly on every fork.
