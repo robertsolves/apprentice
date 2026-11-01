@@ -13,11 +13,12 @@ SPEC.md keeps Instagram out of the allowlist (its terms forbid automated actions
 ## Key facts
 - New post: `click #link "New post"`, then `upload #button "Select from computer" "{image}"`. The picker opens only for a real click; `upload` handles that.
 - Next twice (Crop, then Edit) reaches the details page: caption, location, collaborators, Share.
-- Location: type into `textbox "Add location"`; a dropdown opens just below it. Click the matching place, e.g. "Melbourne"; typing alone does not set it. The dropdown is not in the accessibility tree, so `read` cannot list it: `show` it, or click about 45 px below the field's centre (the first suggestion).
+- Location: type into `textbox "Add location"`; a dropdown opens just below it. Click the matching place, e.g. "Melbourne"; typing alone does not set it. The dropdown is not in the accessibility tree: `click --on "{place}"` finds it by OCR (needs Screen Recording); without it, `show` it.
 - No music and no saved drafts on the web: music is in the mobile app only, and closing the composer discards the post. A "draft" means the composer is left open.
 - `button "Share"` publishes at once. Never press it unless Robert asks for that exact step.
 
 ## Works
+- Search accounts: `click #link "Search"`, wait a moment (the panel slides in and its field moves), then `type #textbox "Search input" "{words}"`. Results list "handle Name • category • followers" as links; local businesses show up for "{place} cafe", "{place} gym", "{place} bakery".
 - Comment on a post: open it, `type #textarea "Add a comment" "{comment}"`, then `click #button "Post"`. The comment shows at once with your name and "2s".
 - Leaving the composer: Escape does nothing; click the dark area outside it, then `click #button "Discard"`.
 - Your profile is `click #link "{username}'s profile picture"`; the grid's first tile can be a pinned post, so check the date inside.

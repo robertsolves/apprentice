@@ -174,7 +174,11 @@ func locate(_ session: Session, scope wanted: String? = nil) throws -> Target {
         return Target(pid: session.pid, app: app, window: window, root: sheet, scope: "sheet",
                       bounds: sheet.frame ?? wframe, url: nil, title: title)
     }
-    if wanted != "window", let web = findFirst(window, where: { $0.role == "AXWebArea" }) {
+    // A browser page still loading may not expose its web area yet; give it a moment, so its URL
+    // (and the allowlist check on it) is not missed (B11).
+    let webArea = findFirst(window, where: { $0.role == "AXWebArea" })
+        ?? (session.isBrowser && wanted != "window" ? poll(timeout: 1.5) { findFirst(window, where: { $0.role == "AXWebArea" }) } : nil)
+    if wanted != "window", let web = webArea {
         let wb = web.frame.map { $0.intersection(wframe) } ?? wframe
         return Target(pid: session.pid, app: app, window: window, root: web, scope: "web",
                       bounds: wb.isNull ? wframe : wb, url: web.string("AXURL"), title: title)
@@ -302,7 +306,8 @@ func settle(_ t: Target, maxWait: Double = 4) -> Snapshot {
     while Date().timeIntervalSince(start) < maxWait {
         Pace.sleep(0.3)
         let next = readSnapshot(t)
-        if next.elements.map(\.key) == last.elements.map(\.key) { return next }
+        // Values count too: a field still filling in or a counter still moving is not settled (B15).
+        if next.elements.map({ $0.key + "|" + ($0.value ?? "") }) == last.elements.map({ $0.key + "|" + ($0.value ?? "") }) { return next }
         last = next
     }
     return last
@@ -335,8 +340,10 @@ func diff(_ old: Snapshot?, _ new: Snapshot) -> DiffResult {
             out.added.append(e.line)
         }
     }
-    for (_, list) in buckets {
-        for e in list { out.removed.append("\(e.label) \"\(e.name)\"") }
+    // Leftovers in the old snapshot's order, so the same change always prints the same way (B22).
+    for e in old?.elements ?? [] where !(buckets[e.key] ?? []).isEmpty {
+        buckets[e.key]?.removeFirst()
+        out.removed.append("\(e.label) \"\(e.name)\"")
     }
     return out
 }

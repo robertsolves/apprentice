@@ -137,7 +137,8 @@ All output is compact plain text meant for an agent to read. `--json` gives the 
 | `apprentice open <url>` | Navigate the session window (rate-limited) | diff |
 | `apprentice focus <app>` | Switch the session to another app or window | window id |
 | `apprentice read [--max 80] [--filter text]` | Numbered element list | snapshot |
-| `apprentice click <id> [--double\|--right]` | Press an element | diff |
+| `apprentice click <id> [--double\|--right]` | Click an element with the real cursor | diff |
+| `apprentice click --on "text"` / `--at x,y` | Click visible text (listed, or found by OCR) or a screen point | diff |
 | `apprentice type <id> "text" [--enter] [--pace fast]` | Type into a field, paced by default | diff |
 | `apprentice key <combo>` | Send a shortcut, e.g. `cmd+l` | diff |
 | `apprentice scroll <up\|down> [n] [--in id]` | Scroll the window or one element | diff |
@@ -149,6 +150,11 @@ All output is compact plain text meant for an agent to read. `--json` gives the 
 | `apprentice ocr [--crop id\|x,y,w,h]` | OCR fallback list | snapshot |
 | `apprentice shot [--crop id\|x,y,w,h]` | Window or crop screenshot | PNG path |
 | `apprentice log [--tail n]` | Recent steps of this session | step lines |
+| `apprentice notes ["words"]` | Search learned notes and flows | matching lines |
+| `apprentice learn "task"` | Draft a flow from this session's approved steps | flow path |
+| `apprentice do <flow> [--key value]` | Run a flow with one approval for the whole plan; hands over at the first failing step | step results |
+| `apprentice choose <path>` | Drive the open or save dialog on the window | diff |
+| `apprentice ask` / `show` / `confirm <token>` | The little window for Robert (exit 9 when he is away) | his reply |
 | `apprentice run "task" --model <name>` | Optional built-in loop with any model | summary |
 | `apprentice serve` / `apprentice stop` | Start or stop the daemon | status |
 

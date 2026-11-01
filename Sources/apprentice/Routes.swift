@@ -45,8 +45,9 @@ enum Routes {
             current = [:]
         }
         for raw in text.components(separatedBy: .newlines) {
-            let line = raw.trimmingCharacters(in: .whitespaces)
-            if line.isEmpty || line.hasPrefix("#") { continue }
+            // Same comment rules as config.toml, so a trailing "# note" never lands in a value (D2).
+            let line = Toml.stripComment(raw).trimmingCharacters(in: .whitespaces)
+            if line.isEmpty { continue }
             if line == "[[route]]" { flush(); continue }
             guard let eq = line.firstIndex(of: "=") else { continue }
             let key = line[..<eq].trimmingCharacters(in: .whitespaces)
@@ -58,10 +59,13 @@ enum Routes {
 
     static func all() -> [RouteEntry] { defaults + custom() }
 
+    /// Keywords match whole words (or whole phrases), so "pr" does not match "improve" (B10).
     static func match(_ task: String) -> [RouteEntry] {
         let text = task.lowercased()
+        let words = text.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init)
+        let padded = " " + words.joined(separator: " ") + " "
         return all().filter { entry in
-            text.contains(entry.domain) || entry.keywords.contains { text.contains($0) }
+            text.contains(entry.domain) || entry.keywords.contains { padded.contains(" " + $0.lowercased() + " ") }
         }
     }
 

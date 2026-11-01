@@ -144,12 +144,19 @@ enum Notes {
     /// The repo that holds the notes (kit.sh links ~/.apprentice/notes into it).
     static var repo: URL { dir.resolvingSymlinksInPath().deletingLastPathComponent() }
 
+    /// Field reports go to the repo's bugs.md when the notes are the repo's own; notes pointed
+    /// anywhere else keep their reports beside them (L1).
+    static var bugFile: URL {
+        let isRepo = FileManager.default.fileExists(atPath: repo.appendingPathComponent("Package.swift").path)
+        return isRepo ? repo.appendingPathComponent("bugs.md") : dir.resolvingSymlinksInPath().appendingPathComponent("bugs.md")
+    }
+
     /// `bug "summary" [--repro …] [--cause …] [--fix …]`: appends a field report to the repo's bugs.md,
     /// with the last error from the log. The LLM reads the source first and suggests the fix.
     static func fileBug(_ a: Args) throws -> String {
         let summary = a.pos.joined(separator: " ")
         guard !summary.isEmpty else { throw Fail(5, "bug \"summary\" [--repro \"…\"] [--cause \"file:line …\"] [--fix \"…\"]") }
-        let file = repo.appendingPathComponent("bugs.md")
+        let file = bugFile
         var text = (try? String(contentsOf: file, encoding: .utf8)) ?? "# apprentice — bug audit\n"
         if !text.contains("## Field reports") {
             text += "\n## Field reports\n\nFiled by `apprentice bug` while working. Each has a suggested fix to review; none is applied.\n"
@@ -185,8 +192,10 @@ enum Notes {
         guard !task.isEmpty else { throw Fail(5, "learn \"task\" [--name slug] [--force]") }
         guard let session = Session.stored else { throw Fail(5, "no session: learn drafts a flow from the current session's steps") }
         let steps = stepLines(session)
-        guard !steps.isEmpty else { throw Fail(5, "no actions in this session's log yet") }
-        let slug = a.value("name") ?? slugify("\(session.app) \(task)")
+        // The session line is always there; a flow needs at least one action after it (D1).
+        guard steps.count > 1 else { throw Fail(5, "no actions in this session's log yet: nothing to learn") }
+        let slug = slugify(a.value("name") ?? "\(session.app) \(task)")
+        guard !slug.isEmpty else { throw Fail(5, "the flow needs a name with letters or digits: pass --name") }
         let url = dir.appendingPathComponent("flows/\(slug).md")
         if FileManager.default.fileExists(atPath: url.path), !a.has("force") {
             throw Fail(5, "\(url.path) exists: edit it, or pass --force to replace it")

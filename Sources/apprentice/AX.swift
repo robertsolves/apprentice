@@ -65,8 +65,8 @@ func makeFrame(_ p: AnyObject, _ s: AnyObject) -> CGRect? {
     guard CFGetTypeID(p) == AXValueGetTypeID(), CFGetTypeID(s) == AXValueGetTypeID() else { return nil }
     var point = CGPoint.zero
     var size = CGSize.zero
-    AXValueGetValue(p as! AXValue, .cgPoint, &point)
-    AXValueGetValue(s as! AXValue, .cgSize, &size)
+    // A value of another kind would leave (0,0) and a click in the screen's corner: no frame instead (H3).
+    guard AXValueGetValue(p as! AXValue, .cgPoint, &point), AXValueGetValue(s as! AXValue, .cgSize, &size) else { return nil }
     return CGRect(origin: point, size: size)
 }
 
@@ -123,10 +123,13 @@ func windows(of app: AXUIElement) -> [AXUIElement] {
 
 /// Breadth-first search, bounded so a huge tree can't stall the caller.
 func findFirst(_ root: AXUIElement, limit: Int = 4000, where match: (Info) -> Bool) -> AXUIElement? {
+    // An index into the queue, not removeFirst, which made the search quadratic (B21).
     var queue = [root]
+    var head = 0
     var seen = 0
-    while !queue.isEmpty, seen < limit {
-        let el = queue.removeFirst()
+    while head < queue.count, seen < limit {
+        let el = queue[head]
+        head += 1
         seen += 1
         let i = info(el)
         if match(i) { return el }

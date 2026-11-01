@@ -46,7 +46,12 @@ enum Store {
         ISO8601DateFormatter.string(from: Date(), timeZone: .current, formatOptions: [.withFullDate])
     }
 
-    private static let stamp = ISO8601DateFormatter()
+    /// Local time with its offset, matching the local-date run folders (B16).
+    private static let stamp: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.timeZone = .current
+        return f
+    }()
 
     /// One folder per session, as in `runs/<date>-<session>`, with a daily folder as fallback.
     static func runFolder(_ session: Session? = Session.stored) -> URL {
@@ -133,7 +138,9 @@ struct Session: Codable {
         guard let s = stored else {
             throw Fail(5, "no session: run `apprentice session --app Safari`")
         }
-        guard NSRunningApplication(processIdentifier: s.pid) != nil else {
+        // macOS reuses pids, so the app at that pid must also be the one attached (B12).
+        guard let app = NSRunningApplication(processIdentifier: s.pid),
+              s.bundle == nil || app.bundleIdentifier == s.bundle else {
             throw Fail(5, "\(s.app) is no longer running: start a new session")
         }
         return s
@@ -222,6 +229,8 @@ enum Gate {
     static let words: Set<String> = [
         "send", "post", "publish", "like", "follow", "comment", "submit", "save", "update", "upload",
         "pay", "buy", "delete", "remove", "confirm", "create", "commit", "merge", "archive", "transfer",
+        "install", "allow", "accept", "agree", "enable", "subscribe", "order", "checkout", "apply", "invite",
+        "share", "grant", "donate", "reset", "sign", "register", "book", "reserve", "cancel", "unsubscribe",
     ]
 
     static func matches(_ text: String) -> Bool {
@@ -240,6 +249,15 @@ enum Gate {
         if force { out.append("marked --gate") }
         if sensitivePage(t.url) || sensitivePage(t.title) { out.append("settings, account or billing page") }
         if let e = element, matches(e.name) || matches(e.label) { out.append("may be irreversible: \(e.label) \"\(e.name)\"") }
+        // Credentials always stop for a person (I3).
+        if let e = element {
+            let n = e.name.lowercased()
+            if e.label == "password" || ["password", "passcode", "2fa", "one-time", "verification code"].contains(where: n.contains) {
+                out.append("a password or security-code field")
+            }
+        }
+        // Controls inside a dialog or sheet usually confirm something (I2).
+        if t.scope == "sheet" { out.append("inside a dialog") }
         return out
     }
 }
@@ -254,6 +272,8 @@ enum Approvals {
         var summary: String
         var snap: Int?
         var at: Double
+        /// The element the proposal names (label|name), checked again on approval.
+        var element: String?
     }
 
     static let ttl = 300.0
@@ -273,11 +293,17 @@ enum Approvals {
     }
 
     /// Returns when the current request was approved; otherwise saves a proposal and throws exit 8.
-    static func check(_ summary: String, details: [String], warnings: [String]) throws {
-        if approved { return }
+    static func check(_ summary: String, details: [String], warnings: [String], element: String? = nil) throws {
+        if approved {
+            // The id may point at something else after a fresh read: then the approval does not apply.
+            if let want = granted?.element, let element, want != element {
+                throw Fail(2, "stale: the screen changed and the id now points at something else. Run the command again")
+            }
+            return
+        }
         let token = String(UUID().uuidString.prefix(4)).lowercased()
         let p = Pending(token: token, cmd: request.cmd, args: request.args, summary: summary,
-                        snap: SnapStore.current?.snap, at: Date().timeIntervalSince1970)
+                        snap: SnapStore.current?.snap, at: Date().timeIntervalSince1970, element: element)
         Store.save(p, "pending.json")
         Store.log(["proposed": summary, "token": token, "warnings": warnings])
         var out = ["approve? \(summary)"] + details.map { "  \($0)" } + warnings.map { "⚠ \($0)" }
@@ -285,14 +311,15 @@ enum Approvals {
         throw Fail(8, out.joined(separator: "\n"))
     }
 
-    /// Takes the pending proposal for `token`, refusing it if it expired or the screen was re-read since.
+    /// Takes the pending proposal for `token`. Reading the screen first is fine: the element is checked
+    /// again when the approved command runs (I1).
     static func take(_ token: String) throws -> Pending {
         guard let p = pending, p.token == token else { throw Fail(5, "no pending action \(token): run the command again") }
-        Store.remove("pending.json")
-        guard Date().timeIntervalSince1970 - p.at < ttl else { throw Fail(5, "approval \(token) expired: run the command again") }
-        if p.snap != SnapStore.current?.snap {
-            throw Fail(2, "stale: the screen was read again after the proposal, so its ids may differ. Run the command again")
+        guard Date().timeIntervalSince1970 - p.at < ttl else {
+            Store.remove("pending.json")
+            throw Fail(5, "approval \(token) expired: run the command again")
         }
+        Store.remove("pending.json")
         return p
     }
 }

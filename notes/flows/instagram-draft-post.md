@@ -20,7 +20,7 @@ Stops before location, which still needs a person or a screenshot. It never pres
 5. `click #button "Next"` — Edit → details
 6. `type #textarea "Add a caption" "{caption}"` — end the caption with plain text, not a #tag, or a hashtag suggestion list stays open over the fields below.
 7. `type #textbox "Add location" "{place}"` — opens a dropdown just below the field
-8. Click the matching place in that dropdown, e.g. "Melbourne". It is not in the accessibility tree: `show "the {place} suggestion"`, then `click --at` the point it returns. Leave Share alone.
+8. `click --on "{place}"` — the dropdown is not in the accessibility tree, so this finds it by OCR (needs Screen Recording); without that, `show "the {place} suggestion"` and `click --at` the point. Leave Share alone.
 
 ## Fails
 - Steps 1 to 6 ran together through `do` on 2026-11-01, with real input only. Steps 7 and 8 needed Robert once: he pointed at the field, then at the suggestion.

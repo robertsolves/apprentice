@@ -27,6 +27,23 @@ robustness, contract drift. Sections 6–11 add flows and config, the CLI and so
 loop, ask/grow, approvals, and capture. Section 12 is the verification matrix, and the
 suggested order at the end covers all 53.
 
+
+## Status, 2026-11-01
+
+Every entry below is fixed in the tree (commit after `522654c`). Most fixes carry their ID in a code comment (for example `(B7)`), so `grep -rn "(B7)" Sources` finds them. Points that changed shape on the way:
+
+- B5: a kill-switch press stops the action under way and is then cleared; one pressed between commands stops the next command once.
+- B8: `open` pastes the address (the address bar is not part of any site), then checks that the window reached the host, or fails with exit 5.
+- B11: the reader waits up to 1.5 s for a browser's web area before reading the window as a plain one.
+- B13: `download` fails with exit 5 when nothing new appears at the path (checked by modification time).
+- B14: `replay`'s `expect` branch was removed; nothing wrote it.
+- H1: `ping` and `stop` are answered on the socket thread, never behind a command; `stop` closes an open question window; clients give up after 25 minutes.
+- I1: a proposal remembers its element; approving after a fresh `read` works, and only an id that now points elsewhere is stale.
+- L1: field reports go to the repo's `bugs.md` only when the notes are the repo's own; otherwise beside the notes.
+- F1: `click --on "text"` clicks listed text, or finds it by OCR (needs Screen Recording).
+- F4: after typing, a field that reports its value and is still empty fails with "the keys did not arrive".
+- F6: before clicking, the element is found again if the page replaced it, and its frame is read until it holds still.
+
 ---
 
 ## 1. Crashes that take down the daemon
@@ -35,7 +52,7 @@ All commands run inside `Daemon.queue.sync { handler(req) }`, so a Swift runtime
 anywhere kills the whole daemon process. The caller sees `daemon closed the
 connection` (exit 5), and the next command silently auto-starts a fresh daemon.
 
-### B1 · `read --max <negative>` kills the daemon — high **[verified]**
+### B1 · `read --max <negative>` kills the daemon — high **[verified]** · **fixed 2026-11-01**
 `Commands.render` does `lines.prefix(max)` with `max` straight from `a.int("max", 80)`.
 A negative prefix is a fatal precondition: `Can't take a prefix of negative length
 from a collection` (SIGTRAP).
@@ -46,7 +63,7 @@ from a collection` (SIGTRAP).
   prefix of negative length from a collection`, SIGTRAP (exit 133).
 - Fix: clamp (`max(0, ...)`) or reject in `Args`/`read` with exit 5.
 
-### B2 · `log --tail <negative>` kills the daemon — high **[verified]**
+### B2 · `log --tail <negative>` kills the daemon — high **[verified]** · **fixed 2026-11-01**
 `Commands.log` takes `text.split(separator: "\n").suffix(tail)`. A negative suffix is
 the same `Collection` precondition that B1's probe triggered for `prefix`, reached
 from another command.
@@ -54,7 +71,7 @@ from another command.
 - Repro: `apprentice log --tail -1`
 - Fix: clamp `tail` to `>= 0` (or default it).
 
-### B3 · An inverted pacing range traps on every web action — high **[verified]**
+### B3 · An inverted pacing range traps on every web action — high **[verified]** · **fixed 2026-11-01**
 `Limits.beforeAction` does `Double.random(in: cfg.betweenMin...cfg.betweenMax)`.
 `Double.random(in: lower...upper)` precondition-fails when `lower > upper`, and
 `PaceConfig` copies config values verbatim.
@@ -64,7 +81,7 @@ from another command.
 - Fix: normalise in `PaceConfig` (`min`/`max` of the pair), as `Pace.keyGap` already
   does for key gaps.
 
-### B4 · `Pace.sleep` traps on absurd config values — low **[verified]**
+### B4 · `Pace.sleep` traps on absurd config values — low **[verified]** · **fixed 2026-11-01**
 `Pace.sleep` converts user-supplied seconds straight to `UInt32`:
 
 - `Pace.sleep`: `UInt32(max(seconds, 0) * 1_000_000)` — `nav_min_gap_s = 5000` overflows
@@ -77,7 +94,7 @@ with `min(max(n, 1), 50)` before `Int32(count * 3)`.)
   when the config is read (see D3).
 ## 2. Lifecycle, arguments and sessions
 
-### B5 · The kill switch latches until the daemon restarts — high **[by inspection]**
+### B5 · The kill switch latches until the daemon restarts — high **[by inspection]** · **fixed 2026-11-01**
 `KillSwitch.tripped` is only ever assigned `true` (`Daemon.swift:11`); nothing resets
 it. `Commands.run` rejects every command except `ping` once it is set:
 
@@ -93,7 +110,7 @@ action". `usage()` and SPEC treat exit 6 as "interrupted, retry later".
   in-flight action only), or add `apprentice resume`. Keep the latch only while a
   command is running.
 
-### B6 · A failed daemon start reports exit 7 = "permission missing" — medium **[by inspection]**
+### B6 · A failed daemon start reports exit 7 = "permission missing" — medium **[by inspection]** · **fixed 2026-11-01**
 `Wire.startDaemon` ends with `throw Fail(7, "daemon did not start...")`. Per SPEC and
 `usage()`, 7 means Accessibility/Screen Recording is not granted. An agent that gets
 7 for a crashed or slow start retries the wrong remedy (opens System Settings).
@@ -105,7 +122,7 @@ action". `usage()` and SPEC treat exit 6 as "interrupted, retry later".
 - Fix: use exit 5 (or 4) for "did not start" at both sites, and keep 7 for real permission
   failures.
 
-### B7 · `Args.parse` lets a flag swallow the following positional — medium **[by inspection]**
+### B7 · `Args.parse` lets a flag swallow the following positional — medium **[by inspection]** · **fixed 2026-11-01**
 Any `--flag value` pair where the value is really a positional is mis-parsed because
 the parser cannot know which flags take values:
 
@@ -115,7 +132,7 @@ the parser cannot know which flags take values:
   `new-window`, `json`, `gate`, `background`, `approve`, `screen-anyway`, ...) that
   never consume the next token.
 
-### B8 · `open` never verifies the page actually changed — medium **[by inspection]**
+### B8 · `open` never verifies the page actually changed — medium **[by inspection]** · **fixed 2026-11-01**
 `open` is browser-only now (it throws exit 5 for other apps, which removes the old silent
 `AXDocument` write). It drives the address bar like a person:
 
@@ -134,14 +151,14 @@ screen. The `notes` line even compares `hostname` against the *old* `target.url`
 
 - Fix: after the settle, read `windowURL` and throw exit 5 when the host did not change.
 
-### B9 · `focus` launches a non-running app, contradicting its own error — low **[by inspection]**
+### B9 · `focus` launches a non-running app, contradicting its own error — low **[by inspection]** · **fixed 2026-11-01**
 `focus` calls `launch(named:)`, which runs `open -a <name>` when the app is not
 running, then its own error path says *"app … is not running"* — which can only happen
 if launching failed. So `focus Slack` starts Slack as a side effect.
 
 - Fix: `focus` should use `runningApp(named:)` and never launch.
 
-### B10 · Route keywords match as substrings, so `run` refuses unrelated tasks — medium **[verified]**
+### B10 · Route keywords match as substrings, so `run` refuses unrelated tasks — medium **[verified]** · **fixed 2026-11-01**
 `Routes.match` uses `text.contains(keyword)` with no word boundaries. `"pr"` (GitHub)
 occurs inside *improve*, *project*, *spreadsheet*, *approach*. `"event"`, `"sheet"`,
 `"mail"`, `"post"` have the same problem.
@@ -153,7 +170,7 @@ occurs inside *improve*, *project*, *spreadsheet*, *approach*. `"event"`, `"shee
 - Fix: match tokens, not substrings (`text.split(whereSeparator: !isLetter)`) or
   require word boundaries; keep `domain` matching as a substring.
 
-### B11 · An allowlisted domain can be blocked when the page URL is unreadable — low **[by inspection]**
+### B11 · An allowlisted domain can be blocked when the page URL is unreadable — low **[by inspection]** · **fixed 2026-11-01**
 `locate` returns `url: nil` when no `AXWebArea` is found (page still loading, or a
 browser whose web accessibility tree is not built yet). `Session.allows(url:)` then
 requires an *app-name* entry, so `--allow github.com` blocks a click on GitHub for a
@@ -162,7 +179,7 @@ moment.
 - Fix: treat "browser session with unreadable URL" as allowed-by-session-app, or retry
   the web-area lookup before deciding.
 
-### B12 · Sessions survive their app by PID only — low **[by inspection]**
+### B12 · Sessions survive their app by PID only — low **[by inspection]** · **fixed 2026-11-01**
 `Session.current()` checks `NSRunningApplication(processIdentifier: s.pid) != nil`.
 macOS recycles PIDs, so after the attached app quits, a different app that inherited
 the PID keeps the session "valid" and receives the actions.
@@ -173,7 +190,7 @@ the PID keeps the session "valid" and receives the actions.
 
 ## 3. Wrong or misleading results
 
-### B13 · `download` reports success when the file never appeared — medium **[by inspection]**
+### B13 · `download` reports success when the file never appeared — medium **[by inspection]** · **fixed 2026-11-01**
 The right-click now goes through the real cursor inside `Borrow.run` and the step is gated,
 so the old "needs a frontmost app" failure is gone. Two holes remain in the result:
 
@@ -190,7 +207,7 @@ completed download from one that never happened.
 - Fix: compare the file's mtime (or remove a pre-existing file first), and exit 5 when
   `saved` is false, or say plainly that the browser saved it somewhere else.
 
-### B14 · Replay's `expect` check can never fire — low **[by inspection]**
+### B14 · Replay's `expect` check can never fire — low **[by inspection]** · **fixed 2026-11-01**
 `AgentLoop.save` writes only `{"cmd", "args"}` per step, while `Replay.run` reads
 `item["expect"]`. No code ever writes an `expect` key, so the documented assertion
 path is dead.
@@ -198,14 +215,14 @@ path is dead.
 - Fix: let `--save` record an expected marker (e.g. the diff summary), or drop the
   branch.
 
-### B15 · `settle` considers a value-only change "settled" — low **[verified]**
+### B15 · `settle` considers a value-only change "settled" — low **[verified]** · **fixed 2026-11-01**
 `settle` compares `elements.map(\.key)`, i.e. `label|name` sequences. A field whose
 *value* is still changing (a spinner in a textbox, a counter) compares equal on the
 first repeat, so the diff can be taken mid-update.
 
 - Fix: include `value` in the compared key.
 
-### B16 · Log timestamps are UTC while run folders are local — low **[by inspection]**
+### B16 · Log timestamps are UTC while run folders are local — low **[by inspection]** · **fixed 2026-11-01**
 `Store.stamp` is a default `ISO8601DateFormatter` (UTC); `Store.day()` uses
 `.current`. `apprentice log` prints `suffix(9).prefix(8)` of the UTC stamp, so on a
 UTC+10 machine a 14:00 action shows as `04:00`, and rows written after local midnight
@@ -214,14 +231,14 @@ can land in the previous day's folder.
 - Fix: one timezone for both, and include an offset or a `Z` marker in the printed
   output.
 
-### B17 · Captures are always 2×, regardless of the display — low **[by inspection]**
+### B17 · Captures are always 2×, regardless of the display — low **[by inspection]** · **fixed 2026-11-01**
 `Capture.window` sets `config.width = Int(win.frame.width * 2)`. On a 1× external
 display that upscales (blurrier OCR for no gain); nothing asks the display for its
 scale factor.
 
 - Fix: use the window's `backingScaleFactor` via `NSScreen`.
 
-### B18 · Vision requests inline a full-resolution PNG — low **[by inspection]**
+### B18 · Vision requests inline a full-resolution PNG — low **[by inspection]** · **fixed 2026-11-01**
 `AgentLoop.imageContent` base64s the whole shot. A 2× window capture is routinely
 2–8 MB → 3–11 MB of JSON in one request; many providers cap the body or the image
 size. No downscale, no recompression.
@@ -233,7 +250,7 @@ size. No downscale, no recompression.
 
 ## 4. Robustness and performance
 
-### B19 · No read/write timeout on accepted connections — medium **[by inspection]**
+### B19 · No read/write timeout on accepted connections — medium **[by inspection]** · **fixed 2026-11-01**
 `UnixServer.serve` blocks in `read` until a newline or EOF, with no `SO_RCVTIMEO`;
 each accepted socket gets a thread from the global pool. A client that connects and
 never sends (or dies mid-request) pins that thread indefinitely; a loop of such
@@ -241,28 +258,28 @@ connections exhausts the pool.
 
 - Fix: set `SO_RCVTIMEO`/`SO_SNDTIMEO` (a few seconds), and close on timeout.
 
-### B20 · A signal during the reply truncates it — low **[by inspection]**
+### B20 · A signal during the reply truncates it — low **[by inspection]** · **fixed 2026-11-01**
 `Wire.readAll` breaks on `n <= 0`, which includes `EINTR`, so an interrupted read
 yields a partial JSON body → `bad reply from daemon` (exit 5). `Wire.ping()` also has
 no timeout, so a hung daemon hangs `startDaemon`'s caller.
 
 - Fix: retry on `errno == EINTR`; poll with a deadline.
 
-### B21 · `findFirst` is O(n²) and re-walks the tree on every command — medium **[by inspection]**
+### B21 · `findFirst` is O(n²) and re-walks the tree on every command — medium **[by inspection]** · **fixed 2026-11-01**
 `findFirst` pops with `queue.removeFirst()` (O(n) per pop) up to 4000 elements, and
 `locate` calls it on *every* command to find the `AXWebArea`. On a large page that is
 noticeable latency per action, with no caching between commands.
 
 - Fix: index-based queue, and cache the web-area element per `wid`+snapshot.
 
-### B22 · Removed lines come out in dictionary order — low **[by inspection]**
+### B22 · Removed lines come out in dictionary order — low **[by inspection]** · **fixed 2026-11-01**
 `diff` collects leftovers with `for (_, list) in buckets`, so `- ` lines are ordered by
 hash. Two identical runs can print different diff orderings, which makes the output
 harder to compare and (for B15-style keys) nondeterministic.
 
 - Fix: keep the old snapshot's element order.
 
-### B23 · `learn` can write `flows/.md` — low **[by inspection]**
+### B23 · `learn` can write `flows/.md` — low **[by inspection]** · **fixed 2026-11-01**
 `Notes.slugify` returns `""` for a task with no letters/digits, so the path becomes
 `<notes>/flows/.md`.
 
@@ -272,7 +289,7 @@ harder to compare and (for B15-style keys) nondeterministic.
 
 ## 5. Contract drift
 
-### B24 · MCP omits ten commands and every tier flag — medium **[by inspection]**
+### B24 · MCP omits ten commands and every tier flag — medium **[by inspection]** · **fixed 2026-11-01**
 `MCP.tools` is built from eighteen `cmd:` entries: `session`, `read`, `click`, `type`, `key`,
 `menu`, `scroll`, `hover`, `open`, `wait_for`, `shot`, `ocr`, `route`, `choose` and four more.
 None of `focus`, `drag`, `upload`, `download`, `log`, `pending`, `notes`, `learn`, `run` or
@@ -283,7 +300,7 @@ escape hatch that the docs promise.
 
 - Fix: add the missing tools (thin wrappers exist already via `MCP.map`).
 
-### B25 · MCP answers `ping` with `-32601` — low **[verified]**
+### B25 · MCP answers `ping` with `-32601` — low **[verified]** · **fixed 2026-11-01**
 `MCP.run` handles only `initialize`, `tools/list` and `tools/call`, so a client's liveness
 `ping` gets `-32601 method not found` and may conclude the server is broken.
 
@@ -301,7 +318,7 @@ handshake confirmed both halves — no output for the notification, `-32601` for
 lightly. `Replay` now lives in `AgentLoop.swift` rather than beside the commands, so early
 citations to it point at that home.
 
-### D1 · `learn` writes a flow with no steps and reports success — medium **[by inspection]**
+### D1 · `learn` writes a flow with no steps and reports success — medium **[by inspection]** · **fixed 2026-11-01**
 `Notes.stepLines` seeds its result with the session header:
 
 ```swift
@@ -325,7 +342,7 @@ guard !steps.isEmpty else { throw Fail(5, "no actions in this session's log yet"
   them to `run` as a matching flow.
 - Fix: return `[]` when no action rows matched, or count steps before adding the header.
 
-### D2 · A trailing `#` comment corrupts `routes.toml` values — medium **[by inspection]**
+### D2 · A trailing `#` comment corrupts `routes.toml` values — medium **[by inspection]** · **fixed 2026-11-01**
 `Routes.custom` skips whole comment lines but never strips trailing ones, unlike `Toml.load`:
 
 ```swift
@@ -341,7 +358,7 @@ current[key] = line[line.index(after: eq)...].trimmingCharacters(in: .whitespace
   `"example"   # the trailing comment → curl https://example.com/api`
 - Fix: reuse `Toml`'s comment stripper, which already respects quotes.
 
-### D3 · `nan` or `inf` in config.toml kills the daemon on the next step — high **[verified]**
+### D3 · `nan` or `inf` in config.toml kills the daemon on the next step — high **[verified]** · **fixed 2026-11-01**
 `PaceConfig` reads every number with `Double.init`, which accepts `"nan"` and `"inf"`, and
 the clamps meant to make pace values safe pass NaN straight through (`max(nan, 0.04)` is
 NaN). `Pace.sleep` then converts it:
@@ -359,7 +376,7 @@ static func sleep(_ seconds: Double) { usleep(UInt32(max(seconds, 0) * 1_000_000
 - Fix: reject non-finite values when building `PaceConfig`, and clamp with `isFinite`
   before converting in `Pace.sleep` (same guard as B4).
 
-### D4 · A variable value containing a space splits into two arguments — medium **[by inspection]**
+### D4 · A variable value containing a space splits into two arguments — medium **[by inspection]** · **fixed 2026-11-01**
 `runFlow` fills placeholders first and tokenises second:
 
 ```swift
@@ -374,7 +391,7 @@ upload command receives a truncated path.
 
 - Fix: quote substituted values before tokenising, or tokenise first and fill afterwards.
 
-### D5 · `#label` swallows whatever token follows it — medium **[by inspection]**
+### D5 · `#label` swallows whatever token follows it — medium **[by inspection]** · **fixed 2026-11-01**
 `resolveRefs` assumes the next token is always the element name:
 
 ```swift
@@ -388,7 +405,7 @@ if t.hasPrefix("#"), t.count > 1, i + 1 < tokens.count {
   command as a literal id token, producing `click <id>` usage errors.
 - Fix: treat a following token starting with `-` as a flag, and reject a dangling `#label`.
 
-### D6 · `tokenize` strips backslashes inside quotes — low **[by inspection]**
+### D6 · `tokenize` strips backslashes inside quotes — low **[by inspection]** · **fixed 2026-11-01**
 The escape branch runs before the quote check, so backslashes are consumed everywhere:
 
 ```swift
@@ -402,7 +419,7 @@ path that looks plausible and fails late.
 - Fix: only treat `\` as an escape before `"` and `\`, and leave it alone inside quotes
   otherwise (POSIX shells behave this way inside double quotes).
 
-### D7 · `key` accepts several keys and silently presses the last — low **[by inspection]**
+### D7 · `key` accepts several keys and silently presses the last — low **[by inspection]** · **fixed 2026-11-01**
 `Keys.parse` overwrites instead of rejecting:
 
 ```swift
@@ -417,7 +434,7 @@ error to notice.
 
 - Fix: `throw` when a second key arrives.
 
-### D8 · Interrupted typing reports success and can submit half-typed text — high **[by inspection]**
+### D8 · Interrupted typing reports success and can submit half-typed text — high **[by inspection]** · **fixed 2026-11-01**
 `Keys.type` stops silently:
 
 ```swift
@@ -435,7 +452,7 @@ partly changed. `drag` throws exit 6 in the same situation, and the docs promise
 - Fix: have `Keys.type` report whether it finished, and throw `Fail(6, …)` from
   `Commands.type` when it did not (before any `return` press).
 
-### D9 · Bad numbers fall back silently instead of failing — low **[by inspection]**
+### D9 · Bad numbers fall back silently instead of failing — low **[by inspection]** · **fixed 2026-11-01**
 `Args.int` returns the fallback for anything `Int` cannot parse, and `scroll` does the same
 inline:
 
@@ -449,7 +466,7 @@ let count = min(max(a.pos.count > 1 ? Int(a.pos[1]) ?? 3 : 3, 1), 50)
 - `click 5 --tier 1.5` quietly runs at the *default* tier instead of the one asked for — a
   tier the caller picked for safety, dropped without a word.
 
-### D10 · `do` is missing from SPEC.md — low **[verified]**
+### D10 · `do` is missing from SPEC.md — low **[verified]** · **fixed 2026-11-01**
 `choose` and `do` are both implemented, dispatched (`case "choose"`, `case "do"`), listed in
 `usage()` and exposed as MCP tools. Both agent docs show the flow runner
 (`apprentice do <flow> --key value`) and `choose` *is* in the SPEC — two hits, including the
@@ -465,7 +482,7 @@ the contract points at:
 
 ## 7. The CLI, the socket and MCP
 
-### E1 · `route` and `notes` fold flags into the query — medium **[verified]**
+### E1 · `route` and `notes` fold flags into the query — medium **[verified]** · **fixed 2026-11-01**
 Both take the joined remainder verbatim, so every flag becomes part of the text:
 
 ```swift
@@ -481,7 +498,7 @@ these two commands it is silently folded into the task, where it can change the 
 - `notes "flows --json"` likewise searches for the literal `--json`.
 - Fix: strip parsed flags from the query, and implement `--json` for both.
 
-### E2 · `stop` can SIGTERM a process that is not the daemon — high **[by inspection]**
+### E2 · `stop` can SIGTERM a process that is not the daemon — high **[by inspection]** · **fixed 2026-11-01**
 `UnixServer.stop()` does clean up (`unlink(path)`, removes `daemon.pid`, terminates), so an
 orderly `stop` leaves nothing behind. The hole is the *unclean* case: after a crash, a
 `SIGKILL` or a runtime trap inside a command, the pid file and socket can both survive. A
@@ -503,13 +520,13 @@ an unrelated app.
 Note: this entry previously claimed a *clean* stop left the pid file behind. It does not;
 only the crashed-daemon path is exposed.
 
-### E3 · `stop` reports success no matter what happened — low **[by inspection]**
+### E3 · `stop` reports success no matter what happened — low **[by inspection]** · **fixed 2026-11-01**
 `Wire.stopDaemon()` returns `Void`; `main` prints `stopped` and exits 0 even when no daemon
 was listening, the `kill` failed, or a long-running command kept the daemon alive.
 
 - Fix: return whether the daemon actually went away, and exit 5 when it did not.
 
-### E4 · A bare `apprentice` exits 0 — low **[verified]**
+### E4 · A bare `apprentice` exits 0 — low **[verified]** · **fixed 2026-11-01**
 With no arguments the CLI prints usage and exits 0:
 
 ```swift
@@ -529,7 +546,7 @@ An agent whose argv comes out empty (a failed interpolation, a dropped variable)
 
 ## 8. The model loop
 
-### G1 · `max_tokens: 120` truncates every reply, including typed text — high **[by inspection]**
+### G1 · `max_tokens: 120` truncates every reply, including typed text — high **[by inspection]** · **fixed 2026-11-01**
 `AgentLoop.chat` caps the completion at 120 tokens:
 
 ```swift
@@ -545,7 +562,7 @@ reason to use `run` instead of click-by-click, produces truncated text with no e
 - Fix: raise the cap (or set it only for non-`type` turns), and reject a `type` action whose
   reply hit the ceiling rather than typing half of it.
 
-### G2 · A model rate limit reports exit 5, and nothing retries — medium **[by inspection]**
+### G2 · A model rate limit reports exit 5, and nothing retries — medium **[by inspection]** · **fixed 2026-11-01**
 Every non-2xx from the model becomes the same failure:
 
 ```swift
@@ -562,7 +579,7 @@ backoff, so one transient 429 or 503 ends a 40-step run and discards `used`.
 - Fix: map 429/503 to exit 4, retry a bounded number of times with backoff, and keep the
   steps already completed.
 
-### G3 · A stalled model request is never cancelled and is reported as "no message" — low **[by inspection]**
+### G3 · A stalled model request is never cancelled and is reported as "no message" — low **[by inspection]** · **fixed 2026-11-01**
 The request times out at 90 s but the caller waits 95 s, then falls through to the generic
 guard:
 
@@ -582,7 +599,7 @@ vars, not merely a leak.
 - Fix: keep a handle on the task, cancel it on timeout, and throw a distinct 5 with
   "model timed out" (or 4 if the rest of the contract treats timeouts as blocked).
 
-### G4 · `click 4 --double --right` silently drops the double — low **[verified]**
+### G4 · `click 4 --double --right` silently drops the double — low **[verified]** · **fixed 2026-11-01**
 `parse` rewrites the argument list when `--right` is present:
 
 ```swift
@@ -600,7 +617,7 @@ some apps) gets a single right-click, with a success reply. `usage()` advertises
 
 ## 9. Ask, the socket server and grow
 
-### H1 · An `ask` or `show` window freezes every other command, including `stop` — high **[verified]**
+### H1 · An `ask` or `show` window freezes every other command, including `stop` — high **[verified]** · **fixed 2026-11-01**
 `UnixServer.serve` runs each request through the one serial command queue:
 
 ```swift
@@ -621,7 +638,7 @@ and `Wire.send` has no deadline, so the client waits forever instead of failing.
 - Fix: serve `stop`/`ping` before taking the queue, and give `Wire.send` a deadline so a
   blocked daemon fails instead of hanging.
 
-### H2 · `Mouse.move` derives its step count from config with no bound — low **[by inspection]**
+### H2 · `Mouse.move` derives its step count from config with no bound — low **[by inspection]** · **fixed 2026-11-01**
 ```swift
 let duration = min(max(0.12 + 0.11 * log2(dist / width + 1), p.moveMin), p.moveMax)
 let steps = max(Int(duration * 120), 8)
@@ -634,7 +651,7 @@ pointer move, which looks like a hung daemon. A `nan` in the same pair traps on 
 
 - Fix: clamp `moveMin`/`moveMax` when the config is read, and cap `steps`.
 
-### H3 · `makeFrame` ignores whether the AXValue conversion succeeded — low **[by inspection]**
+### H3 · `makeFrame` ignores whether the AXValue conversion succeeded — low **[by inspection]** · **fixed 2026-11-01**
 ```swift
 AXValueGetValue(p as! AXValue, .cgPoint, &point)
 AXValueGetValue(s as! AXValue, .cgSize, &size)
@@ -651,7 +668,7 @@ offscreen and a click on it lands in the top-left corner instead of on the contr
 
 ## 10. Approvals and gating
 
-### I1 · Reading the screen invalidates the approval the docs tell you to use — medium **[by inspection]**
+### I1 · Reading the screen invalidates the approval the docs tell you to use — medium **[by inspection]** · **fixed 2026-11-01**
 `Approvals.take` refuses a proposal whose snapshot counter moved, and it deletes the
 proposal *before* deciding anything:
 
@@ -672,7 +689,7 @@ live frame on every action anyway, so the guard is stricter than the code needs.
 - Fix: delete the pending only after the checks pass, and validate the element (as `resolve`
   does) instead of the global snapshot counter.
 
-### I2 · The gate's word list misses most irreversible verbs — medium **[by inspection]**
+### I2 · The gate's word list misses most irreversible verbs — medium **[by inspection]** · **fixed 2026-11-01**
 `Gate.words` is a 21-word denylist and `matches` splits the label on non-letters:
 
 ```swift
@@ -690,7 +707,7 @@ Common irreversible controls are absent: `install`, `allow`, `accept`, `agree`, 
 - Fix: add those verbs, and default to ⚠ inside dialogs (`AXDialog`) the way
   `sensitivePage` covers settings pages.
 
-### I3 · Typing a password is proposed with no warning — medium **[by inspection]**
+### I3 · Typing a password is proposed with no warning — medium **[by inspection]** · **fixed 2026-11-01**
 `classify` labels secure fields `password`, but `warnings` looks only at the name, the word
 list and the page URL:
 
@@ -713,7 +730,7 @@ thing this gate should always stop on.
 
 ## 11. Paths, environment and capture
 
-### K1 · `upload` does not expand `~`, though `download` and `choose` do — medium **[by inspection]**
+### K1 · `upload` does not expand `~`, though `download` and `choose` do — medium **[by inspection]** · **fixed 2026-11-01**
 ```swift
 // upload
 let path = a.pos.dropFirst().joined(separator: " ")
@@ -728,7 +745,7 @@ the file is sitting there — shells only expand `~` unquoted, and an agent quot
 
 - Fix: expand in `upload` too, and reject a directory instead of handing it to the picker.
 
-### K2 · Model settings resolve differently on different launches — medium **[by inspection]**
+### K2 · Model settings resolve differently on different launches — medium **[by inspection]** · **fixed 2026-11-01**
 Two families of variables write the same fields inside one loop over an unordered dictionary:
 
 ```swift
@@ -749,7 +766,7 @@ assigned yet, so whether it overrides a configured base URL depends on whether a
 - Fix: read the variables explicitly in a documented order (`APPRENTICE_*` winning over
   `OPENAI_*`) instead of iterating the environment.
 
-### K3 · A timed-out capture leaves two racing writes — low **[by inspection]**
+### K3 · A timed-out capture leaves two racing writes — low **[by inspection]** · **fixed 2026-11-01**
 ```swift
 SCShareableContent.getExcludingDesktopWindows(false, onScreenWindowsOnly: false) { c, _ in
     content = c
@@ -767,7 +784,7 @@ keeps running after the command has already fallen back.
 
 - Fix: drop the timeout (the API is fast), or guard the shared state and cancel the task.
 
-### L1 · `bug` writes to the repo root, not the notes tree — low **[verified]**
+### L1 · `bug` writes to the repo root, not the notes tree — low **[verified]** · **fixed 2026-11-01**
 `Notes.fileBug` resolves its target as `let file = repo.appendingPathComponent("bugs.md")`,
 where `repo` is the project root rather than the notes directory. Probed with a redirected
 tree: `APPRENTICE_NOTES=/tmp/dknotes apprentice bug "!!!"` printed `filed F1 in
@@ -883,18 +900,34 @@ request is never cancelled), K3 (a timed-out capture races its handler).
 **7. Polish and portability:** B9, B11, B12, B14, B15, B16, B17, B18, B23, D2, D6, D7, H3,
 K1, K2, L1.
 
-### F1 · Dropdowns drawn outside the accessibility tree cannot be read or clicked by name — 2026-11-01
+### F1 · Dropdowns drawn outside the accessibility tree cannot be read or clicked by name — 2026-11-01 · **fixed 2026-11-01**
 - Repro: Instagram composer: type into Add location; the place suggestions show on screen, but read lists nothing and an AX hit-test at the suggestion returns the field underneath (Add collaborators)
 - Cause: Reader.swift locate/Walker: everything comes from the AX tree, so any overlay the page does not expose to accessibility is invisible to read, show and resolve
 - Suggested fix: Add 'click --text "Melbourne"': when no listed element matches, OCR the session window (Capture.ocr, needs Screen Recording) and click the matching line's frame with the real cursor; let read --ocr-fill merge OCR lines that fall where no AX element is. Then flows can say click --text {place} instead of asking Robert.
 
-### F2 · type's focus check gave up before Chrome reported the new focus — 2026-11-01
+### F2 · type's focus check gave up before Chrome reported the new focus — 2026-11-01 · **fixed 2026-11-01**
 - Repro: click into a web field, then check AXFocusedUIElement after 0.2 s: still the previous field
 - Cause: Commands.typeInto checked focus once, 0.2 s after the click
 - Suggested fix: Applied: poll the focus for up to 1 s. Keep it as a regression note.
 
-### F3 · Fields that re-render on focus failed type's focus check — 2026-11-01
+### F3 · Fields that re-render on focus failed type's focus check — 2026-11-01 · **fixed 2026-11-01**
 - Repro: Instagram post page: type into Add a comment; focus moves to a fresh AXTextArea with the same name, not the element read listed
 - Last error: `approve → exit 5: the click did not reach 23 textarea "Add a comment…": something may cover it, such as a suggestion list. Nothing was typed`
 - Cause: Commands.typeInto compared the focused element with CFEqual and ancestry only
 - Suggested fix: Applied: also accept a focused element of the same role with the same name, or one overlapping the clicked rect.
+
+### F4 · Another tool driving the same window went unnoticed — 2026-11-01 · **fixed 2026-11-01**
+- Repro: Instagram in Chrome while a Claude in Chrome session also used the tab: the page moved to /explore/ and the window lost key focus; apprentice's keys landed nowhere and type still said ok
+- Last error: `approve → exit 5: the click did not reach 23 textarea "Add a comment…": something may cover it, such as a suggestion list. Nothing was typed`
+- Cause: Nothing compared the page with the one apprentice last led to; Keys.type cannot tell whether keys arrived
+- Suggested fix: Applied: prepare notes a page change apprentice did not make and adds it to the output. Next: after type, compare the field's value with the text when AX exposes it, and report 'keys did not arrive' instead of ok.
+
+### F5 · Typed letters arrived as shortcuts after cmd+a — 2026-11-01 · **fixed 2026-11-01**
+- Repro: type into a field: cmd+a, then the text; nothing appeared (Instagram search), though a lone key press worked
+- Cause: Input.swift typeChar left flags unset only when shift was off, so events could pick up the cmd still reported from the cmd+a just before
+- Suggested fix: Applied: typeChar always sets flags (shift or none).
+
+### F6 · Clicking a field that slides in lands on its old position — 2026-11-01 · **fixed 2026-11-01**
+- Repro: Instagram: click Search, then type into the search field at once; the panel animates and the field moves (new element), so the click hits where it was
+- Cause: resolve returns the snapshot's frame when the element was replaced
+- Suggested fix: In typeInto and realClick, when the element is gone or its frame changed since the snapshot, re-read and re-resolve by label and name before clicking; wait until the frame is stable for 200 ms.

@@ -15,7 +15,11 @@ enum Pace {
         return min(max(gap, 0.04), 0.9)
     }
 
-    static func sleep(_ seconds: Double) { usleep(UInt32(max(seconds, 0) * 1_000_000)) }
+    /// Never traps: NaN, infinity and huge values from config become a bounded wait (B4, D3).
+    static func sleep(_ seconds: Double) {
+        guard seconds.isFinite, seconds > 0 else { return }
+        usleep(UInt32(min(seconds, 4000) * 1_000_000))
+    }
 }
 
 enum Keys {
@@ -40,6 +44,7 @@ enum Keys {
             case "ctrl", "control": flags.insert(.maskControl)
             default:
                 guard let code = codes[part] else { throw Fail(5, "unknown key \"\(part)\"") }
+                guard key == nil else { throw Fail(5, "\"\(combo)\" names more than one key: send one combo per `key`") }
                 key = code
             }
         }
@@ -69,7 +74,9 @@ enum Keys {
         let (code, shift) = keyFor(ch)
         for down in [true, false] {
             guard let e = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down) else { continue }
-            if shift { e.flags = .maskShift }
+            // Always set: an event without flags can pick up a modifier still held from a shortcut
+            // just before (cmd from cmd+a), turning letters into commands.
+            e.flags = shift ? .maskShift : []
             e.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
             post(e)
             if down { Pace.sleep(Double.random(in: 0.02...0.05)) }
@@ -90,15 +97,42 @@ enum Keys {
     }
 
     /// Types like a person, key by key. `fast` shortens the gaps; every key is still a real key.
-    static func type(_ text: String, fast: Bool = false) {
+    /// Throws exit 6 when the person or the kill switch stops it partway, so nothing after it (such as
+    /// a return that would send a half-typed message) runs (D8).
+    static func type(_ text: String, fast: Bool = false) throws {
         Pace.sleep(Double.random(in: 0.15...0.35))
         var prev: Character?
+        var sent = 0
         for ch in text {
-            if KillSwitch.tripped || Watch.stopped { return }
+            if KillSwitch.tripped || Watch.stopped {
+                throw Fail(6, "interrupted after \(sent) of \(text.count) characters: you used the keyboard or mouse. Check the field before retrying")
+            }
+            sent += 1
             typeChar(ch)
             Pace.sleep(Pace.keyGap(after: prev) * (fast ? 0.35 : 1))
             prev = ch
         }
+    }
+
+    /// Pastes `text` with a real cmd+v, then puts the clipboard back. Only for places no website can
+    /// see, such as the browser's address bar and system file dialogs; text inside pages is typed.
+    static func paste(_ text: String) throws {
+        let board = NSPasteboard.general
+        let saved = board.pasteboardItems?.map { item in
+            item.types.reduce(into: [NSPasteboard.PasteboardType: Data]()) { $0[$1] = item.data(forType: $1) }
+        } ?? []
+        board.clearContents()
+        board.setString(text, forType: .string)
+        Pace.sleep(0.05)
+        try press("cmd+v")
+        Pace.sleep(0.25)
+        board.clearContents()
+        let items = saved.map { types -> NSPasteboardItem in
+            let item = NSPasteboardItem()
+            for (type, data) in types { item.setData(data, forType: type) }
+            return item
+        }
+        if !items.isEmpty { board.writeObjects(items) }
     }
 
     /// Marks every event apprentice posts, so monitors can tell them from the person's own input.
@@ -134,7 +168,7 @@ enum Mouse {
         let bend2 = side * dist * CGFloat.random(in: 0.03...0.15)
         let c1 = CGPoint(x: start.x + dx * 0.3 + normal.x * bend1, y: start.y + dy * 0.3 + normal.y * bend1)
         let c2 = CGPoint(x: start.x + dx * 0.7 + normal.x * bend2, y: start.y + dy * 0.7 + normal.y * bend2)
-        let steps = max(Int(duration * 120), 8)
+        let steps = min(max(Int(duration.isFinite ? duration * 120 : 8), 8), 600)
         for n in 1...steps {
             if KillSwitch.tripped || Borrow.interrupted { break }
             let lin = Double(n) / Double(steps)

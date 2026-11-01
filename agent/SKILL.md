@@ -22,7 +22,7 @@ apprentice type 16 "new bio" --enter
 ```
 - The `policy:` line says whether quick macOS tasks (files, folders, opening apps) may use shell commands. Websites always go through the UI. Never change the policy.
 - Use ids from the latest list. Trust the diff; re-read on exit 2 (`stale`). Narrow with `--filter`, `--max 40`.
-- Also: `open`, `key cmd+l`, `menu "File > New Folder"`, `wait-for`, `scroll`, `hover`, `upload`, `download`, `choose "<path>"` (in an open or save dialog), `type focused "text"`, `click --at x,y`, `shot`, `ocr`.
+- Also: `open`, `key cmd+l`, `menu "File > New Folder"`, `wait-for`, `scroll`, `hover`, `upload`, `download`, `choose "<path>"` (in an open or save dialog), `type focused "text"`, `click --on "text"` (visible text, OCR when not listed), `click --at x,y`, `shot`, `ocr`.
 
 ## Approval
 Changing commands exit 8 with `approve? …` and a token; nothing has happened. Approve ordinary steps the task needs with `apprentice approve <token>` (`--text "…"` edits a pending type), or `deny <token>`. For any `⚠` step Robert did not ask for in those words, run `apprentice confirm <token> --why "…"`: he decides in the little window, and an approval runs at once (exit 3 if he denies). Tokens are single-use and expire in 5 minutes.

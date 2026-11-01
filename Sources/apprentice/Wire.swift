@@ -55,11 +55,20 @@ enum Wire {
         return fd
     }
 
+    /// Read and write time limits on a socket, so a silent peer cannot hold it forever (B19, H1).
+    static func setTimeout(_ fd: Int32, _ seconds: Int) {
+        var tv = timeval(tv_sec: seconds, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+    }
+
     static func readAll(_ fd: Int32) -> Data {
         var out = Data()
         var buffer = [UInt8](repeating: 0, count: 64 * 1024)
         while true {
             let n = read(fd, &buffer, buffer.count)
+            // A signal mid-read is not the end of the reply (B20).
+            if n < 0, errno == EINTR { continue }
             if n <= 0 { break }
             out.append(buffer, count: n)
             if out.count > 8 * 1024 * 1024 { break }
@@ -95,6 +104,8 @@ enum Wire {
             fd = connect()
         }
         guard let fd else { throw Fail(5, "daemon did not start: run `apprentice serve` to see why") }
+        // A question window can take its full timeout; past that the daemon is stuck, not busy.
+        setTimeout(fd, 1500)
         let reply = roundTrip(fd, req)
         guard !reply.isEmpty else { throw Fail(5, "daemon closed the connection") }
         guard let resp = try? JSONDecoder().decode(Response.self, from: reply) else {
@@ -105,6 +116,7 @@ enum Wire {
 
     static func ping() -> Bool {
         guard let fd = connect() else { return false }
+        setTimeout(fd, 3)
         return !roundTrip(fd, Request(cmd: "ping")).isEmpty
     }
 
@@ -138,20 +150,31 @@ enum Wire {
         let detail = (try? String(contentsOf: logPath, encoding: .utf8))?
             .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let hint = detail.isEmpty ? "" : ": \(detail)"
-        throw Fail(7, "daemon did not start\(hint)")
+        // 7 means a missing permission; a daemon that did not come up is a plain failure (B6).
+        throw Fail(5, "daemon did not start\(hint)")
     }
 
-    static func stopDaemon() {
+    /// Whether the daemon is gone afterwards, and what happened.
+    static func stopDaemon() -> (Bool, String) {
         if let fd = connect() {
+            setTimeout(fd, 5)
             _ = roundTrip(fd, Request(cmd: "stop"))
-            return
+            let gone = poll(timeout: 3, interval: 0.1) { ping() ? nil : true } != nil
+            return gone ? (true, "stopped") : (false, "the daemon is still running: it may be busy with a command")
         }
-        if let raw = try? String(contentsOfFile: Store.pidPath, encoding: .utf8),
-           let pid = pid_t(raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
-            kill(pid, SIGTERM)
+        defer {
+            unlink(Store.socketPath)
+            try? FileManager.default.removeItem(atPath: Store.pidPath)
         }
-        unlink(Store.socketPath)
-        try? FileManager.default.removeItem(atPath: Store.pidPath)
+        guard let raw = try? String(contentsOfFile: Store.pidPath, encoding: .utf8),
+              let pid = pid_t(raw.trimmingCharacters(in: .whitespacesAndNewlines)) else { return (true, "not running") }
+        // A pid left by a crash may now belong to another program: only signal apprentice (E2).
+        var buffer = [CChar](repeating: 0, count: 4096)
+        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0,
+              String(cString: buffer).hasSuffix("/apprentice") else { return (true, "not running (cleared a stale pid file)") }
+        kill(pid, SIGTERM)
+        let gone = poll(timeout: 3, interval: 0.1) { kill(pid, 0) == 0 ? nil : true } != nil
+        return gone ? (true, "stopped") : (false, "pid \(pid) did not stop")
     }
 }
 
@@ -209,6 +232,7 @@ final class UnixServer {
         // Accepted sockets can inherit O_NONBLOCK on Darwin; read must block until the caller sends.
         let flags = fcntl(cfd, F_GETFL, 0)
         if flags >= 0 { _ = fcntl(cfd, F_SETFL, flags & ~O_NONBLOCK) }
+        Wire.setTimeout(cfd, 10)
         var data = Data()
         var buffer = [UInt8](repeating: 0, count: 64 * 1024)
         while true {
@@ -222,10 +246,19 @@ final class UnixServer {
         let response: Response
         if let line = data.split(separator: 0x0A).first,
            let req = try? JSONDecoder().decode(Request.self, from: Data(line)) {
-            // Not the main queue: the kill switch and Borrow's monitors run there and must fire mid-command.
-            let result = Daemon.queue.sync { handler(req) }
-            response = result.0
-            stop = result.1
+            // ping and stop never wait behind a running command, such as an open question window (H1).
+            if req.cmd == "ping" {
+                response = Response(code: 0, out: "pong")
+            } else if req.cmd == "stop" {
+                Store.log(["cmd": "stop"])
+                response = Response(code: 0, out: "stopped")
+                stop = true
+            } else {
+                // Not the main queue: the kill switch and Borrow's monitors run there and must fire mid-command.
+                let result = Daemon.queue.sync { handler(req) }
+                response = result.0
+                stop = result.1
+            }
         } else {
             response = Response(code: 5, out: "bad request")
         }
@@ -247,6 +280,9 @@ final class UnixServer {
         if fd >= 0 { close(fd); fd = -1 }
         unlink(path)
         try? FileManager.default.removeItem(atPath: Store.pidPath)
+        // An open question window would hold terminate back, so close it first; exit if terminate returns.
+        NSApplication.shared.abortModal()
         NSApplication.shared.terminate(nil)
+        exit(0)
     }
 }

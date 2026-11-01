@@ -14,7 +14,7 @@ func usage() {
       apprentice open <url>
       apprentice focus <app>
       apprentice read [--max 80] [--filter text]
-      apprentice click <id> | --at x,y [--double|--right]
+      apprentice click <id> | --on "text" | --at x,y [--double|--right]
       apprentice type <id|focused> "text" [--enter] [--pace fast] [--tier 3]
       apprentice key <combo> [--tier 3]
       apprentice menu "File > New Folder" [--tier 3]
@@ -56,9 +56,10 @@ func usage() {
 }
 
 let argv = Array(CommandLine.arguments.dropFirst())
+// No command is a usage error, so an empty interpolation never reads as success (E4).
 guard let command = argv.first else {
     usage()
-    exit(0)
+    exit(5)
 }
 let rest = Array(argv.dropFirst())
 
@@ -86,14 +87,19 @@ case "version", "--version", "-v":
 case "serve":
     attempt { try Daemon.start(background: rest.contains("--background")) }
 case "stop":
-    Wire.stopDaemon()
-    print("stopped")
-    exit(0)
-case "route":
-    print(Routes.answer(rest.joined(separator: " ")))
-    exit(0)
-case "notes":
-    print(Notes.search(rest.joined(separator: " ")))
+    // Says what happened, and fails when the daemon is still there (E3).
+    let (stopped, how) = Wire.stopDaemon()
+    print(how)
+    exit(stopped ? 0 : 5)
+case "route", "notes":
+    // Flags are not part of the query; --json works here as everywhere (E1).
+    let a = Args.parse(rest)
+    let out = command == "route" ? Routes.answer(a.pos.joined(separator: " ")) : Notes.search(a.pos.joined(separator: " "))
+    if a.has("json") {
+        print(String(data: Wire.json(Response(code: 0, out: out)), encoding: .utf8) ?? "{}")
+    } else {
+        print(out)
+    }
     exit(0)
 case "learn":
     attempt { print(try Notes.learn(Args.parse(rest))) }

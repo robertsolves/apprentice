@@ -23,7 +23,7 @@ enum Toml {
         return out
     }
 
-    private static func stripComment(_ line: String) -> String {
+    static func stripComment(_ line: String) -> String {
         var inString = false
         var prev: Character = " "
         for (i, ch) in line.enumerated() {
@@ -97,7 +97,30 @@ struct PaceConfig {
         }
         if let v = values["actions_per_min"].flatMap(Double.init) { p.actionsPerMin = v }
         if let m = values["mode"] { p.mode = Toml.unquote(m) }
-        self = p
+        self = p.sanitized()
+    }
+
+    /// Config values reach sleeps, random ranges and step counts, so out-of-range or non-finite ones
+    /// would trap the daemon (B3, D3, H2). Each bad value falls back to the default; pairs are ordered.
+    func sanitized() -> PaceConfig {
+        let d = PaceConfig()
+        func ok(_ v: Double, _ lo: Double, _ hi: Double, _ fallback: Double) -> Double {
+            v.isFinite && v >= lo && v <= hi ? v : fallback
+        }
+        var p = self
+        p.moveMin = ok(moveMin, 0.01, 5, d.moveMin)
+        p.moveMax = ok(moveMax, 0.01, 5, d.moveMax)
+        if p.moveMin > p.moveMax { swap(&p.moveMin, &p.moveMax) }
+        p.keyMedian = ok(keyMedian, 0.005, 2, d.keyMedian)
+        p.keySigma = ok(keySigma, 0, 3, d.keySigma)
+        p.betweenMin = ok(betweenMin, 0, 60, d.betweenMin)
+        p.betweenMax = ok(betweenMax, 0, 60, d.betweenMax)
+        if p.betweenMin > p.betweenMax { swap(&p.betweenMin, &p.betweenMax) }
+        p.navGap = ok(navGap, 0, 600, d.navGap)
+        p.reloadMax = ok(reloadMax, 1, 1000, d.reloadMax)
+        p.reloadWindow = ok(reloadWindow, 1, 86_400, d.reloadWindow)
+        p.actionsPerMin = ok(actionsPerMin, 1, 10_000, d.actionsPerMin)
+        return p
     }
 }
 
@@ -192,18 +215,16 @@ struct Config {
             if let v = r["api_key"] { c.runKey = Toml.unquote(v) }
             if let v = r["vision_model"] { c.visionModel = Toml.unquote(v) }
         }
-        for (k, v) in ProcessInfo.processInfo.environment {
-            switch k {
-            case "APPRENTICE_BASE_URL": c.runURL = v
-            case "APPRENTICE_MODEL": c.runModel = v
-            case "APPRENTICE_API_KEY": c.runKey = v
-            case "OPENAI_BASE_URL": if c.runKey.isEmpty || c.runURL.contains("openai.com") { c.runURL = v }
-            case "OPENAI_API_KEY": c.runKey = v
-            case "OPENAI_MODEL": c.runModel = v
-            case "APPRENTICE_UI_ONLY": c.uiOnly = ["1", "true", "yes"].contains(v.lowercased())
-            default: break
-            }
-        }
+        // A fixed order, so the same environment always means the same model: OPENAI_* first, then
+        // APPRENTICE_* on top (K2).
+        let env = ProcessInfo.processInfo.environment
+        if let v = env["OPENAI_BASE_URL"] { c.runURL = v }
+        if let v = env["OPENAI_API_KEY"] { c.runKey = v }
+        if let v = env["OPENAI_MODEL"] { c.runModel = v }
+        if let v = env["APPRENTICE_BASE_URL"] { c.runURL = v }
+        if let v = env["APPRENTICE_API_KEY"] { c.runKey = v }
+        if let v = env["APPRENTICE_MODEL"] { c.runModel = v }
+        if let v = env["APPRENTICE_UI_ONLY"] { c.uiOnly = ["1", "true", "yes"].contains(v.lowercased()) }
         return c
     }
 

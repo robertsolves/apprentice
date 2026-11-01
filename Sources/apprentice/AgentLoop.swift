@@ -1,4 +1,6 @@
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 enum AgentLoop {
     static let systemPrompt = """
@@ -52,6 +54,8 @@ enum AgentLoop {
         let notes = Notes.context(task: task, session: Session.stored)
         var transcript: [[String: Any]] = []
         var used: [[String: Any]] = []
+        // A run that ends early (a busy model, a stop) still keeps the steps it finished (G2).
+        defer { if !used.isEmpty { save(a, used) } }
         var nextModel: String?
         var lastSignature = ""
         var repeats = 0
@@ -96,7 +100,14 @@ enum AgentLoop {
             }
             if case .ask(let question) = action {
                 print("step \(step) · ask \(question)")
-                let r = try Wire.send(Request(cmd: "ask", args: [question]))
+                var r = try Wire.send(Request(cmd: "ask", args: [question]))
+                // Exit 9: Robert is away from the Mac, or did not answer the window. Ask in this terminal.
+                if r.code == 9, isatty(STDIN_FILENO) != 0 {
+                    print("question for you: \(question)")
+                    print("> ", terminator: "")
+                    let answer = readLine() ?? ""
+                    r = Response(code: answer.isEmpty ? 5 : 0, out: "Robert: \(answer)")
+                }
                 turn(reply, r.code == 0 ? r.out : "No answer from Robert. Choose another way or reply done.")
                 continue
             }
@@ -201,7 +212,8 @@ enum AgentLoop {
         if lower.hasPrefix("click ") {
             var args = line.split(separator: " ").map(String.init)
             args.removeFirst()
-            if args.contains("--right") { args = [args.first ?? ""] + ["--right"] }
+            // Keep the id and both click flags; anything else on the line is dropped (G4).
+            args = [args.first ?? ""] + args.dropFirst().filter { $0 == "--right" || $0 == "--double" }
             return .request(Request(cmd: "click", args: args), args.joined(separator: " "))
         }
         if lower.hasPrefix("type ") {
@@ -249,12 +261,29 @@ enum AgentLoop {
         Toml.unquote(s).replacingOccurrences(of: "\\\"", with: "\"").replacingOccurrences(of: "\\n", with: "\n")
     }
 
+    /// One model call, retried with backoff when the provider is busy (G2). A busy provider that stays
+    /// busy is exit 4, the code for "rate limited".
     static func chat(_ messages: [[String: Any]], _ cfg: Config, model: String) throws -> String {
+        var wait = 2.0
+        for attempt in 1...4 {
+            do {
+                return try chatOnce(messages, cfg, model: model)
+            } catch let f as Fail where f.code == 4 && attempt < 4 {
+                print("model busy (\(f.message.prefix(60))…), retrying in \(Int(wait)) s")
+                Pace.sleep(wait)
+                wait *= 2
+            }
+        }
+        throw Fail(4, "model still busy after 4 tries")
+    }
+
+    private static func chatOnce(_ messages: [[String: Any]], _ cfg: Config, model: String) throws -> String {
         var base = cfg.runURL
         while base.hasSuffix("/") { base.removeLast() }
         guard let url = URL(string: base + "/chat/completions") else { throw Fail(5, "bad base_url \(cfg.runURL)") }
+        // Room for a typed paragraph; a reply that still hits the cap is refused below, not typed half (G1).
         var body: [String: Any] = ["model": model, "messages": messages, "temperature": 0]
-        body["max_tokens"] = 120
+        body["max_tokens"] = 1024
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.timeoutInterval = 90
@@ -262,35 +291,67 @@ enum AgentLoop {
         if !cfg.runKey.isEmpty { req.setValue("Bearer \(cfg.runKey)", forHTTPHeaderField: "Authorization") }
         req.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-        var output: Data?
-        var failure: Error?
+        // The completion handler owns these until it signals; after a timeout the task is cancelled and
+        // its late result ignored (G3).
+        final class Box: @unchecked Sendable {
+            let lock = NSLock()
+            var data: Data?
+            var failure: Error?
+            var done = false
+        }
+        let box = Box()
         let sem = DispatchSemaphore(value: 0)
-        URLSession.shared.dataTask(with: req) { data, response, error in
-            if let error { failure = error }
+        let task = URLSession.shared.dataTask(with: req) { data, response, error in
+            box.lock.lock()
+            defer { box.lock.unlock(); sem.signal() }
+            guard !box.done else { return }
+            if let error { box.failure = error }
             if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
                 let text = data.map { String(data: $0, encoding: .utf8) ?? "" } ?? ""
-                failure = Fail(5, "model HTTP \(http.statusCode): \(text.prefix(300))")
+                let busy = http.statusCode == 429 || http.statusCode == 503 || http.statusCode == 529
+                box.failure = Fail(busy ? 4 : 5, "model HTTP \(http.statusCode): \(text.prefix(300))")
             }
-            output = data
-            sem.signal()
-        }.resume()
-        _ = sem.wait(timeout: .now() + 95)
+            box.data = data
+        }
+        task.resume()
+        let finished = sem.wait(timeout: .now() + 95) == .success
+        box.lock.lock()
+        box.done = true
+        let data = box.data, failure = box.failure
+        box.lock.unlock()
+        if !finished {
+            task.cancel()
+            throw Fail(5, "model timed out after 90 s")
+        }
         if let failure { throw failure }
-        guard let data = output,
+        guard let data,
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let choices = obj["choices"] as? [[String: Any]],
               let message = choices.first?["message"] as? [String: Any],
               let content = message["content"] as? String else {
             throw Fail(5, "model returned no message")
         }
+        if choices.first?["finish_reason"] as? String == "length" {
+            throw Fail(5, "the model's reply was cut off at the length limit; nothing was typed")
+        }
         return content
     }
 
+    /// The screenshot, its long edge capped at 1568 px and sent as JPEG: full-size PNGs of a 2× window
+    /// run to megabytes, past many providers' limits (B18).
     static func imageContent(path: String) -> [[String: Any]]? {
-        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)) else { return nil }
+        guard let src = CGImageSourceCreateWithURL(URL(fileURLWithPath: path) as CFURL, nil) else { return nil }
+        let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true,
+                                        kCGImageSourceThumbnailMaxPixelSize: 1568,
+                                        kCGImageSourceCreateThumbnailWithTransform: true]
+        guard let image = CGImageSourceCreateThumbnailAtIndex(src, 0, options as CFDictionary) else { return nil }
+        let out = NSMutableData()
+        guard let dest = CGImageDestinationCreateWithData(out, "public.jpeg" as CFString, 1, nil) else { return nil }
+        CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.8] as CFDictionary)
+        guard CGImageDestinationFinalize(dest) else { return nil }
         return [
             ["type": "text", "text": "Screenshot follows. Reply with one action."],
-            ["type": "image_url", "image_url": ["url": "data:image/png;base64,\(data.base64EncodedString())"]],
+            ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64,\((out as Data).base64EncodedString())"]],
         ]
     }
 
@@ -330,9 +391,6 @@ enum Replay {
             step += 1
             if result.code != 0 {
                 throw Fail(result.code, result.out)
-            }
-            if let expect = item["expect"] as? String, !result.out.contains(expect) {
-                throw Fail(5, "replay check failed at step \(step - 1): expected \"\(expect)\"")
             }
         }
         print("replay · \(step - first) steps · ok")

@@ -18,7 +18,7 @@ apprentice type 16 "new bio" --enter
 
 - The `policy:` line says whether quick macOS tasks (files, folders, opening apps) may use shell commands. Websites always go through the UI. Never change it.
 - Use ids from the latest read. Trust diffs; re-read on exit 2 (`stale`). Narrow with `--filter` or `--max 40`.
-- Also: `open`, `key`, `menu "File > New Folder"`, `wait-for`, `scroll`, `hover`, `upload`, `download`, `choose "<path>"`, `type focused "text"`, `click --at x,y`, `shot`, `ocr`.
+- Also: `open`, `key`, `menu "File > New Folder"`, `wait-for`, `scroll`, `hover`, `upload`, `download`, `choose "<path>"`, `type focused "text"`, `click --on "text"` (visible text, OCR when not listed), `click --at x,y`, `shot`, `ocr`.
 
 Approval:
 - Changing commands exit 8 with `approve? …` and a token; nothing is done yet. `apprentice approve <token>` (`--text` edits a pending type) or `deny <token>`.

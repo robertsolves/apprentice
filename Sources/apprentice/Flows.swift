@@ -8,7 +8,8 @@ extension Commands {
         guard let name = a.pos.first else { throw Fail(5, "do <flow> [--key value ...]: list flows with `apprentice notes flow`") }
         guard let note = Notes.flow(named: name) else { throw Fail(5, "no flow \"\(name)\": find one with `apprentice notes \"<words>\"`") }
         var missing = Set<String>()
-        let steps = Notes.steps(note).map { fill($0, a.flags, &missing) }
+        let raw = Notes.steps(note)
+        let steps = raw.map { fill($0, a.flags, &missing) }
         guard !steps.isEmpty else { throw Fail(5, "\(note.path) has no steps") }
         guard missing.isEmpty else {
             throw Fail(5, "\(note.path) needs " + missing.sorted().map { "--\($0) \"…\"" }.joined(separator: " "))
@@ -32,7 +33,9 @@ extension Commands {
                 throw Fail(5, (out + [try screen()]).joined(separator: "\n"))
             }
             do {
-                var tokens = try tokenize(String(step.dropFirst().prefix { $0 != "`" }))
+                // Split first, fill after, so a value with a space stays one argument (D4).
+                var ignored = Set<String>()
+                var tokens = try tokenize(String(raw[i].dropFirst().prefix { $0 != "`" })).map { fill($0, a.flags, &ignored) }
                 guard !tokens.isEmpty, tokens[0] != "do" else { throw Fail(5, "bad step") }
                 tokens = try resolveRefs(tokens)
                 let cmd = tokens.removeFirst()
@@ -67,7 +70,11 @@ extension Commands {
         var i = 0
         while i < tokens.count {
             let t = tokens[i]
-            if t.hasPrefix("#"), t.count > 1, i + 1 < tokens.count {
+            if t.hasPrefix("#"), t.count > 1 {
+                // `#label` always takes the next word as the name; a flag or nothing there is an error (D5).
+                guard i + 1 < tokens.count, !tokens[i + 1].hasPrefix("--") else {
+                    throw Fail(5, "\(t) needs an element name after it, such as \(t) \"Save\"")
+                }
                 let label = String(t.dropFirst()), name = tokens[i + 1].lowercased()
                 let same = snap.elements.filter { $0.label == label }
                 guard let hit = same.first(where: { $0.name.lowercased() == name })
@@ -104,7 +111,13 @@ extension Commands {
         var cur = ""
         var quoted = false, started = false, escape = false
         for ch in s {
-            if escape { cur.append(ch); escape = false; continue }
+            // A backslash escapes only a quote or another backslash; elsewhere it is kept (D6).
+            if escape {
+                if ch != "\"" && ch != "\\" { cur.append("\\") }
+                cur.append(ch)
+                escape = false
+                continue
+            }
             if ch == "\\" { escape = true; continue }
             if ch == "\"" { quoted.toggle(); started = true; continue }
             if ch == " " && !quoted {
@@ -115,6 +128,7 @@ extension Commands {
             cur.append(ch)
         }
         guard !quoted else { throw Fail(5, "unclosed quote in step: \(s)") }
+        if escape { cur.append("\\") }
         if started || !cur.isEmpty { out.append(cur) }
         return out
     }

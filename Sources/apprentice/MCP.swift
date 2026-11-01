@@ -12,7 +12,7 @@ enum MCP {
     static let tools: [[String: Any]] = [
         tool("session", "Attach to one app window", ["app": ["type": "string"], "new_window": ["type": "boolean"], "allow": ["type": "string"]]),
         tool("read", "Numbered element list for the session window", ["max": ["type": "integer"], "filter": ["type": "string"]]),
-        tool("click", "Press an element by number", ["id": ["type": "integer"], "right": ["type": "boolean"], "double": ["type": "boolean"]], ["id"]),
+        tool("click", "Click an element by number, or visible text with 'on' (OCR when it is not listed)", ["id": ["type": "integer"], "on": ["type": "string"], "right": ["type": "boolean"], "double": ["type": "boolean"]]),
         tool("type", "Type text into an element", ["id": ["type": "integer"], "text": ["type": "string"], "enter": ["type": "boolean"], "pace": ["type": "string"]], ["id", "text"]),
         tool("key", "Send a keyboard shortcut", ["combo": ["type": "string"]], ["combo"]),
         tool("menu", "Pick a menu-bar item, e.g. File > New Folder", ["path": ["type": "string"]], ["path"]),
@@ -23,6 +23,17 @@ enum MCP {
         tool("shot", "Save a PNG of the window or a crop", ["crop": ["type": "string"]]),
         tool("ocr", "OCR the window into numbered lines", ["crop": ["type": "string"]]),
         tool("route", "Check for a faster API, CLI or connector route", ["task": ["type": "string"]], ["task"]),
+        tool("focus", "Switch the session to another running app", ["app": ["type": "string"]], ["app"]),
+        tool("drag", "Drag one element onto another", ["from": ["type": "integer"], "to": ["type": "integer"]], ["from", "to"]),
+        tool("upload", "Click a file control and pick a file in the dialog", ["id": ["type": "integer"], "path": ["type": "string"]], ["id", "path"]),
+        tool("download", "Save a linked file or image to a path", ["id": ["type": "integer"], "path": ["type": "string"]], ["id", "path"]),
+        tool("log", "The last steps of this session", ["tail": ["type": "integer"]]),
+        tool("pending", "The proposal waiting for approve or deny, if any", [:]),
+        tool("notes", "Search the learned notes and flows", ["query": ["type": "string"]]),
+        tool("learn", "Draft a flow from this session's approved steps", ["task": ["type": "string"], "name": ["type": "string"]], ["task"]),
+        tool("show", "Ask Robert to point at something on screen; returns the element there", ["what": ["type": "string"]], ["what"]),
+        tool("away", "Robert is away (on) or back (off): questions go to the chat while away", ["state": ["type": "string"]], ["state"]),
+        tool("policy", "Whether quick macOS tasks may use shell commands", [:]),
         tool("choose", "In an open or save dialog, go to a path: picks a file or fills in a new name", ["path": ["type": "string"]], ["path"]),
         tool("do", "Run a flow from notes/flows with one approval. vars: {\"name\": \"value\"} fills {name}", ["flow": ["type": "string"], "vars": ["type": "object"]], ["flow"]),
         tool("ask", "When stuck or deciding, show Robert a little window: free text, or choices (multi for checkboxes, text to add a reply field). Returns his reply",
@@ -48,6 +59,9 @@ enum MCP {
                 ])
             case "tools/list":
                 reply(id, "result", ["tools": tools])
+            case "ping":
+                // A liveness check gets an empty result, not "method not found" (B25).
+                reply(id, "result", [:])
             case "tools/call":
                 let params = msg["params"] as? [String: Any] ?? [:]
                 let name = params["name"] as? String ?? ""
@@ -55,6 +69,11 @@ enum MCP {
                 let text: String
                 let isError: Bool
                 do {
+                    // These run in this process, like the CLI does them.
+                    if let local = try runLocally(name, arguments) {
+                        reply(id, "result", ["content": [["type": "text", "text": local]], "isError": false])
+                        continue
+                    }
                     let response = try Wire.send(try map(name, arguments))
                     // Exit 8 is a proposal waiting for approve or deny, not a failure.
                     (text, isError) = (response.out, response.code != 0 && response.code != 8)
@@ -65,6 +84,18 @@ enum MCP {
             default:
                 reply(id, "error", ["code": -32601, "message": "method not found"])
             }
+        }
+    }
+
+    static func runLocally(_ name: String, _ args: [String: Any]) throws -> String? {
+        switch name {
+        case "notes": return Notes.search(args["query"] as? String ?? "")
+        case "learn":
+            var a = [args["task"] as? String ?? ""]
+            if let n = args["name"] as? String { a += ["--name", n] }
+            return try Notes.learn(Args.parse(a))
+        case "policy": return Config.policyLine
+        default: return nil
         }
     }
 
@@ -88,7 +119,7 @@ enum MCP {
             if let filter = s("filter") { a += ["--filter", filter] }
             return Request(cmd: "read", args: a)
         case "click":
-            var a = [s("id") ?? ""]
+            var a = s("on").map { ["--on", $0] } ?? [s("id") ?? ""]
             if b("right") { a.append("--right") }
             if b("double") { a.append("--double") }
             return Request(cmd: "click", args: a)
@@ -120,6 +151,20 @@ enum MCP {
             return Request(cmd: name, args: a)
         case "route":
             return Request(cmd: "route", args: [s("task") ?? ""])
+        case "focus":
+            return Request(cmd: "focus", args: [s("app") ?? ""])
+        case "drag":
+            return Request(cmd: "drag", args: [s("from") ?? "", s("to") ?? ""])
+        case "upload", "download":
+            return Request(cmd: name, args: [s("id") ?? "", s("path") ?? ""])
+        case "log":
+            return Request(cmd: "log", args: s("tail").map { ["--tail", $0] } ?? [])
+        case "pending":
+            return Request(cmd: "pending")
+        case "show":
+            return Request(cmd: "show", args: [s("what") ?? ""])
+        case "away":
+            return Request(cmd: "away", args: [s("state") ?? "status"])
         case "choose":
             return Request(cmd: "choose", args: [s("path") ?? ""])
         case "do":

@@ -38,7 +38,7 @@ enum Grow {
             out.append("flows run:")
             out += flows.sorted { $0.value > $1.value }.map { "  \($0.value)× \($0.key.dropFirst("run flow ".count))" }
         }
-        let bugs = Notes.repo.appendingPathComponent("bugs.md")
+        let bugs = Notes.bugFile
         let reports = ((try? String(contentsOf: bugs, encoding: .utf8)) ?? "").components(separatedBy: "\n")
             .filter { $0.hasPrefix("### F") }
         out.append(reports.isEmpty ? "field reports: none" : "field reports in \(bugs.path):")

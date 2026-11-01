@@ -7,6 +7,13 @@ struct Args {
     var flags: [String: String] = [:]
     var bools: Set<String> = []
 
+    /// Flags that are only on or off, so they never take the next word as their value (B7):
+    /// `click --right 5` keeps 5 as the id.
+    static let switches: Set<String> = [
+        "right", "double", "enter", "new-window", "json", "gate", "approve", "screen-anyway", "no-options",
+        "multi", "text", "force", "background", "front", "real", "all",
+    ]
+
     static func parse(_ raw: [String]) -> Args {
         var a = Args()
         var i = 0
@@ -16,6 +23,8 @@ struct Args {
                 let body = String(token.dropFirst(2))
                 if let eq = body.firstIndex(of: "=") {
                     a.flags[String(body[..<eq])] = String(body[body.index(after: eq)...])
+                } else if switches.contains(body) {
+                    a.bools.insert(body)
                 } else if i + 1 < raw.count, !raw[i + 1].hasPrefix("--") {
                     a.flags[body] = raw[i + 1]
                     i += 1
@@ -32,6 +41,14 @@ struct Args {
 
     func value(_ key: String, _ fallback: String? = nil) -> String? { flags[key] ?? fallback }
     func int(_ key: String, _ fallback: Int) -> Int { flags[key].flatMap(Int.init) ?? fallback }
+
+    /// A whole number flag that must parse and be at least `min`; a bad value is an error, not a
+    /// silent fallback (D9).
+    func count(_ key: String, _ fallback: Int, min lower: Int = 0) throws -> Int {
+        guard let raw = flags[key] else { return fallback }
+        guard let n = Int(raw), n >= lower else { throw Fail(5, "--\(key) needs a whole number of at least \(lower), not \"\(raw)\"") }
+        return n
+    }
     func has(_ key: String) -> Bool { bools.contains(key) || flags[key] != nil }
 }
 
@@ -81,9 +98,11 @@ func makeNewWindow(_ app: NSRunningApplication) {
     app.activate()
     _ = poll(timeout: 3) { NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier ? true : nil }
     Pace.sleep(0.4)
-    for _ in 0..<2 where pickWindow(ax) == nil {
+    // Always a fresh window, even when the app has others, then wait until it is the one in front.
+    let before = Set(windows(of: ax).compactMap(\.windowID))
+    for _ in 0..<2 {
         try? Keys.press("cmd+n")
-        _ = poll(timeout: 3) { pickWindow(ax) }
+        if poll(timeout: 3, { pickWindow(ax).flatMap { $0.windowID.map { !before.contains($0) } == true ? $0 : nil } }) != nil { return }
     }
 }
 
@@ -130,6 +149,10 @@ func requireSession() throws -> Session {
 func prepare(checkAllow: Bool = true) throws -> (Session, Target, Snapshot?) {
     var session = try requireSession()
     let target = try locate(session)
+    // apprentice records every page it leads to, so any other change came from someone else.
+    if let was = session.url, let now = target.url, was != now {
+        Commands.notice = "note: the page changed to \(now) without apprentice. Robert or another tool may be using this window; check before acting."
+    }
     session.track(target.url)
     // Pacing profiles follow the page the window is on now, not the page it was attached to.
     Config.activate(Config.profileKey(session: session, url: target.url))
@@ -190,7 +213,7 @@ func gate(_ session: Session, _ target: Target, _ e: Element?, _ summary: String
     if !warnings.isEmpty, !Approvals.approved { saveGateShot(session, summary) }
     let place = "\(session.app) · \(target.url ?? target.title)"
     try Approvals.check(summary, details: [place] + details + ["uses the real cursor and keyboard, with \(session.app) in front"],
-                        warnings: warnings)
+                        warnings: warnings, element: e?.key)
     try Watch.begin()
     if NSWorkspace.shared.frontmostApplication?.processIdentifier != session.pid {
         target.app.set(kAXFrontmostAttribute, kCFBooleanTrue)
@@ -224,16 +247,28 @@ func fileDialogs(_ app: AXUIElement) -> [AXUIElement] {
 // MARK: - Commands
 
 enum Commands {
+    /// A warning for the caller, added to this command's output.
+    static var notice: String?
+
     static func run(_ req: Request) throws -> String {
-        if KillSwitch.tripped, req.cmd != "ping" { throw Fail(6, "interrupted: the kill switch was pressed") }
+        // A press stops the action under way; it is then cleared, so the tool does not stay locked (B5).
+        // One pressed between commands stops the next one once.
+        if KillSwitch.tripped, req.cmd != "ping" {
+            KillSwitch.tripped = false
+            throw Fail(6, "interrupted: the kill switch was pressed, so this command was not run. Run it again to carry on")
+        }
         Borrow.interrupted = false
         let result = Result { try Awake.busy { try dispatch(req) } }
         if Watch.end() {
             throw Fail(6, "interrupted: you used the keyboard or mouse while apprentice acted in front, so it stopped. Check the screen with `read`, then retry")
         }
+        if KillSwitch.tripped {
+            KillSwitch.tripped = false
+            throw Fail(6, "interrupted: the kill switch was pressed during this command. Check the screen with `read`")
+        }
         let out = try result.get()
-        if KillSwitch.tripped, req.cmd != "ping" { throw Fail(6, "interrupted: the kill switch was pressed") }
-        return out
+        defer { notice = nil }
+        return notice.map { out + "\n" + $0 } ?? out
     }
 
     static func dispatch(_ req: Request) throws -> String {
@@ -326,7 +361,8 @@ enum Commands {
     static func focus(_ a: Args) throws -> String {
         try requireAccessibility()
         guard let name = a.pos.first ?? a.value("app") else { throw Fail(5, "focus <app>") }
-        guard let app = try? launch(named: name) else { throw Fail(5, "app \"\(name)\" is not running") }
+        // focus only switches to a running app; `session --app` is the way to launch one (B9).
+        guard let app = runningApp(named: name) else { throw Fail(5, "app \"\(name)\" is not running: start it with `apprentice session --app \"\(name)\"`") }
         let s = try attach(app, name, a, keep: Session.stored)
         var out = "focus · \(name) · window \(s.wid)"
         if let url = s.url { out += " · \(url)" }
@@ -407,16 +443,26 @@ enum Commands {
         try Limits.checkNavigation(url)
         Config.activate(Config.profileKey(session: session, url: raw))
         try beforeAction(session, url: raw)
-        // As a person does it: the address bar, then type the address and press return.
+        // The address bar belongs to the browser, not the site, so the address is pasted there.
         try Borrow.run(target) {
             try Keys.press("cmd+l")
             try Keys.press("cmd+a")
-            Keys.type(raw)
+            try Keys.paste(raw)
             Pace.sleep(Double.random(in: 0.2...0.5))
+            // The address bar may still complete inline (a past address, selected): delete that first.
+            try Keys.press("forwarddelete")
             try Borrow.checkpoint()
             try Keys.press("return")
         }
         Pace.sleep(0.6)
+        // The page must actually be the one asked for, or later commands act on a stale screen (B8).
+        let arrived = poll(timeout: 8, interval: 0.4) { () -> String? in
+            guard let now = try? locate(session).url, let host = hostOf(now) else { return nil }
+            return host == hostname || host.hasSuffix("." + hostname) || hostname.hasSuffix("." + host) ? now : nil
+        }
+        guard arrived != nil else {
+            throw Fail(5, "the window did not go to \(hostname): it shows \((try? locate(session).url) ?? "no page"). Check it with `read`")
+        }
         let notes = hostname == hostOf(target.url) ? [] : Notes.hintLines(app: nil, bundle: nil, host: hostname)
         let extra = ["→ \(raw)"] + Routes.hintLines(for: hostname) + notes
         return finish("open", session, target, old, extra: extra, log: ["url": raw])
@@ -424,7 +470,7 @@ enum Commands {
 
     static func read(_ a: Args) throws -> String {
         let (session, target, _) = try prepare()
-        let maxLines = a.int("max", 80)
+        let maxLines = try a.count("max", 80)
         let filter = a.value("filter")?.lowercased()
         let snapshot = readSnapshotCached(target, wid: session.wid)
         var lines = snapshot.elements.map(\.line)
@@ -437,6 +483,7 @@ enum Commands {
 
     static func click(_ a: Args) throws -> String {
         if let at = a.value("at") { return try clickAt(at, a) }
+        if let words = a.value("on") { return try clickOn(words, a) }
         guard let id = a.pos.first.flatMap(Int.init) else { throw Fail(5, "click <id> | click --at x,y") }
         let (session, target, old) = try prepare()
         let (el, e) = try resolve(id, target)
@@ -444,8 +491,31 @@ enum Commands {
         let verb = right ? "right-click" : double ? "double-click" : "click"
         try gate(session, target, e, "\(verb) \(e.short)", force: a.has("gate"))
         try beforeAction(session, url: target.url)
-        try Borrow.run(target) { try realClick(el?.frame ?? e.rect, right: right, double: double) }
+        let (_, rect) = liveRect(el, e, target)
+        try Borrow.run(target) { try realClick(rect, right: right, double: double) }
         return finish("click", session, target, old, log: ["id": id, "label": e.label, "name": e.name])
+    }
+
+    /// Where an element is right now. Panels slide in and pages replace elements, so the snapshot's
+    /// frame can be stale: when the element is gone it is found again by label and name, and the
+    /// frame is read until it holds still (F6).
+    static func liveRect(_ el: AXUIElement?, _ e: Element, _ target: Target) -> (AXUIElement?, CGRect) {
+        var node = el
+        if node?.frame == nil, !e.path.isEmpty {
+            let snap = readSnapshot(target)
+            if let again = snap.elements.first(where: { $0.key == e.key }) {
+                node = walkPath(target.root, again.path)
+                if node == nil { return (nil, again.rect) }
+            }
+        }
+        var last = node?.frame ?? e.rect
+        for _ in 0..<6 {
+            Pace.sleep(0.15)
+            let now = node?.frame ?? last
+            if now == last { break }
+            last = now
+        }
+        return (node, last)
     }
 
     /// Moves the real cursor into `rect` along a curved path and clicks. Call inside `Borrow.run`.
@@ -482,7 +552,49 @@ enum Commands {
             throw Fail(5, "the click did not reach \(label): something may cover it, such as a suggestion list. Nothing was typed")
         }
         try Keys.press("cmd+a")
-        Keys.type(text, fast: fast)
+        try Keys.type(text, fast: fast)
+        // Keys can land nowhere (another app or tool has focus) while every step "works": a field that
+        // reports its value and is still empty did not get them (F4).
+        if !text.isEmpty {
+            Pace.sleep(0.3)
+            if let now = target.app.attr(kAXFocusedUIElementAttribute) as! AXUIElement?,
+               now.string(kAXSubroleAttribute) != "AXSecureTextField",
+               let value = now.string(kAXValueAttribute), value.isEmpty {
+                throw Fail(5, "the keys did not arrive: \(label) is still empty after typing. Another app or tool may have focus; check with `read`")
+            }
+        }
+    }
+
+    /// `click --on "text"`: clicks visible text. The list is tried first; text the page never exposes to
+    /// accessibility (a dropdown drawn on its own layer) is found by OCR of the window, which needs
+    /// Screen Recording, and clicked with the real cursor (F1).
+    private static func clickOn(_ words: String, _ a: Args) throws -> String {
+        let (session, target, old) = try prepare()
+        let needle = words.lowercased()
+        let snap = readSnapshot(target)
+        SnapStore.save(snap)
+        let listed = snap.elements.first { $0.name.lowercased() == needle }
+            ?? snap.elements.first { e in
+                e.name.lowercased().contains(needle) && !["textbox", "textarea", "combobox", "searchbox", "password"].contains(e.label)
+            }
+        var rect = listed?.rect
+        var how = listed.map { "listed as \($0.short)" } ?? ""
+        if rect == nil {
+            try Capture.ensure()
+            let (image, frame) = try capture(session, target, Args())
+            let lines = Capture.ocr(image, windowFrame: frame)
+            let line = lines.first { $0.text.lowercased() == needle } ?? lines.first { $0.text.lowercased().contains(needle) }
+            guard let line else { throw Fail(5, "no \"\(words)\" on screen, in the list or by OCR") }
+            rect = line.box
+            how = "found by OCR: \"\(clip(line.text, 60))\""
+        }
+        guard let rect else { throw Fail(5, "no \"\(words)\" on screen") }
+        let right = a.has("right"), double = a.has("double")
+        try gate(session, target, listed, "click \"\(words)\" (\(how))",
+                 warn: listed == nil && Gate.matches(words) ? ["may be irreversible: \"\(words)\""] : [], force: a.has("gate"))
+        try beforeAction(session, url: target.url)
+        try Borrow.run(target) { try realClick(rect, right: right, double: double) }
+        return finish("click", session, target, old, extra: ["→ \"\(words)\""], log: ["on": words])
     }
 
     /// `click --at x,y`: a real click at a screen point, for things `read` cannot list (from `show`).
@@ -519,8 +631,9 @@ enum Commands {
                  warn: enter ? ["return may submit or send"] : [], force: a.has("gate"))
         try beforeAction(session, url: target.url)
         let fast = a.value("pace") == "fast" || Config.current.pace.mode == "fast"
+        let (node, rect) = focused ? (el, e.rect) : liveRect(el, e, target)
         try Borrow.run(target) {
-            try typeInto(el, el?.frame ?? e.rect, text, target, focused: focused, fast: fast, label: e.short)
+            try typeInto(node, rect, text, target, focused: focused, fast: fast, label: e.short)
             if enter {
                 Pace.sleep(0.2)
                 try Keys.press("return")
@@ -620,7 +733,11 @@ enum Commands {
         guard let direction = a.pos.first?.lowercased(), direction == "up" || direction == "down" else {
             throw Fail(5, "scroll <up|down> [n] [--in id]")
         }
-        let count = min(max(a.pos.count > 1 ? Int(a.pos[1]) ?? 3 : 3, 1), 50)
+        var count = 3
+        if a.pos.count > 1 {
+            guard let n = Int(a.pos[1]), n >= 1 else { throw Fail(5, "scroll needs a whole number of steps, not \"\(a.pos[1])\"") }
+            count = min(n, 50)
+        }
         let (session, target, old) = try prepare()
         try beforeAction(session, url: target.url)
         var rect = CGRect(x: target.bounds.midX - 20, y: target.bounds.midY - 20, width: 40, height: 40)
@@ -725,12 +842,12 @@ enum Commands {
             // With focus in the search field the shortcut does nothing; "/" typed in the file list opens it too.
             if poll(timeout: 1.5, goField) == nil { try Keys.press("/") }
             guard let field = poll(timeout: 3, goField) else { throw Fail(5, "Go to Folder did not open in the file dialog") }
-            // Typed key by key, each key replaces the completion the field offers, as it does for a
-            // person. If the field still shows something else, type it again more slowly.
+            // A system dialog, not a website, so the path is pasted: no inline completion eats keys.
+            // If the field still shows something else, type it key by key once.
             for attempt in 0..<2 where field.string(kAXValueAttribute) != path {
                 try Borrow.checkpoint()
                 try Keys.press("cmd+a")
-                Keys.type(path, fast: attempt == 0)
+                if attempt == 0 { try Keys.paste(path) } else { try Keys.type(path) }
                 Pace.sleep(1.5)
             }
             guard field.string(kAXValueAttribute) == path else {
@@ -769,8 +886,11 @@ enum Commands {
 
     static func upload(_ a: Args) throws -> String {
         guard let id = a.pos.first.flatMap(Int.init), a.pos.count >= 2 else { throw Fail(5, "upload <id> <path>") }
-        let path = a.pos.dropFirst().joined(separator: " ")
-        guard FileManager.default.fileExists(atPath: path) else { throw Fail(5, "file not found: \(path)") }
+        // Agents quote paths, so the shell never expands ~ for them (K1).
+        let path = (a.pos.dropFirst().joined(separator: " ") as NSString).expandingTildeInPath
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: path, isDirectory: &isDir) else { throw Fail(5, "file not found: \(path)") }
+        guard !isDir.boolValue else { throw Fail(5, "\(path) is a folder: upload takes a file") }
         let (session, target, old) = try prepare()
         let (el, e) = try resolve(id, target)
         try gate(session, target, e, "upload \(path) through \(e.short)", warn: ["sends a file to \(hostOf(target.url) ?? session.app)"])
@@ -798,6 +918,12 @@ enum Commands {
         try beforeAction(session, url: target.url)
         let app = appElement(session.pid)
         let before = fileDialogs(app)
+        // An older file already at the path must not count as this download (B13).
+        let started = Date()
+        let modified = { () -> Bool? in
+            let date = (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date
+            return date.map { $0 >= started.addingTimeInterval(-1) } == true ? true : nil
+        }
         try Borrow.run(target) {
             try realClick(el?.frame ?? e.rect, right: true)
             Pace.sleep(0.4)
@@ -820,12 +946,15 @@ enum Commands {
             if let f = findFirst(dialog, limit: 4000, where: { $0.role == "AXButton" && ($0.title ?? "").lowercased() == "save" })?.frame {
                 try Borrow.run(target) { try realClick(f) }
             }
-            saved = poll(timeout: 6) { FileManager.default.fileExists(atPath: path) ? true : nil } != nil
+            saved = poll(timeout: 10, modified) != nil
         } else {
-            // Some browsers save straight to Downloads without asking.
             saved = false
         }
-        return finish("download", session, target, old, extra: [(saved ? "saved " : "requested ") + path],
+        guard saved else {
+            // Some browsers save straight to Downloads without asking.
+            throw Fail(5, "nothing new was saved at \(path). The browser may have saved it to Downloads without asking; check there")
+        }
+        return finish("download", session, target, old, extra: ["saved " + path],
                       log: ["id": id, "path": path, "source": source, "label": e.label, "name": e.name])
     }
 
@@ -863,7 +992,7 @@ enum Commands {
                             total: elements.count, elements: elements)
         SnapStore.save(snap)
         Store.log(["cmd": "ocr", "snap": snap.snap, "lines": elements.count])
-        return render(snap, app: session.app, lines: elements.map(\.line), max: a.int("max", 80))
+        return render(snap, app: session.app, lines: elements.map(\.line), max: try a.count("max", 80))
     }
 
     static func shot(_ a: Args) throws -> String {
@@ -879,7 +1008,7 @@ enum Commands {
     }
 
     static func log(_ a: Args) throws -> String {
-        let tail = a.int("tail", 20)
+        let tail = try a.count("tail", 20)
         let file = Store.runFolder().appendingPathComponent("steps.jsonl")
         guard let text = try? String(contentsOf: file, encoding: .utf8) else { return "no steps yet" }
         let rows = text.split(separator: "\n").suffix(tail)
@@ -887,8 +1016,8 @@ enum Commands {
         for row in rows {
             guard let data = row.data(using: .utf8),
                   let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
-            // "2026-11-01T12:34:56Z" → "12:34:56"
-            let time = (obj["ts"] as? String).map { String($0.suffix(9).prefix(8)) } ?? ""
+            // "2026-11-01T12:34:56+10:00" → "12:34:56", in the local time the stamp was written in
+            let time = (obj["ts"] as? String).flatMap { $0.split(separator: "T").last.map { String($0.prefix(8)) } } ?? ""
             let cmd = obj["cmd"] as? String ?? obj["gate"] as? String
                 ?? (obj["proposed"] as? String).map { "proposed \($0)" } ?? "step"
             var bits = ["\(time)", cmd]
@@ -926,7 +1055,7 @@ enum Commands {
     }
 
     private static func render(_ s: Snapshot, app: String, lines: [String], max: Int) -> String {
-        let shown = lines.prefix(max)
+        let shown = lines.prefix(Swift.max(max, 0))
         var out = "<screen>\n" + header(s, app: app, shown: shown.count) + "\n"
         out += shown.joined(separator: "\n")
         if lines.count > shown.count { out += "\n… \(lines.count - shown.count) more, use --max or --filter" }
