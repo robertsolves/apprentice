@@ -8,7 +8,7 @@ status: partial
 ---
 # Create a folder on the Desktop in Finder and name it
 
-Run: `deskkontrol do finder-new-folder --name "{name}"`
+Run: `apprentice do finder-new-folder --name "{name}"`
 
 ## Steps
 1. `session --app Finder --new-window`

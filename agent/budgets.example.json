@@ -1,5 +1,5 @@
 {
-  "_note": "Copied to ~/.deskkontrol/budgets.json. Conservative self-imposed caps, not published platform limits. Lower is always allowed.",
+  "_note": "Copied to ~/.apprentice/budgets.json. Conservative self-imposed caps, not published platform limits. Lower is always allowed.",
   "default": {
     "post":     { "hour": 2,  "day": 5,   "min_gap_s": 600 },
     "comment":  { "hour": 5,  "day": 20,  "min_gap_s": 90 },

@@ -1,4 +1,4 @@
-# deskkontrol: Working Within Site Rules
+# apprentice: Working Within Site Rules
 
 Five additions would make permitted work on Robert's own accounts safer and easier to audit: daily budgets, rate-limit backoff, a machine-readable site policy, a clean handoff for challenges, and a restriction review. They keep sessions inside published or commonly enforced limits and stop cleanly when a site asks for a pause. None of them overrides a site's controls or expands what is permitted. The per-minute caps, reload limit, approval gate and allowlist already exist and are left out.
 
@@ -8,12 +8,12 @@ This is compliance work, not concealment: the daemon enforces limits and keeps a
 
 Add hourly and daily caps per action kind, on top of today's per-minute cap. Sites commonly enforce limits over hours (follows, likes, posts per day), not only on bursts within a minute.
 
-- The caps live in `~/.deskkontrol/budgets.json`, seeded from `agent/budgets.example.json`. Each domain inherits from `default` and overrides only what it sets.
+- The caps live in `~/.apprentice/budgets.json`, seeded from `agent/budgets.example.json`. Each domain inherits from `default` and overrides only what it sets.
 - Each action kind has `hour`, `day`, an optional `week`, and `min_gap_s`, the shortest time allowed between two actions of that kind.
 - The action kind comes from the label of the gated element: Follow → `follow`, Connect → `connect`, Add friend → `friend_request`, and so on. An unmatched gated action counts against `default`.
 - Store the counts in `limits.json` next to the current timestamps. Days reset at local midnight, weeks on Monday.
 - When a budget runs out, exit 4 with `budget: 20 likes on instagram.com today`. The calling agent should stop, not retry.
-- Add `deskkontrol budget`, which prints the remaining budget per domain so an agent can plan before it starts.
+- Add `apprentice budget`, which prints the remaining budget per domain so an agent can plan before it starts.
 - A missing or unreadable `budgets.json` falls back to the built-in `default`. It never falls back to no limits.
 
 ### Platform caps (per day, with the minimum gap between actions)
@@ -55,7 +55,7 @@ What the daemon does:
 1. Mark the domain `cooling` in `limits.json` and refuse every action on it with exit 4 `soft block: x.com, cooling until 15:40`.
 2. Hold off for 1 hour the first time, 6 hours the second time, then 24 hours. The counter resets after 7 days with no block.
 3. Log the trigger phrase, the last 5 steps and a screenshot.
-4. Let Robert clear it early with `deskkontrol cool --clear <domain>`. Agents cannot clear it.
+4. Let Robert clear it early with `apprentice cool --clear <domain>`. Agents cannot clear it.
 
 Keep the phrase list in `config.toml`, so new wordings can be added without a rebuild.
 
@@ -70,7 +70,7 @@ Turn the "keep sites that forbid automation out of the allowlist" rule into data
 | `checked` | date | Warn when older than 6 months, since terms change |
 | `api` | short text | Shown next to the refusal, for example the official API or export |
 
-A `deskkontrol policy <domain>` command prints the entry. An unknown domain prints `no policy on file` once per session, so a gap gets noticed instead of ignored. Robert fills each entry after reading the site's terms. The tool should not guess them.
+A `apprentice policy <domain>` command prints the entry. An unknown domain prints `no policy on file` once per session, so a gap gets noticed instead of ignored. Robert fills each entry after reading the site's terms. The tool should not guess them.
 
 ## Handing challenges to Robert
 
@@ -87,9 +87,9 @@ The agent should wait on exit 8 or end the task. It must never try the challenge
 
 Step logs are kept per session, but a restriction usually comes from activity across several sessions and days. Add a view by domain:
 
-- `deskkontrol activity <domain> [--days 7]` prints action counts per day and kind, budget use, rate limits and challenges, all on one timeline across sessions.
-- Keep a small `~/.deskkontrol/events.jsonl` of rate limits, challenges and budget refusals for 180 days, longer than the 30-day step logs. Restrictions often show up weeks after the activity that caused them.
-- `deskkontrol flag <domain> "note"` records the time Robert saw a warning or restriction. `activity` then marks that point, so the 48 hours before it can be compared with a normal week.
+- `apprentice activity <domain> [--days 7]` prints action counts per day and kind, budget use, rate limits and challenges, all on one timeline across sessions.
+- Keep a small `~/.apprentice/events.jsonl` of rate limits, challenges and budget refusals for 180 days, longer than the 30-day step logs. Restrictions often show up weeks after the activity that caused them.
+- `apprentice flag <domain> "note"` records the time Robert saw a warning or restriction. `activity` then marks that point, so the 48 hours before it can be compared with a normal week.
 
 ## Order of work
 
@@ -97,6 +97,6 @@ The two that stop damage while it is happening come first.
 
 - [ ] Rate-limit detection and cooldown (`Limits` in `State.swift`, phrase match in `Commands.swift`)
 - [ ] Challenge detection, exit 8 and notification, plus the agent-doc rule
-- [ ] Hourly and daily budgets and `deskkontrol budget`
-- [ ] `[policy]` entries in `routes.toml` and `deskkontrol policy`
+- [ ] Hourly and daily budgets and `apprentice budget`
+- [ ] `[policy]` entries in `routes.toml` and `apprentice policy`
 - [ ] `events.jsonl`, `activity` and `flag`

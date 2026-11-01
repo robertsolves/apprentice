@@ -311,7 +311,7 @@ enum Replay {
         let file = Store.dir.appendingPathComponent("replays/\(name).json")
         guard let data = try? Data(contentsOf: file),
               let list = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
-            throw Fail(5, "no replay \"\(name)\": saved runs land in ~/.deskkontrol/replays/<name>.json")
+            throw Fail(5, "no replay \"\(name)\": saved runs land in ~/.apprentice/replays/<name>.json")
         }
         var step = first
         for item in list.dropFirst(first - 1) {
@@ -322,7 +322,7 @@ enum Replay {
                 // Each saved step is proposed again: replaying a run does not approve it.
                 guard approve, let p = Approvals.pending else {
                     print(result.out)
-                    throw Fail(8, "replay paused at step \(step): approve it, then run `deskkontrol replay \(name) --from \(step + 1)`, or pass --approve to approve each saved step")
+                    throw Fail(8, "replay paused at step \(step): approve it, then run `apprentice replay \(name) --from \(step + 1)`, or pass --approve to approve each saved step")
                 }
                 result = try Wire.send(Request(cmd: "approve", args: [p.token]))
             }

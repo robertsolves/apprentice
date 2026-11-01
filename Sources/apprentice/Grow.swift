@@ -1,6 +1,6 @@
 import Foundation
 
-/// `grow`: what the logs say deskkontrol should learn next. Repeated errors are candidate code fixes,
+/// `grow`: what the logs say apprentice should learn next. Repeated errors are candidate code fixes,
 /// questions Robert answered are candidate notes, and open field reports are fixes waiting for review.
 /// Claude Code runs it at the start of work in this repo (CLAUDE.md).
 enum Grow {

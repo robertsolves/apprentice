@@ -41,7 +41,7 @@ func requireAccessibility() throws {
     guard AXIsProcessTrusted() else {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         _ = AXIsProcessTrustedWithOptions(options)
-        throw Fail(7, "Accessibility is not granted: System Settings → Privacy & Security → Accessibility → enable deskkontrol")
+        throw Fail(7, "Accessibility is not granted: System Settings → Privacy & Security → Accessibility → enable apprentice")
     }
 }
 
@@ -165,7 +165,7 @@ func finish(_ command: String, _ session: Session, _ target: Target, _ old: Snap
     var out = "ok · snap \(new.snap) · \(d.summary)"
     if !extra.isEmpty { out += "\n" + extra.joined(separator: "\n") }
     if !d.lines.isEmpty { out += "\n" + d.lines.prefix(25).joined(separator: "\n") }
-    if d.lines.count > 25 { out += "\n… \(d.lines.count - 25) more changes, run `deskkontrol read`" }
+    if d.lines.count > 25 { out += "\n… \(d.lines.count - 25) more changes, run `apprentice read`" }
     // Flags only, never typed text: `learn` turns these rows into flows.
     let r = Args.parse(Approvals.request.args)
     let flags = (r.flags.filter { $0.key != "json" }.sorted { $0.key < $1.key }.map { "--\($0.key) \($0.value)" }
@@ -227,9 +227,9 @@ enum Commands {
     static func run(_ req: Request) throws -> String {
         if KillSwitch.tripped, req.cmd != "ping" { throw Fail(6, "interrupted: the kill switch was pressed") }
         Borrow.interrupted = false
-        let result = Result { try dispatch(req) }
+        let result = Result { try Awake.busy { try dispatch(req) } }
         if Watch.end() {
-            throw Fail(6, "interrupted: you used the keyboard or mouse while deskkontrol acted in front, so it stopped. Check the screen with `read`, then retry")
+            throw Fail(6, "interrupted: you used the keyboard or mouse while apprentice acted in front, so it stopped. Check the screen with `read`, then retry")
         }
         let out = try result.get()
         if KillSwitch.tripped, req.cmd != "ping" { throw Fail(6, "interrupted: the kill switch was pressed") }
@@ -262,6 +262,8 @@ enum Commands {
         case "ask": return try Ask.run(a)
         case "show": return try Ask.pointAt(a)
         case "confirm": return try Ask.confirm(a)
+        case "awake": return try Awake.run(a)
+        case "away": return try Ask.awayCommand(a)
         case "download": return try download(a)
         case "wait-for": return try waitFor(a)
         case "ocr": return try ocr(a)
@@ -306,7 +308,7 @@ enum Commands {
         }
         if a.has("new-window") { makeNewWindow(app) }
         var s = try attach(app, name, a)
-        if !optionsAsked, Config.current.askOnStart, !a.has("no-options") {
+        if !optionsAsked, Config.current.askOnStart, !a.has("no-options"), !Ask.away {
             optionsAsked = true
             s = startOptions(s)
         }
@@ -315,6 +317,7 @@ enum Commands {
         let hints = Routes.hintLines(for: hostOf(s.url))
         if !hints.isEmpty { out += "\n" + hints.joined(separator: "\n") }
         out += "\n" + Config.policyLine
+        if Awake.enabled { out += "\n" + Awake.status }
         out += notesLines(s)
         Store.log(["cmd": "session", "app": name, "wid": Int(s.wid), "url": s.url ?? ""])
         return out
@@ -337,20 +340,23 @@ enum Commands {
     /// Asks Robert how this run should work. Skipping keeps the defaults; "Remember" saves them.
     private static func startOptions(_ s: Session) -> Session {
         let uiOnly = "UI only: no shell commands for macOS tasks"
+        let awake = "Keep the Mac awake while a task runs"
         let remember = "Remember these as defaults"
         var s = s
         let reply = DispatchQueue.main.sync {
-            Ask.show("deskkontrol is starting with \(s.app). Options for this session:",
-                     choices: [uiOnly, remember], multi: true, withText: true, timeout: 120,
-                     sendTitle: "Start", checked: Config.current.uiOnly ? [uiOnly] : [],
+            Ask.show("apprentice is starting with \(s.app). Options for this session:",
+                     choices: [uiOnly, awake, remember], multi: true, withText: true, timeout: Ask.windowTime(120),
+                     sendTitle: "Start", checked: Set((Config.current.uiOnly ? [uiOnly] : []) + (Awake.enabled ? [awake] : [])),
                      placeholder: "Allowed sites, comma separated (empty: any)", initialText: s.allow.joined(separator: ", "))
         }
-        guard let reply else { return s }
+        guard let reply, !reply.skipped else { return s }
         s.uiOnly = reply.chosen.contains(uiOnly)
+        Awake.set(reply.chosen.contains(awake))
         s.allow = Config.parseAllow(reply.text).filter { !$0.isEmpty }
         s.save()
         if reply.chosen.contains(remember) {
             Config.remember("agent", "ui_only", s.uiOnly == true ? "true" : "false")
+            Config.remember("agent", "keep_awake", Awake.enabled ? "true" : "false")
             Config.remember("session", "allow", "[" + s.allow.map { "\"\($0)\"" }.joined(separator: ", ") + "]")
         }
         Store.log(["options": true, "ui_only": s.uiOnly == true, "allow": s.allow.joined(separator: ",")])
@@ -375,7 +381,7 @@ enum Commands {
             picked = poll(timeout: 2) { pickWindow(appElement(app.processIdentifier)) }
         }
         guard let window = picked else {
-            throw Fail(5, "\(name) has no window: open one, or run `deskkontrol session --new-window`")
+            throw Fail(5, "\(name) has no window: open one, or run `apprentice session --new-window`")
         }
         var s = try makeSession(app: app, window: window)
         if let keep { s.id = keep.id; s.allow = keep.allow }

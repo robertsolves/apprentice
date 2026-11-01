@@ -111,6 +111,10 @@ struct Config {
     var askOnStart = true
     /// The system sound played when the little window pops up; "none" turns it off.
     var askSound = "Ping"
+    var keepAwake = false
+    /// Where questions go: "both" (the window, then the chat if unanswered), "window", or "terminal".
+    var askIn = "both"
+    var askWindowSeconds = 60.0
     var runURL = "https://api.openai.com/v1"
     var runModel = "gpt-4o-mini"
     var runKey = ""
@@ -133,7 +137,7 @@ struct Config {
     /// What the LLM may use besides the UI. Robert sets this; agents never change it.
     static var policyLine: String {
         (Session.stored?.uiOnly ?? current.uiOnly)
-            ? "policy: UI only. Do every task through deskkontrol, including files and folders; no shell commands for them."
+            ? "policy: UI only. Do every task through apprentice, including files and folders; no shell commands for them."
             : "policy: websites only through the UI. Quick macOS tasks (files, folders, opening apps) may use shell commands."
     }
 
@@ -179,6 +183,9 @@ struct Config {
         if let v = toml["agent"]?["ui_only"] { c.uiOnly = Toml.unquote(v) == "true" }
         if let v = toml["agent"]?["ask_on_start"] { c.askOnStart = Toml.unquote(v) != "false" }
         if let v = toml["agent"]?["ask_sound"] { c.askSound = Toml.unquote(v) }
+        if let v = toml["agent"]?["keep_awake"] { c.keepAwake = Toml.unquote(v) == "true" }
+        if let v = toml["agent"]?["ask_in"] { c.askIn = Toml.unquote(v) }
+        if let v = toml["agent"]?["ask_window_s"].flatMap({ Double(Toml.unquote($0)) }) { c.askWindowSeconds = v }
         if let r = toml["run"] {
             if let v = r["base_url"] { c.runURL = Toml.unquote(v) }
             if let v = r["model"] { c.runModel = Toml.unquote(v) }
@@ -187,13 +194,13 @@ struct Config {
         }
         for (k, v) in ProcessInfo.processInfo.environment {
             switch k {
-            case "DESKKONTROL_BASE_URL": c.runURL = v
-            case "DESKKONTROL_MODEL": c.runModel = v
-            case "DESKKONTROL_API_KEY": c.runKey = v
+            case "APPRENTICE_BASE_URL": c.runURL = v
+            case "APPRENTICE_MODEL": c.runModel = v
+            case "APPRENTICE_API_KEY": c.runKey = v
             case "OPENAI_BASE_URL": if c.runKey.isEmpty || c.runURL.contains("openai.com") { c.runURL = v }
             case "OPENAI_API_KEY": c.runKey = v
             case "OPENAI_MODEL": c.runModel = v
-            case "DESKKONTROL_UI_ONLY": c.uiOnly = ["1", "true", "yes"].contains(v.lowercased())
+            case "APPRENTICE_UI_ONLY": c.uiOnly = ["1", "true", "yes"].contains(v.lowercased())
             default: break
             }
         }

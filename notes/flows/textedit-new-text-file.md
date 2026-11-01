@@ -10,7 +10,7 @@ status: partial
 
 Finder has no "new text file" command, so make the file in TextEdit and save it where it belongs.
 
-Run: `deskkontrol do textedit-new-text-file --text "{text}" --path "{folder}/{file}.txt"`
+Run: `apprentice do textedit-new-text-file --text "{text}" --path "{folder}/{file}.txt"`
 
 ## Steps
 1. `session --app TextEdit --new-window`

@@ -1,7 +1,7 @@
 import Foundation
 
 /// Learned notes: Markdown files about apps, sites and flows, kept in the repo's `notes/`
-/// (linked to ~/.deskkontrol/notes by kit.sh), so `git pull` brings in what was learned elsewhere.
+/// (linked to ~/.apprentice/notes by kit.sh), so `git pull` brings in what was learned elsewhere.
 enum Notes {
     struct Note {
         var url: URL
@@ -27,7 +27,7 @@ enum Notes {
     }
 
     static var dir: URL {
-        if let custom = ProcessInfo.processInfo.environment["DESKKONTROL_NOTES"], !custom.isEmpty {
+        if let custom = ProcessInfo.processInfo.environment["APPRENTICE_NOTES"], !custom.isEmpty {
             return URL(fileURLWithPath: (custom as NSString).expandingTildeInPath)
         }
         return Store.dir.appendingPathComponent("notes")
@@ -78,7 +78,7 @@ enum Notes {
             out.append("notes · \(note.path)")
             out += note.keyFacts.prefix(6).map { "  - \($0)" }
         }
-        out.append("more: deskkontrol notes \"<words>\"")
+        out.append("more: apprentice notes \"<words>\"")
         return out
     }
 
@@ -86,7 +86,7 @@ enum Notes {
     static func search(_ query: String) -> String {
         let root = dir.resolvingSymlinksInPath()
         guard FileManager.default.fileExists(atPath: root.path) else {
-            return "no notes at \(dir.path): run ./kit.sh to link the repo's notes/, or set DESKKONTROL_NOTES"
+            return "no notes at \(dir.path): run ./kit.sh to link the repo's notes/, or set APPRENTICE_NOTES"
         }
         let notes = all()
         let words = query.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init).filter { $0.count > 1 }
@@ -97,7 +97,7 @@ enum Notes {
             let text = (note.path + " " + note.title + " " + (note.meta["tags"] ?? "") + " " + note.body).lowercased()
             return (note, words.filter { text.contains($0) }.count)
         }.filter { $0.1 > 0 }.sorted { $0.1 > $1.1 }
-        guard !ranked.isEmpty else { return "no notes match \"\(query)\": work it out on screen, then `deskkontrol learn`" }
+        guard !ranked.isEmpty else { return "no notes match \"\(query)\": work it out on screen, then `apprentice learn`" }
         var out: [String] = []
         for (note, _) in ranked.prefix(5) {
             out.append("\(note.path) · \(note.title)")
@@ -141,7 +141,7 @@ enum Notes {
 
     // MARK: - bug
 
-    /// The repo that holds the notes (kit.sh links ~/.deskkontrol/notes into it).
+    /// The repo that holds the notes (kit.sh links ~/.apprentice/notes into it).
     static var repo: URL { dir.resolvingSymlinksInPath().deletingLastPathComponent() }
 
     /// `bug "summary" [--repro …] [--cause …] [--fix …]`: appends a field report to the repo's bugs.md,
@@ -150,9 +150,9 @@ enum Notes {
         let summary = a.pos.joined(separator: " ")
         guard !summary.isEmpty else { throw Fail(5, "bug \"summary\" [--repro \"…\"] [--cause \"file:line …\"] [--fix \"…\"]") }
         let file = repo.appendingPathComponent("bugs.md")
-        var text = (try? String(contentsOf: file, encoding: .utf8)) ?? "# deskkontrol — bug audit\n"
+        var text = (try? String(contentsOf: file, encoding: .utf8)) ?? "# apprentice — bug audit\n"
         if !text.contains("## Field reports") {
-            text += "\n## Field reports\n\nFiled by `deskkontrol bug` while working. Each has a suggested fix to review; none is applied.\n"
+            text += "\n## Field reports\n\nFiled by `apprentice bug` while working. Each has a suggested fix to review; none is applied.\n"
         }
         let count = text.components(separatedBy: "\n### F").count
         var entry = "\n### F\(count) · \(summary) — \(Store.day())\n"
@@ -249,7 +249,7 @@ enum Notes {
         ---
         # \(task)
 
-        Drafted by `deskkontrol learn` from approved steps. Run it with `deskkontrol do <this file's name> --key value`. Before committing: replace names from this screen with {placeholders}, delete steps that did nothing, and note what failed.
+        Drafted by `apprentice learn` from approved steps. Run it with `apprentice do <this file's name> --key value`. Before committing: replace names from this screen with {placeholders}, delete steps that did nothing, and note what failed.
 
         ## Steps
         \(steps.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n"))

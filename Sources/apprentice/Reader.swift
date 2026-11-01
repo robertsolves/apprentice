@@ -163,7 +163,7 @@ func locate(_ session: Session, scope wanted: String? = nil) throws -> Target {
         found = poll(timeout: 2, find)
     }
     guard let window = found else {
-        throw Fail(5, "window \(session.wid) not found: it may be closed, minimised or on another Space. Run `deskkontrol session` again")
+        throw Fail(5, "window \(session.wid) not found: it may be closed, minimised or on another Space. Run `apprentice session` again")
     }
     let title = window.string(kAXTitleAttribute) ?? ""
     let wframe = window.frame ?? .zero
@@ -264,7 +264,7 @@ func walkPath(_ root: AXUIElement, _ path: [Int]) -> AXUIElement? {
 
 /// Finds a snapshot element again; falls back to a unique role+name match if the tree shifted.
 func resolve(_ id: Int, _ t: Target) throws -> (AXUIElement?, Element) {
-    guard let snap = SnapStore.current else { throw Fail(2, "stale: no snapshot, run `deskkontrol read`") }
+    guard let snap = SnapStore.current else { throw Fail(2, "stale: no snapshot, run `apprentice read`") }
     guard let e = snap.elements.first(where: { $0.id == id }) else { throw Fail(5, "no element \(id) in snap \(snap.snap)") }
     // OCR elements have no AX path; the caller clicks their box directly.
     if e.path.isEmpty { return (nil, e) }

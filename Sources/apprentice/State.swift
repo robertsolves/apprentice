@@ -14,7 +14,13 @@ struct Fail: Error, CustomStringConvertible {
 
 enum Store {
     static let dir: URL = {
-        let url = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".deskkontrol")
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let url = home.appendingPathComponent(".apprentice")
+        // The tool was called deskkontrol: carry its sessions, config, notes link and logs over once.
+        let old = home.appendingPathComponent(".deskkontrol")
+        if !FileManager.default.fileExists(atPath: url.path), FileManager.default.fileExists(atPath: old.path) {
+            try? FileManager.default.moveItem(at: old, to: url)
+        }
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }()
@@ -125,7 +131,7 @@ struct Session: Codable {
 
     static func current() throws -> Session {
         guard let s = stored else {
-            throw Fail(5, "no session: run `deskkontrol session --app Safari`")
+            throw Fail(5, "no session: run `apprentice session --app Safari`")
         }
         guard NSRunningApplication(processIdentifier: s.pid) != nil else {
             throw Fail(5, "\(s.app) is no longer running: start a new session")
@@ -239,7 +245,7 @@ enum Gate {
 }
 
 /// A state-changing command first returns a proposal (exit 8) and acts only once the caller
-/// runs `deskkontrol approve <token>`. The caller is an LLM, which decides or asks its user.
+/// runs `apprentice approve <token>`. The caller is an LLM, which decides or asks its user.
 enum Approvals {
     struct Pending: Codable {
         var token: String
@@ -275,7 +281,7 @@ enum Approvals {
         Store.save(p, "pending.json")
         Store.log(["proposed": summary, "token": token, "warnings": warnings])
         var out = ["approve? \(summary)"] + details.map { "  \($0)" } + warnings.map { "⚠ \($0)" }
-        out.append("nothing was done. approve: deskkontrol approve \(token) · deny: deskkontrol deny \(token)")
+        out.append("nothing was done. approve: apprentice approve \(token) · deny: apprentice deny \(token)")
         throw Fail(8, out.joined(separator: "\n"))
     }
 

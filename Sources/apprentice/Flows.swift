@@ -5,8 +5,8 @@ import Foundation
 /// resolved to an element id on the screen at that moment, and `{key}` comes from `--key value`.
 extension Commands {
     static func runFlow(_ a: Args) throws -> String {
-        guard let name = a.pos.first else { throw Fail(5, "do <flow> [--key value ...]: list flows with `deskkontrol notes flow`") }
-        guard let note = Notes.flow(named: name) else { throw Fail(5, "no flow \"\(name)\": find one with `deskkontrol notes \"<words>\"`") }
+        guard let name = a.pos.first else { throw Fail(5, "do <flow> [--key value ...]: list flows with `apprentice notes flow`") }
+        guard let note = Notes.flow(named: name) else { throw Fail(5, "no flow \"\(name)\": find one with `apprentice notes \"<words>\"`") }
         var missing = Set<String>()
         let steps = Notes.steps(note).map { fill($0, a.flags, &missing) }
         guard !steps.isEmpty else { throw Fail(5, "\(note.path) has no steps") }

@@ -101,7 +101,7 @@ enum Keys {
         }
     }
 
-    /// Marks every event deskkontrol posts, so monitors can tell them from the person's own input.
+    /// Marks every event apprentice posts, so monitors can tell them from the person's own input.
     static let tag: Int64 = 0x646B_6374
 
     /// Every event goes through the system input stream, like a person's mouse and keyboard.
@@ -257,7 +257,7 @@ enum Borrow {
 }
 
 /// While a command acts with the window in front, the person's own keys and clicks stop it,
-/// so their typing never mixes with deskkontrol's. Posted events carry `Keys.tag` and are ignored.
+/// so their typing never mixes with apprentice's. Posted events carry `Keys.tag` and are ignored.
 enum Watch {
     private static var monitor: Any?
     static var on: Bool { monitor != nil }

@@ -18,11 +18,11 @@ enum KillSwitch {
 
 enum Daemon {
     /// Commands run one at a time on this queue, never on main.
-    static let queue = DispatchQueue(label: "deskkontrol.commands")
+    static let queue = DispatchQueue(label: "apprentice.commands")
 
     static func start(background: Bool) throws {
         if Wire.ping() {
-            if !background { print("deskkontrol daemon already running") }
+            if !background { print("apprentice daemon already running") }
             return
         }
         try requireAccessibility()
@@ -32,6 +32,7 @@ enum Daemon {
         try? String(ProcessInfo.processInfo.processIdentifier).write(toFile: Store.pidPath, atomically: true, encoding: .utf8)
         Store.pruneLogs()
         KillSwitch.install()
+        if Config.current.keepAwake { Awake.set(true) }
 
         let server = UnixServer(path: Store.socketPath) { req -> (Response, Bool) in
             if req.cmd == "stop" {
@@ -58,7 +59,7 @@ enum Daemon {
         }
 
         if !background {
-            print("deskkontrol daemon listening on \(Store.socketPath) (pid \(getpid()))")
+            print("apprentice daemon listening on \(Store.socketPath) (pid \(getpid()))")
             fflush(stdout)
         }
         app.run()

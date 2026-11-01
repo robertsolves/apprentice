@@ -44,7 +44,7 @@ enum MCP {
                 reply(id, "result", [
                     "protocolVersion": "2024-11-05",
                     "capabilities": ["tools": [:]],
-                    "serverInfo": ["name": "deskkontrol", "version": version],
+                    "serverInfo": ["name": "apprentice", "version": version],
                 ])
             case "tools/list":
                 reply(id, "result", ["tools": tools])

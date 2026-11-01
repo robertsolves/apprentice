@@ -13,7 +13,7 @@ SPEC.md keeps Instagram out of the allowlist (its terms forbid automated actions
 ## Key facts
 - New post: `click #link "New post"`, then `upload #button "Select from computer" "{image}"`. The picker opens only for a real click; `upload` handles that.
 - Next twice (Crop, then Edit) reaches the details page: caption, location, collaborators, Share.
-- Location: typing into `textbox "Add location"` opens a dropdown just below it; click the matching or closest text, e.g. "Melbourne" (from Robert). Typing alone does not set it.
+- Location: type into `textbox "Add location"`; a dropdown opens just below it. Click the matching place, e.g. "Melbourne"; typing alone does not set it. The dropdown is not in the accessibility tree, so `read` cannot list it: `show` it, or click about 45 px below the field's centre (the first suggestion).
 - No music and no saved drafts on the web: music is in the mobile app only, and closing the composer discards the post. A "draft" means the composer is left open.
 - `button "Share"` publishes at once. Never press it unless Robert asks for that exact step.
 
@@ -22,7 +22,7 @@ SPEC.md keeps Instagram out of the allowlist (its terms forbid automated actions
 - The Facebook cross-post setting sits under the caption. Leave it alone unless asked.
 
 ## Fails
-- Location: a real click on `textbox "Add location"` once failed to take focus (focus stayed in the caption), so `type` stopped before typing. The old workaround focused it through accessibility, which deskkontrol no longer does. If it happens again, `show "the Add location field"` and note what Robert does.
+- Location: a real click on `textbox "Add location"` does focus it; Chrome reports the new focus a moment late, and apprentice's focus check used to look too early and stop (fixed: it now waits up to 1 s). Robert pointed at the field to settle it.
 - The suggestion list was on screen but `read` missed it: the walker did not look inside fields. Fixed; if it is still missing, ask Robert where it is rather than pressing return blind (return may reach Share).
 - A caption ending in a #tag leaves a hashtag suggestion list open. End captions with plain text.
 - The first file picker attempt typed the path into the picker's search box. Fixed in `choose`.

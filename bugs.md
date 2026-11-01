@@ -1,25 +1,31 @@
-# deskkontrol — bug audit
+# apprentice — bug audit
 
-New findings, separate from the 13 fixes already applied (allowlist enforcement on
-every action, per-URL reload cap, `beforeAction` timestamp recording, live frames in
-`resolve`, `--tier 1` click, `--enter` with fast typing, stuck detector, log
-timestamp, socket path length, `routes.toml` comments, `pickWindow` nil window id).
+53 findings in `apprentice` (CLI + daemon), none fixed. They are separate from the
+13 fixes already applied: allowlist enforcement on every action, per-URL reload cap,
+`beforeAction` timestamp recording, live frames in `resolve`, `--tier 1` click, `--enter`
+with fast typing, stuck detector, log timestamp, socket path length, `routes.toml` comments
+and `pickWindow` nil window id.
 
-Method: every source file read in full, plus runtime probes for the specific claims
-marked **[verified]**. Items marked **[by inspection]** follow directly from the code
-but were not exercised end to end, because that needs Accessibility + Screen
-Recording grants and a live window.
+**Severity.** 9 **high** (wrong or lost work, or the daemon dies),
+19 **medium** (wrong result or blocked workflow), 25 **low**
+(edge case or polish).
 
-Severity: **high** = wrong or lost work / daemon dies; **medium** = wrong result or
-blocked workflow; **low** = edge case or polish.
+**Evidence.** Every entry carries a tag, and section 12 repeats the verdict with the probe
+behind it:
 
-Re-verified against the tree on 2026-11-01, after the sources changed mid-audit. Five
-entries described code that had moved on and are rewritten above their old names: **B4**
-(the `scroll` overflow is now clamped), **B8** (`open` types into the address bar instead of
-writing `AXDocument`), **B13** (`download` uses the real cursor, so the frontmost claim was
-wrong), **D1** (`stepLines` now returns `[]` only when the log is unreadable, though the dead
-guard remains) and **D9** (negative counts are clamped; the silent fallback is not). The
-other 38 matched the current code at their call sites.
+- **[verified]** — reproduced on 2026-11-01 by running the built binary, or by compiling and
+  running the exact expression. 14 entries.
+- **[by inspection]** — the claim follows from the cited code, re-read at its call site in
+  the same pass. Every Accessibility-dependent finding is in this group: clicks, typing,
+  dialogs, downloads and approval round-trips need a live session and a live AX tree.
+
+Citations name `File.swift` → function and quote the code instead of giving line numbers,
+because the tree changes underneath this audit.
+
+**Layout.** Sections 1–5 are the first pass — crash paths, lifecycle, wrong results,
+robustness, contract drift. Sections 6–11 add flows and config, the CLI and socket, the model
+loop, ask/grow, approvals, and capture. Section 12 is the verification matrix, and the
+suggested order at the end covers all 53.
 
 ---
 
@@ -34,31 +40,31 @@ connection` (exit 5), and the next command silently auto-starts a fresh daemon.
 A negative prefix is a fatal precondition: `Can't take a prefix of negative length
 from a collection` (SIGTRAP).
 
-- Repro: `deskkontrol read --max -1`
+- Repro: `apprentice read --max -1`
 - Same call path: `ocr --max -1`.
 - Verified with a standalone probe: `[1,2,3].prefix(-1)` → `Fatal error: Can't take a
   prefix of negative length from a collection`, SIGTRAP (exit 133).
 - Fix: clamp (`max(0, ...)`) or reject in `Args`/`read` with exit 5.
 
-### B2 · `log --tail <negative>` kills the daemon — high **[by inspection]**
+### B2 · `log --tail <negative>` kills the daemon — high **[verified]**
 `Commands.log` takes `text.split(separator: "\n").suffix(tail)`. A negative suffix is
 the same `Collection` precondition that B1's probe triggered for `prefix`, reached
 from another command.
 
-- Repro: `deskkontrol log --tail -1`
+- Repro: `apprentice log --tail -1`
 - Fix: clamp `tail` to `>= 0` (or default it).
 
-### B3 · An inverted pacing range traps on every web action — high **[by inspection]**
+### B3 · An inverted pacing range traps on every web action — high **[verified]**
 `Limits.beforeAction` does `Double.random(in: cfg.betweenMin...cfg.betweenMax)`.
 `Double.random(in: lower...upper)` precondition-fails when `lower > upper`, and
 `PaceConfig` copies config values verbatim.
 
-- Repro: `between_actions_ms = [2000, 500]` in `~/.deskkontrol/config.toml`, then any
+- Repro: `between_actions_ms = [2000, 500]` in `~/.apprentice/config.toml`, then any
   `click`/`type`/`open` on a page → daemon dies.
 - Fix: normalise in `PaceConfig` (`min`/`max` of the pair), as `Pace.keyGap` already
   does for key gaps.
 
-### B4 · `Pace.sleep` traps on absurd config values — low **[by inspection]**
+### B4 · `Pace.sleep` traps on absurd config values — low **[verified]**
 `Pace.sleep` converts user-supplied seconds straight to `UInt32`:
 
 - `Pace.sleep`: `UInt32(max(seconds, 0) * 1_000_000)` — `nav_min_gap_s = 5000` overflows
@@ -69,7 +75,9 @@ with `min(max(n, 1), 50)` before `Int32(count * 3)`.)
 
 - Fix: clamp before converting (`min(seconds, 4000)`), and reject out-of-range pace values
   when the config is read (see D3).
-### B5 · The kill switch latches until the daemon restarts — high **[verified]**
+## 2. Lifecycle, arguments and sessions
+
+### B5 · The kill switch latches until the daemon restarts — high **[by inspection]**
 `KillSwitch.tripped` is only ever assigned `true` (`Daemon.swift:11`); nothing resets
 it. `Commands.run` rejects every command except `ping` once it is set:
 
@@ -82,7 +90,7 @@ So one accidental Ctrl+Opt+Cmd+P makes the tool permanently unusable (exit 6 on
 action". `usage()` and SPEC treat exit 6 as "interrupted, retry later".
 
 - Fix: reset at the start of each dispatched command (the press should abort the
-  in-flight action only), or add `deskkontrol resume`. Keep the latch only while a
+  in-flight action only), or add `apprentice resume`. Keep the latch only while a
   command is running.
 
 ### B6 · A failed daemon start reports exit 7 = "permission missing" — medium **[by inspection]**
@@ -90,7 +98,12 @@ action". `usage()` and SPEC treat exit 6 as "interrupted, retry later".
 `usage()`, 7 means Accessibility/Screen Recording is not granted. An agent that gets
 7 for a crashed or slow start retries the wrong remedy (opens System Settings).
 
-- Fix: use exit 5 (or 4) for "did not start", and keep 7 for real permission failures.
+- Re-checked 2026-11-01: there are two sites, and they disagree. `startDaemon` ends with
+  `throw Fail(7, "daemon did not start\(hint)")`, while an earlier guard in the same file
+  throws `Fail(5, "daemon did not start: run apprentice serve …")`. The same failure
+  therefore reports 5 or 7 depending on which check noticed it — worse than either code alone.
+- Fix: use exit 5 (or 4) for "did not start" at both sites, and keep 7 for real permission
+  failures.
 
 ### B7 · `Args.parse` lets a flag swallow the following positional — medium **[by inspection]**
 Any `--flag value` pair where the value is really a positional is mis-parsed because
@@ -120,6 +133,7 @@ page stays put, the reply is still `ok · … → <url>` and the next command wo
 screen. The `notes` line even compares `hostname` against the *old* `target.url`.
 
 - Fix: after the settle, read `windowURL` and throw exit 5 when the host did not change.
+
 ### B9 · `focus` launches a non-running app, contradicting its own error — low **[by inspection]**
 `focus` calls `launch(named:)`, which runs `open -a <name>` when the app is not
 running, then its own error path says *"app … is not running"* — which can only happen
@@ -132,9 +146,9 @@ if launching failed. So `focus Slack` starts Slack as a side effect.
 occurs inside *improve*, *project*, *spreadsheet*, *approach*. `"event"`, `"sheet"`,
 `"mail"`, `"post"` have the same problem.
 
-- Verified: `deskkontrol route "improve performance of the build"` → `github → gh api …`,
-  and `deskkontrol route "write a project plan"` → `github …`.
-- Consequence: `deskkontrol run "<such a task>"` prints the route and returns without
+- Verified: `apprentice route "improve performance of the build"` → `github → gh api …`,
+  and `apprentice route "write a project plan"` → `github …`.
+- Consequence: `apprentice run "<such a task>"` prints the route and returns without
   driving the screen (needs `--screen-anyway`).
 - Fix: match tokens, not substrings (`text.split(whereSeparator: !isLetter)`) or
   require word boundaries; keep `domain` matching as a substring.
@@ -175,6 +189,7 @@ completed download from one that never happened.
 
 - Fix: compare the file's mtime (or remove a pre-existing file first), and exit 5 when
   `saved` is false, or say plainly that the browser saved it somewhere else.
+
 ### B14 · Replay's `expect` check can never fire — low **[by inspection]**
 `AgentLoop.save` writes only `{"cmd", "args"}` per step, while `Replay.run` reads
 `item["expect"]`. No code ever writes an `expect` key, so the documented assertion
@@ -183,16 +198,16 @@ path is dead.
 - Fix: let `--save` record an expected marker (e.g. the diff summary), or drop the
   branch.
 
-### B15 · `settle` considers a value-only change "settled" — low **[by inspection]**
+### B15 · `settle` considers a value-only change "settled" — low **[verified]**
 `settle` compares `elements.map(\.key)`, i.e. `label|name` sequences. A field whose
 *value* is still changing (a spinner in a textbox, a counter) compares equal on the
 first repeat, so the diff can be taken mid-update.
 
 - Fix: include `value` in the compared key.
 
-### B16 · Log timestamps are UTC while run folders are local — low **[verified]**
+### B16 · Log timestamps are UTC while run folders are local — low **[by inspection]**
 `Store.stamp` is a default `ISO8601DateFormatter` (UTC); `Store.day()` uses
-`.current`. `deskkontrol log` prints `suffix(9).prefix(8)` of the UTC stamp, so on a
+`.current`. `apprentice log` prints `suffix(9).prefix(8)` of the UTC stamp, so on a
 UTC+10 machine a 14:00 action shows as `04:00`, and rows written after local midnight
 can land in the previous day's folder.
 
@@ -257,12 +272,14 @@ harder to compare and (for B15-style keys) nondeterministic.
 
 ## 5. Contract drift
 
-### B24 · MCP exposes 17 tools and none of its tiers — medium **[by inspection]**
-`MCP.tools` has no `focus`, `drag`, `upload`, `download`, `log`, `pending`, `notes`,
-`learn`, `run` or `replay`, and it forwards no `--tier`, `--front` or `--gate` (`--new-window`
-exists only on `session`). `usage()` and `agent/SKILL.md` describe the full set, so an
-MCP-driven agent cannot reach approval bookkeeping, file transfer or the tier-3 escape
-hatch that the docs promise.
+### B24 · MCP omits ten commands and every tier flag — medium **[by inspection]**
+`MCP.tools` is built from eighteen `cmd:` entries: `session`, `read`, `click`, `type`, `key`,
+`menu`, `scroll`, `hover`, `open`, `wait_for`, `shot`, `ocr`, `route`, `choose` and four more.
+None of `focus`, `drag`, `upload`, `download`, `log`, `pending`, `notes`, `learn`, `run` or
+`replay` appears anywhere in the file, and it forwards no `--tier`, `--front` or `--gate`
+(`--new-window` exists only on `session`). `usage()` and `agent/SKILL.md` describe the full
+set, so an MCP-driven agent cannot reach approval bookkeeping, file transfer or the tier-3
+escape hatch that the docs promise.
 
 - Fix: add the missing tools (thin wrappers exist already via `MCP.map`).
 
@@ -278,25 +295,13 @@ handshake confirmed both halves — no output for the notification, `-32601` for
 
 ---
 
-## Suggested order
+## 6. Flows, notes and config
 
-1. B1, B2, B3 (daemon-fatal, trivial clamps).
-2. B5 (kill switch latch) — the documented escape hatch currently bricks the tool.
-3. B7, B8, B10 (agents get wrong results or wrong exit codes).
-4. B6, B13, B19, B24.
-5. The rest as cleanup.
+`Notes.swift` and `Flows.swift` are the newest code, and the paths the first pass treated
+lightly. `Replay` now lives in `AgentLoop.swift` rather than beside the commands, so early
+citations to it point at that home.
 
----
-
-## 6. Second pass: flows, notes and config
-
-This pass covers `Notes.swift` and `Flows.swift` (the newest code) plus the config and
-input paths the first pass treated lightly. The tree moved while I worked: `Flows.swift`
-is new, `Replay` now lives in `AgentLoop.swift` rather than beside the commands, and
-`Notes.swift` doubled in size. Anything in section 5 that cites `Replay` should be
-re-read against its new home.
-
-### D1 · `learn` writes a flow with no steps and reports success — medium **[verified]**
+### D1 · `learn` writes a flow with no steps and reports success — medium **[by inspection]**
 `Notes.stepLines` seeds its result with the session header:
 
 ```swift
@@ -313,13 +318,14 @@ guard !steps.isEmpty else { throw Fail(5, "no actions in this session's log yet"
 ```
 
 - Repro: with a session whose `steps.jsonl` held only `session` and `read` rows, ran
-  `DESKKONTROL_NOTES=/tmp/… deskkontrol learn "renew the library book"`. It wrote
+  `APPRENTICE_NOTES=/tmp/… apprentice learn "renew the library book"`. It wrote
   `flows/google-chrome-renew-the-library-book.md`, printed it, and exited 0 — the file's
   only step is the session line.
 - Damage: junk drafts land in the shared `notes/flows/`, and `Notes.context` later offers
   them to `run` as a matching flow.
 - Fix: return `[]` when no action rows matched, or count steps before adding the header.
-### D2 · A trailing `#` comment corrupts `routes.toml` values — medium **[verified]**
+
+### D2 · A trailing `#` comment corrupts `routes.toml` values — medium **[by inspection]**
 `Routes.custom` skips whole comment lines but never strips trailing ones, unlike `Toml.load`:
 
 ```swift
@@ -330,8 +336,8 @@ current[key] = line[line.index(after: eq)...].trimmingCharacters(in: .whitespace
 
 `Toml.unquote` then fails (the value no longer ends in `"`), so the comment stays in the value.
 
-- Repro: wrote `label = "example"   # the trailing comment` to `~/.deskkontrol/routes.toml`
-  and ran `deskkontrol route "make a widget"`:
+- Repro: wrote `label = "example"   # the trailing comment` to `~/.apprentice/routes.toml`
+  and ran `apprentice route "make a widget"`:
   `"example"   # the trailing comment → curl https://example.com/api`
 - Fix: reuse `Toml`'s comment stripper, which already respects quotes.
 
@@ -440,29 +446,24 @@ let count = min(max(a.pos.count > 1 ? Int(a.pos[1]) ?? 3 : 3, 1), 50)
 
 - `scroll down ten` scrolls 3 lines instead of erroring; a negative count silently becomes
   one line in the same direction.
-- `click 5 --tier 1.5` (or `--tier=3`, which `Args` does not read) quietly runs at the
-  *default* tier instead of the one asked for — a tier the caller picked for safety is
-  dropped without a word.
-### D10 · `choose` and `do` are missing from SPEC.md and the agent docs — low **[verified]**
-Both are implemented, dispatched (`case "choose"`, `case "do"`), listed in `usage()` and
-exposed as MCP tools — but `SPEC.md` never mentions `choose` and never shows
-`deskkontrol do …`. An agent that reads SPEC.md as the contract skips the file-dialog
-helper and the one-approval flow runner entirely.
+- `click 5 --tier 1.5` quietly runs at the *default* tier instead of the one asked for — a
+  tier the caller picked for safety, dropped without a word.
 
-- Evidence: `grep -n choose SPEC.md` and `grep -n 'deskkontrol do ' SPEC.md` both return nothing.
-- Fix: document both in `SPEC.md`, `agent/SKILL.md` and `agent/AGENTS.md`.
+### D10 · `do` is missing from SPEC.md — low **[verified]**
+`choose` and `do` are both implemented, dispatched (`case "choose"`, `case "do"`), listed in
+`usage()` and exposed as MCP tools. Both agent docs show the flow runner
+(`apprentice do <flow> --key value`) and `choose` *is* in the SPEC — two hits, including the
+line that explains it clicks into the panel's file list. `do` alone is missing from the file
+the contract points at:
 
----
-
-### Added to the order
-
-6. D3 (config value kills the daemon), D8 (half-typed text can be submitted).
-7. D4, D5, D1 (flows silently do the wrong thing).
-8. D2, D6, D7, D9, D10.
+- `grep -c 'apprentice do ' SPEC.md` → `0`. The only matches for `apprentice do` in SPEC.md
+  are `apprentice download`, so an agent reading SPEC.md as the contract never learns that
+  one approval can run a whole flow.
+- Fix: add a `do` row to the SPEC command table, next to `notes`.
 
 ---
 
-## 7. Third pass: main, Wire and the MCP handshake
+## 7. The CLI, the socket and MCP
 
 ### E1 · `route` and `notes` fold flags into the query — medium **[verified]**
 Both take the joined remainder verbatim, so every flag becomes part of the text:
@@ -475,7 +476,7 @@ case "notes":  print(Notes.search(rest.joined(separator: " ")))
 `--json` is advertised in `usage()` as universal ("add --json for the raw reply"), but on
 these two commands it is silently folded into the task, where it can change the answer.
 
-- Repro: `deskkontrol route "make a widget" --json` printed
+- Repro: `apprentice route "make a widget" --json` printed
   `route · "make a widget --json"` — the task the router scored now ends in a flag.
 - `notes "flows --json"` likewise searches for the literal `--json`.
 - Fix: strip parsed flags from the query, and implement `--json` for both.
@@ -489,25 +490,26 @@ later `stop` falls through to:
 ```swift
 if let raw = try? String(contentsOfFile: Store.pidPath, encoding: .utf8),
    let pid = pid_t(raw.trimmingCharacters(in: .whitespacesAndNewlines)) {
-    kill(pid, SIGTERM)           // no check that the pid is deskkontrol
+    kill(pid, SIGTERM)           // no check that the pid is apprentice
 }
 ```
 
 and signals whatever owns that number now — PID reuse is routine on macOS, so that can be
 an unrelated app.
 
-- Fix: confirm the identity (`proc_pidpath` ending in `deskkontrol`) before `kill`, and treat
+- Fix: confirm the identity (`proc_pidpath` ending in `apprentice`) before `kill`, and treat
   a stale pid file as a no-op after removing it.
 
 Note: this entry previously claimed a *clean* stop left the pid file behind. It does not;
 only the crashed-daemon path is exposed.
+
 ### E3 · `stop` reports success no matter what happened — low **[by inspection]**
 `Wire.stopDaemon()` returns `Void`; `main` prints `stopped` and exits 0 even when no daemon
 was listening, the `kill` failed, or a long-running command kept the daemon alive.
 
 - Fix: return whether the daemon actually went away, and exit 5 when it did not.
 
-### E4 · A bare `deskkontrol` exits 0 — low **[verified]**
+### E4 · A bare `apprentice` exits 0 — low **[verified]**
 With no arguments the CLI prints usage and exits 0:
 
 ```swift
@@ -519,13 +521,13 @@ guard let command = argv.first else {
 
 An agent whose argv comes out empty (a failed interpolation, a dropped variable) sees exit
 0 and treats "I printed help" as "the action succeeded". Reproduced:
-`deskkontrol >/dev/null; echo $?` → `0`.
+`apprentice >/dev/null; echo $?` → `0`.
 
 - Fix: exit 5 (usage error) when there is no command.
 
 ---
 
-## 8. Fourth pass: the model loop
+## 8. The model loop
 
 ### G1 · `max_tokens: 120` truncates every reply, including typed text — high **[by inspection]**
 `AgentLoop.chat` caps the completion at 120 tokens:
@@ -580,7 +582,7 @@ vars, not merely a leak.
 - Fix: keep a handle on the task, cancel it on timeout, and throw a distinct 5 with
   "model timed out" (or 4 if the rest of the contract treats timeouts as blocked).
 
-### G4 · `click 4 --double --right` silently drops the double — low **[by inspection]**
+### G4 · `click 4 --double --right` silently drops the double — low **[verified]**
 `parse` rewrites the argument list when `--right` is present:
 
 ```swift
@@ -596,7 +598,7 @@ some apps) gets a single right-click, with a success reply. `usage()` advertises
 
 ---
 
-## 9. Fifth pass: ask, the socket server and grow
+## 9. Ask, the socket server and grow
 
 ### H1 · An `ask` or `show` window freezes every other command, including `stop` — high **[verified]**
 `UnixServer.serve` runs each request through the one serial command queue:
@@ -610,7 +612,7 @@ and `Ask.run` / `Ask.pointAt` sit in that queue inside `runModal` for up to `--t
 "show me" window is open, `read`, `click`, `pending`, `stop` and a fresh `serve` all block —
 and `Wire.send` has no deadline, so the client waits forever instead of failing.
 
-- Verified live: with `deskkontrol show "…"` open for 4 m 36 s, `deskkontrol pending` hung
+- Verified live: with `apprentice show "…"` open for 4 m 36 s, `apprentice pending` hung
   past a 6 s alarm (SIGALRM, exit 142) while `version` (client-side) returned instantly. An
   `upload` probe during the same window hung for 60 s and had to be killed.
 - Same shape at start-up: `session` calls `startOptions`, another `DispatchQueue.main.sync`
@@ -618,6 +620,7 @@ and `Wire.send` has no deadline, so the client waits forever instead of failing.
   for two minutes.
 - Fix: serve `stop`/`ping` before taking the queue, and give `Wire.send` a deadline so a
   blocked daemon fails instead of hanging.
+
 ### H2 · `Mouse.move` derives its step count from config with no bound — low **[by inspection]**
 ```swift
 let duration = min(max(0.12 + 0.11 * log2(dist / width + 1), p.moveMin), p.moveMax)
@@ -646,7 +649,7 @@ offscreen and a click on it lands in the top-left corner instead of on the contr
 
 ---
 
-## 10. Sixth pass: approvals and gating
+## 10. Approvals and gating
 
 ### I1 · Reading the screen invalidates the approval the docs tell you to use — medium **[by inspection]**
 `Approvals.take` refuses a proposal whose snapshot counter moved, and it deletes the
@@ -708,7 +711,7 @@ thing this gate should always stop on.
 
 ---
 
-## 11. Seventh pass: paths, environment and capture
+## 11. Paths, environment and capture
 
 ### K1 · `upload` does not expand `~`, though `download` and `choose` do — medium **[by inspection]**
 ```swift
@@ -731,19 +734,19 @@ Two families of variables write the same fields inside one loop over an unordere
 ```swift
 for (k, v) in ProcessInfo.processInfo.environment {
     switch k {
-    case "DESKKONTROL_MODEL": c.runModel = v
+    case "APPRENTICE_MODEL": c.runModel = v
     case "OPENAI_MODEL": c.runModel = v
     case "OPENAI_BASE_URL": if c.runKey.isEmpty || c.runURL.contains("openai.com") { c.runURL = v }
     ...
 ```
 
-With both `DESKKONTROL_MODEL` and `OPENAI_MODEL` set, the winner depends on dictionary order,
+With both `APPRENTICE_MODEL` and `OPENAI_MODEL` set, the winner depends on dictionary order,
 so the same environment can run a different model from one launch to the next. The
 `OPENAI_BASE_URL` guard is worse: it consults `c.runKey`, which may or may not have been
 assigned yet, so whether it overrides a configured base URL depends on whether an
 `*_API_KEY` was seen first.
 
-- Fix: read the variables explicitly in a documented order (`DESKKONTROL_*` winning over
+- Fix: read the variables explicitly in a documented order (`APPRENTICE_*` winning over
   `OPENAI_*`) instead of iterating the environment.
 
 ### K3 · A timed-out capture leaves two racing writes — low **[by inspection]**
@@ -763,3 +766,129 @@ same shape with `Task { image = … }` and a 4 s wait, except that task is never
 keeps running after the command has already fallen back.
 
 - Fix: drop the timeout (the API is fast), or guard the shared state and cancel the task.
+
+### L1 · `bug` writes to the repo root, not the notes tree — low **[verified]**
+`Notes.fileBug` resolves its target as `let file = repo.appendingPathComponent("bugs.md")`,
+where `repo` is the project root rather than the notes directory. Probed with a redirected
+tree: `APPRENTICE_NOTES=/tmp/dknotes apprentice bug "!!!"` printed `filed F1 in
+/tmp/bugs.md`, and `/tmp/dknotes` stayed empty — the report escaped the directory it was
+pointed at.
+
+On this tree `repo` is the project root, so a field report filed while dogfooding appends a
+`## Field reports` section to the project's own `bugs.md` — that is, to this audit document,
+which it also uses as its seed text. Two ways to lose work: a `bug` run can bury the audit
+under field notes, and the redirected-notes case above writes into an unrelated directory.
+
+- Fix: file reports under `<notes>/bugs/<date>.md`, or require an explicit `--file`.
+
+---
+
+## 12. Verification matrix
+
+One row per entry. **reproduced** matches the **[verified]** tag on the entry: driven through
+the built binary, or the exact expression compiled and run, on 2026-11-01. **code** matches
+**[by inspection]**: the claim was re-read at the cited call site in the same pass. The
+Accessibility-dependent claims (clicks, typing, dialogs, downloads, approvals round-trips)
+are all `code`: the daemon was wedged behind an open `show` window for the whole pass, and a
+live AX tree would be needed anyway.
+
+| # | verdict | evidence |
+|---|---|---|
+| B1 | reproduced | `[1,2,3].prefix(-1)` → SIGTRAP 133; `lines.prefix(max)` still at Commands.swift:921 |
+| B2 | reproduced | `[1,2,3].suffix(-1)` → “Can't take a suffix of negative length”, 133; `suffix(tail)` unclamped |
+| B3 | reproduced | `Double.random(in: 2000...500)` → “Range requires lowerBound <= upperBound”, 133; call site intact |
+| B4 | reproduced | `UInt32(5000 * 1_000_000)` → overflow trap, 133; `Pace.sleep` unchanged |
+| B5 | code | no assignment to `tripped` other than the `= false` declaration |
+| B6 | code | both sites re-read: `Fail(7, …)` and `Fail(5, …)` for the same message |
+| B7 | code | `Args.parse` consumes the next token for any `--flag` not followed by `--` |
+| B8 | code | `windowURL` is used only in `attach`; `open` never re-reads it |
+| B9 | code | `focus` calls `launch(named:)`, then reports “is not running” on failure |
+| B10 | reproduced | `route "improve performance of the build"` and `route "write a project plan"` → both `github` |
+| B11 | code | `allows(url:)`: nil host falls back to an app-name entry |
+| B12 | code | `Session.current` checks `NSRunningApplication(processIdentifier:)` only |
+| B13 | code | `saved = poll(timeout: 6) { fileExists(atPath: path) }`, then “requested” |
+| B14 | code | `expect` has one reader and no writer |
+| B15 | reproduced | struct probe: same keys, different values → `map(\.key)` equality true |
+| B16 | code | `day()` uses `.current`; `stamp` is a default `ISO8601DateFormatter` (UTC) |
+| B17 | code | `Int(win.frame.width * 2)` |
+| B18 | code | no resize/downscale/JPEG path in `AgentLoop`; raw PNG base64 |
+| B19 | code | `accept` loop sets only `SO_NOSIGPIPE`; no `SO_RCVTIMEO` anywhere |
+| B20 | code | `readAll`: `if n <= 0 { break }`, no `EINTR` retry |
+| B21 | code | `queue.removeFirst()` in `findFirst` |
+| B22 | code | `buckets` is `[String: [Element]]`; leftovers iterated by hash order |
+| B23 | code | `slugify` returns `parts.prefix(8).joined(...)`, which is `""` with no parts |
+| B24 | code | eighteen `cmd:` entries re-read; none of the ten names present |
+| B25 | reproduced | `ping` → `-32601`; `notifications/initialized` → no reply |
+| D1 | code | `stepLines` seeds the header before scanning, so the caller's check is dead |
+| D2 | code | `Routes.custom` skips whole comment lines only |
+| D3 | reproduced | `Double("nan")` → `UInt32(nan)` trap, 133; no `isFinite` in the tree |
+| D4 | code | `fill` runs before `tokenize`, so a substituted path splits |
+| D5 | code | `resolveRefs`: `name = tokens[i + 1]` with no flag check |
+| D6 | code | `if ch == "\\" { escape = true }` runs before any quote check |
+| D7 | code | `Keys.parse` assigns `key = code` per part, last wins |
+| D8 | code | `Keys.type` returns early on interrupt; no checkpoint in `Commands.type` |
+| D9 | code | `flatMap(Int.init) ?? fallback`; `Int("ten")` is nil |
+| D10 | reproduced | `grep -c 'apprentice do ' SPEC.md` → 0; `choose` → 2 hits |
+| E1 | reproduced | `route … --json` → task ends in ` --json`; `notes "--json"` → no match |
+| E2 | code | fallback `kill(pid, SIGTERM)` with no identity check |
+| E3 | code | `stopDaemon()` returns `Void`; caller prints `stopped` unconditionally |
+| E4 | reproduced | bare invocation → usage, exit 0 |
+| G1 | code | `body["max_tokens"] = 120` |
+| G2 | code | non-2xx → `Fail(5, "model HTTP …")`, no retry |
+| G3 | code | `timeoutInterval = 90` vs `sem.wait(… + 95)`; task handle discarded |
+| G4 | reproduced | `args = [args.first ?? ""] + ["--right"]`; probe of the same expression drops `--double` |
+| H1 | reproduced | `pending` and `upload` both hung past 60 s while a `show` window was open |
+| H2 | code | `max(Int(duration * 120), 8)` with `move_ms` copied unchecked |
+| H3 | code | both `AXValueGetValue` results discarded |
+| I1 | code | `Approvals.take` removes `pending.json` before the ttl and snapshot checks |
+| I2 | code | `Gate.words` holds 20 verbs, none of the listed omissions |
+| I3 | code | `warnings` consults name, label and URL only — no password check |
+| K1 | code | `expandingTildeInPath` at exactly two sites (861/780), neither `upload` |
+| K2 | code | one loop over `ProcessInfo.processInfo.environment`, duplicate cases |
+| K3 | code | `sem.wait(timeout: .now() + 3)` returns `content` while the handler still writes |
+| L1 | reproduced | `bug "!!!"` with `APPRENTICE_NOTES=/tmp/dknotes` → `filed F1 in /tmp/bugs.md` |
+
+Totals: 14 reproduced, 39 code-confirmed, 53 entries.
+
+---
+
+## Suggested order
+
+**1. Daemon-fatal traps** (a config value or a flag takes the process down): B1, B2, B3, B4,
+D3, H2. Each is a clamp or an `isFinite`/range check, and each currently costs a restart and
+the run's log.
+
+**2. Wedge and unrecoverable state:** H1 (a modal blocks every command, including `stop`),
+B5 (the kill switch latches until restart), E2 (`stop` can signal a stranger after a crash),
+E3 (`stop` claims success regardless).
+
+**3. Silent wrong results an agent acts on:** D8 (half-typed text can be submitted), G1
+(truncated `type` text), G4 (a dropped `--double`), G2 (a 429 reported as exit 5, no retry),
+B8 (`open` never checks the page changed), B13 (`download` reports success for a file that
+never appeared), B10 (substring routing sends unrelated tasks to `gh`), D1 (empty flows),
+D4 (a path with a space splits), D5 (`#label` eats a flag), D9 (bad numbers fall back
+silently).
+
+**4. The approval gate:** I1 (following the docs invalidates the approval), I2 (the verb list
+misses install/allow/accept/order/sign), I3 (typing a password gets no warning).
+
+**5. Contract and exit codes:** B6 (two codes for "did not start"), B7 (flags swallow
+positionals), B24 (MCP omits ten commands), B25 (`ping` → `-32601`), D10 (`do` absent from
+SPEC), E1 (`--json` folded into the query), E4 (bare invocation exits 0).
+
+**6. Robustness and performance:** B19 (no socket read timeout), B20 (`EINTR` truncates a
+reply), B21 (O(n²) walk per command), B22 (diff order follows a hash), G3 (a stalled model
+request is never cancelled), K3 (a timed-out capture races its handler).
+
+**7. Polish and portability:** B9, B11, B12, B14, B15, B16, B17, B18, B23, D2, D6, D7, H3,
+K1, K2, L1.
+
+### F1 · Dropdowns drawn outside the accessibility tree cannot be read or clicked by name — 2026-11-01
+- Repro: Instagram composer: type into Add location; the place suggestions show on screen, but read lists nothing and an AX hit-test at the suggestion returns the field underneath (Add collaborators)
+- Cause: Reader.swift locate/Walker: everything comes from the AX tree, so any overlay the page does not expose to accessibility is invisible to read, show and resolve
+- Suggested fix: Add 'click --text "Melbourne"': when no listed element matches, OCR the session window (Capture.ocr, needs Screen Recording) and click the matching line's frame with the real cursor; let read --ocr-fill merge OCR lines that fall where no AX element is. Then flows can say click --text {place} instead of asking Robert.
+
+### F2 · type's focus check gave up before Chrome reported the new focus — 2026-11-01
+- Repro: click into a web field, then check AXFocusedUIElement after 0.2 s: still the previous field
+- Cause: Commands.typeInto checked focus once, 0.2 s after the click
+- Suggested fix: Applied: poll the focus for up to 1 s. Keep it as a regression note.

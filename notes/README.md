@@ -1,11 +1,11 @@
-# deskkontrol notes
+# apprentice notes
 
-What an LLM learned driving apps and sites, kept so the next run does not have to guess. `kit.sh` links `~/.deskkontrol/notes` to this folder, so `git pull` brings in notes learned on other machines.
+What an LLM learned driving apps and sites, kept so the next run does not have to guess. `kit.sh` links `~/.apprentice/notes` to this folder, so `git pull` brings in notes learned on other machines.
 
-- `deskkontrol session` and `open` print the **Key facts** of every note whose `match` fits the app, bundle id or host.
-- `deskkontrol notes "words"` ranks notes by those words and shows the matching lines.
-- `deskkontrol learn "task"` drafts `flows/<slug>.md` from the session's approved steps. Edit it, then commit.
-- `deskkontrol do <flow> --key value` runs a flow: one approval for the whole plan, element names found on screen as it goes, and it stops with the screen at the first step that fails.
+- `apprentice session` and `open` print the **Key facts** of every note whose `match` fits the app, bundle id or host.
+- `apprentice notes "words"` ranks notes by those words and shows the matching lines.
+- `apprentice learn "task"` drafts `flows/<slug>.md` from the session's approved steps. Edit it, then commit.
+- `apprentice do <flow> --key value` runs a flow: one approval for the whole plan, element names found on screen as it goes, and it stops with the screen at the first step that fails.
 
 ## Layout
 

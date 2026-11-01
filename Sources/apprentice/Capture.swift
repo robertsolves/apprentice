@@ -17,7 +17,7 @@ enum Capture {
     static func ensure() throws {
         guard permission() else {
             _ = CGRequestScreenCaptureAccess()
-            throw Fail(7, "Screen Recording is not granted: System Settings → Privacy & Security → Screen & System Audio Recording → enable deskkontrol")
+            throw Fail(7, "Screen Recording is not granted: System Settings → Privacy & Security → Screen & System Audio Recording → enable apprentice")
         }
     }
 

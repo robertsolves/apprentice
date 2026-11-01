@@ -1,4 +1,4 @@
-# ~/.deskkontrol/config.toml
+# ~/.apprentice/config.toml
 
 [pace.default]
 move_ms = [200, 900]
@@ -23,12 +23,19 @@ allow = []
 [agent]
 # false: the LLM may use quick shell commands for macOS tasks (files, folders, opening apps).
 # true: everything goes through the UI. Websites always go through the UI.
-# DESKKONTROL_UI_ONLY=1 sets it for one shell.
+# APPRENTICE_UI_ONLY=1 sets it for one shell.
 ui_only = false
-# The first `session` after deskkontrol starts opens a little window asking for these options.
+# The first `session` after apprentice starts opens a little window asking for these options.
 ask_on_start = true
-# Sound when deskkontrol's little window pops up: a system sound name (Ping, Glass, Pop…) or "none".
+# Sound when apprentice's little window pops up: a system sound name (Ping, Glass, Pop…) or "none".
 ask_sound = "Ping"
+# Keep the display and system from idle sleep and locking while a task runs, and 2 min after (`apprentice awake on|off`).
+keep_awake = false
+# Where questions go. "both": the little window first, and if nobody answers within ask_window_s the
+# agent asks in the chat (terminal), so Robert can answer remotely. "window" or "terminal" for one only.
+# `apprentice away on` switches to the terminal until `apprentice away off`.
+ask_in = "both"
+ask_window_s = 60
 
 [run]
 base_url = "https://api.openai.com/v1"

@@ -2,15 +2,15 @@
 import PackageDescription
 
 let package = Package(
-    name: "deskkontrol",
+    name: "apprentice",
     platforms: [.macOS(.v14)],
     products: [
-        .executable(name: "deskkontrol", targets: ["deskkontrol"])
+        .executable(name: "apprentice", targets: ["apprentice"])
     ],
     targets: [
         .executableTarget(
-            name: "deskkontrol",
-            path: "Sources/deskkontrol",
+            name: "apprentice",
+            path: "Sources/apprentice",
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("ApplicationServices"),

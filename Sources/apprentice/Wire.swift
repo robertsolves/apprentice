@@ -94,7 +94,7 @@ enum Wire {
             try startDaemon()
             fd = connect()
         }
-        guard let fd else { throw Fail(5, "daemon did not start: run `deskkontrol serve` to see why") }
+        guard let fd else { throw Fail(5, "daemon did not start: run `apprentice serve` to see why") }
         let reply = roundTrip(fd, req)
         guard !reply.isEmpty else { throw Fail(5, "daemon closed the connection") }
         guard let resp = try? JSONDecoder().decode(Response.self, from: reply) else {

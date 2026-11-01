@@ -1,6 +1,6 @@
-# deskkontrol: Human-Paced Input and False-Positive Reduction
+# apprentice: Human-Paced Input and False-Positive Reduction
 
-Automation is most reliable when its input follows the same patterns as ordinary use of the machine. deskkontrol already bends the pointer along a Bézier curve, spaces keystrokes log-normally and picks a random point inside a control. What remains are compatibility and pacing gaps: most web clicks never move the pointer at all (tier 1 AX press), typing injects Unicode with `keyCode 0`, and actions land on a metronome. On a site that rate-limits sessions or challenges unusual input, those differences can produce a false positive on Robert's own account. This doc lists the differences and the changes that close them. Volume caps, soft blocks, challenges and site policies stay in `SITE_RULES.md`.
+Automation is most reliable when its input follows the same patterns as ordinary use of the machine. apprentice already bends the pointer along a Bézier curve, spaces keystrokes log-normally and picks a random point inside a control. What remains are compatibility and pacing gaps: most web clicks never move the pointer at all (tier 1 AX press), typing injects Unicode with `keyCode 0`, and actions land on a metronome. On a site that rate-limits sessions or challenges unusual input, those differences can produce a false positive on Robert's own account. This doc lists the differences and the changes that close them. Volume caps, soft blocks, challenges and site policies stay in `SITE_RULES.md`.
 
 **What this is for.** Keeping permitted work — reading, drafting, routine changes, and QA in Robert's own logged-in profile — inside the pacing a person would produce, so the account isn't restricted by mistake. A session that outruns any plausible person is hard on the site, hard to debug and more likely to be stopped.
 
@@ -83,7 +83,7 @@ Automation is most reliable when its input follows the same patterns as ordinary
 - **Focus and visibility.** `CGEventPostToPid` reaches a background window, but `document.hasFocus()` and `document.visibilityState` are false, and some pages ignore or mis-handle that input. For pages that require focus, raise the window, act, and restore the previous app. Treat a diff that never arrives after two tries as a focus problem, not a stale id.
 - **Navigation.** Prefer clicking in-site links for flows, so the referrer and history look normal. Use `open` for the first entry, a bookmark, or a deliberate redirect, not for every step.
 - **One tab, one window.** The existing rule stays: no extra tabs or windows, and no parallel sessions on the same account.
-- **No fingerprint spoofing.** A real logged-in Safari or Chrome profile is the advantage here. Don't inject JavaScript, touch canvas or audio, or fake WebDriver state. deskkontrol has no CDP or WebDriver surface to leak.
+- **No fingerprint spoofing.** A real logged-in Safari or Chrome profile is the advantage here. Don't inject JavaScript, touch canvas or audio, or fake WebDriver state. apprentice has no CDP or WebDriver surface to leak.
 - **Consistency.** Keep locale, time zone, VPN exit and device the same as the account's normal use. Switching all four for one session is a larger change than any pointer path, and it makes the session harder to support.
 
 ## Platform notes
@@ -130,9 +130,9 @@ dwell_s = [3, 8]
 
 Without knowing whether a site actually restricted the account, tuning is guesswork. Measure the pacing and compare it with a flag from `SITE_RULES.md` if one occurs.
 
-- `deskkontrol pace` prints the active profile and the timing summary for the last 20 steps.
+- `apprentice pace` prints the active profile and the timing summary for the last 20 steps.
 - Add to `steps.jsonl` per action: tier, path length, peak speed, landing offset as a fraction, hold and gap, whether the pointer moved first, and correction count. Never log content.
-- `deskkontrol activity <domain> --pace` shows the gap histogram, tier mix and click-offset spread. Line it up with `deskkontrol flag` timestamps: the 48 hours before a flag against a normal week.
+- `apprentice activity <domain> --pace` shows the gap histogram, tier mix and click-offset spread. Line it up with `apprentice flag` timestamps: the 48 hours before a flag against a normal week.
 - Test fixtures: 1,000 generated paths should show a spread of curvature and overshoot, typing 500 characters should land around 35–65 WPM with a gap CV near 0.5–0.9, and every web click should be tier 2 unless explicitly forced.
 
 ## Order of work
@@ -146,6 +146,6 @@ The first two remove the clearest compatibility gaps.
 - [ ] Word rhythm, thinking pauses and corrections
 - [ ] Dwell and per-kind cadence, wired to the budgets
 - [ ] Session shape, idle drift and focus handling
-- [ ] `deskkontrol pace`, telemetry and the test fixtures
+- [ ] `apprentice pace`, telemetry and the test fixtures
 
 Measure before tuning, and don't raise a cap to make up for slower pacing. The point is fewer accidental restrictions on work the account is allowed to do, not more actions in the same minute.

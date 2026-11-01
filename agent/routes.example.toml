@@ -1,4 +1,4 @@
-# ~/.deskkontrol/routes.toml
+# ~/.apprentice/routes.toml
 # Extra faster-route entries, checked before screen control.
 
 [[route]]

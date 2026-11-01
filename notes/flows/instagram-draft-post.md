@@ -8,7 +8,7 @@ status: partial
 ---
 # Draft an Instagram post in Chrome, without sharing
 
-Run: `deskkontrol do instagram-draft-post --image "{absolute path}" --caption "{#tags first, plain text last}" --place "{city}"`
+Run: `apprentice do instagram-draft-post --image "{absolute path}" --caption "{#tags first, plain text last}" --place "{city}"`
 
 Stops before location, which still needs a person or a screenshot. It never presses Share.
 
@@ -20,8 +20,8 @@ Stops before location, which still needs a person or a screenshot. It never pres
 5. `click #button "Next"` — Edit → details
 6. `type #textarea "Add a caption" "{caption}"` — end the caption with plain text, not a #tag, or a hashtag suggestion list stays open over the fields below.
 7. `type #textbox "Add location" "{place}"` — opens a dropdown just below the field
-8. Click the matching (or closest) place in that dropdown, e.g. "Melbourne". Leave Share alone.
+8. Click the matching place in that dropdown, e.g. "Melbourne". It is not in the accessibility tree: `show "the {place} suggestion"`, then `click --at` the point it returns. Leave Share alone.
 
 ## Fails
-- Steps 1 to 6 ran together through `do` on 2026-11-01, with the real cursor.
+- Steps 1 to 6 ran together through `do` on 2026-11-01, with real input only. Steps 7 and 8 needed Robert once: he pointed at the field, then at the suggestion.
 - A caption ending in a #tag left a suggestion list open. A click on "Add location" then did not take focus, and typing went into the caption. `type` now checks focus first and stops.
