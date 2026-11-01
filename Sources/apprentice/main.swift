@@ -36,6 +36,7 @@ func usage() {
       apprentice commit "what and why"          one small commit in the repo; a source change rebuilds and restarts
       apprentice update [--build]               rebase onto upstream, push to your fork, rebuild if the source changed
       apprentice pr ["title"]                   send your local commits upstream as a pull request
+      apprentice settings [github [--repo name] | local | sync]   settings on this Mac only, or in a private GitHub repo
       apprentice repo                           the clone apprentice runs from
       apprentice policy                         may the LLM use shell commands for macOS tasks? ([agent] ui_only)
       apprentice awake on|off|status            keep the Mac from idle sleep and locking while tasks run
@@ -115,6 +116,8 @@ case "update":
     attempt { print(try Repo.update(Args.parse(rest))) }
 case "pr":
     attempt { print(try Repo.pr(Args.parse(rest))) }
+case "settings":
+    attempt { print(try Settings.run(Args.parse(rest))) }
 case "repo":
     print(Repo.root.path)
     exit(0)

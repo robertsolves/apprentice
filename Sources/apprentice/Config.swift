@@ -144,7 +144,7 @@ struct Config {
     var visionModel = ""
 
     static var current = Config.load()
-    static var path: URL { Store.dir.appendingPathComponent("config.toml") }
+    static var path: URL { Settings.dir.appendingPathComponent("config.toml") }
     private static var loadedAt: Date?
 
     /// Re-reads config.toml only when it changed, and starts each command on the default pace.

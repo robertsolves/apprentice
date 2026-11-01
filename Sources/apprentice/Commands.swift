@@ -354,6 +354,7 @@ enum Commands {
         out += "\n" + Config.policyLine
         if Awake.enabled { out += "\n" + Awake.status }
         if let update = Repo.updateLine() { out += "\n" + update }
+        if let settings = Settings.syncSoon() { out += "\n" + settings }
         out += notesLines(s)
         Store.log(["cmd": "session", "app": name, "wid": Int(s.wid), "url": s.url ?? ""])
         return out
@@ -395,6 +396,7 @@ enum Commands {
             Config.remember("agent", "ui_only", s.uiOnly == true ? "true" : "false")
             Config.remember("agent", "keep_awake", Awake.enabled ? "true" : "false")
             Config.remember("session", "allow", "[" + s.allow.map { "\"\($0)\"" }.joined(separator: ", ") + "]")
+            _ = Settings.syncSoon(force: true)
         }
         Store.log(["options": true, "ui_only": s.uiOnly == true, "allow": s.allow.joined(separator: ",")])
         return s

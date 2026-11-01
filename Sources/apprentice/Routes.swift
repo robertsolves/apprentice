@@ -30,7 +30,7 @@ enum Routes {
                    faster: "Slack API or connector", remaining: nil),
     ]
 
-    static var customPath: URL { Store.dir.appendingPathComponent("routes.toml") }
+    static var customPath: URL { Settings.dir.appendingPathComponent("routes.toml") }
 
     static func custom() -> [RouteEntry] {
         guard let text = try? String(contentsOf: customPath, encoding: .utf8) else { return [] }
