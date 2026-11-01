@@ -531,8 +531,10 @@ enum Commands {
 
     /// Clicks into a field, checks it took focus, selects what is there and types over it, all with
     /// real input. Call inside `Borrow.run`. `focused` skips the click for the field that already has focus.
+    /// Returns a note when the field ends up showing something other than the text.
+    @discardableResult
     static func typeInto(_ el: AXUIElement?, _ rect: CGRect, _ text: String, _ target: Target,
-                         focused: Bool = false, fast: Bool = false, label: String = "the field") throws {
+                         focused: Bool = false, fast: Bool = false, label: String = "the field") throws -> String? {
         if !focused {
             try realClick(rect)
             Pace.sleep(0.2)
@@ -554,18 +556,30 @@ enum Commands {
         if !focused, poll(timeout: 1, interval: 0.1, reached) == nil {
             throw Fail(5, "the click did not reach \(label): something may cover it, such as a suggestion list. Nothing was typed")
         }
+        // The focused field's text, when it shows it; password fields never do.
+        let shown = { () -> String? in
+            guard let now = target.app.attr(kAXFocusedUIElementAttribute) as! AXUIElement?,
+                  now.string(kAXSubroleAttribute) != "AXSecureTextField" else { return nil }
+            return now.string(kAXValueAttribute)
+        }
+        let before = shown()
         try Keys.press("cmd+a")
         try Keys.type(text, fast: fast)
-        // Keys can land nowhere (another app or tool has focus) while every step "works": a field that
-        // reports its value and is still empty did not get them (F4).
-        if !text.isEmpty {
-            Pace.sleep(0.3)
-            if let now = target.app.attr(kAXFocusedUIElementAttribute) as! AXUIElement?,
-               now.string(kAXSubroleAttribute) != "AXSecureTextField",
-               let value = now.string(kAXValueAttribute), value.isEmpty {
-                throw Fail(5, "the keys did not arrive: \(label) is still empty after typing. Another app or tool may have focus; check with `read`")
-            }
+        // Keys can land nowhere (another app or tool has focus) while every step "works" (F4). Checked
+        // before any return is pressed, so nothing half-typed is sent.
+        guard !text.isEmpty else { return nil }
+        Pace.sleep(0.3)
+        guard let after = shown() else { return nil }
+        if after.isEmpty {
+            throw Fail(5, "the keys did not arrive: \(label) is still empty after typing. Another app or tool may have focus; check with `read`")
         }
+        if let before, !before.isEmpty, after == before, before != text {
+            throw Fail(5, "the keys did not arrive: \(label) still shows what it had before. Another app or tool may have focus; check with `read`")
+        }
+        // Autocomplete, formatting (a phone number) or a dropped key can all change what a field
+        // shows. That is worth a look, not a failure.
+        let squash = { (s: String) in s.filter { !$0.isWhitespace } }
+        return squash(after).contains(squash(text)) ? nil : "note: \(label) now shows something other than the typed text (autocomplete, formatting or a dropped key); check with `read`"
     }
 
     /// `click --on "text"`: clicks visible text. The list is tried first; text the page never exposes to
@@ -635,15 +649,17 @@ enum Commands {
         try beforeAction(session, url: target.url)
         let fast = a.value("pace") == "fast" || Config.current.pace.mode == "fast"
         let (node, rect) = focused ? (el, e.rect) : liveRect(el, e, target)
+        var note: String?
         try Borrow.run(target) {
-            try typeInto(node, rect, text, target, focused: focused, fast: fast, label: e.short)
+            note = try typeInto(node, rect, text, target, focused: focused, fast: fast, label: e.short)
             if enter {
                 Pace.sleep(0.2)
                 try Keys.press("return")
             }
             Pace.sleep(0.3)
         }
-        return finish("type", session, target, old, log: ["id": id, "chars": text.count, "label": e.label, "name": e.name])
+        return finish("type", session, target, old, extra: note.map { [$0] } ?? [],
+                      log: ["id": id, "chars": text.count, "label": e.label, "name": e.name])
     }
 
     /// The element that has keyboard focus, such as an inline rename field that `read` cannot list.
