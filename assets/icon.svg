@@ -1,6 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="apprentice">
-  <rect width="64" height="64" rx="14" fill="#1E2A33"/>
-  <path d="M13 51 C 15 33, 31 41, 34 15" fill="none" stroke="#E8A33D" stroke-width="3" stroke-linecap="round" stroke-dasharray="0.1 6.5"/>
-  <circle cx="13" cy="51" r="3.2" fill="#E8A33D"/>
-  <path transform="translate(35 11)" d="M0 0 L0 25 L6.2 19.2 L10.4 28.6 L14.6 26.8 L10.4 17.6 L18.8 17.6 Z" fill="#F2EFE6" stroke="#1E2A33" stroke-width="1.6" stroke-linejoin="round"/>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0.4" y2="1">
+      <stop offset="0" stop-color="#4FB3FF"/>
+      <stop offset="0.55" stop-color="#1E7BFF"/>
+      <stop offset="1" stop-color="#0B4FE0"/>
+    </linearGradient>
+    <radialGradient id="shine" cx="0.3" cy="0.15" r="0.75">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#bg)"/>
+  <rect width="64" height="64" rx="14" fill="url(#shine)"/>
+  <path d="M46 19 C 42 35, 37 45, 27 45 C 19.5 45, 16 39.5, 16 33.5 C 16 25.5, 21 20, 28 20 C 37 20, 40.5 34, 48.5 45" fill="none" stroke="#0A3BA8" stroke-opacity="0.35" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" transform="translate(0 1.5)"/>
+  <path d="M46 19 C 42 35, 37 45, 27 45 C 19.5 45, 16 39.5, 16 33.5 C 16 25.5, 21 20, 28 20 C 37 20, 40.5 34, 48.5 45" fill="none" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>
