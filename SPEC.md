@@ -11,7 +11,7 @@ Core principles:
 - **One person, real accounts.** Every session belongs to the person at the keyboard, on accounts they already use. There is no multi-account mode and no bulk sending.
 - **Limited by design.** Navigation gaps, rate caps and approval gates keep work at a person's pace instead of a script's.
 - **Text, not pixels.** The macOS accessibility tree is the main source of truth. Screenshots and OCR are fallbacks.
-- **Background first.** Act on elements directly through the accessibility API, so the agent works in its own window while Robert uses the same Mac.
+- **Real input, like a person.** Every action is a real cursor move, click or keystroke with the window in front. Accessibility only reads the screen. Robert's own keys or clicks stop an action.
 - **Nothing added to the browser.** No extension, WebDriver, CDP or injected script. Sites see Robert's normal browser with its normal cache, cookies and logins.
 - **The calling agent is the brain.** apprentice is a toolset, not an agent. An optional built-in loop exists for running cheap models on their own.
 - **APIs before screens.** GitHub and other services with a CLI or API go through that (for example `gh`). apprentice covers what has no API.
