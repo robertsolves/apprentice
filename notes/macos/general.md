@@ -9,8 +9,8 @@ status: verified
 # Any macOS app
 
 ## Key facts
-- Every action is real input with the window in front: the cursor moves and clicks, keys are pressed. Robert's own input stops it (exit 6).
-- `ok · +0 -0 ~0` means nothing visible changed: the click may have missed, or the app needs a different gesture. Ask Robert (`ask`, `show`) rather than repeating it.
+- Every action is real input with the window in front: the cursor moves and clicks, keys are pressed. The user's own input stops it (exit 6).
+- `ok · +0 -0 ~0` means nothing visible changed: the click may have missed, or the app needs a different gesture. Ask the user (`ask`, `show`) rather than repeating it.
 - Fields that `read` does not list (inline rename, field editors) take `type focused "{text}"`.
 
 ## Works

@@ -138,6 +138,10 @@ struct Config {
     /// Where questions go: "both" (the window, then the chat if unanswered), "window", or "terminal".
     var askIn = "both"
     var askWindowSeconds = 60.0
+    /// Context-menu items `download` looks for, matched lower case; add your system language's.
+    var downloadMenu = ["save image as", "download linked file", "save link as", "download image"]
+    /// Bundle ids treated as browsers on top of every app registered to open https links.
+    var browsers: [String] = []
     var runURL = "https://api.openai.com/v1"
     var runModel = "gpt-4o-mini"
     var runKey = ""
@@ -157,7 +161,7 @@ struct Config {
         current.pace = current.defaultPace
     }
 
-    /// What the LLM may use besides the UI. Robert sets this; agents never change it.
+    /// What the LLM may use besides the UI. The user sets this; agents never change it.
     static var policyLine: String {
         (Session.stored?.uiOnly ?? current.uiOnly)
             ? "policy: UI only. Do every task through apprentice, including files and folders; no shell commands for them."
@@ -165,7 +169,7 @@ struct Config {
     }
 
     /// Sets `key = value` under `[section]` in config.toml, adding either if missing. Used only for
-    /// choices Robert makes in the start-up window; the LLM has no command for it.
+    /// choices the user makes in the start-up window; the LLM has no command for it.
     static func remember(_ section: String, _ key: String, _ value: String) {
         var lines = ((try? String(contentsOf: path, encoding: .utf8)) ?? "").components(separatedBy: "\n")
         let header = "[\(section)]"
@@ -208,6 +212,8 @@ struct Config {
         if let v = toml["agent"]?["ask_sound"] { c.askSound = Toml.unquote(v) }
         if let v = toml["agent"]?["keep_awake"] { c.keepAwake = Toml.unquote(v) == "true" }
         if let v = toml["agent"]?["ask_in"] { c.askIn = Toml.unquote(v) }
+        if let v = toml["agent"]?["download_menu"].flatMap(Toml.array) { c.downloadMenu = v.map { $0.lowercased() } }
+        if let v = toml["agent"]?["browsers"].flatMap(Toml.array) { c.browsers = v }
         if let v = toml["agent"]?["ask_window_s"].flatMap({ Double(Toml.unquote($0)) }) { c.askWindowSeconds = v }
         if let r = toml["run"] {
             if let v = r["base_url"] { c.runURL = Toml.unquote(v) }

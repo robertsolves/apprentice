@@ -29,9 +29,9 @@ func usage() {
       apprentice wait-for "text" [--timeout 10]
       apprentice ocr [--crop id|x,y,w,h]
       apprentice shot [--crop id|x,y,w,h]
-      apprentice ask "question" [--choices "A|B|C" [--multi] [--text]]   a little window for Robert; prints his reply
-      apprentice show "what"                    Robert points the cursor at it; prints the element there
-      apprentice confirm <token> [--why "…"]    Robert approves or denies a pending step in the little window
+      apprentice ask "question" [--choices "A|B|C" [--multi] [--text]]   a little window for the user; prints their reply
+      apprentice show "what"                    the user points the cursor at it; prints the element there
+      apprentice confirm <token> [--why "…"]    the user approves or denies a pending step in the little window
       apprentice bug "summary" [--repro …] [--cause …] [--fix …]   file a field report in the repo's bugs.md
       apprentice commit "what and why"          one small commit in the repo; a source change rebuilds and restarts
       apprentice update [--build]               rebase onto upstream, push to your fork, rebuild if the source changed
@@ -40,7 +40,7 @@ func usage() {
       apprentice repo                           the clone apprentice runs from
       apprentice policy                         may the LLM use shell commands for macOS tasks? ([agent] ui_only)
       apprentice awake on|off|status            keep the Mac from idle sleep and locking while tasks run
-      apprentice away on|off|status             Robert is away: questions come back as exit 9 for the chat
+      apprentice away on|off|status             the user is away: questions come back as exit 9 for the chat
       apprentice grow [--days 14]               improvement digest: repeated errors, questions asked, open bug reports
       apprentice log [--tail n]
       apprentice route "task"
@@ -54,9 +54,9 @@ func usage() {
     output is compact text for an agent. add --json for the raw reply.
     open, click, type, key, menu, drag, upload, download, choose and do only propose: they exit 8 with a token,
     and act once you run `apprentice approve <token>`.
-    exit codes: 0 ok · 2 stale, re-read · 3 Robert denied · 4 blocked or rate limited ·
+    exit codes: 0 ok · 2 stale, re-read · 3 the user denied · 4 blocked or rate limited ·
                 5 not found or timeout · 6 interrupted · 7 permission missing · 8 approval needed, nothing done yet ·
-                9 ask Robert in the chat (he is away or did not answer the window)
+                9 ask the user in the chat (they are away or did not answer the window)
     """)
 }
 

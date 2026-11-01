@@ -13,7 +13,7 @@ enum Ask {
         var skipped = false
     }
 
-    /// Robert may be away from the Mac and answering in the chat instead (Claude Code remote, a phone).
+    /// The user may be away from the Mac and answering in the chat instead (Claude Code remote, a phone).
     /// Then questions come back with exit 9 and the LLM asks them in the terminal.
     struct Away: Codable { var on: Bool }
     static var away: Bool { Config.current.askIn == "terminal" || (Store.load(Away.self, "away.json")?.on ?? false) }
@@ -22,12 +22,12 @@ enum Ask {
         Config.current.askIn == "window" ? requested : min(requested, Config.current.askWindowSeconds)
     }
     static func handOff(_ lines: [String]) -> Fail {
-        Fail(9, (["ask Robert in the chat (terminal): he is away from the Mac or did not answer the window."] + lines
-                 + ["Carry on with his answer as if he had answered the window."]).joined(separator: "\n"))
+        Fail(9, (["ask the user in the chat (terminal): they are away from the Mac or did not answer the window."] + lines
+                 + ["Carry on with their answer as if they had answered the window."]).joined(separator: "\n"))
     }
 
-    /// `away on|off|status`: questions go to the chat while Robert is away. The LLM may set this when he
-    /// says he is away or back; it only changes where questions go.
+    /// `away on|off|status`: questions go to the chat while the user is away. The LLM may set this when they
+    /// says they are away or back; it only changes where questions go.
     static func awayCommand(_ a: Args) throws -> String {
         switch a.pos.first ?? "status" {
         case "on": Store.save(Away(on: true), "away.json")
@@ -64,11 +64,11 @@ enum Ask {
             throw Fail(5, "no answer: the question timed out")
         }
         guard !reply.skipped, !reply.chosen.isEmpty || !reply.text.isEmpty else {
-            throw Fail(5, "no answer: Robert skipped the question")
+            throw Fail(5, "no answer: The user skipped the question")
         }
         var out: [String] = []
-        if !reply.chosen.isEmpty { out.append("Robert chose: " + reply.chosen.joined(separator: "; ")) }
-        if !reply.text.isEmpty { out.append("Robert: " + reply.text) }
+        if !reply.chosen.isEmpty { out.append("user chose: " + reply.chosen.joined(separator: "; ")) }
+        if !reply.text.isEmpty { out.append("user: " + reply.text) }
         return out.joined(separator: "\n")
     }
 
@@ -159,18 +159,18 @@ extension Ask {
     static func pointAt(_ a: Args) throws -> String {
         let what = a.pos.joined(separator: " ")
         guard !what.isEmpty else { throw Fail(5, "show \"what to point at\" [--timeout 600]") }
-        let remote = ["he cannot point from afar: ask him to describe where \"\(what)\" is on the screen,",
+        let remote = ["they cannot point from afar: ask them to describe where \"\(what)\" is on the screen,",
                       "or look for it yourself with `apprentice shot` and `apprentice ocr`."]
         if away { throw handOff(remote) }
         let timeout = windowTime(a.value("timeout").flatMap(Double.init) ?? 600)
         let (found, skipped): (CGPoint?, Bool) = DispatchQueue.main.sync { watchPointer(what, timeout: timeout) }
         guard let point = found else {
             if !skipped, Config.current.askIn != "window" { throw handOff(remote) }
-            throw Fail(5, skipped ? "no answer: Robert skipped" : "no answer: it timed out")
+            throw Fail(5, skipped ? "no answer: The user skipped" : "no answer: it timed out")
         }
         Store.log(["show": what, "x": Int(point.x), "y": Int(point.y)])
 
-        var out = ["Robert pointed at \(Int(point.x)),\(Int(point.y))"]
+        var out = ["The user pointed at \(Int(point.x)),\(Int(point.y))"]
         var hit: AXUIElement?
         if AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(point.x), Float(point.y), &hit) == .success, let hit {
             let role = (hit.string(kAXRoleAttribute) ?? "element").replacingOccurrences(of: "AX", with: "").lowercased()
@@ -269,8 +269,8 @@ extension Ask {
     }
 }
 
-/// `confirm <token>`: puts a pending proposal in front of Robert, with Approve and Deny. Approving runs
-/// it at once. Use it for risky (⚠) steps, so the LLM never approves those on his behalf.
+/// `confirm <token>`: puts a pending proposal in front of the user, with Approve and Deny. Approving runs
+/// it at once. Use it for risky (⚠) steps, so the LLM never approves those on their behalf.
 extension Ask {
     static func confirm(_ a: Args) throws -> String {
         guard let token = a.pos.first else { throw Fail(5, "confirm <token>") }
@@ -278,19 +278,19 @@ extension Ask {
         let approve = "Approve", deny = "Deny"
         let why = a.value("why").map { "\n\nWhy: \($0)" } ?? ""
         let remote = ["question: approve this step? \(p.summary)\(why.replacingOccurrences(of: "\n\n", with: " "))",
-                      "if he says yes in the chat: `apprentice approve \(token)`; if no: `apprentice deny \(token)`. Nothing is done until then."]
+                      "if they say yes in the chat: `apprentice approve \(token)`; if no: `apprentice deny \(token)`. Nothing is done until then."]
         if away { throw handOff(remote) }
         let reply = DispatchQueue.main.sync {
             show("Approve this step?\n\n\(p.summary)\(why)", choices: [approve, deny], multi: false, withText: true,
                  timeout: windowTime(a.value("timeout").flatMap(Double.init) ?? 600), placeholder: "Anything to add (optional)")
         }
         if reply == nil, Config.current.askIn != "window" { throw handOff(remote) }
-        let note = reply.map { $0.text.isEmpty ? "" : "\nRobert: \($0.text)" } ?? ""
+        let note = reply.map { $0.text.isEmpty ? "" : "\nuser: \($0.text)" } ?? ""
         guard let reply, !reply.skipped, reply.chosen.contains(approve) else {
             if reply != nil { _ = try Commands.dispatch(Request(cmd: "deny", args: [token])) }
-            throw Fail(3, (reply == nil ? "no answer: nothing was done" : "Robert denied: \(p.summary)") + note)
+            throw Fail(3, (reply == nil ? "no answer: nothing was done" : "The user denied: \(p.summary)") + note)
         }
-        Store.log(["confirm": p.summary, "by": "Robert"])
+        Store.log(["confirm": p.summary, "by": "user"])
         return try Commands.dispatch(Request(cmd: "approve", args: [token])) + note
     }
 }

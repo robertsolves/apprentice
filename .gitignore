@@ -2,3 +2,5 @@
 .swiftpm/
 *.o
 .DS_Store
+agent/__pycache__/
+*.pyc

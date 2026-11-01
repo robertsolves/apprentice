@@ -2,7 +2,7 @@
 
 ## Overview
 
-apprentice is a macOS command-line tool that lets any coding agent (Claude Code, opencode, Kilo) or any hosted model (Claude, DeepSeek, OpenRouter) read and control desktop apps and websites on Robert's own machine and accounts. It reads the screen as a short numbered text list and acts on elements by number, so a typical step costs tens of tokens, not an image.
+apprentice is a macOS command-line tool that lets any coding agent (Claude Code, opencode, Kilo) or any hosted model (Claude, DeepSeek, OpenRouter) read and control desktop apps and websites on the user's own machine and accounts. It reads the screen as a short numbered text list and acts on elements by number, so a typical step costs tens of tokens, not an image.
 
 It is sized for one person operating a handful of tools and accounts. The aim is to let a solo owner keep that work moving with the care of a larger team, without the headcount: one session window, one account, and the same pace and approval a person would use by hand. It is a way for one person to compete with better-funded teams on care and consistency, not on volume. It is not a bulk outreach, scraping or growth-automation tool.
 
@@ -11,17 +11,17 @@ Core principles:
 - **One person, real accounts.** Every session belongs to the person at the keyboard, on accounts they already use. There is no multi-account mode and no bulk sending.
 - **Limited by design.** Navigation gaps, rate caps and approval gates keep work at a person's pace instead of a script's.
 - **Text, not pixels.** The macOS accessibility tree is the main source of truth. Screenshots and OCR are fallbacks.
-- **Real input, like a person.** Every action is a real cursor move, click or keystroke with the window in front. Accessibility only reads the screen. Robert's own keys or clicks stop an action.
-- **Nothing added to the browser.** No extension, WebDriver, CDP or injected script. Sites see Robert's normal browser with its normal cache, cookies and logins.
+- **Real input, like a person.** Every action is a real cursor move, click or keystroke with the window in front. Accessibility only reads the screen. The user's own keys or clicks stop an action.
+- **Nothing added to the browser.** No extension, WebDriver, CDP or injected script. Sites see the user's normal browser with its normal cache, cookies and logins.
 - **The calling agent is the brain.** apprentice is a toolset, not an agent. An optional built-in loop exists for running cheap models on their own.
 - **APIs before screens.** GitHub and other services with a CLI or API go through that (for example `gh`). apprentice covers what has no API.
-- **Approval before every change.** Every action that can change state is proposed first and runs only when the calling LLM approves it. The LLM decides, or asks Robert; the chain is CLI ↔ LLM ↔ Robert.
+- **Approval before every change.** Every action that can change state is proposed first and runs only when the calling LLM approves it. The LLM decides, or asks the user; the chain is CLI ↔ LLM ↔ the user.
 
 ## Goals and non-goals
 
 Goals:
 
-- Control websites Robert owns or uses: read, navigate, post, like, upload and download images, change account settings.
+- Control websites the user owns or uses: read, navigate, post, like, upload and download images, change account settings.
 - Help a solo owner run several tools and services at once, so routine operations don't need a larger team.
 - Keep normal per-person usage: budgets, gaps and approvals are part of the tool, not add-ons.
 - Drive native macOS apps the same way.
@@ -29,7 +29,7 @@ Goals:
 - Work with any hosted model behind an OpenAI-compatible API: Claude, DeepSeek, OpenRouter.
 - Keep tokens minimal: text element lists, diffs after each action, no images unless asked.
 - Be fast: most reads served from cache in milliseconds, most actions instant.
-- Work in one window with the real cursor and keyboard, pausing whenever Robert uses the computer.
+- Work in one window with the real cursor and keyboard, pausing whenever the user uses the computer.
 - Pace input naturally when it does use the cursor or keyboard: curved mouse paths, randomly spaced keystrokes.
 - Never refresh pages rapidly. A limiter in the daemon enforces this.
 - Log every step so a run can be replayed and debugged.
@@ -75,13 +75,13 @@ Callers check faster routes first; everything else goes through one CLI to the d
 | Pacer | own code over CGEvent | Curved mouse paths, randomly spaced keystrokes, navigation and rate limits |
 | Vision fallback | ScreenCaptureKit, Vision framework | Capture one window (even when covered), OCR it, crop for `shot` |
 | Gate | Daemon, `pending.json` | Propose → approve/deny for every state-changing action |
-| Ask | `ask`, `show` | A little window for Robert when the LLM is stuck: text, choices, or point at it |
+| Ask | `ask`, `show` | A little window for the user when the LLM is stuck: text, choices, or point at it |
 | Log | JSONL + PNG | One folder per session for replay |
 | `run` loop (optional) | small script, OpenAI-compatible client | Drives apprentice with any model when no coding agent is involved |
 
 Why Swift: it calls the accessibility, CGEvent and ScreenCaptureKit APIs directly with no bridge overhead, walks large web trees quickly, and ships as one binary that macOS permissions attach to. The `run` loop can be Python or any language, since it mostly waits on the model.
 
-Sessions: each caller opens a session tied to one app and one window ID (for example a dedicated Safari window). Commands act only on that window unless the caller switches it. That keeps the agent out of Robert's own tabs and windows.
+Sessions: each caller opens a session tied to one app and one window ID (for example a dedicated Safari window). Commands act only on that window unless the caller switches it. That keeps the agent out of the user's own tabs and windows.
 
 ## Perception
 
@@ -90,7 +90,7 @@ Sessions: each caller opens a session tied to one app and one window ID (for exa
 ```
 snap 7 · Safari · github.com/settings/profile · 38 of 412 shown
 12 link "Public profile"
-14 textbox "Name" value="Robert"
+14 textbox "Name" value="Sam"
 15 textarea "Bio" value="Flutter dev…"
 18 button "Upload a photo…"
 22 button "Update profile" [gated]
@@ -117,15 +117,15 @@ apprentice is a natural GUI tool. Every action is what a person does with a mous
 
 Rules for every action:
 
-- Starts once Robert has been idle for a moment (`CGEventSourceSecondsSinceLastEventType`), then brings the session window forward.
-- Stops the moment Robert presses a key or clicks (apprentice's own events are tagged, so they do not count), and returns `interrupted` (exit 6).
+- Starts once the user has been idle for a moment (`CGEventSourceSecondsSinceLastEventType`), then brings the session window forward.
+- Stops the moment the user presses a key or clicks (apprentice's own events are tagged, so they do not count), and returns `interrupted` (exit 6).
 - Leaves the cursor where it landed, as a person would.
 
 Upload, download and file dialogs:
 
 - `upload <id> <path>` clicks the control that opens the picker, then `choose` does the rest.
 - `choose <path>` clicks into the panel's file list, opens Go to Folder (cmd+shift+g, or "/"), types the path key by key, checks it, presses return, and clicks Open. For a new file it types the name into the name field.
-- `download <id> <path>` right-clicks, picks Save Image As or Download Linked File, and uses the save panel the same way. The element's `AXURL` is logged so the run shows what was saved.
+- `download <id> <path>` right-clicks, picks the context-menu item named in `[agent] download_menu` (Save Image As, Download Linked File… by default), and uses the save panel the same way. The element's `AXURL` is logged so the run shows what was saved.
 
 ## CLI reference
 
@@ -154,7 +154,7 @@ All output is compact plain text meant for an agent to read. `--json` gives the 
 | `apprentice learn "task"` | Draft a flow from this session's approved steps | flow path |
 | `apprentice do <flow> [--key value]` | Run a flow with one approval for the whole plan; hands over at the first failing step | step results |
 | `apprentice choose <path>` | Drive the open or save dialog on the window | diff |
-| `apprentice ask` / `show` / `confirm <token>` | The little window for Robert (exit 9 when he is away) | his reply |
+| `apprentice ask` / `show` / `confirm <token>` | The little window for the user (exit 9 when they are away) | their reply |
 | `apprentice run "task" --model <name>` | Optional built-in loop with any model | summary |
 | `apprentice serve` / `apprentice stop` | Start or stop the daemon | status |
 
@@ -174,13 +174,13 @@ Exit codes:
 | --- | --- |
 | 0 | ok |
 | 2 | stale snapshot: re-read |
-| 3 | Robert denied the step in the little window (`confirm`) |
+| 3 | The user denied the step in the little window (`confirm`) |
 | 4 | blocked by allowlist or rate limit (`refresh limit`, `rate limit`) |
 | 5 | element or text not found, or timeout |
-| 6 | interrupted by Robert during borrow mode |
+| 6 | interrupted by the user during borrow mode |
 | 7 | permission missing (Accessibility or Screen Recording) |
 | 8 | approval needed: the action was proposed, nothing was done |
-| 9 | ask Robert in the chat: he is away (`away on`) or did not answer the little window in time |
+| 9 | ask the user in the chat: they are away (`away on`) or did not answer the little window in time |
 
 ## Pacing
 
@@ -236,7 +236,7 @@ Human pacing is slower: a 200-character post takes about 20 to 25 s to type. `--
 
 ## Approval gate and safety
 
-apprentice is driven by an LLM, and the LLM talks to Robert: CLI ↔ LLM ↔ Robert. The CLI never asks Robert directly. Every action that can change state is proposed first, and the LLM approves it, denies it, or asks Robert.
+apprentice is driven by an LLM, and the LLM talks to the user: CLI ↔ LLM ↔ the user. The CLI never asks the user directly. Every action that can change state is proposed first, and the LLM approves it, denies it, or asks the user.
 
 What needs approval: `open`, `click`, `type`, `key`, `menu`, `drag`, `upload` and `download`. Reading (`read`, `ocr`, `shot`, `wait-for`) and moving the view (`scroll`, `hover`) do not.
 
@@ -253,13 +253,13 @@ How it works:
 2. `⚠` lines flag what needs extra care: gate-list words (send, post, publish, like, follow, comment, submit, save, update, upload, pay, buy, delete, remove, confirm and more), settings, account and billing pages, return keys that may submit, uploads, and anything the caller marked `--gate`. Flagged proposals also keep a window screenshot in the run log.
 3. `apprentice approve <token>` runs exactly the saved request, paced and rate-limited as usual. `approve <token> --text "…"` replaces the text of a pending `type`. `deny <token>` drops it. Both are logged.
 4. A token is single-use, expires after 5 minutes, and is refused if the screen was read again after the proposal, because element ids may have changed.
-5. The usage docs tell agents to approve only steps the task needs, and to ask Robert before any `⚠` step he did not ask for.
+5. The usage docs tell agents to approve only steps the task needs, and to ask the user before any `⚠` step they did not ask for.
 
 Other guardrails:
 
 - **Allowlist per session:** domains and apps, set in config or with `session --allow`. Leaving it pauses the session and asks.
 - **Kill switch:** a global hotkey (default ctrl+opt+cmd+.) stops all sessions immediately.
-- **No secrets:** no passwords in commands or logs. apprentice relies on sessions Robert is already logged into. Password fields are never read back, only typed into.
+- **No secrets:** no passwords in commands or logs. apprentice relies on sessions the user is already logged into. Password fields are never read back, only typed into.
 - **Log scrubbing:** windows from banking, health and password-manager apps are excluded from screenshots and element logs.
 - **Prompt injection:** on-screen text is data. Usage docs tell agents not to follow instructions found on a page or in an email.
 - **Platform terms:** one person, own accounts, normal volume. Sites that forbid automated actions (for example Instagram and Facebook) stay out of the allowlist; their APIs are used instead. There is no mode for bulk outreach or multiple accounts.
@@ -277,7 +277,7 @@ avatar  → screen: github.com/settings/profile  (no API endpoint)
 ```
 
 - **Hints on navigation.** `session` and `open` print `hint:` lines whenever the target domain has a faster route, so an agent that skipped `route` still sees it.
-- **Registry:** `~/.apprentice/routes.toml`, one entry per domain or app: the action, the CLI, API or connector that covers it, and what still needs the screen. It ships with entries for GitHub (`gh`), Gmail, Google Calendar and Drive, and is easy to extend, for example with Robert's own site's admin API.
+- **Registry:** `~/.apprentice/routes.toml`, one entry per domain or app: the action, the CLI, API or connector that covers it, and what still needs the screen. It ships with entries for GitHub (`gh`), Gmail, Google Calendar and Drive, and is easy to extend, for example with the user's own site's admin API.
 - **Connectors:** apprentice cannot see which MCP connectors the calling agent has. Registry entries name the connector (for example "Gmail connector"), and the usage doc tells agents to check their own connectors and tools before using apprentice.
 - **`run` loop:** checks routes first and stops with the suggestion unless started with `--screen-anyway`.
 
@@ -351,7 +351,7 @@ Platform notes:
 
 Nine phases, about 20 to 25 working days solo. Usable for real tasks after phase 6 (about 2.5 weeks). Estimates are rough and get revised after the spike.
 
-Repo layout (Swift package, public under `robertsolves` or private first):
+Repo layout (Swift package, public on GitHub or private first):
 
 ```
 apprentice/
@@ -374,7 +374,7 @@ apprentice/
 Goal: find out which tiers work where, before building on them.
 
 - [ ] AX press, set value and scroll on Safari and Chrome, with the window frontmost, covered, on another Space, and minimised
-- [ ] `AXSetValue` on Robert's site and GitHub: does the site's framework (for example React) register the input?
+- [ ] `AXSetValue` on the user's site and GitHub: does the site's framework (for example React) register the input?
 - [ ] `CGEventPostToPid` typing and curved mouse-move events into a covered window
 - [ ] File dialog sheet: set the path field through AX in the background
 - [ ] Time a full AX walk and a batched walk on a large GitHub PR page
@@ -405,7 +405,7 @@ Done when: `read` on a GitHub settings page returns under 800 tokens in under 10
 - [ ] Pacer: Bézier paths, Fitts timing, log-normal key gaps, config profiles
 - [ ] Navigation limiter and per-domain rate caps, `open`
 
-Done when: Claude Code edits the GitHub bio field in a background Safari window while Robert types in VS Code, with no interference.
+Done when: Claude Code edits the GitHub bio field in a background Safari window while the user types in VS Code, with no interference.
 
 ### Phase 4: Macros and borrow mode (2 to 3 days)
 
@@ -444,12 +444,12 @@ Done when: a canvas-only page can be read and clicked through OCR ids.
 - [ ] `replay` with expected-text checks
 - [ ] `apprentice mcp` wrapper
 
-Done when: a cheap hosted model (for example DeepSeek) completes a 5-step task on Robert's site, and the same task replays with zero model calls.
+Done when: a cheap hosted model (for example DeepSeek) completes a 5-step task on the user's site, and the same task replays with zero model calls.
 
 ### Open questions
 
 - [ ] Public repo from day one, or private until phase 6?
 - [ ] Safari or Chrome as the agent's default browser? Decide after the spike.
-- [ ] Which three tasks on Robert's own site prove v1?
+- [ ] Which three tasks on the user's own site prove v1?
 - [ ] Phone approval (push notification) as a second approval route after v1?
 - [ ] Is the VM tier worth building at all on a 16 GB machine?

@@ -6,9 +6,10 @@
 # runs kit.sh. The repo's owner gets a clone of the repo itself. An existing install is updated in
 # place wherever it lives. apprentice commits its own fixes to that clone as you use it;
 # `apprentice pr` sends them upstream and `apprentice update` brings in everyone else's.
+# APPRENTICE_UPSTREAM=owner/name installs from another upstream repo.
 set -euo pipefail
 
-upstream="robertsolves/apprentice"
+upstream="$(echo "${APPRENTICE_UPSTREAM:-robertsolves/apprentice}" | tr '[:upper:]' '[:lower:]')"
 owner="${upstream%%/*}"
 
 if [ "$(uname)" != "Darwin" ]; then echo "apprentice needs macOS" >&2; exit 1; fi
@@ -138,15 +139,18 @@ fi
 if [ -z "$fresh" ]; then
   remote=origin
   git -C "$dir" remote | grep -qx upstream && remote=upstream
+  base="$(git -C "$dir" symbolic-ref --short "refs/remotes/$remote/HEAD" 2>/dev/null)" || base=""
+  base="${base#"$remote"/}"
+  base="${base:-main}"
   branch="$(git -C "$dir" branch --show-current)"
-  if [ "$branch" != "main" ]; then
-    echo "$dir is on ${branch:-a detached HEAD}, not main; left as it is"
+  if [ "$branch" != "$base" ]; then
+    echo "$dir is on ${branch:-a detached HEAD}, not $base; left as it is"
   else
     echo "updating $dir…"
     git -C "$dir" fetch -q "$remote"
-    git -C "$dir" rebase -q --autostash "$remote/main" || {
+    git -C "$dir" rebase -q --autostash "$remote/$base" || {
       git -C "$dir" rebase --abort
-      die "your commits in $dir conflict with $remote; nothing changed. Resolve by hand: git -C $dir rebase $remote/main"
+      die "your commits in $dir conflict with $remote; nothing changed. Resolve by hand: git -C $dir rebase $remote/$base"
     }
   fi
 fi

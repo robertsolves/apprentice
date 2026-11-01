@@ -1,6 +1,6 @@
 import Foundation
 
-/// Where Robert's settings (config.toml, routes.toml) live: in ~/.apprentice on this Mac only, or
+/// Where the user's settings (config.toml, routes.toml) live: in ~/.apprentice on this Mac only, or
 /// in ~/.apprentice/settings, a clone of a private GitHub repo that every Mac syncs with. Session
 /// state, logs and screenshots never leave the Mac.
 enum Settings {
@@ -10,7 +10,7 @@ enum Settings {
     static var dir: URL { synced ? repoDir : Store.dir }
     static let defaultRepo = "apprentice-settings"
 
-    /// `settings [github [--repo name] | local | sync]`. Robert's command; agents never run it.
+    /// `settings [github [--repo name] | local | sync]`. The user's command; agents never run it.
     static func run(_ a: Args) throws -> String {
         switch a.pos.first ?? "" {
         case "": return status()
@@ -96,7 +96,7 @@ enum Settings {
         return "settings synced"
     }
 
-    /// Called after Robert's settings change and when a session starts (at most hourly):
+    /// Called after the user's settings change and when a session starts (at most hourly):
     /// syncs in the background, so nothing waits on the network.
     static func syncSoon(force: Bool = false) -> String? {
         guard synced else { return nil }

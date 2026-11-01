@@ -9,6 +9,13 @@ enum Repo {
     /// Forks have an `upstream` remote (gh adds it on clone); the owner's clone pushes to origin.
     static var upstream: String { git("remote").out.split(separator: "\n").contains("upstream") ? "upstream" : "origin" }
 
+    /// The upstream's default branch, as the clone recorded it; "main" when it never did.
+    static func branch(_ remote: String) -> String {
+        let head = git("symbolic-ref", "--short", "refs/remotes/\(remote)/HEAD")
+        guard head.code == 0, let name = head.out.split(separator: "/", maxSplits: 1).last, !name.isEmpty else { return "main" }
+        return String(name)
+    }
+
     @discardableResult
     static func run(_ tool: String, _ args: [String], in dir: URL? = nil) -> (code: Int32, out: String) {
         let proc = quiet(Process())
@@ -32,7 +39,7 @@ enum Repo {
     @discardableResult
     static func commit(_ message: String, paths: [String] = []) -> String? {
         guard isGit else { return nil }
-        // Named paths commit on their own, so whatever Robert has staged stays out of it (M1).
+        // Named paths commit on their own, so whatever the user has staged stays out of it (M1).
         let scope = ["--"] + (paths.isEmpty ? ["."] : paths)
         run("git", ["add", "-A"] + scope)
         guard run("git", ["diff", "--cached", "--quiet"] + scope).code != 0 else { return nil }
@@ -60,14 +67,15 @@ enum Repo {
         try requireClean()
         let remote = upstream
         guard git("fetch", "-q", remote).code == 0 else { throw Fail(5, "could not fetch \(remote): check `gh auth status`") }
+        let base = branch(remote)
         let before = git("rev-parse", "HEAD").out
-        let rebase = git("rebase", "-q", "\(remote)/main")
+        let rebase = git("rebase", "-q", "\(remote)/\(base)")
         if rebase.code != 0 {
             git("rebase", "--abort")
-            throw Fail(5, "your commits conflict with upstream; nothing changed. Resolve by hand in \(root.path): git rebase \(remote)/main\n\(rebase.out)")
+            throw Fail(5, "your commits conflict with upstream; nothing changed. Resolve by hand in \(root.path): git rebase \(remote)/\(base)\n\(rebase.out)")
         }
         var out = before == git("rev-parse", "HEAD").out ? "already up to date" : "updated to \(git("log", "-1", "--format=%h %s").out)"
-        if remote == "upstream" { push(branch: "main") }
+        if remote == "upstream" { push(branch: base) }
         if touchesSource(since: before) || a.has("build") { out += "\n" + (try rebuild()) }
         return out
     }
@@ -79,7 +87,8 @@ enum Repo {
         try requireClean()
         let remote = upstream
         git("fetch", "-q", remote)
-        let commits = git("log", "--reverse", "--format=- %s", "\(remote)/main..HEAD").out
+        let base = branch(remote)
+        let commits = git("log", "--reverse", "--format=- %s", "\(remote)/\(base)..HEAD").out
         guard !commits.isEmpty else { return "no local commits to send" }
         let host = Host.current().localizedName.map(Notes.slugify) ?? "mac"
         let branch = "apprentice/\(host.isEmpty ? "mac" : host)"
@@ -92,7 +101,7 @@ enum Repo {
         let count = commits.split(separator: "\n").count
         let title = a.pos.isEmpty ? (count == 1 ? String(commits.dropFirst(2)) : "Fixes and notes from \(host) (\(count) commits)") : a.pos.joined(separator: " ")
         let body = "Small commits made by apprentice while it was used:\n\n\(commits)\n"
-        let made = run("gh", ["pr", "create", "--repo", target, "--base", "main", "--head", head, "--title", title, "--body", body])
+        let made = run("gh", ["pr", "create", "--repo", target, "--base", base, "--head", head, "--title", title, "--body", body])
         guard made.code == 0 else { throw Fail(5, "gh pr create failed: \(made.out)") }
         return made.out.split(separator: "\n").last.map(String.init) ?? made.out
     }
@@ -105,14 +114,14 @@ enum Repo {
         let fetched = root.appendingPathComponent(".git/FETCH_HEAD")
         let age = (try? fetched.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
         if age.map({ Date().timeIntervalSince($0) > 86_400 }) ?? true { fetchInBackground(remote) }
-        guard let behind = Int(git("rev-list", "--count", "HEAD..\(remote)/main").out), behind > 0 else { return nil }
-        return "apprentice: \(behind) new upstream commit\(behind == 1 ? "" : "s"); tell Robert, who runs `apprentice update`"
+        guard let behind = Int(git("rev-list", "--count", "HEAD..\(remote)/\(branch(remote))").out), behind > 0 else { return nil }
+        return "apprentice: \(behind) new upstream commit\(behind == 1 ? "" : "s"); tell the user, who runs `apprentice update`"
     }
 
     private static var fetcher: Process?
 
-    /// git and gh fail instead of asking for a login: the daemon may share Robert's terminal,
-    /// and a prompt there would hang the command and catch his keys (M6).
+    /// git and gh fail instead of asking for a login: the daemon may share the user's terminal,
+    /// and a prompt there would hang the command and catch their keys (M6).
     static func quiet(_ proc: Process) -> Process {
         var env = ProcessInfo.processInfo.environment
         env["GIT_TERMINAL_PROMPT"] = "0"

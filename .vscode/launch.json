@@ -19,26 +19,6 @@
             "target": "apprentice",
             "configuration": "release",
             "preLaunchTask": "swift: Build Release apprentice"
-        },
-        {
-            "type": "swift",
-            "request": "launch",
-            "args": [],
-            "cwd": "${workspaceFolder:apprentice}",
-            "name": "Debug apprentice",
-            "target": "apprentice",
-            "configuration": "debug",
-            "preLaunchTask": "swift: Build Debug apprentice"
-        },
-        {
-            "type": "swift",
-            "request": "launch",
-            "args": [],
-            "cwd": "${workspaceFolder:apprentice}",
-            "name": "Release apprentice",
-            "target": "apprentice",
-            "configuration": "release",
-            "preLaunchTask": "swift: Build Release apprentice"
         }
     ]
 }

@@ -17,7 +17,7 @@ actions_per_min = 30
 mode = "fast"
 
 [session]
-# Empty means unrestricted. Example: allow = ["github.com", "robertsolves.com"]
+# Empty means unrestricted. Example: allow = ["github.com", "example.com"]
 allow = []
 
 [agent]
@@ -32,10 +32,14 @@ ask_sound = "Ping"
 # Keep the display and system from idle sleep and locking while a task runs, and 2 min after (`apprentice awake on|off`).
 keep_awake = false
 # Where questions go. "both": the little window first, and if nobody answers within ask_window_s the
-# agent asks in the chat (terminal), so Robert can answer remotely. "window" or "terminal" for one only.
+# agent asks in the chat (terminal), so the user can answer remotely. "window" or "terminal" for one only.
 # `apprentice away on` switches to the terminal until `apprentice away off`.
 ask_in = "both"
 ask_window_s = 60
+# Apps that open https links count as browsers. Add bundle ids here for any that do not register.
+# browsers = ["com.example.Browser"]
+# Context-menu items `download` uses, matched lower case. Add your language's if the Mac is not in English.
+# download_menu = ["save image as", "download linked file", "save link as", "download image"]
 
 [run]
 base_url = "https://api.openai.com/v1"

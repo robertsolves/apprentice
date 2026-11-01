@@ -1,10 +1,10 @@
 # apprentice: Human-Paced Input and False-Positive Reduction
 
-Automation is most reliable when its input follows the same patterns as ordinary use of the machine. apprentice already bends the pointer along a Bézier curve, spaces keystrokes log-normally and picks a random point inside a control. What remains are compatibility and pacing gaps: most web clicks never move the pointer at all (tier 1 AX press), typing injects Unicode with `keyCode 0`, and actions land on a metronome. On a site that rate-limits sessions or challenges unusual input, those differences can produce a false positive on Robert's own account. This doc lists the differences and the changes that close them. Volume caps, soft blocks, challenges and site policies stay in `SITE_RULES.md`.
+Automation is most reliable when its input follows the same patterns as ordinary use of the machine. apprentice already bends the pointer along a Bézier curve, spaces keystrokes log-normally and picks a random point inside a control. What remains are compatibility and pacing gaps: most web clicks never move the pointer at all (tier 1 AX press), typing injects Unicode with `keyCode 0`, and actions land on a metronome. On a site that rate-limits sessions or challenges unusual input, those differences can produce a false positive on the user's own account. This doc lists the differences and the changes that close them. Volume caps, soft blocks, challenges and site policies stay in `SITE_RULES.md`.
 
-**What this is for.** Keeping permitted work — reading, drafting, routine changes, and QA in Robert's own logged-in profile — inside the pacing a person would produce, so the account isn't restricted by mistake. A session that outruns any plausible person is hard on the site, hard to debug and more likely to be stopped.
+**What this is for.** Keeping permitted work — reading, drafting, routine changes, and QA in the user's own logged-in profile — inside the pacing a person would produce, so the account isn't restricted by mistake. A session that outruns any plausible person is hard on the site, hard to debug and more likely to be stopped.
 
-**What this is not.** It does not solve CAPTCHAs, 2FA or identity checkpoints, spoof fingerprints or browser state, get around a site's terms or access controls, or continue after a site has said stop. The pacer cannot make prohibited automation permitted. `SPEC.md` keeps challenge bypass out of scope, and exit 8 still means stop and hand the session to Robert. Anything here that would conflict with a site's terms stays decided by the `[policy]` entries in `SITE_RULES.md`.
+**What this is not.** It does not solve CAPTCHAs, 2FA or identity checkpoints, spoof fingerprints or browser state, get around a site's terms or access controls, or continue after a site has said stop. The pacer cannot make prohibited automation permitted. `SPEC.md` keeps challenge bypass out of scope, and exit 8 still means stop and hand the session to the user. Anything here that would conflict with a site's terms stays decided by the `[policy]` entries in `SITE_RULES.md`.
 
 ## What a site measures
 
@@ -98,7 +98,7 @@ Each platform weighs volume and timing differently. These notes set the slower e
 | Reddit | Account age, karma, subreddit rules, upvote velocity | Read the community rules first; API first, as with GitHub |
 | X | Post, repost and follow velocity, read-before-action | API first; slow the timeline scroll |
 
-A challenge or checkpoint is still exit 8: stop and let Robert handle it. No pacing change makes continuing through one appropriate.
+A challenge or checkpoint is still exit 8: stop and let the user handle it. No pacing change makes continuing through one appropriate.
 
 ## Config
 

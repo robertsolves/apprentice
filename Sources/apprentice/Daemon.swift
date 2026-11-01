@@ -7,7 +7,8 @@ enum KillSwitch {
     static func install() {
         NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
             let flags = event.modifierFlags.intersection([.control, .option, .command])
-            if flags == [.control, .option, .command], event.keyCode == 47 {
+            // The "." key on whatever layout is in use; 47 is its US position.
+            if flags == [.control, .option, .command], event.charactersIgnoringModifiers == "." || event.keyCode == 47 {
                 tripped = true
                 NSSound.beep()
                 Daemon.queue.async { Store.log(["kill_switch": true]) }

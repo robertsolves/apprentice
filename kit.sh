@@ -15,11 +15,8 @@ new="$bin.new"
 cp "$root/.build/release/apprentice" "$new"
 
 id="${APPRENTICE_SIGN_IDENTITY:-}"
-if [ -z "$id" ]; then
-  # A keychain identity made when the tool was still called deskkontrol works too.
-  for name in apprentice deskkontrol; do
-    if security find-identity -v -p codesigning 2>/dev/null | grep -q "\"$name\""; then id="$name"; break; fi
-  done
+if [ -z "$id" ] && security find-identity -v -p codesigning 2>/dev/null | grep -q '"apprentice"'; then
+  id="apprentice"
 fi
 if [ -n "$id" ]; then
   codesign --force --sign "$id" "$new"
@@ -32,15 +29,8 @@ fi
 
 mv -f "$new" "$bin"
 
-# Clean up the install from when the tool was called deskkontrol.
-rm -rf "$HOME/.claude/skills/deskkontrol"
-rm -f "$HOME/.local/bin/deskkontrol"
-
 # Every coding agent on the Mac gets the skill and/or its global rules; the Claude and Cursor apps get the MCP server.
 python3 "$root/agent/connect.py" "$bin"
-if grep -q "<!-- deskkontrol -->" "$HOME/.config/opencode/AGENTS.md" 2>/dev/null; then
-  echo "note: ~/.config/opencode/AGENTS.md still has the old deskkontrol section; delete it from <!-- deskkontrol --> to the next section"
-fi
 
 # Notes live in the repo, so `git pull` brings in what was learned on other machines,
 # and `apprentice learn` writes new flows straight into the working tree to commit.

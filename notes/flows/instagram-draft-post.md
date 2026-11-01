@@ -23,5 +23,5 @@ Stops before location, which still needs a person or a screenshot. It never pres
 8. `click --on "{place}"` — the dropdown is not in the accessibility tree, so this finds it by OCR (needs Screen Recording); without that, `show "the {place} suggestion"` and `click --at` the point. Leave Share alone.
 
 ## Fails
-- Steps 1 to 6 ran together through `do` on 2026-11-01, with real input only. Steps 7 and 8 needed Robert once: he pointed at the field, then at the suggestion.
+- Steps 1 to 6 ran together through `do` on 2026-11-01, with real input only. Steps 7 and 8 needed the user once: they pointed at the field, then at the suggestion.
 - A caption ending in a #tag left a suggestion list open. A click on "Add location" then did not take focus, and typing went into the caption. `type` now checks focus first and stops.

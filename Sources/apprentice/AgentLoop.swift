@@ -101,14 +101,14 @@ enum AgentLoop {
             if case .ask(let question) = action {
                 print("step \(step) · ask \(question)")
                 var r = try Wire.send(Request(cmd: "ask", args: [question]))
-                // Exit 9: Robert is away from the Mac, or did not answer the window. Ask in this terminal.
+                // Exit 9: The user is away from the Mac, or did not answer the window. Ask in this terminal.
                 if r.code == 9, isatty(STDIN_FILENO) != 0 {
                     print("question for you: \(question)")
                     print("> ", terminator: "")
                     let answer = readLine() ?? ""
-                    r = Response(code: answer.isEmpty ? 5 : 0, out: "Robert: \(answer)")
+                    r = Response(code: answer.isEmpty ? 5 : 0, out: "user: \(answer)")
                 }
-                turn(reply, r.code == 0 ? r.out : "No answer from Robert. Choose another way or reply done.")
+                turn(reply, r.code == 0 ? r.out : "No answer from the user. Choose another way or reply done.")
                 continue
             }
             if case .decide(let yes) = action {

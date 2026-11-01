@@ -5,7 +5,7 @@ import IOKit.pwr_mgt
 /// the system do not idle-sleep, and the screen does not lock on idle. They are taken when a command
 /// starts and let go two minutes after the last one ends, so the LLM can think between steps; an idle
 /// daemon lets the Mac sleep as usual. It cannot stop a logout, a forced restart or sleep from closing
-/// a laptop lid on battery. Robert turns it on; agents do not.
+/// a laptop lid on battery. The user turns it on; agents do not.
 enum Awake {
     /// The setting: `[agent] keep_awake`, the start-up window, or `awake on|off`.
     private(set) static var enabled = false

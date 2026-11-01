@@ -1,6 +1,6 @@
 # apprentice: Working Within Site Rules
 
-Five additions would make permitted work on Robert's own accounts safer and easier to audit: daily budgets, rate-limit backoff, a machine-readable site policy, a clean handoff for challenges, and a restriction review. They keep sessions inside published or commonly enforced limits and stop cleanly when a site asks for a pause. None of them overrides a site's controls or expands what is permitted. The per-minute caps, reload limit, approval gate and allowlist already exist and are left out.
+Five additions would make permitted work on the user's own accounts safer and easier to audit: daily budgets, rate-limit backoff, a machine-readable site policy, a clean handoff for challenges, and a restriction review. They keep sessions inside published or commonly enforced limits and stop cleanly when a site asks for a pause. None of them overrides a site's controls or expands what is permitted. The per-minute caps, reload limit, approval gate and allowlist already exist and are left out.
 
 This is compliance work, not concealment: the daemon enforces limits and keeps a record. Where a site forbids automation, the policy entry refuses the session.
 
@@ -55,7 +55,7 @@ What the daemon does:
 1. Mark the domain `cooling` in `limits.json` and refuse every action on it with exit 4 `soft block: x.com, cooling until 15:40`.
 2. Hold off for 1 hour the first time, 6 hours the second time, then 24 hours. The counter resets after 7 days with no block.
 3. Log the trigger phrase, the last 5 steps and a screenshot.
-4. Let Robert clear it early with `apprentice cool --clear <domain>`. Agents cannot clear it.
+4. Let the user clear it early with `apprentice cool --clear <domain>`. Agents cannot clear it.
 
 Keep the phrase list in `config.toml`, so new wordings can be added without a rebuild.
 
@@ -70,16 +70,16 @@ Turn the "keep sites that forbid automation out of the allowlist" rule into data
 | `checked` | date | Warn when older than 6 months, since terms change |
 | `api` | short text | Shown next to the refusal, for example the official API or export |
 
-A `apprentice policy <domain>` command prints the entry. An unknown domain prints `no policy on file` once per session, so a gap gets noticed instead of ignored. Robert fills each entry after reading the site's terms. The tool should not guess them.
+A `apprentice policy <domain>` command prints the entry. An unknown domain prints `no policy on file` once per session, so a gap gets noticed instead of ignored. The user fills each entry after reading the site's terms. The tool should not guess them.
 
-## Handing challenges to Robert
+## Handing challenges to the user
 
 CAPTCHAs, 2FA prompts and identity checkpoints are out of scope, and the daemon should notice one rather than click around it. An agent that keeps clicking through a challenge is more likely to prolong the restriction than clear it.
 
 1. **Detect.** After each read, match known markers: an iframe or element labelled captcha, "verify you are human", "enter the code", "confirm it's you", or a one-time-code field.
 2. **Pause.** Return a new exit code, `8 challenge`, with the kind detected. Refuse all actions on that window until it clears.
 3. **Notify.** Post a macOS notification that names the site and the kind. Clicking it brings the session window to the front.
-4. **Resume.** Poll every 5 s, up to 10 minutes, and treat the challenge as solved once the markers are gone. Polling only observes the window; Robert is the only one who completes the challenge. Then return `0 resumed`, and the agent re-reads before acting.
+4. **Resume.** Poll every 5 s, up to 10 minutes, and treat the challenge as solved once the markers are gone. Polling only observes the window; the user is the only one who completes the challenge. Then return `0 resumed`, and the agent re-reads before acting.
 
 The agent should wait on exit 8 or end the task. It must never try the challenge itself. Add that rule to `SKILL.md` and `AGENTS.md`.
 
@@ -89,7 +89,7 @@ Step logs are kept per session, but a restriction usually comes from activity ac
 
 - `apprentice activity <domain> [--days 7]` prints action counts per day and kind, budget use, rate limits and challenges, all on one timeline across sessions.
 - Keep a small `~/.apprentice/events.jsonl` of rate limits, challenges and budget refusals for 180 days, longer than the 30-day step logs. Restrictions often show up weeks after the activity that caused them.
-- `apprentice flag <domain> "note"` records the time Robert saw a warning or restriction. `activity` then marks that point, so the 48 hours before it can be compared with a normal week.
+- `apprentice flag <domain> "note"` records the time the user saw a warning or restriction. `activity` then marks that point, so the 48 hours before it can be compared with a normal week.
 
 ## Order of work
 
