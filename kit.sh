@@ -9,7 +9,10 @@ echo "building release…"
 
 bin="$HOME/.local/bin/apprentice"
 mkdir -p "$(dirname "$bin")"
-cp "$root/.build/release/apprentice" "$bin"
+# Signed beside the old binary, then swapped in with a rename: a running apprentice keeps
+# its own copy, so `apprentice commit` and `update` can rebuild themselves.
+new="$bin.new"
+cp "$root/.build/release/apprentice" "$new"
 
 id="${APPRENTICE_SIGN_IDENTITY:-}"
 if [ -z "$id" ]; then
@@ -19,13 +22,15 @@ if [ -z "$id" ]; then
   done
 fi
 if [ -n "$id" ]; then
-  codesign --force --sign "$id" "$bin"
+  codesign --force --sign "$id" "$new"
   echo "signed with $id (permissions survive rebuilds)"
 else
-  codesign --force --sign - "$bin" 2>/dev/null || true
+  codesign --force --sign - "$new" 2>/dev/null || true
   echo "warning: ad-hoc signed. Set APPRENTICE_SIGN_IDENTITY to a stable local identity"
   echo "         so Accessibility and Screen Recording grants survive rebuilds."
 fi
+
+mv -f "$new" "$bin"
 
 cp "$root/agent/SKILL.md" "$HOME/.claude/skills/apprentice/SKILL.md"
 
