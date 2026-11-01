@@ -60,7 +60,9 @@ gh api repos/robertsolves/apprentice/contents/install.sh -H "Accept: application
   - Codex and the ChatGPT app, opencode, Kilo and Gemini CLI get `agent/AGENTS.md` in their global rules file, between `<!-- apprentice -->` markers, replaced on every run;
   - the Claude desktop app and Cursor, which have no shell, get the MCP server (`apprentice mcp`);
 - links `~/.apprentice/notes` to the repo's `notes/`;
-- writes example `config.toml` and `routes.toml` files to `~/.apprentice/`.
+- writes example `config.toml` and `routes.toml` files, if you have none yet.
+
+The installer also asks where to keep your settings: on this Mac only, or in a private GitHub repo (`<you>/apprentice-settings`) that every Mac you install on shares.
 
 Then grant **Accessibility** and **Screen Recording** to `~/.local/bin/apprentice` in System Settings → Privacy & Security, and run `apprentice stop` so the next command starts a fresh daemon.
 
@@ -89,6 +91,7 @@ The first `session` after the daemon starts opens an options window:
 | `shot` · `ocr` · `log` | A screenshot, OCR of the window, recent steps |
 | `policy` · `away on\|off` · `awake on\|off` | Settings for shell use, remote questions and keep-awake |
 | `grow` · `bug "summary" --fix "…"` | What to improve next, and field reports |
+| `settings [github \| local \| sync]` | Keep settings on this Mac, or in a private GitHub repo shared by your Macs |
 | `commit "what and why"` · `update` · `pr` · `repo` | A small commit (rebuilds on a source change), upstream fixes in, your fixes out as a pull request, and where the clone is |
 | `run "task" --model <name>` · `mcp` | A built-in loop for any OpenAI-compatible model, and an MCP server |
 
@@ -110,7 +113,15 @@ Add `--json` to any command for the raw reply.
 
 ## Configuration
 
-`~/.apprentice/config.toml` (see `agent/config.example.toml`):
+Settings are `config.toml` (see `agent/config.example.toml`) and `routes.toml`. They live in `~/.apprentice/` on this Mac only, or in `~/.apprentice/settings/` when they sync with GitHub:
+- `apprentice settings` says which;
+- `apprentice settings github [--repo name]` moves them into a private repo, creating it if needed. On a second Mac it uses the repo's copies and keeps the local ones as `.local`;
+- `apprentice settings sync` syncs now. Changes also sync in the background: when you save choices in the options window, and at most hourly when a session starts;
+- `apprentice settings local` moves them back to this Mac and leaves the repo alone.
+
+Only those two files sync. Sessions, logs and screenshots stay on the Mac, and a config with an `api_key` in it is never pushed (use `APPRENTICE_API_KEY`).
+
+`config.toml` has:
 
 - **`[pace.*]`:** mouse, typing and navigation timing, with optional profiles per site or app.
 - **`[session] allow`:** the sites a session may act on.
@@ -122,7 +133,7 @@ Add `--json` to any command for the raw reply.
   - `ask_on_start` shows the options window.
 - **`[run]`:** the model endpoint for `apprentice run`.
 
-`APPRENTICE_UI_ONLY`, `APPRENTICE_MODEL`, `APPRENTICE_BASE_URL` and `APPRENTICE_API_KEY` override the file for one shell.
+`APPRENTICE_HOME` moves all state out of `~/.apprentice`. `APPRENTICE_UI_ONLY`, `APPRENTICE_MODEL`, `APPRENTICE_BASE_URL` and `APPRENTICE_API_KEY` override the file for one shell.
 
 ## Notes and flows
 
