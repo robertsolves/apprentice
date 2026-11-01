@@ -69,4 +69,20 @@ fi
 git -C "$dir" config user.name >/dev/null || git -C "$dir" config user.name "$account"
 git -C "$dir" config user.email >/dev/null || git -C "$dir" config user.email "$account@users.noreply.github.com"
 
-exec "$dir/kit.sh"
+# Settings: this Mac only, or a private repo every Mac you install on shares.
+store="local"
+if [ -d "$HOME/.apprentice/settings/.git" ]; then
+  store="github"
+elif [ -n "$tty" ]; then
+  echo "Where should apprentice keep your settings (config.toml, routes.toml)?"
+  echo "  1) on this Mac only"
+  echo "  2) in a private GitHub repo, $account/apprentice-settings, shared by every Mac you install on"
+  printf 'Choose 1 or 2 [1]: '
+  read -r choice <"$tty" || true
+  [ "${choice:-1}" = "2" ] && store="github"
+fi
+
+"$dir/kit.sh"
+if [ "$store" = "github" ]; then
+  "$HOME/.local/bin/apprentice" settings github
+fi

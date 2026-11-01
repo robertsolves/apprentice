@@ -54,13 +54,16 @@ else
   echo "warning: $notes is a real folder; move its files into $root/notes, delete it, and re-run"
 fi
 
-if [ ! -f "$HOME/.apprentice/config.toml" ]; then
-  cp "$root/agent/config.example.toml" "$HOME/.apprentice/config.toml"
-  echo "wrote ~/.apprentice/config.toml"
+# Settings live in ~/.apprentice/settings when they sync with GitHub (`apprentice settings github`).
+settings="$HOME/.apprentice"
+[ -d "$settings/settings/.git" ] && settings="$settings/settings"
+if [ ! -f "$settings/config.toml" ]; then
+  cp "$root/agent/config.example.toml" "$settings/config.toml"
+  echo "wrote $settings/config.toml"
 fi
-if [ ! -f "$HOME/.apprentice/routes.toml" ]; then
-  cp "$root/agent/routes.example.toml" "$HOME/.apprentice/routes.toml"
-  echo "wrote ~/.apprentice/routes.toml"
+if [ ! -f "$settings/routes.toml" ]; then
+  cp "$root/agent/routes.example.toml" "$settings/routes.toml"
+  echo "wrote $settings/routes.toml"
 fi
 
 echo
