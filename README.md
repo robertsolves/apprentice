@@ -52,13 +52,14 @@ You need macOS 14 or later, Swift 5.9 (Xcode or the command-line tools) and the 
 gh api repos/robertsolves/apprentice/contents/install.sh -H "Accept: application/vnd.github.raw" | bash
 ```
 
-`install.sh` asks which GitHub account to use (signing you in to `gh` if needed), forks the repo into it, and clones the fork to `~/.apprentice/src`. Set `APPRENTICE_DIR` to put it elsewhere. Then it runs `kit.sh`. The repo is private, so your account needs access to it. From a clone you already have, run `./kit.sh` directly.
+`install.sh` asks which GitHub account or organisation to use (signing you in to `gh` if needed). It reuses your fork if you have one, whatever it is called, forks the repo if you don't, and clones it to `~/.apprentice/src`. The repo's owner gets a clone of the repo itself. Running it again updates the clone of your last install, wherever it is (it follows `~/.apprentice/notes`), and fixes its remotes: `origin` is where your commits go, and `upstream` is this repo. Set `APPRENTICE_DIR` to pick the folder. Then it runs `kit.sh`. The repo is private, so your account needs access to it. From a clone you already have, run `./kit.sh` directly.
 
 `kit.sh` builds a release binary into `~/.local/bin/apprentice` and signs it. Set `APPRENTICE_SIGN_IDENTITY`, or keep a keychain identity named `apprentice`, so your permissions survive rebuilds. It also:
 - connects every AI assistant it finds on the Mac (`agent/connect.py`), and leaves out the ones that aren't installed:
-  - Claude Code gets the skill (`agent/SKILL.md`);
+  - Claude Code gets the skill (`agent/SKILL.md`) in `~/.claude/skills`, and Codex and opencode get it in `~/.agents/skills`;
   - Codex and the ChatGPT app, opencode, Kilo and Gemini CLI get `agent/AGENTS.md` in their global rules file, between `<!-- apprentice -->` markers, replaced on every run;
   - the Claude desktop app and Cursor, which have no shell, get the MCP server (`apprentice mcp`);
+- puts `~/.local/bin` on your PATH in `~/.zprofile` (or `~/.bash_profile`), so agents can run `apprentice`;
 - links `~/.apprentice/notes` to the repo's `notes/`;
 - writes example `config.toml` and `routes.toml` files, if you have none yet.
 

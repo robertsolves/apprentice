@@ -2,7 +2,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")" && pwd)"
-mkdir -p "$HOME/.apprentice/replays" "$HOME/.claude/skills/apprentice"
+mkdir -p "$HOME/.apprentice/replays" "$HOME/.claude/skills/apprentice" "$HOME/.agents/skills/apprentice"
 
 echo "building release…"
 (cd "$root" && swift build -c release)
@@ -32,7 +32,9 @@ fi
 
 mv -f "$new" "$bin"
 
+# Claude Code reads ~/.claude/skills; Codex and opencode read the shared ~/.agents/skills.
 cp "$root/agent/SKILL.md" "$HOME/.claude/skills/apprentice/SKILL.md"
+cp "$root/agent/SKILL.md" "$HOME/.agents/skills/apprentice/SKILL.md"
 
 # Clean up the install from when the tool was called deskkontrol.
 rm -rf "$HOME/.claude/skills/deskkontrol"
@@ -68,9 +70,14 @@ fi
 
 echo
 echo "installed $bin"
-case ":$PATH:" in
-  *":$HOME/.local/bin:"*) ;;
-  *) echo "add this to your shell profile: export PATH=\"\$HOME/.local/bin:\$PATH\"" ;;
+# Agents run `apprentice` from a login shell, so ~/.local/bin goes on PATH in the profile.
+case "$(basename "${SHELL:-zsh}")" in
+  bash) profile="$HOME/.bash_profile" ;;
+  *) profile="$HOME/.zprofile" ;;
 esac
+if ! grep -qs '\.local/bin' "$profile"; then
+  printf '\n# apprentice\nexport PATH="$HOME/.local/bin:$PATH"\n' >>"$profile"
+  echo "put ~/.local/bin on PATH in $profile (open a new terminal)"
+fi
 echo "grant Accessibility and Screen Recording to $bin in System Settings, then run:"
 echo "  apprentice serve"
