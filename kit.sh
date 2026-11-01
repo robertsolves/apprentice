@@ -2,7 +2,7 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")" && pwd)"
-mkdir -p "$HOME/.apprentice/replays" "$HOME/.claude/skills/apprentice" "$HOME/.agents/skills/apprentice"
+mkdir -p "$HOME/.apprentice/replays"
 
 echo "building release…"
 (cd "$root" && swift build -c release)
@@ -32,15 +32,11 @@ fi
 
 mv -f "$new" "$bin"
 
-# Claude Code reads ~/.claude/skills; Codex and opencode read the shared ~/.agents/skills.
-cp "$root/agent/SKILL.md" "$HOME/.claude/skills/apprentice/SKILL.md"
-cp "$root/agent/SKILL.md" "$HOME/.agents/skills/apprentice/SKILL.md"
-
 # Clean up the install from when the tool was called deskkontrol.
 rm -rf "$HOME/.claude/skills/deskkontrol"
 rm -f "$HOME/.local/bin/deskkontrol"
 
-# Codex/ChatGPT, opencode, Kilo and Gemini get the instructions; the Claude and Cursor apps get the MCP server.
+# Every coding agent on the Mac gets the skill and/or its global rules; the Claude and Cursor apps get the MCP server.
 python3 "$root/agent/connect.py" "$bin"
 if grep -q "<!-- deskkontrol -->" "$HOME/.config/opencode/AGENTS.md" 2>/dev/null; then
   echo "note: ~/.config/opencode/AGENTS.md still has the old deskkontrol section; delete it from <!-- deskkontrol --> to the next section"

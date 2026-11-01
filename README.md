@@ -56,8 +56,8 @@ gh api repos/robertsolves/apprentice/contents/install.sh -H "Accept: application
 
 `kit.sh` builds a release binary into `~/.local/bin/apprentice` and signs it. Set `APPRENTICE_SIGN_IDENTITY`, or keep a keychain identity named `apprentice`, so your permissions survive rebuilds. It also:
 - connects every AI assistant it finds on the Mac (`agent/connect.py`), and leaves out the ones that aren't installed:
-  - Claude Code gets the skill (`agent/SKILL.md`) in `~/.claude/skills`, and Codex and opencode get it in `~/.agents/skills`;
-  - Codex and the ChatGPT app, opencode, Kilo and Gemini CLI get `agent/AGENTS.md` in their global rules file, between `<!-- apprentice -->` markers, replaced on every run;
+  - the skill (`agent/SKILL.md`) goes to `~/.claude/skills` (Claude Code), `~/.agents/skills` (Codex, opencode, Amp) and `~/.factory/skills` (Factory Droid);
+  - the instructions (`agent/AGENTS.md`) go between `<!-- apprentice -->` markers, replaced on every run, in the global rules file of each installed agent: Codex and the ChatGPT app, opencode, Kilo, Gemini CLI, Qwen Code, GitHub Copilot CLI, Amp, Factory Droid, Crush, goose, Augment's Auggie, and Freebuff and Codebuff (`~/.AGENTS.md`). The shared `~/.agents/AGENTS.md`, which Cline and other agents read, always gets them;
   - the Claude desktop app and Cursor, which have no shell, get the MCP server (`apprentice mcp`);
 - puts `~/.local/bin` on your PATH in `~/.zprofile` (or `~/.bash_profile`), so agents can run `apprentice`;
 - links `~/.apprentice/notes` to the repo's `notes/`;
