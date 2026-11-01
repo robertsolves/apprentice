@@ -42,6 +42,11 @@ enum Settings {
             let made = Repo.run("gh", ["repo", "create", name, "--private", "--description", "apprentice settings"], in: Store.dir)
             guard made.code == 0 else { throw Fail(5, "could not create \(name): \(made.out)") }
         }
+        // A clone that failed halfway leaves a folder that would block this one (M4).
+        if let left = try? FileManager.default.contentsOfDirectory(atPath: repoDir.path) {
+            guard left.isEmpty else { throw Fail(5, "\(repoDir.path) exists but is not a clone: move its files out and run this again") }
+            try FileManager.default.removeItem(at: repoDir)
+        }
         let cloned = Repo.run("gh", ["repo", "clone", name, repoDir.path], in: Store.dir)
         guard cloned.code == 0 else { throw Fail(5, "could not clone \(name): \(cloned.out)") }
         var out = ["settings: now in the private repo \(name)"]
@@ -50,8 +55,9 @@ enum Settings {
             let here = Store.dir.appendingPathComponent(file), there = repoDir.appendingPathComponent(file)
             guard fm.fileExists(atPath: here.path) else { continue }
             if fm.fileExists(atPath: there.path) {
-                try? fm.removeItem(at: there.appendingPathExtension("local"))
-                try fm.moveItem(at: here, to: Store.dir.appendingPathComponent(file + ".local"))
+                let kept = Store.dir.appendingPathComponent(file + ".local")
+                try? fm.removeItem(at: kept)  // from an earlier switch (M5)
+                try fm.moveItem(at: here, to: kept)
                 out.append("\(file): using the one from GitHub; this Mac's copy is \(Store.dir.path)/\(file).local")
             } else {
                 try fm.moveItem(at: here, to: there)
@@ -98,7 +104,7 @@ enum Settings {
         let stamp = repoDir.appendingPathComponent(".git/FETCH_HEAD")
         let last = (try? stamp.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
         guard force || last.map({ Date().timeIntervalSince($0) > 3600 }) ?? true, syncer?.isRunning != true else { return nil }
-        let proc = Process()
+        let proc = Repo.quiet(Process())
         proc.executableURL = URL(fileURLWithPath: "/bin/bash")
         proc.arguments = ["-c", "git add -A && { git diff --cached --quiet || git commit -qm \"$1\"; } ; git pull -q --rebase origin HEAD || git rebase --abort; git push -q -u origin HEAD", "sync", commitMessage]
         proc.currentDirectoryURL = repoDir
