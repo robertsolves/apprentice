@@ -158,7 +158,8 @@ enum Notes {
         guard !summary.isEmpty else { throw Fail(5, "bug \"summary\" [--repro \"…\"] [--cause \"file:line …\"] [--fix \"…\"]") }
         let file = bugFile
         var text = (try? String(contentsOf: file, encoding: .utf8)) ?? "# apprentice — bug audit\n"
-        if !text.contains("## Field reports") {
+        // The heading on a line of its own: prose that quotes it does not count (M8).
+        if !text.components(separatedBy: "\n").contains("## Field reports") {
             text += "\n## Field reports\n\nFiled by `apprentice bug` while working. Each has a suggested fix to review; none is applied.\n"
         }
         let count = text.components(separatedBy: "\n### F").count
