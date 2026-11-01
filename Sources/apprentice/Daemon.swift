@@ -33,6 +33,7 @@ enum Daemon {
         try? String(ProcessInfo.processInfo.processIdentifier).write(toFile: Store.pidPath, atomically: true, encoding: .utf8)
         Store.pruneLogs()
         KillSwitch.install()
+        Borrow.watchHuman()
         if Config.current.keepAwake { Awake.set(true) }
 
         let server = UnixServer(path: Store.socketPath) { req -> (Response, Bool) in

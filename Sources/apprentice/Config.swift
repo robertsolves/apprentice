@@ -62,13 +62,15 @@ enum Toml {
     }
 }
 
+/// Keystrokes keep a slight human rhythm; cursor travel and the pause between actions do not wait
+/// by default. A site profile can put the gaps back (`between_actions_ms`, `move_ms`).
 struct PaceConfig {
-    var moveMin = 0.2
-    var moveMax = 0.9
+    var moveMin = 0.05
+    var moveMax = 0.2
     var keyMedian = 0.10
     var keySigma = 0.4
-    var betweenMin = 0.5
-    var betweenMax = 2.0
+    var betweenMin = 0.0
+    var betweenMax = 0.0
     var navGap = 5.0
     var reloadMax = 3.0
     var reloadWindow = 120.0

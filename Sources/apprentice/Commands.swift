@@ -219,7 +219,7 @@ func gate(_ session: Session, _ target: Target, _ e: Element?, _ summary: String
         target.app.set(kAXFrontmostAttribute, kCFBooleanTrue)
         target.window.set(kAXMainAttribute, kCFBooleanTrue)
         target.window.perform(kAXRaiseAction)
-        Pace.sleep(0.3)
+        Pace.sleep(0.2)
     }
 }
 
@@ -514,7 +514,7 @@ enum Commands {
         }
         var last = node?.frame ?? e.rect
         for _ in 0..<6 {
-            Pace.sleep(0.15)
+            Pace.sleep(0.05)
             let now = node?.frame ?? last
             if now == last { break }
             last = now
@@ -538,7 +538,7 @@ enum Commands {
                          focused: Bool = false, fast: Bool = false, label: String = "the field") throws -> String? {
         if !focused {
             try realClick(rect)
-            Pace.sleep(0.2)
+            Pace.sleep(0.1)
         }
         try Borrow.checkpoint()
         // cmd+a would wipe whatever has focus, so check that the click reached the field. Browsers
@@ -569,7 +569,7 @@ enum Commands {
         // Keys can land nowhere (another app or tool has focus) while every step "works" (F4). Checked
         // before any return is pressed, so nothing half-typed is sent.
         guard !text.isEmpty else { return nil }
-        Pace.sleep(0.3)
+        Pace.sleep(0.2)
         guard let after = shown() else { return nil }
         if after.isEmpty {
             throw Fail(5, "the keys did not arrive: \(label) is still empty after typing. Another app or tool may have focus; check with `read`")
@@ -654,10 +654,10 @@ enum Commands {
         try Borrow.run(target) {
             note = try typeInto(node, rect, text, target, focused: focused, fast: fast, label: e.short)
             if enter {
-                Pace.sleep(0.2)
+                Pace.sleep(0.1)
                 try Keys.press("return")
             }
-            Pace.sleep(0.3)
+            Pace.sleep(0.1)
         }
         return finish("type", session, target, old, extra: note.map { [$0] } ?? [],
                       log: ["id": id, "chars": text.count, "label": e.label, "name": e.name])
@@ -690,7 +690,7 @@ enum Commands {
         try gate(session, target, nil, "press \(combo)", warn: submits ? ["\(combo) may submit or send"] : [])
         try beforeAction(session, url: target.url)
         try Borrow.run(target) { try Keys.press(combo) }
-        Pace.sleep(0.2)
+        Pace.sleep(0.1)
         return finish("key", session, target, old, extra: ["→ \(combo)"], log: ["combo": combo])
     }
 
@@ -901,7 +901,7 @@ enum Commands {
             return nil
         }
         guard let field = walk(dialog, 0), let f = field.frame else { throw Fail(5, "the save dialog has no name field") }
-        try Borrow.run(target) { try typeInto(field, f, name, target, label: "the name field") }
+        _ = try Borrow.run(target) { try typeInto(field, f, name, target, label: "the name field") }
     }
 
     static func upload(_ a: Args) throws -> String {
@@ -1043,7 +1043,8 @@ enum Commands {
             // "2026-11-01T12:34:56+10:00" → "12:34:56", in the local time the stamp was written in
             let time = (obj["ts"] as? String).flatMap { $0.split(separator: "T").last.map { String($0.prefix(8)) } } ?? ""
             let cmd = obj["cmd"] as? String ?? obj["gate"] as? String
-                ?? (obj["proposed"] as? String).map { "proposed \($0)" } ?? "step"
+                ?? (obj["proposed"] as? String).map { "proposed \($0)" }
+                ?? (obj["error"] as? String).map { "\(obj["failed"] ?? "?") failed: \($0.split(separator: "\n").first ?? "")" } ?? "step"
             var bits = ["\(time)", cmd]
             if let tier = obj["tier"] { bits.append("tier \(tier)") }
             if let snap = obj["snap"] { bits.append("snap \(snap)") }

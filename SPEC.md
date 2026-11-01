@@ -216,10 +216,10 @@ All ranges live in one config file, with profiles per domain or app:
 ```toml
 # ~/.apprentice/config.toml
 [pace.default]
-move_ms = [200, 900]
+move_ms = [50, 200]
 key_ms_median = 100
 key_ms_sigma = 0.4
-between_actions_ms = [500, 2000]
+between_actions_ms = [0, 0]
 nav_min_gap_s = 5
 reload_max = { count = 3, window_s = 120 }
 actions_per_min = 30

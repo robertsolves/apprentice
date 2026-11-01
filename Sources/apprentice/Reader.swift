@@ -301,10 +301,10 @@ func header(_ s: Snapshot, app: String, shown: Int) -> String {
 /// Waits for the tree to stop changing, then returns the new snapshot.
 func settle(_ t: Target, maxWait: Double = 4) -> Snapshot {
     let start = Date()
-    Pace.sleep(0.35)
+    Pace.sleep(0.1)
     var last = readSnapshot(t)
     while Date().timeIntervalSince(start) < maxWait {
-        Pace.sleep(0.3)
+        Pace.sleep(0.15)
         let next = readSnapshot(t)
         // Values count too: a field still filling in or a counter still moving is not settled (B15).
         if next.elements.map({ $0.key + "|" + ($0.value ?? "") }) == last.elements.map({ $0.key + "|" + ($0.value ?? "") }) { return next }

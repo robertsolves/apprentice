@@ -147,7 +147,7 @@ enum Keys {
     static func type(_ text: String, fast: Bool = false) throws {
         let began = Date()
         defer { Timing.add("type", Date().timeIntervalSince(began)) }
-        Pace.sleep(Double.random(in: 0.15...0.35))
+        Pace.sleep(Double.random(in: 0.08...0.2))
         var prev: Character?
         var sent = 0
         for ch in text {
@@ -188,6 +188,7 @@ enum Keys {
     /// Every event goes through the system input stream, like a person's mouse and keyboard.
     static func post(_ e: CGEvent) {
         e.setIntegerValueField(.eventSourceUserData, value: tag)
+        Borrow.lastOwnPost = Date()
         e.post(tap: .cghidEventTap)
     }
 }
@@ -305,10 +306,33 @@ enum Borrow {
         CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: UInt32.max)!)
     }
 
+    /// When apprentice last posted an event, and when the person last pressed, clicked or moved.
+    static var lastOwnPost = Date.distantPast
+    static var lastHumanEvent = Date.distantPast
+
+    /// Installed once, on the main run loop: every untagged key, click or move is the person's.
+    static func watchHuman() {
+        let mask: NSEvent.EventTypeMask = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .mouseMoved, .scrollWheel,
+                                           .leftMouseDragged, .rightMouseDragged]
+        NSEvent.addGlobalMonitorForEvents(matching: mask) { event in
+            if event.cgEvent?.getIntegerValueField(.eventSourceUserData) != Keys.tag { lastHumanEvent = Date() }
+        }
+    }
+
+    /// Seconds since the person last did anything. The system's idle counter restarts on apprentice's
+    /// own events too, so when the last event was apprentice's, the monitor's record is used instead;
+    /// otherwise the system's count stands, which also covers keys the monitor cannot see (secure input).
+    static var humanIdle: Double {
+        let idle = idleSeconds
+        let sinceOwn = Date().timeIntervalSince(lastOwnPost)
+        let lastWasOurs = abs(idle - sinceOwn) < 0.08
+        return lastWasOurs ? Date().timeIntervalSince(lastHumanEvent) : idle
+    }
+
     static func waitIdle(_ seconds: Double = 1) throws {
         let deadline = Date().addingTimeInterval(30)
         try Timing.measure("idle") {
-            while idleSeconds < seconds {
+            while humanIdle < seconds {
                 if Date() > deadline { throw Fail(6, "interrupted: you were active for 30 s, try again") }
                 Pace.sleep(0.2)
             }
@@ -329,10 +353,13 @@ enum Borrow {
                 if event.cgEvent?.getIntegerValueField(.eventSourceUserData) != Keys.tag { interrupted = true }
             }
         }
-        t.app.set(kAXFrontmostAttribute, kCFBooleanTrue)
-        t.window.set(kAXMainAttribute, kCFBooleanTrue)
-        t.window.perform(kAXRaiseAction)
-        Pace.sleep(0.3)
+        // `gate` usually brought the window forward already; raising again only costs time.
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier != t.pid {
+            t.app.set(kAXFrontmostAttribute, kCFBooleanTrue)
+            t.window.set(kAXMainAttribute, kCFBooleanTrue)
+            t.window.perform(kAXRaiseAction)
+            Pace.sleep(0.2)
+        }
         defer {
             active = false
             if let monitor { DispatchQueue.main.sync { NSEvent.removeMonitor(monitor) } }

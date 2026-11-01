@@ -1,10 +1,12 @@
 # ~/.apprentice/config.toml
 
+# Keystrokes keep a slight human rhythm. The cursor and the pause between actions do not wait;
+# raise move_ms (e.g. [200, 900]) and between_actions_ms (e.g. [500, 2000]) for a site that needs it.
 [pace.default]
-move_ms = [200, 900]
+move_ms = [50, 200]
 key_ms_median = 100
 key_ms_sigma = 0.4
-between_actions_ms = [500, 2000]
+between_actions_ms = [0, 0]
 nav_min_gap_s = 5
 reload_max = { count = 3, window_s = 120 }
 actions_per_min = 30
@@ -14,7 +16,7 @@ actions_per_min = 30
 # actions_per_min = 20
 
 [pace.native]
-mode = "fast"
+mode = "fast"   # shorter key gaps in native apps
 
 [session]
 # Empty means unrestricted. Example: allow = ["github.com", "example.com"]
