@@ -33,15 +33,10 @@ cp "$root/agent/SKILL.md" "$HOME/.claude/skills/apprentice/SKILL.md"
 rm -rf "$HOME/.claude/skills/deskkontrol"
 rm -f "$HOME/.local/bin/deskkontrol"
 
-agents="$HOME/.config/opencode/AGENTS.md"
-mkdir -p "$(dirname "$agents")"
-if touch "$agents" && ! grep -q "<!-- apprentice -->" "$agents" 2>/dev/null; then
-  printf '\n<!-- apprentice -->\n' >> "$agents"
-  cat "$root/agent/AGENTS.md" >> "$agents"
-  echo "appended the apprentice section to $agents"
-fi
-if grep -q "<!-- deskkontrol -->" "$agents" 2>/dev/null; then
-  echo "note: $agents still has the old deskkontrol section; delete it from <!-- deskkontrol --> to the next section"
+# Codex/ChatGPT, opencode, Kilo and Gemini get the instructions; the Claude and Cursor apps get the MCP server.
+python3 "$root/agent/connect.py" "$bin"
+if grep -q "<!-- deskkontrol -->" "$HOME/.config/opencode/AGENTS.md" 2>/dev/null; then
+  echo "note: ~/.config/opencode/AGENTS.md still has the old deskkontrol section; delete it from <!-- deskkontrol --> to the next section"
 fi
 
 # Notes live in the repo, so `git pull` brings in what was learned on other machines,

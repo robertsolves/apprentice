@@ -54,7 +54,10 @@ gh api repos/robertsolves/apprentice/contents/install.sh -H "Accept: application
 `install.sh` clones the repo to `~/.apprentice/src` (set `APPRENTICE_DIR` to put it elsewhere), or pulls if it is already there, then runs `kit.sh`. The repo is private, so it clones with your `gh` login, or with your SSH key when `gh` is not signed in. From a clone you already have, run `./kit.sh` directly.
 
 `kit.sh` builds a release binary into `~/.local/bin/apprentice` and signs it. Set `APPRENTICE_SIGN_IDENTITY`, or keep a keychain identity named `apprentice`, so your permissions survive rebuilds. It also:
-- installs the Claude Code skill (`agent/SKILL.md`) and the opencode section (`agent/AGENTS.md`);
+- connects every AI assistant it finds on the Mac (`agent/connect.py`), and leaves out the ones that aren't installed:
+  - Claude Code gets the skill (`agent/SKILL.md`);
+  - Codex and the ChatGPT app, opencode, Kilo and Gemini CLI get `agent/AGENTS.md` in their global rules file, between `<!-- apprentice -->` markers, replaced on every run;
+  - the Claude desktop app and Cursor, which have no shell, get the MCP server (`apprentice mcp`);
 - links `~/.apprentice/notes` to the repo's `notes/`;
 - writes example `config.toml` and `routes.toml` files to `~/.apprentice/`.
 
