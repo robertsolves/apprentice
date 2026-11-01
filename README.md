@@ -15,7 +15,7 @@ $ apprentice read --max 6
 <screen>
 snap 1 · Safari · github.com/settings/profile · 6 of 41 shown
 1 link "Your profile"
-2 textbox "Name" value="Robert M."
+2 textbox "Name" value="Sam Lee"
 3 textarea "Bio" value=""
 4 button "Update profile" [gated]
 …
@@ -56,8 +56,8 @@ gh api repos/robertsolves/apprentice/contents/install.sh -H "Accept: application
 
 `kit.sh` builds a release binary into `~/.local/bin/apprentice` and signs it. Set `APPRENTICE_SIGN_IDENTITY`, or keep a keychain identity named `apprentice`, so your permissions survive rebuilds. It also:
 - connects every AI assistant it finds on the Mac (`agent/connect.py`), and leaves out the ones that aren't installed:
-  - the skill (`agent/SKILL.md`) goes to `~/.claude/skills` (Claude Code), `~/.agents/skills` (Codex, opencode, Amp) and `~/.factory/skills` (Factory Droid);
-  - the instructions (`agent/AGENTS.md`) go between `<!-- apprentice -->` markers, replaced on every run, in the global rules file of each installed agent: Codex and the ChatGPT app, opencode, Kilo, Gemini CLI, Qwen Code, GitHub Copilot CLI, Amp, Factory Droid, Crush, goose, Augment's Auggie, and Freebuff and Codebuff (`~/.AGENTS.md`). The shared `~/.agents/AGENTS.md`, which Cline and other agents read, always gets them;
+  - the skill (`agent/SKILL.md`) goes to `~/.claude/skills` and the shared `~/.agents/skills`, which nearly every agent reads, and to `~/.factory/skills` (Factory Droid) and `~/.continue/skills` (Continue), which read only their own;
+  - the instructions (`agent/AGENTS.md`) go between `<!-- apprentice -->` markers, replaced on every run, in the global rules file of each installed agent: Codex and the ChatGPT app, opencode, Kilo, Gemini CLI, Qwen Code, GitHub Copilot CLI, Amp, Factory Droid, Crush, Mistral Vibe, Continue, Augment's Auggie, and Freebuff and Codebuff (`~/.AGENTS.md`). The shared `~/.agents/AGENTS.md`, which Cline and goose read, always gets them. Kimi, Warp and Cursor's CLI have no global rules file and get the skill only;
   - the Claude desktop app and Cursor, which have no shell, get the MCP server (`apprentice mcp`);
 - puts `~/.local/bin` on your PATH in `~/.zprofile` (or `~/.bash_profile`), so agents can run `apprentice`;
 - links `~/.apprentice/notes` to the repo's `notes/`;
@@ -86,7 +86,7 @@ The first `session` after the daemon starts opens an options window:
 | `open <url>` | Navigate the browser window, at a polite pace |
 | `upload <id> <file>` · `download <id> <path>` · `choose <path>` | Files, through the system's own dialogs |
 | `approve <token>` · `deny <token>` · `confirm <token>` · `pending` | Approvals |
-| `ask "question" [--choices "A\|B"] [--multi] [--text]` · `show "what"` | Ask Robert in the little window |
+| `ask "question" [--choices "A\|B"] [--multi] [--text]` · `show "what"` | Ask the user in the little window |
 | `notes "words"` · `learn "task"` · `do <flow> --key value` | Learned notes and flows |
 | `route "task"` | Check for a faster route (an API, `gh`, a connector) before using the screen |
 | `shot` · `ocr` · `log` | A screenshot, OCR of the window, recent steps |
@@ -104,13 +104,13 @@ Add `--json` to any command for the raw reply.
 | --- | --- |
 | 0 | ok |
 | 2 | stale: the screen changed, read it again |
-| 3 | Robert denied the step |
+| 3 | The user denied the step |
 | 4 | blocked by the allowlist or a rate limit |
 | 5 | not found, timed out, or a usage error |
-| 6 | interrupted by Robert or the kill switch |
+| 6 | interrupted by the user or the kill switch |
 | 7 | a permission is missing |
 | 8 | approval needed: proposed, nothing done yet |
-| 9 | ask Robert in the chat: he is away or did not answer the window |
+| 9 | ask the user in the chat: they are away or did not answer the window |
 
 ## Configuration
 

@@ -77,15 +77,24 @@ def mcp(name, command, folder, filename):
         print(f"{name}: MCP server in {path} (restart the app)")
 
 
-# Skills. Codex, opencode and Amp read the shared ~/.agents/skills.
+# Skills. Codex, opencode, Kilo, Gemini, Qwen, Amp, Copilot, Crush, goose, Cline, Auggie, Vibe,
+# Kimi, Warp and Freebuff read ~/.agents/skills or ~/.claude/skills; Droid and Continue only
+# their own.
 skill("Claude Code", None, f"{home}/.claude/skills")
-skill("Codex, opencode and Amp", None, f"{home}/.agents/skills")
+skill("Shared agents folder", None, f"{home}/.agents/skills")
 if installed("droid", f"{home}/.factory"):
     skill("Factory Droid", None, f"{home}/.factory/skills")
+if installed("cn", f"{home}/.continue"):
+    skill("Continue", None, f"{home}/.continue/skills")
+    rules("Continue", None, f"{home}/.continue/rules", "apprentice.md")
 
 # Global rules files.
-rules("Shared agents folder (Cline and others)", None, f"{home}/.agents", "AGENTS.md")
-rules("Codex and ChatGPT", "codex", f"{home}/.codex", "AGENTS.md")
+# Cline and goose read ~/.agents/AGENTS.md, so goose's own .goosehints is left alone.
+rules("Shared agents folder (Cline, goose)", None, f"{home}/.agents", "AGENTS.md")
+codex = os.environ.get("CODEX_HOME", f"{home}/.codex")
+rules("Codex and ChatGPT", "codex", codex, "AGENTS.md")
+if os.path.exists(f"{codex}/AGENTS.override.md"):
+    print(f"Codex: {codex}/AGENTS.override.md hides AGENTS.md; copy the apprentice section into it")
 rules("opencode", "opencode", f"{home}/.config/opencode", "AGENTS.md")
 rules("Kilo", "kilo", f"{home}/.config/kilo", "AGENTS.md")
 rules("Gemini", "gemini", f"{home}/.gemini", "GEMINI.md")
@@ -94,13 +103,12 @@ rules("GitHub Copilot CLI", "copilot", f"{home}/.copilot", "copilot-instructions
 rules("Amp", "amp", f"{home}/.config/amp", "AGENTS.md")
 rules("Factory Droid", "droid", f"{home}/.factory", "AGENTS.md")
 rules("Crush", "crush", f"{home}/.config/crush", "CRUSH.md")
-rules("goose", "goose", f"{home}/.config/goose", ".goosehints")
-rules("Augment (Auggie)", "auggie", f"{home}/.augment/rules", "apprentice.md")
-# Freebuff and Codebuff read the first of ~/.knowledge.md (older versions), ~/.AGENTS.md.
+rules("Mistral Vibe", "vibe", os.environ.get("VIBE_HOME", f"{home}/.vibe"), "AGENTS.md")
+if installed("auggie", f"{home}/.augment"):
+    rules("Augment (Auggie)", None, f"{home}/.augment/rules", "apprentice.md")
+# Freebuff and Codebuff read only the first of ~/.AGENTS.md, ~/.CLAUDE.md.
 if installed(["freebuff", "codebuff"], None):
     rules("Freebuff and Codebuff", None, home, ".AGENTS.md")
-    if os.path.exists(f"{home}/.knowledge.md"):
-        rules("Freebuff and Codebuff", None, home, ".knowledge.md")
 
 # Apps without a shell.
 mcp("Claude desktop app", "-", f"{home}/Library/Application Support/Claude", "claude_desktop_config.json")
