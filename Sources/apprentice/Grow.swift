@@ -1,7 +1,7 @@
 import Foundation
 
 /// `grow`: what the logs say apprentice should learn next. Repeated errors are candidate code fixes,
-/// questions Robert answered are candidate notes, and open field reports are fixes waiting for review.
+/// questions the user answered are candidate notes, and open field reports are fixes waiting for review.
 /// Claude Code runs it at the start of work in this repo (CLAUDE.md).
 enum Grow {
     static func digest(days: Int) -> String {
@@ -11,12 +11,15 @@ enum Grow {
         var errors: [String: (count: Int, example: String)] = [:]
         var asked: [String] = []
         var flows: [String: Int] = [:]
+        var pace = Pace()
         for folder in folders {
             let date = (try? folder.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
             guard date >= cutoff, let text = try? String(contentsOf: folder.appendingPathComponent("steps.jsonl"), encoding: .utf8) else { continue }
+            pace.previous = nil
             for row in text.split(separator: "\n") {
                 guard let data = row.data(using: .utf8),
                       let r = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+                pace.take(r)
                 if let e = r["error"] as? String {
                     let first = String(e.split(separator: "\n").first ?? "")
                     // Group by the message with numbers taken out, so "window 144" and "window 7101" count together.
@@ -29,10 +32,11 @@ enum Grow {
             }
         }
         var out = ["grow · last \(days) days"]
+        out += pace.report()
         let top = errors.sorted { $0.value.count > $1.value.count }
         out.append(top.isEmpty ? "errors: none" : "errors (most frequent first; each repeated one is a candidate code fix):")
         out += top.prefix(10).map { "  \($0.value.count)× \($0.key)" }
-        out.append(asked.isEmpty ? "questions to Robert: none" : "questions to Robert (each is a gap in the notes or the tool):")
+        out.append(asked.isEmpty ? "questions to the user: none" : "questions to the user (each is a gap in the notes or the tool):")
         out += asked.suffix(10).map { "  \($0)" }
         if !flows.isEmpty {
             out.append("flows run:")
@@ -45,5 +49,79 @@ enum Grow {
         out += reports.suffix(10).map { "  \($0.dropFirst(4))" }
         out.append("next: propose code changes for the top errors and reports; turn answered questions into notes or generic features")
         return out.joined(separator: "\n")
+    }
+
+    /// Where a run's time went. Each action is: the agent thinks (gap from the row before to the
+    /// proposal), approves (proposal → approved; 0 when both are in one shell call), the tool acts
+    /// (`ms` and its `waits`), and often the agent reads again before the next step.
+    struct Pace {
+        static let actions: Set<String> = ["click", "type", "key", "menu", "scroll", "open", "upload", "choose", "drag", "hover", "do"]
+        var previous: (ts: Date, cmd: String?)?
+        var proposedAt: Date?
+        var think: [Double] = []
+        var approve: [Double] = []
+        var tool: [Double] = []
+        var waits: [String: Double] = [:]
+        var measured = 0
+        var count = 0
+        var reads = 0
+
+        static let parse: (String) -> Date? = {
+            let ms = ISO8601DateFormatter()
+            ms.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            let s = ISO8601DateFormatter()
+            return { ms.date(from: $0) ?? s.date(from: $0) }
+        }()
+
+        mutating func take(_ r: [String: Any]) {
+            guard let ts = (r["ts"] as? String).flatMap(Pace.parse) else { return }
+            let cmd = r["cmd"] as? String
+            defer { previous = (ts, cmd) }
+            if r["proposed"] != nil {
+                proposedAt = ts
+                // Gaps over five minutes are the person away, not the agent thinking.
+                if let p = previous { let g = ts.timeIntervalSince(p.ts); if g < 300 { think.append(g) } }
+                return
+            }
+            if r["gate"] != nil, r["approved"] as? Bool == true, let at = proposedAt {
+                approve.append(ts.timeIntervalSince(at))
+                return
+            }
+            guard let cmd else { return }
+            if cmd == "read", previous?.cmd.map(Pace.actions.contains) == true { reads += 1 }
+            guard Pace.actions.contains(cmd) else { return }
+            count += 1
+            if proposedAt == nil, let p = previous { let g = ts.timeIntervalSince(p.ts); if g < 300 { think.append(g) } }
+            if let ms = r["ms"] as? Int {
+                tool.append(Double(ms) / 1000)
+                measured += 1
+                for (k, v) in r["waits"] as? [String: Int] ?? [:] { waits[k, default: 0] += Double(v) / 1000 }
+            } else if let at = proposedAt {
+                tool.append(ts.timeIntervalSince(at))
+            }
+            proposedAt = nil
+        }
+
+        func report() -> [String] {
+            guard count > 0 else { return ["pace: no actions yet"] }
+            func median(_ xs: [Double]) -> Double {
+                let s = xs.sorted()
+                return s.isEmpty ? 0 : s[s.count / 2]
+            }
+            func s(_ v: Double) -> String { String(format: "%.1f s", v) }
+            var line = "pace (\(count) actions): agent thinks \(s(median(think))) before each"
+            let a = median(approve)
+            line += " · approve adds \(s(a))" + (a < 1 ? " (same call)" : " (own turn)")
+            line += " · re-reads after \(reads * 100 / count)%"
+            line += " · tool \(s(median(tool))) per action"
+            if measured > 0 {
+                let parts = waits.sorted { $0.value > $1.value }.map { "\($0.key) \(s($0.value / Double(measured)))" }
+                if !parts.isEmpty { line += " (\(parts.joined(separator: " · ")))" }
+            }
+            var out = [line]
+            if a >= 1 { out.append("  approvals are separate agent turns: approve in the same shell call as the command") }
+            if reads * 100 / count >= 30 { out.append("  the agent re-reads after most actions: the diff after an action already lists what changed") }
+            return out
+        }
     }
 }

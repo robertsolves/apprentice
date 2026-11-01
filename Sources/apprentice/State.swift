@@ -18,11 +18,6 @@ enum Store {
         // APPRENTICE_HOME puts all state somewhere else, e.g. to try a change without touching yours.
         let custom = ProcessInfo.processInfo.environment["APPRENTICE_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
         let url = custom ?? home.appendingPathComponent(".apprentice")
-        // The tool was called deskkontrol: carry its sessions, config, notes link and logs over once.
-        let old = home.appendingPathComponent(".deskkontrol")
-        if !FileManager.default.fileExists(atPath: url.path), FileManager.default.fileExists(atPath: old.path) {
-            try? FileManager.default.moveItem(at: old, to: url)
-        }
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }()
@@ -52,6 +47,8 @@ enum Store {
     private static let stamp: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.timeZone = .current
+        // Milliseconds: `grow` splits a run into the tool's time and the agent's, which whole seconds blur.
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return f
     }()
 
@@ -66,6 +63,10 @@ enum Store {
         if let session, Privacy.blocked(session, url: entry["url"] as? String) { return }
         var e = entry
         e["ts"] = stamp.string(from: Date())
+        // A command's row carries how long it took and where the time went.
+        if entry["cmd"] != nil {
+            for (k, v) in Timing.fields where e[k] == nil { e[k] = v }
+        }
         guard var line = try? JSONSerialization.data(withJSONObject: e, options: [.sortedKeys]) else { return }
         line.append(0x0A)
         let file = runFolder(session).appendingPathComponent("steps.jsonl")
@@ -113,8 +114,15 @@ struct Session: Codable {
     var uiOnly: Bool?
 
     var isBrowser: Bool {
-        ["com.google.Chrome", "com.apple.Safari", "com.brave.Browser", "com.microsoft.edgemac"].contains(bundle ?? "")
+        guard let bundle else { return false }
+        return Session.webHandlers.contains(bundle) || Config.current.browsers.contains(bundle)
     }
+
+    /// Every installed app that can open https links, so any browser counts without a fixed list.
+    private static let webHandlers: Set<String> = {
+        guard let probe = URL(string: "https://example.com") else { return [] }
+        return Set(NSWorkspace.shared.urlsForApplications(toOpen: probe).compactMap { Bundle(url: $0)?.bundleIdentifier })
+    }()
 
     /// The daemon is the only writer of session.json, so it keeps the last value in memory.
     private static var cached: Session?
@@ -161,6 +169,37 @@ struct Session: Codable {
     }
 }
 
+/// Where the current command's time goes: waiting for the person (`idle`), pacing gaps (`gap`), cursor
+/// travel (`move`), keystrokes (`type`) and waiting for the screen to settle (`settle`). `Store.log`
+/// adds the totals to the command's row, and `grow` reads them back to split a slow run into the
+/// tool's share and the agent's.
+enum Timing {
+    static var started: Date?
+    static var waits: [String: Double] = [:]
+
+    static func begin() {
+        started = Date()
+        waits = [:]
+    }
+
+    static func add(_ what: String, _ seconds: Double) {
+        if seconds > 0 { waits[what, default: 0] += seconds }
+    }
+
+    static func measure<T>(_ what: String, _ body: () throws -> T) rethrows -> T {
+        let t = Date()
+        defer { add(what, Date().timeIntervalSince(t)) }
+        return try body()
+    }
+
+    static var fields: [String: Any] {
+        guard let started else { return [:] }
+        var f: [String: Any] = ["ms": Int(Date().timeIntervalSince(started) * 1000)]
+        if !waits.isEmpty { f["waits"] = waits.mapValues { Int($0 * 1000) } }
+        return f
+    }
+}
+
 /// Per-domain navigation limits and the pause between web actions.
 struct Limits: Codable {
     var navs: [String: [Double]] = [:]
@@ -189,7 +228,7 @@ struct Limits: Codable {
             throw Fail(4, "refresh limit: \(reloads) loads of \(key) in \(Int(cfg.reloadWindow)) s")
         }
         if let last = times.last, now - last < cfg.navGap {
-            Pace.sleep(cfg.navGap - (now - last))
+            Timing.measure("gap") { Pace.sleep(cfg.navGap - (now - last)) }
         }
         times.append(Date().timeIntervalSince1970)
         loaded.append(key)
@@ -218,7 +257,7 @@ struct Limits: Codable {
             let gap = Double.random(in: cfg.betweenMin...cfg.betweenMax)
             if l.lastAction > 0 {
                 let since = now - l.lastAction
-                if since < gap { Pace.sleep(gap - since) }
+                if since < gap { Timing.measure("gap") { Pace.sleep(gap - since) } }
             }
             l.lastAction = Date().timeIntervalSince1970
         }

@@ -151,7 +151,7 @@ func prepare(checkAllow: Bool = true) throws -> (Session, Target, Snapshot?) {
     let target = try locate(session)
     // apprentice records every page it leads to, so any other change came from someone else.
     if let was = session.url, let now = target.url, was != now {
-        Commands.notice = "note: the page changed to \(now) without apprentice. Robert or another tool may be using this window; check before acting."
+        Commands.notice = "note: the page changed to \(now) without apprentice. The user or another tool may be using this window; check before acting."
     }
     session.track(target.url)
     // Pacing profiles follow the page the window is on now, not the page it was attached to.
@@ -179,7 +179,7 @@ func beforeAction(_ session: Session, url: String?) throws {
 /// Settles, saves and diffs the new snapshot, and writes the one log row for the action.
 func finish(_ command: String, _ session: Session, _ target: Target, _ old: Snapshot?,
             extra: [String] = [], log fields: [String: Any] = [:]) -> String {
-    let new = settle(target)
+    let new = Timing.measure("settle") { settle(target) }
     var session = session
     session.track(new.url)
     SnapStore.save(new)
@@ -258,6 +258,7 @@ enum Commands {
             throw Fail(6, "interrupted: the kill switch was pressed, so this command was not run. Run it again to carry on")
         }
         Borrow.interrupted = false
+        Timing.begin()
         let result = Result { try Awake.busy { try dispatch(req) } }
         if Watch.end() {
             throw Fail(6, "interrupted: you used the keyboard or mouse while apprentice acted in front, so it stopped. Check the screen with `read`, then retry")
@@ -375,7 +376,7 @@ enum Commands {
     /// The start-up options window is shown once per daemon run, on its first `session`.
     private static var optionsAsked = false
 
-    /// Asks Robert how this run should work. Skipping keeps the defaults; "Remember" saves them.
+    /// Asks the user how this run should work. Skipping keeps the defaults; "Remember" saves them.
     private static func startOptions(_ s: Session) -> Session {
         let uiOnly = "UI only: no shell commands for macOS tasks"
         let awake = "Keep the Mac awake while a task runs"
@@ -949,12 +950,12 @@ enum Commands {
             let item = poll(timeout: 4) {
                 findFirst(app, limit: 9000) { i in
                     guard i.role == "AXMenuItem", let t = i.title?.lowercased() else { return false }
-                    return t.contains("save image as") || t.contains("download linked file") || t.contains("save link as") || t.contains("download image")
+                    return Config.current.downloadMenu.contains { t.contains($0) }
                 }
             }
             guard let f = item?.frame else {
                 try? Keys.press("esc")
-                throw Fail(5, "no Save Image As / Download Linked File item for \(id)")
+                throw Fail(5, "no download item in the context menu for \(id); add its label to [agent] download_menu")
             }
             try realClick(f)
         }
@@ -962,7 +963,11 @@ enum Commands {
         if let dialog = poll(timeout: 6, { fileDialogs(app).first { d in !before.contains { CFEqual($0, d) } } }) {
             try choosePath((path as NSString).deletingLastPathComponent, in: dialog, app: app, target, open: false)
             try fillName((path as NSString).lastPathComponent, in: dialog, target)
-            if let f = findFirst(dialog, limit: 4000, where: { $0.role == "AXButton" && ($0.title ?? "").lowercased() == "save" })?.frame {
+            // The panel's default button is Save in any language; the title is the fallback.
+            let window = dialog.attr(kAXWindowAttribute) as! AXUIElement? ?? dialog
+            let button = dialog.attr(kAXDefaultButtonAttribute) as! AXUIElement? ?? window.attr(kAXDefaultButtonAttribute) as! AXUIElement?
+                ?? findFirst(dialog, limit: 4000, where: { $0.role == "AXButton" && ($0.title ?? "").lowercased() == "save" })
+            if let f = button?.frame {
                 try Borrow.run(target) { try realClick(f) }
             }
             saved = poll(timeout: 10, modified) != nil
@@ -1048,6 +1053,10 @@ enum Commands {
             if let url = obj["url"], !(url as? String ?? "").isEmpty { bits.append("\(url)") }
             if let found = obj["found"] { bits.append(found as? Bool == true ? "found" : "not found") }
             if let approved = obj["approved"] { bits.append(approved as? Bool == true ? "approved" : "denied") }
+            if let ms = obj["ms"] as? Int {
+                let waits = (obj["waits"] as? [String: Int] ?? [:]).sorted { $0.value > $1.value }.map { "\($0.key) \($0.value)" }
+                bits.append("\(ms) ms" + (waits.isEmpty ? "" : " (\(waits.joined(separator: ", ")))"))
+            }
             out.append(bits.joined(separator: " · "))
         }
         return out.joined(separator: "\n")

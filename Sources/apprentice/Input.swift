@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Carbon
 
 enum Pace {
     static func gaussian() -> Double {
@@ -33,6 +34,49 @@ enum Keys {
         "pagedown": 121, "left": 123, "right": 124, "down": 125, "up": 126,
     ]
 
+    /// Which key types each character on the keyboard layout in use, so shortcuts and typing hit the
+    /// right key on any layout (cmd+a on AZERTY is not the US "a" key, which there is Q: cmd+q).
+    /// Rebuilt when the input source changes; `codes` covers named keys and layouts it cannot read.
+    private static var layoutID = ""
+    private static var layoutMap: [Character: (CGKeyCode, Bool)] = [:]
+
+    static func layout() -> [Character: (CGKeyCode, Bool)] {
+        guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
+              let idPtr = TISGetInputSourceProperty(source, kTISPropertyInputSourceID) else { return [:] }
+        let id = Unmanaged<CFString>.fromOpaque(idPtr).takeUnretainedValue() as String
+        if id == layoutID { return layoutMap }
+        var map: [Character: (CGKeyCode, Bool)] = [:]
+        if let dataPtr = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) {
+            let data = Unmanaged<CFData>.fromOpaque(dataPtr).takeUnretainedValue() as Data
+            data.withUnsafeBytes { raw in
+                guard let layout = raw.baseAddress?.assumingMemoryBound(to: UCKeyboardLayout.self) else { return }
+                // Unshifted first, so a character on two keys keeps the plain one.
+                for shift in [false, true] {
+                    for code in 0..<UInt16(128) {
+                        var dead: UInt32 = 0
+                        var chars = [UniChar](repeating: 0, count: 4)
+                        var length = 0
+                        let mods = UInt32(shift ? shiftKey >> 8 : 0) & 0xFF
+                        guard UCKeyTranslate(layout, code, UInt16(kUCKeyActionDown), mods, UInt32(LMGetKbdType()),
+                                             OptionBits(kUCKeyTranslateNoDeadKeysBit), &dead, 4, &length, &chars) == noErr,
+                              length == 1, let ch = String(utf16CodeUnits: chars, count: 1).first,
+                              !ch.isWhitespace, !ch.isNewline, map[ch] == nil else { continue }
+                        map[ch] = (CGKeyCode(code), shift)
+                    }
+                }
+            }
+        }
+        layoutID = id
+        layoutMap = map
+        return map
+    }
+
+    /// The key for a one-character key name on the current layout, else the US position.
+    static func code(for name: String) -> CGKeyCode? {
+        if name.count == 1, let ch = name.first, let hit = layout()[ch] { return hit.0 }
+        return codes[name]
+    }
+
     static func parse(_ combo: String) throws -> (CGKeyCode, CGEventFlags) {
         var flags: CGEventFlags = []
         var key: CGKeyCode?
@@ -43,7 +87,7 @@ enum Keys {
             case "alt", "opt", "option": flags.insert(.maskAlternate)
             case "ctrl", "control": flags.insert(.maskControl)
             default:
-                guard let code = codes[part] else { throw Fail(5, "unknown key \"\(part)\"") }
+                guard let code = code(for: part) else { throw Fail(5, "unknown key \"\(part)\"") }
                 guard key == nil else { throw Fail(5, "\"\(combo)\" names more than one key: send one combo per `key`") }
                 key = code
             }
@@ -69,8 +113,8 @@ enum Keys {
             return
         }
         let units = Array(String(ch).utf16)
-        // The key a person would press for it, so key codes match the character (US layout); the
-        // Unicode string still decides what is typed. Characters with no key keep code 0.
+        // The key a person would press for it on the current layout; the Unicode string still
+        // decides what is typed. Characters with no key keep code 0.
         let (code, shift) = keyFor(ch)
         for down in [true, false] {
             guard let e = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down) else { continue }
@@ -90,6 +134,7 @@ enum Keys {
 
     static func keyFor(_ ch: Character) -> (CGKeyCode, Bool) {
         if ch == " " { return (codes["space"] ?? 49, false) }
+        if let hit = layout()[ch] { return hit }
         if let base = shifted[ch], let code = codes[String(base)] { return (code, true) }
         let lower = Character(ch.lowercased())
         if let code = codes[String(lower)] { return (code, ch != lower) }
@@ -100,6 +145,8 @@ enum Keys {
     /// Throws exit 6 when the person or the kill switch stops it partway, so nothing after it (such as
     /// a return that would send a half-typed message) runs (D8).
     static func type(_ text: String, fast: Bool = false) throws {
+        let began = Date()
+        defer { Timing.add("type", Date().timeIntervalSince(began)) }
         Pace.sleep(Double.random(in: 0.15...0.35))
         var prev: Character?
         var sent = 0
@@ -156,6 +203,8 @@ enum Mouse {
 
     /// Cubic Bézier path, Fitts' law duration, ease-in-out speed, slight wobble.
     static func move(to target: CGPoint, size: CGSize = CGSize(width: 20, height: 20)) {
+        let began = Date()
+        defer { Timing.add("move", Date().timeIntervalSince(began)) }
         let start = location
         let dx = target.x - start.x, dy = target.y - start.y
         let dist = max(hypot(dx, dy), 1)
@@ -258,9 +307,11 @@ enum Borrow {
 
     static func waitIdle(_ seconds: Double = 1) throws {
         let deadline = Date().addingTimeInterval(30)
-        while idleSeconds < seconds {
-            if Date() > deadline { throw Fail(6, "interrupted: you were active for 30 s, try again") }
-            Pace.sleep(0.2)
+        try Timing.measure("idle") {
+            while idleSeconds < seconds {
+                if Date() > deadline { throw Fail(6, "interrupted: you were active for 30 s, try again") }
+                Pace.sleep(0.2)
+            }
         }
     }
 
