@@ -7,11 +7,12 @@ enum Pace {
         return sqrt(-2 * log(u1)) * cos(2 * .pi * u2)
     }
 
-    /// Log-normal gap between keystrokes, median about 100 ms.
+    /// Log-normal gap between keystrokes, median about 100 ms by default.
     static func keyGap(after ch: Character?) -> Double {
-        var gap = 0.1 * exp(0.4 * gaussian())
+        let p = Config.current.pace
+        var gap = p.keyMedian * exp(p.keySigma * gaussian())
         if let ch, ch == " " || ch.isPunctuation { gap *= 1.6 }
-        return min(max(gap, 0.04), 0.45)
+        return min(max(gap, 0.04), 0.9)
     }
 
     static func sleep(_ seconds: Double) { usleep(UInt32(max(seconds, 0) * 1_000_000)) }
@@ -75,6 +76,7 @@ enum Keys {
         Pace.sleep(Double.random(in: 0.15...0.35))
         var prev: Character?
         for ch in text {
+            if KillSwitch.tripped { return }
             typeChar(ch, pid: pid)
             Pace.sleep(Pace.keyGap(after: prev))
             prev = ch
@@ -101,7 +103,8 @@ enum Mouse {
         let dx = target.x - start.x, dy = target.y - start.y
         let dist = max(hypot(dx, dy), 1)
         let width = max(min(size.width, size.height), 8)
-        let duration = min(max(0.12 + 0.11 * log2(dist / width + 1), 0.2), 0.9)
+        let p = Config.current.pace
+        let duration = min(max(0.12 + 0.11 * log2(dist / width + 1), p.moveMin), p.moveMax)
         let normal = CGPoint(x: -dy / dist, y: dx / dist)
         let side: CGFloat = Bool.random() ? 1 : -1
         let bend1 = side * dist * CGFloat.random(in: 0.08...0.25)
@@ -110,6 +113,7 @@ enum Mouse {
         let c2 = CGPoint(x: start.x + dx * 0.7 + normal.x * bend2, y: start.y + dy * 0.7 + normal.y * bend2)
         let steps = max(Int(duration * 120), 8)
         for n in 1...steps {
+            if KillSwitch.tripped || Borrow.interrupted { break }
             let lin = Double(n) / Double(steps)
             let t = CGFloat(lin < 0.5 ? 2 * lin * lin : 1 - pow(-2 * lin + 2, 2) / 2)
             let u = 1 - t
@@ -123,7 +127,36 @@ enum Mouse {
             if let e = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: p, mouseButton: .left) {
                 Keys.post(e, pid)
             }
+            Borrow.noteMove(p)
             Pace.sleep(duration / Double(steps))
+        }
+    }
+
+    /// Throws exit 6 when the person takes over mid-drag; the drag is cancelled, not dropped where they are.
+    static func drag(from start: CGPoint, to end: CGPoint) throws {
+        guard let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: start, mouseButton: .left) else { return }
+        down.post(tap: .cghidEventTap)
+        Pace.sleep(0.12)
+        let steps = max(Int(hypot(end.x - start.x, end.y - start.y) / 6), 12)
+        for n in 1...steps {
+            if KillSwitch.tripped || Borrow.interrupted {
+                try? Keys.press("esc", pid: nil)
+                if let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: start, mouseButton: .left) {
+                    up.post(tap: .cghidEventTap)
+                }
+                throw Fail(6, "interrupted: the drag was cancelled before the drop")
+            }
+            let t = CGFloat(n) / CGFloat(steps)
+            let p = CGPoint(x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t)
+            if let move = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged, mouseCursorPosition: p, mouseButton: .left) {
+                move.post(tap: .cghidEventTap)
+            }
+            Borrow.noteMove(p)
+            Pace.sleep(0.012)
+        }
+        Pace.sleep(0.12)
+        if let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: end, mouseButton: .left) {
+            up.post(tap: .cghidEventTap)
         }
     }
 
@@ -143,12 +176,28 @@ enum Mouse {
 }
 
 enum Borrow {
+    static var active = false
+    static var interrupted = false
+
+    static func noteMove(_ intended: CGPoint) {
+        guard active, !interrupted, let actual = CGEvent(source: nil)?.location else { return }
+        if hypot(actual.x - intended.x, actual.y - intended.y) > 10 {
+            interrupted = true
+        }
+    }
+
+    /// Call before the step that commits an action: once it has happened, interruption is no longer an error.
+    static func checkpoint() throws {
+        if KillSwitch.tripped { throw Fail(6, "interrupted: the kill switch was pressed") }
+        if interrupted { throw Fail(6, "interrupted: you moved the mouse or pressed a key, so nothing was done") }
+    }
+
     static var idleSeconds: Double {
         CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: UInt32.max)!)
     }
 
     /// Tier 3: wait until the person is idle, bring the session window forward, act, put everything back.
-    static func run<T>(_ t: Target, restoreCursor: Bool = true, _ body: () throws -> T) throws -> T {
+    static func run<T>(_ t: Target, _ body: () throws -> T) throws -> T {
         let deadline = Date().addingTimeInterval(30)
         while idleSeconds < 2 {
             if Date() > deadline { throw Fail(6, "interrupted: you were active for 30 s, try again") }
@@ -156,12 +205,22 @@ enum Borrow {
         }
         let previous = NSWorkspace.shared.frontmostApplication
         let cursor = Mouse.location
+        active = true
+        interrupted = false
+        // Monitors belong to the main run loop, which stays free while commands run on their own queue.
+        // Keys only: our own posted clicks would trip a mouse-down monitor.
+        let monitor = DispatchQueue.main.sync {
+            NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { _ in interrupted = true }
+        }
         t.app.set(kAXFrontmostAttribute, kCFBooleanTrue)
         t.window.set(kAXMainAttribute, kCFBooleanTrue)
         t.window.perform(kAXRaiseAction)
         Pace.sleep(0.3)
         defer {
-            if restoreCursor { CGWarpMouseCursorPosition(cursor) }
+            active = false
+            if let monitor { DispatchQueue.main.sync { NSEvent.removeMonitor(monitor) } }
+            // If the person took the pointer, it is theirs now; do not pull it back.
+            if !interrupted { CGWarpMouseCursorPosition(cursor) }
             if let previous, previous.processIdentifier != t.pid {
                 appElement(previous.processIdentifier).set(kAXFrontmostAttribute, kCFBooleanTrue)
             }

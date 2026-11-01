@@ -1,0 +1,9 @@
+# ~/.deskkontrol/routes.toml
+# Extra faster-route entries, checked before screen control.
+
+[[route]]
+domain = "example.com"
+label = "admin"
+keywords = ["article", "publish", "draft"]
+faster = "POST https://example.com/admin/api/articles"
+remaining = "image upload and preview only"

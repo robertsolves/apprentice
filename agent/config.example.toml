@@ -1,0 +1,27 @@
+# ~/.deskkontrol/config.toml
+
+[pace.default]
+move_ms = [200, 900]
+key_ms_median = 100
+key_ms_sigma = 0.4
+between_actions_ms = [500, 2000]
+nav_min_gap_s = 5
+reload_max = { count = 3, window_s = 120 }
+actions_per_min = 30
+
+# Every profile starts from pace.default; list only the keys that differ.
+[pace."github.com"]
+# actions_per_min = 20
+
+[pace.native]
+mode = "fast"
+
+[session]
+# Empty means unrestricted. Example: allow = ["github.com", "robertsolves.com"]
+allow = []
+
+[run]
+base_url = "https://api.openai.com/v1"
+model = "gpt-4o-mini"
+api_key = ""
+vision_model = ""

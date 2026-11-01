@@ -1,0 +1,71 @@
+{
+  "_note": "Copied to ~/.deskkontrol/budgets.json. Conservative self-imposed caps, not published platform limits. Lower is always allowed.",
+  "default": {
+    "post":     { "hour": 2,  "day": 5,   "min_gap_s": 600 },
+    "comment":  { "hour": 5,  "day": 20,  "min_gap_s": 90 },
+    "like":     { "hour": 20, "day": 100, "min_gap_s": 20 },
+    "follow":   { "hour": 5,  "day": 20,  "min_gap_s": 120 },
+    "unfollow": { "hour": 5,  "day": 20,  "min_gap_s": 120 },
+    "message":  { "hour": 5,  "day": 20,  "min_gap_s": 120 },
+    "upload":   { "hour": 3,  "day": 10,  "min_gap_s": 300 },
+    "settings": { "hour": 3,  "day": 10,  "min_gap_s": 60 }
+  },
+  "instagram.com": {
+    "inherit": "default",
+    "post":     { "hour": 1,  "day": 3,   "min_gap_s": 1800 },
+    "story":    { "hour": 3,  "day": 10,  "min_gap_s": 300 },
+    "comment":  { "hour": 5,  "day": 20,  "min_gap_s": 120 },
+    "like":     { "hour": 20, "day": 100, "min_gap_s": 30 },
+    "follow":   { "hour": 5,  "day": 20,  "min_gap_s": 180 },
+    "unfollow": { "hour": 5,  "day": 20,  "min_gap_s": 180 },
+    "message":  { "hour": 5,  "day": 20,  "min_gap_s": 180 }
+  },
+  "tiktok.com": {
+    "inherit": "default",
+    "post":     { "hour": 1,  "day": 3,   "min_gap_s": 3600 },
+    "comment":  { "hour": 5,  "day": 20,  "min_gap_s": 120 },
+    "like":     { "hour": 25, "day": 100, "min_gap_s": 20 },
+    "follow":   { "hour": 5,  "day": 25,  "min_gap_s": 150 },
+    "unfollow": { "hour": 5,  "day": 25,  "min_gap_s": 150 },
+    "message":  { "hour": 5,  "day": 15,  "min_gap_s": 180 }
+  },
+  "linkedin.com": {
+    "inherit": "default",
+    "post":     { "hour": 1,  "day": 2,   "min_gap_s": 3600 },
+    "comment":  { "hour": 4,  "day": 15,  "min_gap_s": 180 },
+    "like":     { "hour": 15, "day": 50,  "min_gap_s": 30 },
+    "connect":  { "hour": 3,  "day": 15,  "week": 80, "min_gap_s": 300 },
+    "follow":   { "hour": 5,  "day": 20,  "min_gap_s": 180 },
+    "message":  { "hour": 5,  "day": 20,  "min_gap_s": 180 },
+    "endorse":  { "hour": 5,  "day": 10,  "min_gap_s": 120 }
+  },
+  "facebook.com": {
+    "inherit": "default",
+    "post":     { "hour": 1,  "day": 5,   "min_gap_s": 1800 },
+    "group_post": { "hour": 1, "day": 3,  "min_gap_s": 3600 },
+    "comment":  { "hour": 5,  "day": 20,  "min_gap_s": 120 },
+    "like":     { "hour": 20, "day": 100, "min_gap_s": 20 },
+    "friend_request": { "hour": 3, "day": 10, "min_gap_s": 300 },
+    "follow":   { "hour": 5,  "day": 20,  "min_gap_s": 180 },
+    "message":  { "hour": 5,  "day": 20,  "min_gap_s": 180 }
+  },
+  "reddit.com": {
+    "inherit": "default",
+    "post":     { "hour": 1,  "day": 3,   "min_gap_s": 1800 },
+    "comment":  { "hour": 5,  "day": 20,  "min_gap_s": 120 },
+    "upvote":   { "hour": 25, "day": 100, "min_gap_s": 15 },
+    "join":     { "hour": 3,  "day": 10,  "min_gap_s": 300 },
+    "follow":   { "hour": 3,  "day": 10,  "min_gap_s": 300 },
+    "message":  { "hour": 3,  "day": 10,  "min_gap_s": 300 }
+  },
+  "x.com": {
+    "inherit": "default",
+    "post":     { "hour": 3,  "day": 10,  "min_gap_s": 600 },
+    "comment":  { "hour": 5,  "day": 20,  "min_gap_s": 120 },
+    "repost":   { "hour": 5,  "day": 20,  "min_gap_s": 120 },
+    "like":     { "hour": 25, "day": 100, "min_gap_s": 15 },
+    "follow":   { "hour": 5,  "day": 20,  "min_gap_s": 180 },
+    "unfollow": { "hour": 5,  "day": 20,  "min_gap_s": 180 },
+    "message":  { "hour": 5,  "day": 20,  "min_gap_s": 180 }
+  }
+}

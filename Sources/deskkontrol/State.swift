@@ -1,13 +1,15 @@
 import AppKit
 import Foundation
+import ApplicationServices
 
-struct Fail: Error {
+struct Fail: Error, CustomStringConvertible {
     let code: Int32
     let message: String
     init(_ code: Int32, _ message: String) {
         self.code = code
         self.message = message
     }
+    var description: String { message }
 }
 
 enum Store {
@@ -16,6 +18,9 @@ enum Store {
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url
     }()
+
+    static var socketPath: String { dir.appendingPathComponent("sock").path }
+    static var pidPath: String { dir.appendingPathComponent("daemon.pid").path }
 
     static func load<T: Decodable>(_ type: T.Type, _ name: String) -> T? {
         guard let data = try? Data(contentsOf: dir.appendingPathComponent(name)) else { return nil }
@@ -27,22 +32,59 @@ enum Store {
         try? data.write(to: dir.appendingPathComponent(name), options: .atomic)
     }
 
+    static func remove(_ name: String) {
+        try? FileManager.default.removeItem(at: dir.appendingPathComponent(name))
+    }
+
+    static func day() -> String {
+        ISO8601DateFormatter.string(from: Date(), timeZone: .current, formatOptions: [.withFullDate])
+    }
+
+    private static let stamp = ISO8601DateFormatter()
+
+    /// One folder per session, as in `runs/<date>-<session>`, with a daily folder as fallback.
+    static func runFolder(_ session: Session? = Session.stored) -> URL {
+        let name = session?.id.map { "\(day())-\($0)" } ?? day()
+        return dir.appendingPathComponent("runs/\(name)")
+    }
+
     static func log(_ entry: [String: Any]) {
-        let day = ISO8601DateFormatter.string(from: Date(), timeZone: .current, formatOptions: [.withFullDate])
-        let folder = dir.appendingPathComponent("runs/\(day)")
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let file = folder.appendingPathComponent("steps.jsonl")
+        let session = Session.stored
+        if let session, Privacy.blocked(session, url: entry["url"] as? String) { return }
         var e = entry
-        e["ts"] = ISO8601DateFormatter().string(from: Date())
+        e["ts"] = stamp.string(from: Date())
         guard var line = try? JSONSerialization.data(withJSONObject: e, options: [.sortedKeys]) else { return }
         line.append(0x0A)
+        let file = runFolder(session).appendingPathComponent("steps.jsonl")
         if let h = try? FileHandle(forWritingTo: file) {
             h.seekToEndOfFile()
             h.write(line)
             try? h.close()
         } else {
+            // First row of the day, or the folder was removed while the daemon ran.
+            try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
             try? line.write(to: file)
         }
+    }
+
+    static func pruneLogs(days: Int = 30) {
+        let runs = dir.appendingPathComponent("runs")
+        guard let items = try? FileManager.default.contentsOfDirectory(at: runs, includingPropertiesForKeys: [.contentModificationDateKey]) else { return }
+        let cutoff = Date().addingTimeInterval(-Double(days) * 86_400)
+        for item in items {
+            let date = (try? item.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
+            if date < cutoff { try? FileManager.default.removeItem(at: item) }
+        }
+    }
+}
+
+enum Privacy {
+    static let names = ["1password", "keychain", "bitwarden", "lastpass", "authenticator", "wallet", "bank", "health", "hospital"]
+
+    /// `url` is the page being logged, which may differ from the page the session last saw.
+    static func blocked(_ session: Session, url: String? = nil) -> Bool {
+        let text = [session.bundle ?? "", session.app, session.url ?? "", url ?? ""].joined(separator: " ").lowercased()
+        return names.contains { text.contains($0) }
     }
 }
 
@@ -51,66 +93,125 @@ struct Session: Codable {
     var bundle: String?
     var pid: pid_t
     var wid: CGWindowID
-    var scriptWindowID: Int?
     var allow: [String]
+    var id: String?
+    var url: String?
 
-    var isBrowser: Bool { ["com.google.Chrome", "com.apple.Safari"].contains(bundle ?? "") }
+    var isBrowser: Bool {
+        ["com.google.Chrome", "com.apple.Safari", "com.brave.Browser", "com.microsoft.edgemac"].contains(bundle ?? "")
+    }
+
+    /// The daemon is the only writer of session.json, so it keeps the last value in memory.
+    private static var cached: Session?
+
+    static var stored: Session? {
+        if cached == nil { cached = Store.load(Session.self, "session.json") }
+        return cached
+    }
+
+    func save() {
+        Store.save(self, "session.json")
+        Session.cached = self
+    }
+
+    /// Records the page the window is on now, so privacy checks and logs follow navigation.
+    mutating func track(_ url: String?) {
+        guard let url, url != self.url else { return }
+        self.url = url
+        save()
+    }
 
     static func current() throws -> Session {
-        guard let s = Store.load(Session.self, "session.json") else {
-            throw Fail(5, "no session: run `deskkontrol session --app \"Google Chrome\"`")
+        guard let s = stored else {
+            throw Fail(5, "no session: run `deskkontrol session --app Safari`")
         }
         guard NSRunningApplication(processIdentifier: s.pid) != nil else {
             throw Fail(5, "\(s.app) is no longer running: start a new session")
         }
         return s
     }
+
+    /// Domains and app names in the allowlist; an empty list means the session is unrestricted.
+    func allows(url: String?) -> Bool {
+        guard !allow.isEmpty else { return true }
+        let patterns = allow.map { $0.lowercased() }
+        if patterns.contains("*") { return true }
+        // The app's own name allows its windows that have no page; a page must match a domain.
+        guard let host = url.flatMap(URL.init(string:))?.host?.lowercased() else {
+            return patterns.contains(app.lowercased())
+        }
+        return patterns.contains { host == $0 || host.hasSuffix("." + $0) }
+    }
 }
 
 /// Per-domain navigation limits and the pause between web actions.
 struct Limits: Codable {
     var navs: [String: [Double]] = [:]
-    var lastURL: [String: String] = [:]
+    /// The URL of each entry in `navs`, so the reload cap counts loads of one URL and not the whole domain.
+    var navURLs: [String: [String]]?
+    var acts: [String: [Double]] = [:]
     var lastAction: Double = 0
 
-    static let navMinGap = 5.0
-    static let reloadMax = 3
-    static let reloadWindow = 120.0
-
     static func checkNavigation(_ url: URL) throws {
+        let cfg = Config.current.pace
         var l = Store.load(Limits.self, "limits.json") ?? Limits()
         let domain = url.host ?? "local"
+        let key = url.absoluteString
         let now = Date().timeIntervalSince1970
-        var times = (l.navs[domain] ?? []).filter { now - $0 < reloadWindow }
-        if l.lastURL[domain] == url.absoluteString {
-            let reloads = times.count
-            if reloads >= reloadMax { throw Fail(4, "refresh limit: \(reloads) loads of \(url.absoluteString) in 2 min") }
+        let marks = l.navs[domain] ?? []
+        let urls = l.navURLs?[domain] ?? []
+        // Keep the loads still inside the window, each with the URL it loaded.
+        var times: [Double] = []
+        var loaded: [String] = []
+        for (i, mark) in marks.enumerated() where now - mark < cfg.reloadWindow {
+            times.append(mark)
+            loaded.append(i < urls.count ? urls[i] : "")
         }
-        if let last = times.last, now - last < navMinGap {
-            let wait = navMinGap - (now - last)
-            usleep(UInt32(wait * 1_000_000))
+        let reloads = loaded.filter { $0 == key }.count
+        if Double(reloads) >= cfg.reloadMax {
+            throw Fail(4, "refresh limit: \(reloads) loads of \(key) in \(Int(cfg.reloadWindow)) s")
+        }
+        if let last = times.last, now - last < cfg.navGap {
+            Pace.sleep(cfg.navGap - (now - last))
         }
         times.append(Date().timeIntervalSince1970)
+        loaded.append(key)
         l.navs[domain] = times
-        l.lastURL[domain] = url.absoluteString
+        l.navURLs = l.navURLs ?? [:]
+        l.navURLs?[domain] = loaded
         Store.save(l, "limits.json")
     }
 
-    static func paceAction(web: Bool) {
+    /// Rate-limits actions on a host, then waits out the pause between web actions. One load, one save.
+    static func beforeAction(host: String?, web: Bool) throws {
+        guard web || !(host ?? "").isEmpty else { return }
+        let cfg = Config.current.pace
         var l = Store.load(Limits.self, "limits.json") ?? Limits()
         let now = Date().timeIntervalSince1970
-        if web {
-            let gap = Double.random(in: 0.5...2.0)
-            let since = now - l.lastAction
-            if since < gap { usleep(UInt32((gap - since) * 1_000_000)) }
+        if let host, !host.isEmpty {
+            var times = (l.acts[host] ?? []).filter { now - $0 < 60 }
+            if Double(times.count) >= cfg.actionsPerMin {
+                throw Fail(4, "rate limit: \(times.count) actions on \(host) in the last minute")
+            }
+            // Record this action, or the per-minute cap can never be reached.
+            times.append(now)
+            l.acts[host] = times
         }
-        l.lastAction = Date().timeIntervalSince1970
+        if web {
+            let gap = Double.random(in: cfg.betweenMin...cfg.betweenMax)
+            if l.lastAction > 0 {
+                let since = now - l.lastAction
+                if since < gap { Pace.sleep(gap - since) }
+            }
+            l.lastAction = Date().timeIntervalSince1970
+        }
         Store.save(l, "limits.json")
     }
 }
 
 enum Gate {
-    static let words = [
+    /// Nothing here is a complete sentence on purpose: a label containing any of these words is flagged irreversible.
+    static let words: Set<String> = [
         "send", "post", "publish", "like", "follow", "comment", "submit", "save", "update", "upload",
         "pay", "buy", "delete", "remove", "confirm", "create", "commit", "merge", "archive", "transfer",
     ]
@@ -122,26 +223,64 @@ enum Gate {
 
     static func sensitivePage(_ url: String?) -> Bool {
         guard let u = url?.lowercased() else { return false }
-        return ["/settings", "/account", "/billing", "/security"].contains { u.contains($0) }
+        return ["/settings", "/account", "/billing", "/security", "/admin", "/password"].contains { u.contains($0) }
     }
 
-    /// Native dialog only a person can answer: deskkontrol only acts inside the session app, never on this alert.
-    static func ask(_ title: String, _ detail: String) throws {
-        let app = NSApplication.shared
-        app.setActivationPolicy(.accessory)
-        let alert = NSAlert()
-        alert.messageText = "deskkontrol wants to: \(title)"
-        alert.informativeText = detail + "\n\nDenies automatically in 120 s."
-        alert.addButton(withTitle: "Approve")
-        alert.addButton(withTitle: "Deny")
-        alert.layout()
-        alert.window.level = .floating
-        app.activate(ignoringOtherApps: true)
-        let timer = Timer(timeInterval: 120, repeats: false) { _ in app.abortModal() }
-        RunLoop.main.add(timer, forMode: .modalPanel)
-        let answer = alert.runModal()
-        timer.invalidate()
-        Store.log(["gate": title, "approved": answer == .alertFirstButtonReturn])
-        guard answer == .alertFirstButtonReturn else { throw Fail(3, "denied at the approval gate") }
+    /// Why an action deserves extra care. The caller can add `--gate`, never remove a warning.
+    static func warnings(_ element: Element?, _ t: Target, force: Bool = false) -> [String] {
+        var out: [String] = []
+        if force { out.append("marked --gate") }
+        if sensitivePage(t.url) || sensitivePage(t.title) { out.append("settings, account or billing page") }
+        if let e = element, matches(e.name) || matches(e.label) { out.append("may be irreversible: \(e.label) \"\(e.name)\"") }
+        return out
+    }
+}
+
+/// A state-changing command first returns a proposal (exit 8) and acts only once the caller
+/// runs `deskkontrol approve <token>`. The caller is an LLM, which decides or asks its user.
+enum Approvals {
+    struct Pending: Codable {
+        var token: String
+        var cmd: String
+        var args: [String]
+        var summary: String
+        var snap: Int?
+        var at: Double
+    }
+
+    static let ttl = 300.0
+    /// The request being dispatched, and the approved one while it runs.
+    static var request = Request(cmd: "")
+    static var granted: Pending?
+
+    static var pending: Pending? { Store.load(Pending.self, "pending.json") }
+
+    static var approved: Bool {
+        guard let g = granted else { return false }
+        return g.cmd == request.cmd && g.args == request.args
+    }
+
+    /// Returns when the current request was approved; otherwise saves a proposal and throws exit 8.
+    static func check(_ summary: String, details: [String], warnings: [String]) throws {
+        if approved { return }
+        let token = String(UUID().uuidString.prefix(4)).lowercased()
+        let p = Pending(token: token, cmd: request.cmd, args: request.args, summary: summary,
+                        snap: SnapStore.current?.snap, at: Date().timeIntervalSince1970)
+        Store.save(p, "pending.json")
+        Store.log(["proposed": summary, "token": token, "warnings": warnings])
+        var out = ["approve? \(summary)"] + details.map { "  \($0)" } + warnings.map { "⚠ \($0)" }
+        out.append("nothing was done. approve: deskkontrol approve \(token) · deny: deskkontrol deny \(token)")
+        throw Fail(8, out.joined(separator: "\n"))
+    }
+
+    /// Takes the pending proposal for `token`, refusing it if it expired or the screen was re-read since.
+    static func take(_ token: String) throws -> Pending {
+        guard let p = pending, p.token == token else { throw Fail(5, "no pending action \(token): run the command again") }
+        Store.remove("pending.json")
+        guard Date().timeIntervalSince1970 - p.at < ttl else { throw Fail(5, "approval \(token) expired: run the command again") }
+        if p.snap != SnapStore.current?.snap {
+            throw Fail(2, "stale: the screen was read again after the proposal, so its ids may differ. Run the command again")
+        }
+        return p
     }
 }

@@ -13,9 +13,10 @@ struct Element: Codable {
 
     var rect: CGRect { CGRect(x: frame[0], y: frame[1], width: frame[2], height: frame[3]) }
     var key: String { "\(label)|\(name)" }
+    var short: String { "\(id) \(label) \"\(name)\"" }
 
     var line: String {
-        var s = "\(id) \(label) \"\(name)\""
+        var s = short
         if let value { s += " value=\"\(value)\"" }
         if offscreen { s += " (off)" }
         if gated { s += " [gated]" }
@@ -146,7 +147,8 @@ struct Target {
 
 func locate(_ session: Session, scope wanted: String? = nil) throws -> Target {
     let app = appElement(session.pid)
-    guard let window = windows(of: app).first(where: { $0.windowID == session.wid }) else {
+    let all = windows(of: app)
+    guard let window = all.first(where: { $0.windowID == session.wid }) else {
         throw Fail(5, "window \(session.wid) not found: it may be closed, minimised or on another Space. Run `deskkontrol session` again")
     }
     let title = window.string(kAXTitleAttribute) ?? ""
@@ -160,13 +162,73 @@ func locate(_ session: Session, scope wanted: String? = nil) throws -> Target {
                   bounds: wframe, url: nil, title: title)
 }
 
+enum SnapshotCache {
+    static var wid: CGWindowID = 0
+    static var at = Date.distantPast
+    static var snap: Snapshot?
+
+    static func take(_ wid: CGWindowID) -> Snapshot? {
+        guard let snap, wid == self.wid, Date().timeIntervalSince(at) < 0.3 else { return nil }
+        return snap
+    }
+
+    static func put(_ wid: CGWindowID, _ snapshot: Snapshot) {
+        self.wid = wid
+        snap = snapshot
+        at = Date()
+    }
+
+    static func invalidate() { snap = nil }
+}
+
+/// Owns snap.json. The daemon is its only writer, so the last snapshot stays in memory.
+enum SnapStore {
+    private static var loaded = false
+    private static var last: Snapshot?
+    private static var counter = 0
+
+    static var current: Snapshot? {
+        if !loaded {
+            last = Store.load(Snapshot.self, "snap.json")
+            counter = last?.snap ?? 0
+            loaded = true
+        }
+        return last
+    }
+
+    static func next() -> Int {
+        _ = current
+        return counter + 1
+    }
+
+    /// Callers that also want the snapshot cached put it back after saving.
+    static func save(_ snapshot: Snapshot) {
+        Store.save(snapshot, "snap.json")
+        (last, counter, loaded) = (snapshot, snapshot.snap, true)
+        SnapshotCache.invalidate()
+    }
+
+    static func clear() {
+        Store.remove("snap.json")
+        (last, counter, loaded) = (nil, 0, true)
+        SnapshotCache.invalidate()
+    }
+}
+
+func readSnapshotCached(_ t: Target, wid: CGWindowID) -> Snapshot {
+    if let cached = SnapshotCache.take(wid) { return cached }
+    let snapshot = readSnapshot(t)
+    SnapStore.save(snapshot)
+    SnapshotCache.put(wid, snapshot)
+    return snapshot
+}
+
 func readSnapshot(_ t: Target, includeOffscreen: Bool = false) -> Snapshot {
     let walker = Walker(bounds: t.bounds, includeOffscreen: includeOffscreen)
     walker.walk(t.root, path: [], depth: 0)
     var elements = walker.out
     for n in elements.indices { elements[n].id = n + 1 }
-    let next = (Store.load(Snapshot.self, "snap.json")?.snap ?? 0) + 1
-    return Snapshot(snap: next, scope: t.scope, url: t.url, title: t.title, total: elements.count, elements: elements)
+    return Snapshot(snap: SnapStore.next(), scope: t.scope, url: t.url, title: t.title, total: elements.count, elements: elements)
 }
 
 func walkPath(_ root: AXUIElement, _ path: [Int]) -> AXUIElement? {
@@ -180,24 +242,30 @@ func walkPath(_ root: AXUIElement, _ path: [Int]) -> AXUIElement? {
 }
 
 /// Finds a snapshot element again; falls back to a unique role+name match if the tree shifted.
-func resolve(_ id: Int, _ t: Target) throws -> (AXUIElement, Element) {
-    guard let snap = Store.load(Snapshot.self, "snap.json") else { throw Fail(2, "stale: no snapshot, run `deskkontrol read`") }
+func resolve(_ id: Int, _ t: Target) throws -> (AXUIElement?, Element) {
+    guard let snap = SnapStore.current else { throw Fail(2, "stale: no snapshot, run `deskkontrol read`") }
     guard let e = snap.elements.first(where: { $0.id == id }) else { throw Fail(5, "no element \(id) in snap \(snap.snap)") }
+    // OCR elements have no AX path; the caller clicks their box directly.
+    if e.path.isEmpty { return (nil, e) }
     if let el = walkPath(t.root, e.path) {
         let i = info(el)
         if let (label, kind) = classify(i.role, i.subrole), label == e.label, elementName(i, kind) == e.name {
-            return (el, e)
+            // Take the live frame: a page that scrolled or reflowed since the read would otherwise
+            // be clicked at its old coordinates.
+            var live = e
+            if let f = i.frame { live.frame = [f.minX, f.minY, f.width, f.height].map(Double.init) }
+            return (el, live)
         }
     }
     let fresh = Walker(bounds: t.bounds, includeOffscreen: true)
     fresh.walk(t.root, path: [], depth: 0)
-    let matches = fresh.out.filter { $0.key == e.key }
+    let matches = fresh.out.filter { $0.key == e.key && !$0.path.isEmpty }
     if matches.count == 1, let el = walkPath(t.root, matches[0].path) {
         var moved = matches[0]
         moved.id = e.id
         return (el, moved)
     }
-    throw Fail(2, "stale: element \(id) \(e.label) \"\(e.name)\" changed, re-read")
+    throw Fail(2, "stale: element \(e.short) changed, re-read")
 }
 
 func header(_ s: Snapshot, app: String, shown: Int) -> String {
@@ -208,10 +276,10 @@ func header(_ s: Snapshot, app: String, shown: Int) -> String {
 /// Waits for the tree to stop changing, then returns the new snapshot.
 func settle(_ t: Target, maxWait: Double = 4) -> Snapshot {
     let start = Date()
-    usleep(350_000)
+    Pace.sleep(0.35)
     var last = readSnapshot(t)
     while Date().timeIntervalSince(start) < maxWait {
-        usleep(300_000)
+        Pace.sleep(0.3)
         let next = readSnapshot(t)
         if next.elements.map(\.key) == last.elements.map(\.key) { return next }
         last = next
@@ -219,22 +287,35 @@ func settle(_ t: Target, maxWait: Double = 4) -> Snapshot {
     return last
 }
 
-func diff(_ old: Snapshot?, _ new: Snapshot, limit: Int = 25) -> [String] {
-    var before: [String: Int] = [:]
-    for e in old?.elements ?? [] { before[e.key, default: 0] += 1 }
-    var after: [String: Int] = [:]
-    for e in new.elements { after[e.key, default: 0] += 1 }
-    var lines: [String] = []
-    var seen: [String: Int] = [:]
+struct DiffResult {
+    var added: [String] = []
+    var removed: [String] = []
+    var changed: [String] = []
+    var summary: String { "+\(added.count) -\(removed.count) ~\(changed.count)" }
+    var lines: [String] { added.map { "+ " + $0 } + removed.map { "- " + $0 } + changed.map { "~ " + $0 } }
+}
+
+func diff(_ old: Snapshot?, _ new: Snapshot) -> DiffResult {
+    var buckets: [String: [Element]] = [:]
+    for e in old?.elements ?? [] { buckets[e.key, default: []].append(e) }
+    var out = DiffResult()
     for e in new.elements {
-        seen[e.key, default: 0] += 1
-        if seen[e.key]! > (before[e.key] ?? 0) { lines.append("+ " + e.line) }
+        if var list = buckets[e.key], !list.isEmpty {
+            let previous = list.removeFirst()
+            buckets[e.key] = list
+            var notes: [String] = []
+            if previous.value != e.value {
+                notes.append(e.value.map { "value=\"\($0)\"" } ?? "value cleared")
+            }
+            if previous.gated != e.gated { notes.append(e.gated ? "[gated]" : "not gated") }
+            if previous.offscreen != e.offscreen { notes.append(e.offscreen ? "offscreen" : "onscreen") }
+            if !notes.isEmpty { out.changed.append("\(e.id) \(e.label) \"\(e.name)\" \(notes.joined(separator: " "))") }
+        } else {
+            out.added.append(e.line)
+        }
     }
-    var removed: [String: Int] = [:]
-    for e in old?.elements ?? [] {
-        removed[e.key, default: 0] += 1
-        if removed[e.key]! > (after[e.key] ?? 0) { lines.append("- \(e.label) \"\(e.name)\"") }
+    for (_, list) in buckets {
+        for e in list { out.removed.append("\(e.label) \"\(e.name)\"") }
     }
-    if lines.count > limit { return Array(lines.prefix(limit)) + ["… \(lines.count - limit) more, run `deskkontrol read`"] }
-    return lines
+    return out
 }

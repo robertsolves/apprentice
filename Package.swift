@@ -3,7 +3,10 @@ import PackageDescription
 
 let package = Package(
     name: "deskkontrol",
-    platforms: [.macOS(.v13)],
+    platforms: [.macOS(.v14)],
+    products: [
+        .executable(name: "deskkontrol", targets: ["deskkontrol"])
+    ],
     targets: [
         .executableTarget(
             name: "deskkontrol",
@@ -11,6 +14,9 @@ let package = Package(
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("ApplicationServices"),
+                .linkedFramework("CoreGraphics"),
+                .linkedFramework("ScreenCaptureKit"),
+                .linkedFramework("Vision"),
             ]
         )
     ]
