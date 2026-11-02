@@ -176,6 +176,10 @@
     .btn.primary:hover { filter: brightness(1.05); }
     .btn svg { width: 18px; height: 18px; fill: currentColor; }
     .fine { font-size: 13px; color: var(--muted); }
+    .pill .beta {
+      color: var(--accent-ink); background: var(--accent); border-radius: 999px;
+      padding: 1px 7px; margin-right: 6px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
+    }
 
     .term {
       margin: 40px auto 0; max-width: 820px; text-align: left;
@@ -248,6 +252,7 @@
       <nav class="links">
         <a href="#ask" class="hide-sm">What to ask</a>
         <a href="#how" class="hide-sm">How it works</a>
+        <a href="#help" class="hide-sm">Help out</a>
         <a href="#install" class="hide-sm">Install</a>
         <a href="#faq" class="hide-sm">FAQ</a>
         <a href="https://github.com/robertsolves/apprentice">GitHub</a>
@@ -256,7 +261,7 @@
 
     <div class="hero">
       <img class="logo" src="assets/icon.svg" alt="apprentice icon">
-      <div><span class="pill">Human pace · Real cursor and keys · You approve</span></div>
+      <div><span class="pill"><span class="beta">Beta</span>Human pace · Real cursor and keys · You approve</span></div>
       <h1>Your agent on Mac, Linux and the web, like a person</h1>
       <p class="lede">
         apprentice lets a coding agent or a hosted model use macOS, Linux and the web the way a normal person
@@ -349,6 +354,21 @@
         It's meant to bring the care of a bigger team, not more volume. Bulk outreach, mass following,
         scraping at volume and running several accounts on one site are out of scope on purpose.
       </p>
+    </div>
+  </section>
+
+  <section id="help">
+    <div class="wrap">
+      <h2>It's in beta. Help us make it better</h2>
+      <p class="sub">
+        apprentice works today, but it's early and it will trip over some apps and sites. Every report and fix
+        makes the next run smoother for everyone, so we're asking anyone who tries it to pitch in.
+      </p>
+      <div class="grid">
+        <div class="card"><h3>Report what breaks</h3><p>Open an <a href="https://github.com/robertsolves/apprentice/issues">issue</a>, or ask your agent to run <code>apprentice bug</code> and it writes the report for you.</p></div>
+        <div class="card"><h3>Teach it an app or site</h3><p>Notes in <code>notes/</code> tell agents how an app works. <code>apprentice learn</code> drafts one from a run that went well.</p></div>
+        <div class="card"><h3>Send a fix</h3><p>Fix it in your local clone, then <code>apprentice pr</code> offers it upstream. See <a href="https://github.com/robertsolves/apprentice/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a>.</p></div>
+      </div>
     </div>
   </section>
 
