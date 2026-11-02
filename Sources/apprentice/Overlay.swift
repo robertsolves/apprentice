@@ -10,18 +10,56 @@ enum Pause {
     }
 }
 
-/// A short system sound for each thing that happens, so the person hears it without looking.
+/// A short system sound for each lasting change of state, so the person hears it without looking.
 /// `[agent] sounds = false` silences them all (`ask_sound` still sets the question ping).
 enum Sound {
+    /// The person's mute, kept across restarts as a marker file; every box has a switch for it.
+    private static let marker = Store.dir.appendingPathComponent("muted")
+    static var muted: Bool = FileManager.default.fileExists(atPath: marker.path) {
+        didSet {
+            if muted { FileManager.default.createFile(atPath: marker.path, contents: Data()) }
+            else { try? FileManager.default.removeItem(at: marker) }
+            DispatchQueue.main.async { for b in buttons.allObjects { style(b) } }
+        }
+    }
+    private static let buttons = NSHashTable<NSButton>.weakObjects()
+
+    private final class Toggle: NSObject {
+        @objc func flip(_ sender: NSButton) { Sound.muted.toggle() }
+    }
+    private static let toggle = Toggle()
+
+    private static func style(_ b: NSButton) {
+        b.title = muted ? " Muted" : " Sound on"
+        b.image = NSImage(systemSymbolName: muted ? "speaker.slash.fill" : "speaker.wave.2.fill", accessibilityDescription: nil)
+        b.imagePosition = .imageLeading
+        b.bezelColor = muted ? .systemGray : .systemTeal
+        b.contentTintColor = .white
+        b.setAccessibilityLabel(muted ? "Sounds are muted; press to turn them on" : "Sounds are on; press to mute")
+    }
+
+    /// A "Sound on / Muted" button for a box; all of them follow the one setting.
+    static func muteButton() -> NSButton {
+        let b = NSButton(title: "", target: toggle, action: #selector(Toggle.flip))
+        b.bezelStyle = .rounded
+        b.controlSize = .regular
+        b.font = .boldSystemFont(ofSize: 12)
+        b.widthAnchor.constraint(equalToConstant: 112).isActive = true
+        style(b)
+        buttons.add(b)
+        return b
+    }
+
     private static var playing: [String: NSSound] = [:]
-    private static var last: [String: Date] = [:]
+    private static var lastAny = Date.distantPast
 
     /// From any thread. The same sound is not repeated inside 0.25 s.
     static func play(_ name: String) {
-        guard Config.current.sounds else { return }
+        guard Config.current.sounds, !muted else { return }
         DispatchQueue.main.async {
-            if let t = last[name], Date().timeIntervalSince(t) < 0.25 { return }
-            last[name] = Date()
+            // One sound at a time, and never a burst: anything inside 0.6 s of the last is dropped.
+            if Date().timeIntervalSince(lastAny) < 0.6 { return }
+            lastAny = Date()
             // Held in a static: a sound released right after play() stops before it is heard.
             playing[name] = NSSound(named: NSSound.Name(name))
             playing[name]?.play()
@@ -72,8 +110,7 @@ enum Overlay {
         pauseButton.bezelStyle = .rounded
         pauseButton.controlSize = .regular
         pauseButton.setContentHuggingPriority(.required, for: .horizontal)
-        pauseButton.widthAnchor.constraint(equalToConstant: 84).isActive = true
-        pauseButton.bezelColor = .systemOrange
+                pauseButton.bezelColor = .systemOrange
         pauseButton.contentTintColor = .white
         pauseButton.font = .boldSystemFont(ofSize: 12)
         // The text column takes the slack and clips, so a long line never widens the box.
@@ -83,25 +120,39 @@ enum Overlay {
             label.setContentHuggingPriority(.defaultLow, for: .horizontal)
         }
 
+        let mute = Sound.muteButton()
         let text = NSStackView(views: [title, detail])
         text.orientation = .vertical
         text.alignment = .leading
         text.spacing = 1
+        // Fixed widths everywhere: nothing moves when the text changes, and the box never widens.
+        text.widthAnchor.constraint(equalToConstant: 240).isActive = true
+        title.widthAnchor.constraint(equalToConstant: 240).isActive = true
+        detail.widthAnchor.constraint(equalToConstant: 240).isActive = true
+        dot.alignment = .center
+        dot.widthAnchor.constraint(equalToConstant: 16).isActive = true
         let mark = NSImageView(image: Ask.icon)
         mark.setAccessibilityLabel("apprentice")
         mark.widthAnchor.constraint(equalToConstant: 32).isActive = true
         mark.heightAnchor.constraint(equalToConstant: 32).isActive = true
-        let row = NSStackView(views: [mark, dot, text, pauseButton])
-        row.orientation = .horizontal
-        row.alignment = .centerY
-        row.spacing = 8
-        row.edgeInsets = NSEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
-        p.contentView = row
-        row.layoutSubtreeIfNeeded()
-        // A fixed width: the box sits at the top right, so it must never grow sideways off the screen.
-        row.widthAnchor.constraint(equalToConstant: 340).isActive = true
-        row.layoutSubtreeIfNeeded()
-        p.setContentSize(NSSize(width: 340, height: max(row.fittingSize.height, 56)))
+        let top = NSStackView(views: [mark, dot, text])
+        top.orientation = .horizontal
+        top.alignment = .centerY
+        top.spacing = 8
+        // The controls get their own row at the bottom: Mute on the left, Pause on the right.
+        pauseButton.widthAnchor.constraint(equalToConstant: 96).isActive = true
+        let bottom = NSStackView(views: [mute, NSView(), pauseButton])
+        bottom.orientation = .horizontal
+        bottom.alignment = .centerY
+        bottom.widthAnchor.constraint(equalToConstant: 316).isActive = true
+        let column = NSStackView(views: [top, bottom])
+        column.orientation = .vertical
+        column.alignment = .leading
+        column.spacing = 10
+        column.edgeInsets = NSEdgeInsets(top: 10, left: 12, bottom: 12, right: 12)
+        p.contentView = column
+        column.layoutSubtreeIfNeeded()
+        p.setContentSize(column.fittingSize)
         place(p)
         p.orderFrontRegardless()
         panel = p
@@ -117,18 +168,37 @@ enum Overlay {
         p.setFrameTopLeftPoint(NSPoint(x: screen.maxX - p.frame.width - 16, y: screen.maxY - 12))
     }
 
-    /// One sound for each change of state, so a hand-off or a pause is heard as well as seen.
+    /// One sound for each lasting change of state. A state must hold 0.8 s before it counts (the mouse
+    /// jittering or a command ending must not chatter), the way back is heard only after a hand-off was,
+    /// and a hand-off is announced at most once every 10 s.
+    private static var candidate = ""
+    private static var candidateSince = Date()
+    private static var lastHandOff = Date.distantPast
+    private static var handedOver = false
+
     private static func chime(_ head: String) {
-        defer { lastHead = head }
-        guard !lastHead.isEmpty, head != lastHead else { return }
+        let now = Date()
+        if head != candidate { candidate = head; candidateSince = now }
+        if lastHead.isEmpty { lastHead = head; return }
+        guard head != lastHead else { return }
+        let immediate = ["Paused", "Stopped", "Needs approval"].contains(head) || lastHead == "Paused"
+        guard immediate || now.timeIntervalSince(candidateSince) >= 0.8 else { return }
+        let was = lastHead
+        lastHead = head
         switch head {
-        case "Yours": Sound.play("Funk")
+        case "Yours":
+            guard now.timeIntervalSince(lastHandOff) > 10 else { return }
+            lastHandOff = now
+            handedOver = true
+            Sound.play("Funk")
         case "Paused": Sound.play("Morse")
         case "Stopped": Sound.play("Basso")
-        case "Needs approval": Sound.play("Sosumi")
-        case "Working" where lastHead == "Yours": Sound.play("Glass")
-        case "Ready" where lastHead == "Yours": Sound.play("Glass")
-        default: if lastHead == "Paused" { Sound.play("Hero") }
+        case "Needs approval":
+            Sound.play("Sosumi")
+            Notify.local(Approvals.pending.map { "Approve or deny: \($0.summary)" } ?? "A step needs your approval")
+        default:
+            if was == "Paused" { Sound.play("Hero") }
+            else if was == "Yours", handedOver { handedOver = false; Sound.play("Glass") }
         }
     }
 

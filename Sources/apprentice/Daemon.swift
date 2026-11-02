@@ -71,7 +71,9 @@ enum Daemon {
         }
         try requireAccessibility()
         let app = NSApplication.shared
-        app.setActivationPolicy(.accessory)
+        // A Dock icon shows it is running; without one it is menu-bar only.
+        app.setActivationPolicy(Config.current.dockIcon ? .regular : .accessory)
+        if Config.current.dockIcon { app.applicationIconImage = Ask.icon }
 
         // A pid file left behind means the last daemon died without `stop`: say so once, with its last error output.
         if FileManager.default.fileExists(atPath: Store.pidPath) {

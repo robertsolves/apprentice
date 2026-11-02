@@ -95,6 +95,7 @@ enum Ask {
     static func show(_ question: String, choices: [String], multi: Bool, withText: Bool, timeout: Double,
                      sendTitle: String = "Send", checked: Set<String> = [], placeholder: String? = nil,
                      initialText: String = "", caller: Int32? = nil) -> Reply? {
+        Notify.local(question)
         // A session in a VM asks on the VM's screen, where the work is; this Mac shows a notification.
         if let answer = Remote.askInVM(question, choices: choices, multi: multi, withText: withText, timeout: timeout,
                                        sendTitle: sendTitle, checked: checked, placeholder: placeholder, initialText: initialText) {
@@ -139,7 +140,7 @@ enum Ask {
         let skip = NSButton(title: "Skip ⎋", target: handler, action: #selector(Handler.skip))
         skip.keyEquivalent = "\u{1b}"
         skip.setAccessibilityLabel("Skip, Escape")
-        let buttons = NSStackView(views: [NSView(), skip, send])
+        let buttons = NSStackView(views: [Sound.muteButton(), NSView(), skip, send])
         buttons.spacing = 12
         rows.append(buttons)
 
@@ -262,7 +263,7 @@ enum Ask {
     /// `[agent] ask_sound`, unless it is "none".
     static func ping() {
         let sound = Config.current.askSound
-        guard sound.lowercased() != "none", !sound.isEmpty else { return }
+        guard sound.lowercased() != "none", !sound.isEmpty, !Sound.muted else { return }
         // Held in a static: a sound released right after play() stops before it is heard.
         playing = NSSound(named: NSSound.Name(sound)) ?? NSSound(named: "Ping")
         playing?.play()
@@ -342,7 +343,7 @@ extension Ask {
         let handler = PointHandler()
         let start = NSButton(title: "Start", target: handler, action: #selector(PointHandler.start))
         let skip = NSButton(title: "Skip", target: handler, action: #selector(PointHandler.skip))
-        let buttons = NSStackView(views: [status, NSView(), skip, start])
+        let buttons = NSStackView(views: [Sound.muteButton(), status, NSView(), skip, start])
         buttons.spacing = 12
         let stack = NSStackView(views: [header(label), buttons])
         stack.orientation = .vertical
@@ -357,6 +358,7 @@ extension Ask {
         place(panel)
         panel.orderFrontRegardless()
         ping()
+        Notify.local("Show me: \(what)")
         defer { panel.orderOut(nil) }
 
         // Watch only after Start; capture once the cursor has rested for 5 s (a debounce on movement).

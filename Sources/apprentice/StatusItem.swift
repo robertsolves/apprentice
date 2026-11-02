@@ -23,12 +23,15 @@ enum StatusItem {
         item.menu = NSMenu()
         item.menu?.delegate = menu
         self.item = item
+        let mark = (Ask.icon.copy() as? NSImage) ?? Ask.icon
+        mark.size = NSSize(width: 18, height: 18)
+        item.button?.image = mark
+        item.button?.imagePosition = .imageLeading
         render()
     }
 
     /// From any thread: a command started or finished.
     static func busy(_ on: Bool) {
-        Sound.play(on ? "Tink" : "Pop")
         DispatchQueue.main.async {
             working = on
             render()
@@ -50,7 +53,7 @@ enum StatusItem {
     private static func render() {
         guard let button = item?.button else { return }
         let marks: [State: String] = [.idle: "", .working: " …", .waiting: " ?", .approval: " !"]
-        button.title = "α" + (Store.vmName.map { " \($0)" } ?? "") + (marks[state] ?? "")
+        button.title = (Store.vmName.map { " \($0)" } ?? "") + (marks[state] ?? "")
         button.toolTip = "apprentice: \(state.rawValue)"
         button.setAccessibilityLabel("apprentice, \(state.rawValue)")
     }
@@ -75,6 +78,9 @@ enum StatusItem {
             menu.addItem(.separator())
             menu.addItem(action("Open this session's log", #selector(openLog), nil))
             if let n = Store.load(Repo.Notice.self, "update.json") { menu.addItem(info(clip(n.text, 90))) }
+            let mute = action("Mute sounds", #selector(toggleMute), nil)
+            mute.state = Sound.muted ? .on : .off
+            menu.addItem(mute)
             menu.addItem(info("Kill switch: ctrl+opt+cmd+."))
             menu.addItem(action("Stop apprentice", #selector(stop), nil))
         }
@@ -108,6 +114,8 @@ enum StatusItem {
         @objc func resume() {
             DispatchQueue.global(qos: .userInitiated).async { _ = try? Daemon.command(Request(cmd: "resume")) }
         }
+
+        @objc func toggleMute() { Sound.muted.toggle() }
 
         @objc func openLog() {
             let folder = Store.runFolder()

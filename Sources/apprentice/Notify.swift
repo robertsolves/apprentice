@@ -26,6 +26,21 @@ enum Notify {
         return one.count > 300 ? String(one.prefix(299)) + "…" : one
     }
 
+    /// A desktop notification on this Mac, so a question or approval is noticed from another window or Space.
+    /// Fire and forget, off the calling thread; scrubbed apps get no text (`body`). `[agent] sounds = false` makes it silent.
+    static func local(_ text: String, title: String = "apprentice needs you") {
+        let line = body(text, session: Session.stored)
+        DispatchQueue.global(qos: .utility).async {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+            // The text goes in as arguments, never spliced into the script, so quotes in it cannot break out.
+            p.arguments = ["-e", "on run argv", "-e", "display notification (item 1 of argv) with title (item 2 of argv)", "-e", "end run", line, title]
+            p.standardOutput = FileHandle.nullDevice
+            p.standardError = FileHandle.nullDevice
+            try? p.run()
+        }
+    }
+
     /// Fire and forget: a failed push never holds up the question, it is only logged.
     static func send(_ text: String) {
         post(body(text, session: Session.stored), title: "apprentice needs you", wait: false)

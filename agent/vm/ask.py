@@ -7,6 +7,7 @@ or {"timeout": true}.
 """
 
 import json
+import subprocess
 import sys
 
 import gi
@@ -20,6 +21,13 @@ GLib.set_prgname("apprentice-ask")
 from gi.repository import Gtk  # noqa: E402
 
 req = json.loads(sys.stdin.read() or "{}")
+
+# A desktop notification when the VM has a notification service; the window is the real prompt.
+try:
+    subprocess.run(["notify-send", "apprentice needs you", str(req.get("question", ""))[:300]],
+                   timeout=3, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+except Exception:
+    pass
 result = {"timeout": True}
 
 win = Gtk.Window(title="apprentice")
