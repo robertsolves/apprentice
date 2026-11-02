@@ -296,6 +296,7 @@ struct Config {
     var menuBar = true
     var overlay = true
     var sounds = true
+    var notifications = false
     var dockIcon = true
     /// Where questions go: "both" (the window, then the chat if unanswered), "window", or "terminal".
     var askIn = "both"
@@ -445,6 +446,7 @@ struct Config {
         if let v = toml["agent"]?["keep_awake"] { c.keepAwake = Toml.unquote(v) == "true" }
         if let v = toml["agent"]?["menu_bar"] { c.menuBar = Toml.unquote(v) != "false" }
         if let v = toml["agent"]?["dock_icon"] { c.dockIcon = Toml.unquote(v) != "false" }
+        if let v = toml["agent"]?["notifications"] { c.notifications = Toml.unquote(v) == "true" }
         if let v = toml["agent"]?["sounds"] { c.sounds = Toml.unquote(v) != "false" }
         if let v = toml["agent"]?["overlay"] { c.overlay = Toml.unquote(v) != "false" }
         if let v = toml["agent"]?["ask_in"] { c.askIn = Toml.unquote(v) }

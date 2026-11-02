@@ -1,5 +1,6 @@
 import AppKit
 import CoreImage
+import UserNotifications
 
 /// When a question goes to the chat (exit 9), the user is usually on a phone: `Ask.handOff` saves the
 /// screen it is about, for the agent to attach, and pushes a notification so the phone buzzes.
@@ -27,18 +28,108 @@ enum Notify {
     }
 
     /// A desktop notification on this Mac, so a question or approval is noticed from another window or Space.
-    /// Fire and forget, off the calling thread; scrubbed apps get no text (`body`). `[agent] sounds = false` makes it silent.
+    /// Off unless `[agent] notifications = true`. Fire and forget, off the calling thread; scrubbed apps get
+    /// no text (`body`).
     static func local(_ text: String, title: String = "apprentice needs you") {
+        guard Config.current.notifications else { return }
         let line = body(text, session: Session.stored)
-        DispatchQueue.global(qos: .utility).async {
+        DispatchQueue.global(qos: .utility).async { desktop(line, title: title) }
+    }
+
+    /// Posts through `Apprentice.app` so the notification carries apprentice's icon (a notification is
+    /// shown with the icon of the app that posted it, and this binary has no bundle of its own). Falls
+    /// back to a plain notification if the bundle cannot be made or the post fails.
+    static func desktop(_ text: String, title: String) {
+        if let exe = appBundleExecutable() {
             let p = Process()
-            p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-            // The text goes in as arguments, never spliced into the script, so quotes in it cannot break out.
-            p.arguments = ["-e", "on run argv", "-e", "display notification (item 1 of argv) with title (item 2 of argv)", "-e", "end run", line, title]
+            p.executableURL = URL(fileURLWithPath: exe)
+            p.arguments = ["notify-post", title, text]
             p.standardOutput = FileHandle.nullDevice
             p.standardError = FileHandle.nullDevice
-            try? p.run()
+            if (try? p.run()) != nil {
+                p.waitUntilExit()
+                if p.terminationStatus == 0 { return }
+            }
         }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        // The text goes in as arguments, never spliced into the script, so quotes in it cannot break out.
+        p.arguments = ["-e", "on run argv", "-e", "display notification (item 1 of argv) with title (item 2 of argv)", "-e", "end run", text, title]
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        try? p.run()
+    }
+
+    /// `~/.apprentice/Apprentice.app`: this binary copied into a bundle with the apprentice icon, signed
+    /// ad hoc, and made again whenever the installed binary changes. Nil when it cannot be built.
+    static func appBundleExecutable() -> String? {
+        guard let source = Bundle.main.executablePath else { return nil }
+        let fm = FileManager.default
+        let app = Store.dir.appendingPathComponent("Apprentice.app")
+        let exe = app.appendingPathComponent("Contents/MacOS/apprentice")
+        func stamp(_ path: String) -> Date? { (try? fm.attributesOfItem(atPath: path))?[.modificationDate] as? Date }
+        if let have = stamp(exe.path), let want = stamp(source), have >= want { return exe.path }
+        let res = app.appendingPathComponent("Contents/Resources")
+        let iconset = Store.dir.appendingPathComponent("AppIcon.iconset")
+        do {
+            try? fm.removeItem(at: app)
+            try fm.createDirectory(at: exe.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fm.createDirectory(at: res, withIntermediateDirectories: true)
+            try fm.copyItem(atPath: source, toPath: exe.path)
+            try? fm.removeItem(at: iconset)
+            try fm.createDirectory(at: iconset, withIntermediateDirectories: true)
+            for (name, px) in [("icon_16x16", 16), ("icon_16x16@2x", 32), ("icon_32x32", 32), ("icon_32x32@2x", 64),
+                               ("icon_128x128", 128), ("icon_128x128@2x", 256), ("icon_256x256", 256), ("icon_256x256@2x", 512),
+                               ("icon_512x512", 512), ("icon_512x512@2x", 1024)] {
+                guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: px, pixelsHigh: px, bitsPerSample: 8, samplesPerPixel: 4,
+                                                 hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+                      let ctx = NSGraphicsContext(bitmapImageRep: rep) else { continue }
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = ctx
+                Ask.icon.draw(in: NSRect(x: 0, y: 0, width: px, height: px))
+                NSGraphicsContext.restoreGraphicsState()
+                try rep.representation(using: .png, properties: [:])?.write(to: iconset.appendingPathComponent(name + ".png"))
+            }
+            let util = Process()
+            util.executableURL = URL(fileURLWithPath: "/usr/bin/iconutil")
+            util.arguments = ["-c", "icns", iconset.path, "-o", res.appendingPathComponent("AppIcon.icns").path]
+            try util.run()
+            util.waitUntilExit()
+            try? fm.removeItem(at: iconset)
+            let plist: [String: Any] = ["CFBundleIdentifier": "com.apprentice.notify", "CFBundleName": "apprentice",
+                                        "CFBundleExecutable": "apprentice", "CFBundleIconFile": "AppIcon", "CFBundlePackageType": "APPL",
+                                        "LSUIElement": true]
+            try (plist as NSDictionary).write(to: app.appendingPathComponent("Contents/Info.plist"))
+            let sign = Process()
+            sign.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+            sign.arguments = ["--force", "--deep", "-s", "-", app.path]
+            sign.standardOutput = FileHandle.nullDevice
+            sign.standardError = FileHandle.nullDevice
+            try sign.run()
+            sign.waitUntilExit()
+            return sign.terminationStatus == 0 ? exe.path : nil
+        } catch {
+            return nil
+        }
+    }
+
+    /// The `notify-post` command, run from inside `Apprentice.app`: posts one notification and exits 0 when it was delivered.
+    static func post(title: String, text: String) -> Int32 {
+        let center = UNUserNotificationCenter.current()
+        let done = DispatchSemaphore(value: 0)
+        var code: Int32 = 1
+        center.requestAuthorization(options: [.alert]) { granted, _ in
+            guard granted else { done.signal(); return }
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = text
+            center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)) { error in
+                code = error == nil ? 0 : 1
+                done.signal()
+            }
+        }
+        _ = done.wait(timeout: .now() + 10)
+        return code
     }
 
     /// Fire and forget: a failed push never holds up the question, it is only logged.

@@ -196,6 +196,8 @@ case "vm":
     attempt { print(try VM.command(Args.parse(rest))) }
 case "phone":
     attempt { print(try Notify.phone(Args.parse(rest), tty: isatty(STDOUT_FILENO) == 1)) }
+case "notify-post":
+    exit(Notify.post(title: rest.first ?? "apprentice", text: rest.dropFirst().first ?? ""))
 case "selftest":
     SelfTest.run()
 default:

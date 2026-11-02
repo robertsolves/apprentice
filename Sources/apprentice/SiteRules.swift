@@ -70,11 +70,8 @@ enum Site {
 
     /// A macOS notification, for things the user has to see even when the chat is elsewhere.
     static func notify(_ title: String, _ body: String) {
-        func quoted(_ s: String) -> String { "\"" + s.replacingOccurrences(of: "\\", with: "").replacingOccurrences(of: "\"", with: "'") + "\"" }
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        proc.arguments = ["-e", "display notification \(quoted(body)) with title \(quoted(title)) sound name \"Ping\""]
-        try? proc.run()
+        guard Config.current.notifications else { return }
+        DispatchQueue.global(qos: .utility).async { Notify.desktop(body, title: title) }
     }
 
     /// Waits until the window has been on its page for the profile's `dwell_s`, so an agent cannot
