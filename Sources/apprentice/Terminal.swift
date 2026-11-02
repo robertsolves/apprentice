@@ -188,6 +188,14 @@ final class TermScreen {
     private(set) var cursorVisible = true
     /// DECCKM: a full-screen program asked for `ESC O A` arrow keys instead of `ESC [ A`.
     private(set) var appCursorKeys = false
+    /// The program asked for mouse reports (1000, 1002, 1003): the wheel goes to it, not to the scrollback.
+    private(set) var mouseTracking = false
+    /// Mouse reports in the SGR form (1006), `ESC [ < b ; x ; y M`.
+    private(set) var sgrMouse = false
+    /// Pasted text is wrapped in `ESC [ 200~ … ESC [ 201~` (2004), so a multi-line paste is not run line by line.
+    private(set) var bracketedPaste = false
+    /// The program wants `ESC [ I` and `ESC [ O` when the tab gains and loses the keyboard (1004).
+    private(set) var focusEvents = false
     private(set) var title = ""
     var scrollback: [[TermCell]] = []
     let maxScrollback = 3000
@@ -379,6 +387,7 @@ final class TermScreen {
         scrollback.removeAll()
         alt = false
         altSaved = nil
+        (appCursorKeys, mouseTracking, sgrMouse, bracketedPaste, focusEvents) = (false, false, false, false, false)
     }
 
     private func oscApply() {
@@ -471,12 +480,19 @@ final class TermScreen {
                     case 1049, 47, 1047: setAlt(on)
                     case 25: cursorVisible = on
                     case 1: appCursorKeys = on
+                    case 1000, 1002, 1003: mouseTracking = on
+                    case 1006: sgrMouse = on
+                    case 2004: bracketedPaste = on
+                    case 1004: focusEvents = on
                     default: break
                     }
                 }
             }
-        case "s": saved = (cursorX, cursorY, attr)
-        case "u": if let s = saved { (cursorX, cursorY, attr) = (s.x, s.y, s.attr) }
+        // `CSI ? u` is the kitty keyboard query and `CSI ? … s` saves private modes: neither touches the
+        // cursor. Read as a restore, the query sent Claude Code's redraws to the top rows, so a menu's
+        // selection never moved on screen.
+        case "s": if !priv { saved = (cursorX, cursorY, attr) }
+        case "u": if !priv, let s = saved { (cursorX, cursorY, attr) = (s.x, s.y, s.attr) }
         case "n":
             // Device status: 5 asks "are you there", 6 asks where the cursor is.
             if !priv, params.first == 5 { reply?("\u{1b}[0n") }
@@ -676,7 +692,7 @@ final class TermSession: ObservableObject, Identifiable {
             switch event.charactersIgnoringModifiers?.lowercased() {
             case "c", "a", "f", "k": return false
             case "v":
-                if let text = NSPasteboard.general.string(forType: .string) { pty.write(text) }
+                paste()
                 return true
             default: return false
             }
@@ -708,6 +724,49 @@ final class TermSession: ObservableObject, Identifiable {
             return true
         }
         return false
+    }
+
+    /// The clipboard as typed text. A program that asked for bracketed paste (Claude Code, zsh) gets it
+    /// wrapped, so a pasted block with newlines arrives as one paste instead of running line by line; an end
+    /// marker inside the clipboard is dropped so it cannot close the paste early.
+    func paste() {
+        guard let pty, let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else { return }
+        if screen.bracketedPaste {
+            let clean = text.replacingOccurrences(of: "\u{1b}[201~", with: "")
+            pty.write("\u{1b}[200~" + clean + "\u{1b}[201~")
+        } else {
+            pty.write(text)
+        }
+    }
+
+    /// Scroll lines the wheel moved over the program's screen at cell (`col`, `row`), both from 1: mouse wheel
+    /// reports when it asked for the mouse, arrow keys in a full-screen program that did not (as Terminal's
+    /// alternate scroll), and false when the view should scroll its own scrollback.
+    func wheel(lines: Int, col: Int, row: Int) -> Bool {
+        guard let pty, lines != 0 else { return screen.mouseTracking || screen.alt }
+        let count = min(abs(lines), 10)
+        if screen.mouseTracking {
+            let button = lines > 0 ? 64 : 65
+            let x = max(1, min(col, cols)), y = max(1, min(row, rows))
+            let one = screen.sgrMouse ? "\u{1b}[<\(button);\(x);\(y)M"
+                : "\u{1b}[M" + String(UnicodeScalar(UInt8(32 + button))) + String(UnicodeScalar(UInt8(min(32 + x, 255))))
+                    + String(UnicodeScalar(UInt8(min(32 + y, 255))))
+            pty.write(String(repeating: one, count: count))
+            return true
+        }
+        if screen.alt {
+            let up = lines > 0
+            let key = screen.appCursorKeys ? (up ? "\u{1b}OA" : "\u{1b}OB") : (up ? "\u{1b}[A" : "\u{1b}[B")
+            pty.write(String(repeating: key, count: count))
+            return true
+        }
+        return false
+    }
+
+    /// The tab gained or lost the keyboard, for a program that asked to know (1004).
+    func focus(_ on: Bool) {
+        guard screen.focusEvents else { return }
+        pty?.write(on ? "\u{1b}[I" : "\u{1b}[O")
     }
 
     func resize(cols: Int, rows: Int) {
@@ -801,8 +860,10 @@ enum Renderer {
         let base: [NSAttributedString.Key: Any] = [.font: font, .paragraphStyle: para,
                                                    .foregroundColor: NSColor.textColor]
         var lines: [[TermCell]] = []
-        // Only the tail of the scrollback is drawn: enough to scroll back through, not the whole day.
-        if !screen.scrollback.isEmpty { lines.append(contentsOf: screen.scrollback.suffix(400)) }
+        // Only the tail of the scrollback is drawn: enough to scroll back through, not the whole day. A
+        // full-screen program (the alternate screen) owns the whole view, so it shows alone.
+        let back = scrollbackShown(screen)
+        if back > 0 { lines.append(contentsOf: screen.scrollback.suffix(back)) }
         lines.append(contentsOf: screen.grid.map { $0.cells })
         // The cursor: a block over the character it sits on, found by its UTF-16 offset while the text is built.
         let cursorRow = lines.count - screen.grid.count + screen.cursorY
@@ -844,6 +905,9 @@ enum Renderer {
         }
         return out
     }
+
+    /// How many scrollback lines are drawn above the screen.
+    static func scrollbackShown(_ screen: TermScreen) -> Int { screen.alt ? 0 : min(screen.scrollback.count, 400) }
 
     private static func attributes(_ cell: TermCell, base: [NSAttributedString.Key: Any]) -> [NSAttributedString.Key: Any] {
         var a = base
@@ -911,6 +975,45 @@ final class TerminalTextView: NSTextView {
             if chars == "v", onKey?(event) == true { return true }
         }
         return super.performKeyEquivalent(with: event)
+    }
+
+    /// Pasting from the Edit menu goes to the shell, as ⌘V does.
+    override func paste(_ sender: Any?) {
+        if locked { NSSound.beep(); return }
+        term?.paste()
+    }
+
+    override func becomeFirstResponder() -> Bool {
+        let ok = super.becomeFirstResponder()
+        if ok { term?.focus(true) }
+        return ok
+    }
+
+    override func resignFirstResponder() -> Bool {
+        let ok = super.resignFirstResponder()
+        if ok { term?.focus(false) }
+        return ok
+    }
+
+    private var wheelRest: CGFloat = 0
+
+    /// Over a full-screen program the wheel and trackpad go to the program (Claude Code scrolls its own
+    /// conversation), counted in lines; over a shell they scroll the scrollback as usual.
+    override func scrollWheel(with event: NSEvent) {
+        guard let term, let font, term.screen.mouseTracking || term.screen.alt else {
+            super.scrollWheel(with: event)
+            return
+        }
+        let lineHeight = font.pointSize * 1.22
+        let charWidth = max(("M" as NSString).size(withAttributes: [.font: font]).width, 1)
+        wheelRest += event.hasPreciseScrollingDeltas ? event.scrollingDeltaY / lineHeight : event.scrollingDeltaY
+        let lines = Int(wheelRest.rounded(.towardZero))
+        guard lines != 0 else { return }
+        wheelRest -= CGFloat(lines)
+        let point = convert(event.locationInWindow, from: nil)
+        let col = Int((point.x - textContainerInset.width) / charWidth) + 1
+        let row = Int((point.y - textContainerInset.height) / lineHeight) + 1 - Renderer.scrollbackShown(term.screen)
+        _ = term.wheel(lines: lines, col: col, row: row)
     }
 
     override func viewDidMoveToWindow() {

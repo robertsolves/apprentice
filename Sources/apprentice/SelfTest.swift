@@ -973,6 +973,18 @@ enum SelfTest {
         check(!screen.cursorVisible, "terminal: the cursor can be hidden")
         screen.resize(cols: 10, rows: 3)
         check(screen.cols == 10 && screen.rows == 3, "terminal: a resize reflows the grid")
+
+        // Claude Code queries the kitty keyboard with `CSI ? u`; read as a cursor restore, it drew a menu's new
+        // selection on the top rows and the menu on screen never changed.
+        let menu = TermScreen(cols: 20, rows: 6)
+        menu.feed(Data((esc + "7" + "\r\n\r\n> one\r\n  two\r\n" + esc + "[?u" + esc + "[2A\r  one\r\n> two").utf8))
+        check(menu.rowText(3).hasPrefix("> two") && menu.rowText(2).hasPrefix("  one"),
+              "terminal: CSI ? u leaves the cursor where it is")
+        menu.feed(Data((esc + "[?1000h" + esc + "[?1006h" + esc + "[?2004h" + esc + "[?1004h").utf8))
+        check(menu.mouseTracking && menu.sgrMouse && menu.bracketedPaste && menu.focusEvents,
+              "terminal: mouse, paste and focus modes are tracked")
+        menu.feed(Data((esc + "[?1000l" + esc + "[?2004l").utf8))
+        check(!menu.mouseTracking && !menu.bracketedPaste, "terminal: the modes turn off again")
     }
 
     /// The comment-preserving edit: a UI change never rewrites what a person wrote by hand.
