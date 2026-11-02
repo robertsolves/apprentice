@@ -969,6 +969,12 @@ enum SelfTest {
 
     /// The terminal's screen model: text, colours, erase and the alternate screen a TUI runs in.
     private static func terminal() {
+        let trust: [String] = ["Do you trust this folder?", "", " ❯ 1. Yes, proceed", "   2. No, exit", "", "Steps:", "1. read", "2. write"]
+        let picks: [String?] = [0, 2, 3].map { TermSession.menuChoice(trust, row: $0) }
+        check(picks == [nil, "1", "2"],
+              "terminal: a click on a menu's numbered option types its number")
+        check(TermSession.menuChoice(["Steps:", "1. read", "2. write", "> hello"], row: 1) == nil,
+              "terminal: a numbered list with no chosen line is never clicked into the prompt")
         let esc = String(UnicodeScalar(27)!)
         let screen = TermScreen(cols: 20, rows: 5)
         func feed(_ s: String) { screen.feed(Data(s.utf8)) }

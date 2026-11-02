@@ -739,6 +739,45 @@ final class TermSession: ObservableObject, Identifiable {
         }
     }
 
+    /// A click at cell (`col`, `row`), both from 1. A program that asked for the mouse gets press and release
+    /// reports, as in any terminal. Otherwise a press on a numbered option of a menu on screen (`❯ 1. Yes`)
+    /// types the option's number, which is how Claude Code's menus and most others choose one. False when the
+    /// click is the view's own: selecting text.
+    func click(col: Int, row: Int, up: Bool) -> Bool {
+        guard let pty else { return false }
+        let x = max(1, min(col, cols)), y = max(1, min(row, rows))
+        if screen.mouseTracking {
+            pty.write(screen.sgrMouse ? "\u{1b}[<0;\(x);\(y)\(up ? "m" : "M")"
+                : "\u{1b}[M" + String(UnicodeScalar(UInt8(up ? 35 : 32))) + String(UnicodeScalar(UInt8(min(32 + x, 255))))
+                    + String(UnicodeScalar(UInt8(min(32 + y, 255)))))
+            return true
+        }
+        guard !up, let choice = Self.menuChoice((0..<screen.rows).map(screen.rowText), row: y - 1) else { return false }
+        pty.write(choice)
+        return true
+    }
+
+    /// The number to type for a click on line `row`: the line is a numbered option (`2. No`, `❯ 1. Yes`) and a
+    /// line near it is the menu's chosen one, marked with a pointer, so a numbered list in plain output is
+    /// never clicked into a prompt.
+    static func menuChoice(_ lines: [String], row: Int) -> String? {
+        func option(_ line: String) -> (marked: Bool, number: String)? {
+            var rest = Substring(line.drop { $0 == " " || $0 == "│" || $0 == "┃" })
+            var marked = false
+            if let first = rest.first, "❯›>▸→➜".contains(first) {
+                marked = true
+                rest = rest.dropFirst().drop { $0 == " " }
+            }
+            let digits = rest.prefix { $0.isASCII && $0.isNumber }
+            guard (1...2).contains(digits.count), let after = rest.dropFirst(digits.count).first, after == "." || after == ")",
+                  rest.dropFirst(digits.count + 1).first == " " else { return nil }
+            return (marked, String(digits))
+        }
+        guard lines.indices.contains(row), let hit = option(lines[row]) else { return nil }
+        let near = lines.indices.filter { abs($0 - row) <= 12 }
+        return near.contains { option(lines[$0])?.marked == true } ? hit.number : nil
+    }
+
     /// Scroll lines the wheel moved over the program's screen at cell (`col`, `row`), both from 1: mouse wheel
     /// reports when it asked for the mouse, arrow keys in a full-screen program that did not (as Terminal's
     /// alternate scroll), and false when the view should scroll its own scrollback.
@@ -1036,15 +1075,46 @@ final class TerminalTextView: NSTextView {
             return
         }
         let lineHeight = font.pointSize * 1.22
-        let charWidth = max(("M" as NSString).size(withAttributes: [.font: font]).width, 1)
         wheelRest += event.hasPreciseScrollingDeltas ? event.scrollingDeltaY / lineHeight : event.scrollingDeltaY
         let lines = Int(wheelRest.rounded(.towardZero))
         guard lines != 0 else { return }
         wheelRest -= CGFloat(lines)
+        guard let (col, row) = cell(event) else { return }
+        _ = term.wheel(lines: lines, col: col, row: row)
+    }
+
+    /// The program's screen cell under the pointer, both from 1.
+    private func cell(_ event: NSEvent) -> (Int, Int)? {
+        guard let term, let font else { return nil }
+        let lineHeight = font.pointSize * 1.22
+        let charWidth = max(("M" as NSString).size(withAttributes: [.font: font]).width, 1)
         let point = convert(event.locationInWindow, from: nil)
         let col = Int((point.x - textContainerInset.width) / charWidth) + 1
         let row = Int((point.y - textContainerInset.height) / lineHeight) + 1 - Renderer.scrollbackShown(term.screen)
-        _ = term.wheel(lines: lines, col: col, row: row)
+        return (col, row)
+    }
+
+    private var pressed = false
+
+    /// A click goes to the program when it takes clicks (see `TermSession.click`); otherwise it selects text.
+    /// Shift or option keeps it a selection, as in Terminal.
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        if event.modifierFlags.intersection([.shift, .option]).isEmpty, let term, let (col, row) = cell(event), row >= 1,
+           term.click(col: col, row: row, up: false) {
+            pressed = term.screen.mouseTracking
+            return
+        }
+        super.mouseDown(with: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        if pressed, let term, let (col, row) = cell(event) {
+            pressed = false
+            _ = term.click(col: col, row: row, up: true)
+            return
+        }
+        super.mouseUp(with: event)
     }
 
     /// The terminal on screen (only the chosen tab's is in the window), for `TerminalKeys`.
