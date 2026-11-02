@@ -1329,8 +1329,8 @@ enum SelfTest {
               "a broken header, a bare line and an open array are problems")
     }
 
-    /// The automatic update against throwaway git repos: a clean update, a dirty tree, a conflict and a
-    /// failed build.
+    /// The automatic update against throwaway git repos: a clean update, a dirty tree, a conflict, a
+    /// failed build and following release tags.
     private static func updates() {
         let base = FileManager.default.temporaryDirectory.appendingPathComponent("apprentice-repo-\(getpid())")
         defer {
@@ -1375,6 +1375,22 @@ enum SelfTest {
         Repo.testBuild = { (1, "error: broken") }
         let good = head()
         check(!Repo.applyUpdate() && head() == good, "a failed build goes back to the old commit")
+
+        // A clone installed on a release follows tags, never the branch tip, and skips pre-releases.
+        Repo.testBuild = { (0, "built") }
+        Repo.git("config", "apprentice.follow", "release")
+        _ = sh("\(id) tag v1.0.0", in: up)
+        upstreamCommit("five", "Sources/c.swift")
+        _ = sh("\(id) tag v1.1.0-rc1", in: up)
+        Repo.git("fetch", "-q", "--tags", "upstream")
+        let tagged = Repo.git("rev-parse", "v1.0.0^{commit}").out
+        check(Repo.target("upstream") == "refs/tags/v1.0.0", "a release follower targets the newest stable tag, not a pre-release")
+        check(Repo.applyUpdate() && head() == tagged, "a release follower updates to the release, not the branch tip")
+        check(Repo.behind("upstream") == 0, "a release follower sees nothing waiting until the next release")
+        Repo.git("config", "apprentice.follow", "v0.9.0")
+        check(Repo.target("upstream") == "HEAD", "a pin to a version that is not tagged stays put")
+        Repo.git("config", "--unset", "apprentice.follow")
+        check(Repo.follow == "main" && Repo.target("upstream") == "upstream/main", "a clone with no choice follows main")
     }
 
     /// Prefs: the nearest device wins, only the user's words or the task's own site are saved, and lookups match words.

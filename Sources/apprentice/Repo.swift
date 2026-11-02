@@ -45,6 +45,37 @@ enum Repo {
         return String(name)
     }
 
+    /// What the clone follows, as install.sh set it in the clone's git config (`apprentice.follow`): "release"
+    /// (the newest stable vX.Y.Z tag), a pinned version such as "0.2.0", or "main" (the default, also for a
+    /// clone made before releases).
+    static var follow: String {
+        let v = git("config", "--get", "apprentice.follow").out
+        return v.isEmpty ? "main" : (v.hasPrefix("v") ? String(v.dropFirst()) : v)
+    }
+
+    /// The newest stable release tag in the clone (`v1.2.3`, never a `-rc` pre-release), if any.
+    static func latestTag() -> String? {
+        git("tag", "-l", "v[0-9]*.[0-9]*.[0-9]*", "--sort=-v:refname").out
+            .split(separator: "\n").map(String.init).first { !$0.contains("-") }
+    }
+
+    /// Where an update moves the clone to: the release tag it follows, else the upstream branch. A release
+    /// follower stays on the branch tip until the first release, and a pin that is not a tag stays put.
+    static func target(_ remote: String) -> String {
+        switch follow {
+        case "main": return "\(remote)/\(branch(remote))"
+        case "release": return latestTag().map { "refs/tags/\($0)" } ?? "\(remote)/\(branch(remote))"
+        case let pin:
+            let tag = "refs/tags/v\(pin)"
+            return git("rev-parse", "-q", "--verify", tag).code == 0 ? tag : "HEAD"
+        }
+    }
+
+    /// `v0.2.0` for a tag target, else the branch.
+    static func targetName(_ target: String) -> String {
+        target.hasPrefix("refs/tags/") ? String(target.dropFirst("refs/tags/".count)) : target
+    }
+
     static var settings: [String: String] { Toml.load(Config.path)["update"] ?? [:] }
     /// On unless the user sets `[update] auto = false`; then `session` only says an update is waiting.
     static var auto: Bool { settings["auto"].map(Toml.unquote) != "false" }
@@ -121,10 +152,10 @@ enum Repo {
         if !isGit, Release.isRelease { return try Release.updateCommand(a) }
         guard isGit else { throw Fail(5, "\(root.path) is not a git clone: reinstall with install.sh") }
         let remote = upstream
-        guard git("fetch", "-q", remote).code == 0 else { throw Fail(5, "could not fetch \(remote) (\(git("remote", "get-url", remote).out))") }
+        guard git("fetch", "-q", "--tags", remote).code == 0 else { throw Fail(5, "could not fetch \(remote) (\(git("remote", "get-url", remote).out))") }
         if a.has("check") {
-            let n = behind(remote)
-            return n == 0 ? "up to date with \(remote)" : "\(n) new upstream commit\(n == 1 ? "" : "s"):\n" + git("log", "--format=  %h %s", "HEAD..\(remote)/\(branch(remote))").out
+            let n = behind(remote), to = target(remote)
+            return n == 0 ? "up to date with \(targetName(to))" : "\(n) new commit\(n == 1 ? "" : "s") in \(targetName(to)):\n" + git("log", "--format=  %h %s", "HEAD..\(to)").out
         }
         try requireClean()
         let before = git("rev-parse", "HEAD").out
@@ -134,17 +165,20 @@ enum Repo {
         return out
     }
 
+    /// Replays only the local commits (the ones upstream's branch does not have) onto the target, so a
+    /// release follower moves from tag to tag and keeps its own fixes on top.
     private static func rebase(_ remote: String) throws {
-        let base = branch(remote)
-        let rebase = git("rebase", "-q", "\(remote)/\(base)")
+        let base = "\(remote)/\(branch(remote))", to = target(remote)
+        let rebase = git("rebase", "-q", "--onto", to, base)
         if rebase.code != 0 {
             git("rebase", "--abort")
-            throw Fail(5, "your commits conflict with upstream; nothing changed. Resolve by hand in \(root.path): git rebase \(remote)/\(base)\n\(rebase.out)")
+            throw Fail(5, "your commits conflict with \(targetName(to)); nothing changed. Resolve by hand in \(root.path): git rebase --onto \(to) \(base)\n\(rebase.out)")
         }
     }
 
+    /// Commits the target has that HEAD does not: a release follower sees none until the next release.
     static func behind(_ remote: String) -> Int {
-        Int(git("rev-list", "--count", "HEAD..\(remote)/\(branch(remote))").out) ?? 0
+        Int(git("rev-list", "--count", "HEAD..\(target(remote))").out) ?? 0
     }
 
     // MARK: - telling the user, and updating on its own
@@ -178,7 +212,8 @@ enum Repo {
         if start, age.map({ Date().timeIntervalSince($0) > checkSeconds }) ?? true { checkInBackground() }
         let n = behind(remote)
         if n > 0, !updating {
-            let commits = "\(n) new upstream commit\(n == 1 ? "" : "s")"
+            let to = targetName(target(remote))
+            let commits = follow == "main" ? "\(n) new upstream commit\(n == 1 ? "" : "s")" : "release \(to) is out"
             if auto, trusted {
                 if start { startUpdate() }
                 lines.append("apprentice: updating itself in the background (\(commits))")
@@ -225,7 +260,7 @@ enum Repo {
         guard claim() else { return }
         DispatchQueue.global(qos: .utility).async {
             let remote = upstream
-            git("fetch", "-q", remote)
+            git("fetch", "-q", "--tags", remote)
             let waiting = behind(remote) > 0
             release()
             if waiting, auto, trusted { startUpdate() }
@@ -304,7 +339,8 @@ enum Repo {
             notice("apprentice: could not update itself, because local commits conflict with upstream; nothing changed. `apprentice update` shows where")
             return false
         }
-        let to = git("log", "-1", "--format=%h %s").out
+        let tag = target(remote)
+        let to = (tag.hasPrefix("refs/tags/") ? targetName(tag) + " · " : "") + git("log", "-1", "--format=%h %s").out
         guard touchesSource(since: before) else {
             notice("apprentice: updated its playbooks and docs to \(to)")
             return false

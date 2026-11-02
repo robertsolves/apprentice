@@ -7,13 +7,15 @@
 # fetched, and apprentice updates itself from it (set [update] auto = false in config.toml to only be told).
 # An existing install is updated in place wherever it lives.
 #
-# Which version: the latest release by default (the newest vX.Y.Z tag upstream; main if there is none yet).
-#   install.sh --version 0.2.0   a specific release (v0.2.0 works too); auto-update is turned off so it stays
+# Which version: a new install takes the latest release (the newest vX.Y.Z tag upstream; main if there is
+# none yet) and then updates itself from release to release. Run again, it keeps what the clone follows.
+#   install.sh --latest          follow releases
+#   install.sh --version 0.2.0   a specific release (v0.2.0 works too), which stays until you run this again
 #   install.sh --main            the tip of main, the development version, which keeps itself up to date
 # Your own commits in the clone are kept on top of whichever version you pick.
 set -euo pipefail
 
-want=latest
+want=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --version) [ $# -ge 2 ] || { echo "--version needs a version, e.g. --version 0.2.0" >&2; exit 2; }; want="${2#v}"; shift 2 ;;
@@ -58,11 +60,20 @@ if [ -d "$dir/.git" ]; then
 elif [ -e "$dir" ] && [ -n "$(ls -A "$dir")" ]; then
   die "$dir exists and is not a clone of apprentice; move it or set APPRENTICE_DIR to another folder"
 else
-  echo "cloning $url into $dir…"
+  fresh=1
+  echo "cloning $url into ${dir}…"
   mkdir -p "$(dirname "$dir")"
   git clone -q -o upstream "$url" "$dir"
   # Fetch only: your commits stay in this clone.
   git -C "$dir" remote set-url --push upstream no-push
+fi
+
+# No flag: what the clone already follows; a new clone follows releases, an older one main.
+if [ -z "$want" ]; then
+  want="$(git -C "$dir" config --get apprentice.follow 2>/dev/null)" || want=""
+  want="${want#v}"
+  [ "$want" = release ] && want=latest
+  [ -z "$want" ] && { [ "${fresh:-0}" = 1 ] && want=latest || want=main; }
 fi
 
 # Updates come from `upstream`; a clone made before it had that name uses origin.
@@ -75,11 +86,10 @@ branch="$(git -C "$dir" branch --show-current)"
 if [ "$branch" != "$base" ]; then
   echo "$dir is on ${branch:-a detached HEAD}, not $base; left as it is"
 else
-  echo "updating $dir from $remote…"
+  echo "updating $dir from ${remote}…"
   git -C "$dir" fetch -q --tags "$remote" || echo "warning: could not fetch $remote; installing what is here"
   # The target: a release tag (the newest stable one, or the one asked for), else the tip of the base branch.
   target="$remote/$base"
-  pinned=0
   case "$want" in
     main) ;;
     latest)
@@ -88,7 +98,7 @@ else
     *)
       git -C "$dir" rev-parse -q --verify "refs/tags/v$want" >/dev/null ||
         die "there is no release v$want. Releases: $(git -C "$dir" tag -l 'v[0-9]*' | sort -V | tr '\n' ' ')"
-      target="refs/tags/v$want"; pinned=1 ;;
+      target="refs/tags/v$want" ;;
   esac
   echo "installing ${target#refs/tags/}"
   # Replays only your own commits (the ones upstream's branch does not have) on the target, so this moves
@@ -97,17 +107,11 @@ else
     git -C "$dir" rebase --abort 2>/dev/null || true
     die "your commits in $dir conflict with ${target#refs/tags/}; nothing changed. Resolve by hand: git -C $dir rebase --onto $target $remote/$base"
   }
-  # A chosen version stays: otherwise the daemon would move it to main at its next check.
-  if [ "$pinned" = 1 ]; then
-    cfg="$HOME/.apprentice/config.toml"
-    mkdir -p "$HOME/.apprentice"
-    if ! grep -qs '^\[update\]' "$cfg"; then
-      printf '\n[update]\nauto = false\n' >> "$cfg"
-      echo "auto-update is off so v$want stays; run install.sh again (no --version) for the latest release"
-    else
-      echo "note: set [update] auto = false in $cfg to keep v$want"
-    fi
-  fi
+  # What the daemon's auto-update follows from now on (`Repo.follow`): the newest release, this one, or main.
+  case "$want" in
+    latest) git -C "$dir" config apprentice.follow release ;;
+    *) git -C "$dir" config apprentice.follow "$want" ;;
+  esac
 fi
 # apprentice commits its own fixes, so the clone needs an author.
 git -C "$dir" config user.name >/dev/null || git -C "$dir" config user.name "apprentice"
