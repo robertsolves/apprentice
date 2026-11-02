@@ -46,6 +46,9 @@ enum Schedules {
         var lastRun: Date?
         var lastResult: String?
         var next: Date?
+        /// The plain time `next` was drawn from, before jitter: the run after it is computed from here, so a
+        /// run jittered early never lands on the same base again.
+        var base: Date?
         var created = Date()
 
         var where_: String { dir ?? FileManager.default.currentDirectoryPath }
@@ -110,6 +113,7 @@ enum Schedules {
         s.lastRun = parseDate(text("last_run"))
         s.lastResult = text("last_result")
         s.next = parseDate(text("next"))
+        s.base = parseDate(text("base"))
         s.created = parseDate(text("created")) ?? Date.distantPast
         return s
     }
@@ -150,6 +154,7 @@ enum Schedules {
             if let last = s.lastRun { out.append("last_run = \(q(stamp(last)))") }
             if let result = s.lastResult { out.append("last_result = \(q(result))") }
             if let next = s.next { out.append("next = \(q(stamp(next)))") }
+            if let base = s.base { out.append("base = \(q(stamp(base)))") }
             out.append("created = \(q(stamp(s.created)))")
             out.append("")
         }
@@ -189,11 +194,23 @@ enum Schedules {
     private static func nextClock(_ clock: Int, after from: Date) -> Date {
         let cal = Calendar.current
         var day = cal.startOfDay(for: from)
-        for _ in 0..<2 {
-            if let at = cal.date(byAdding: .minute, value: clock, to: day), at > from { return at }
+        for _ in 0..<3 {
+            if let at = clockTime(clock, on: day, cal), at > from { return at }
             day = cal.date(byAdding: .day, value: 1, to: day) ?? day.addingTimeInterval(86_400)
         }
         return day
+    }
+
+    /// The wall-clock time on `day`, so 09:00 stays 09:00 on the day the clocks change.
+    private static func clockTime(_ clock: Int, on day: Date, _ cal: Calendar) -> Date? {
+        cal.date(bySettingHour: clock / 60, minute: clock % 60, second: 0, of: day)
+    }
+
+    /// `mon,wed` as weekday numbers (Sunday 1), or nil when any name is not a day.
+    static func weekdays(_ list: Substring) -> Set<Int>? {
+        let names = list.split(separator: ",").map { String($0).lowercased() }
+        let wanted = names.compactMap { days[String($0.prefix(3))] }
+        return wanted.isEmpty || wanted.count != names.count ? nil : Set(wanted)
     }
 
     /// The plain next time the schedule says, before jitter and quiet hours.
@@ -214,13 +231,12 @@ enum Schedules {
         if let weekly = s.weekly {
             let parts = weekly.split(separator: " ")
             guard parts.count == 2, let clock = timeOfDay(String(parts[1])) else { return nil }
-            let wanted = Set(parts[0].split(separator: ",").compactMap { days[String($0).lowercased().prefix(3).description] })
-            guard !wanted.isEmpty else { return nil }
+            guard let wanted = weekdays(parts[0]) else { return nil }
             let cal = Calendar.current
             var day = cal.startOfDay(for: from)
             for _ in 0..<8 {
                 if wanted.contains(cal.component(.weekday, from: day)),
-                   let at = cal.date(byAdding: .minute, value: clock, to: day), at > from {
+                   let at = clockTime(clock, on: day, cal), at > from {
                     return at
                 }
                 day = cal.date(byAdding: .day, value: 1, to: day) ?? day.addingTimeInterval(86_400)
@@ -250,15 +266,15 @@ enum Schedules {
     /// Moves `at` past quiet hours when it falls inside them.
     static func outOfQuietHours(_ at: Date, _ hours: (from: Double, to: Double)) -> Date {
         guard hours.from >= 0 else { return at }
-        let local = hours.from < hours.to
-            ? Double(Calendar.current.component(.hour, from: at))
-            : Double(Calendar.current.component(.hour, from: at))
+        let parts = Calendar.current.dateComponents([.hour, .minute], from: at)
+        let local = Double(parts.hour ?? 0) + Double(parts.minute ?? 0) / 60
         let inside = hours.from < hours.to ? local >= hours.from && local < hours.to : local >= hours.from || local < hours.to
         guard inside else { return at }
         let cal = Calendar.current
         let day = cal.startOfDay(for: at)
         // The end of the range: later today for a range that wraps (22–6), or tomorrow for 2–6 after 2.
-        var end = cal.date(byAdding: .minute, value: Int(hours.to) * 60, to: day) ?? at
+        let toMinutes = Int((hours.to * 60).rounded())
+        var end = cal.date(bySettingHour: toMinutes / 60 % 24, minute: toMinutes % 60, second: 0, of: day) ?? at
         if end <= at { end = cal.date(byAdding: .day, value: 1, to: end) ?? end.addingTimeInterval(86_400) }
         return end
     }
@@ -266,7 +282,9 @@ enum Schedules {
     /// The time the schedule will actually fire, jitter and quiet hours included.
     static func fireTime(_ s: Schedule, after from: Date, draw: () -> Double = { Rand.unit() }) -> (base: Date, at: Date)? {
         guard s.enabled, let base = baseNext(s, after: from) else { return nil }
-        let at = outOfQuietHours(jittered(base, s.jitter, draw: draw), quietHours(s))
+        // Jitter never reaches past half an `every` gap, and never before `from`: no back-to-back runs.
+        let jitter = s.every.map { min(s.jitter, max($0 / 2, 0)) } ?? s.jitter
+        let at = outOfQuietHours(max(jittered(base, jitter, draw: draw), from.addingTimeInterval(60)), quietHours(s))
         return (base, at)
     }
 
@@ -284,7 +302,12 @@ enum Schedules {
     static func preview(_ s: Schedule, count: Int = 5) -> [Date] {
         var out: [Date] = []
         var from = Date()
-        for _ in 0..<count {
+        // The first is the time the timer will really use, not a fresh draw.
+        if let next = s.next, let base = s.base, next > from {
+            out.append(next)
+            from = max(next, base)
+        }
+        while out.count < count {
             guard var next = fireTime(s, after: from)?.at else { break }
             // A quiet shift can land a run before the base it came from; keep going forward regardless.
             if next <= from { next = from.addingTimeInterval(60) }
@@ -297,7 +320,10 @@ enum Schedules {
     // MARK: - cron
 
     /// One cron field as a set of numbers: `*`, `*/5`, `1,3,5`, `2-6`, `1-20/2`.
-    static func cronField(_ field: String, _ low: Int, _ high: Int) -> Set<Int>? {
+    static func cronField(_ field: String, _ low: Int, _ high: Int, names: [String] = []) -> Set<Int>? {
+        var field = field.lowercased()
+        // `mon`, `jan`: names stand for their number (`names[0]` is `low`).
+        for (i, name) in names.enumerated() { field = field.replacingOccurrences(of: name, with: String(low + i)) }
         var out = Set<Int>()
         for part in field.split(separator: ",") {
             var step = 1
@@ -328,18 +354,20 @@ enum Schedules {
               let minutes = cronField(fields[0], 0, 59),
               let hours = cronField(fields[1], 0, 23),
               let daysOfMonth = cronField(fields[2], 1, 31),
-              let months = cronField(fields[3], 1, 12) else { return nil }
-        var weekdays = cronField(fields[4], 0, 7)
+              let months = cronField(fields[3], 1, 12, names: ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]) else { return nil }
+        var weekdays = cronField(fields[4], 0, 7, names: ["sun", "mon", "tue", "wed", "thu", "fri", "sat"])
         if weekdays?.contains(7) == true { weekdays?.insert(0); weekdays?.remove(7) }
         guard let weekdaySet = weekdays else { return nil }
         let cal = Calendar.current
         var day = cal.startOfDay(for: from)
-        for _ in 0..<40 {
+        // Eight years ahead, so a yearly line or the 29th of February still has a next time.
+        let domAny = fields[2].hasPrefix("*"), dowAny = fields[4].hasPrefix("*")
+        for _ in 0..<(366 * 8) {
             let comps = cal.dateComponents([.month, .day, .weekday], from: day)
-            let domMatches = fields[2] == "*" || daysOfMonth.contains(comps.day ?? 0)
-            // Cron's rule: when both day fields are restricted, either may match.
-            let dowMatches = fields[4] == "*" || weekdaySet.contains((comps.weekday ?? 1) - 1)
-            let dayOK = fields[2] != "*" && fields[4] != "*" ? (domMatches || dowMatches) : (domMatches && dowMatches)
+            let domMatches = daysOfMonth.contains(comps.day ?? 0)
+            let dowMatches = weekdaySet.contains((comps.weekday ?? 1) - 1)
+            // Cron's rule: when both day fields are restricted (neither starts with `*`), either may match.
+            let dayOK = !domAny && !dowAny ? (domMatches || dowMatches) : (domMatches && dowMatches)
             if months.contains(comps.month ?? 0), dayOK {
                 for h in hours.sorted() {
                     for m in minutes.sorted() {
@@ -389,7 +417,7 @@ enum Schedules {
             if due > now {
                 // A freshly parsed schedule has no stored next time yet: keep it, for the UI to show.
                 if s.next == nil { update { list in
-                    if let i = list.firstIndex(where: { $0.id == s.id }) { list[i].next = due }
+                    if let i = list.firstIndex(where: { $0.id == s.id }) { list[i].next = due; list[i].base = list[i].base ?? baseNext(s, after: now) }
                 } }
                 continue
             }
@@ -408,12 +436,18 @@ enum Schedules {
     }
 
     /// Moves the schedule's next time on after a run (or a skip), so an `every` schedule keeps its rhythm.
-    static func advance(_ s: Schedule, now: Date = Date(), result: String? = nil) {
+    /// `fired` is set when the stored next time was used (run or skipped): a once schedule is done, and
+    /// the next time is drawn after that run's base, never the same base again.
+    static func advance(_ s: Schedule, now: Date = Date(), result: String? = nil, fired: Bool = true) {
         update { list in
             guard let i = list.firstIndex(where: { $0.id == s.id }) else { return }
             if result != nil { list[i].lastRun = now; list[i].lastResult = result }
-            if list[i].at != nil, (list[i].lastRun ?? now) >= (list[i].at ?? now) { list[i].enabled = false }
-            list[i].next = fireTime(list[i], after: now)?.at
+            guard fired else { return }
+            if list[i].at != nil { list[i].enabled = false }
+            let from = max(now, list[i].base ?? now)
+            let next = fireTime(list[i], after: from)
+            list[i].next = next?.at
+            list[i].base = next?.base
         }
     }
 
@@ -427,14 +461,15 @@ enum Schedules {
         }
         running.insert(s.id)
         runLock.unlock()
-        advance(s, result: manual ? nil : s.lastResult)
+        // A manual run leaves the timer's next time alone.
+        if !manual { advance(s) }
         Store.log(["cmd": "schedule", "schedule": s.id, "kind": s.kind.rawValue, "started": true])
         DispatchQueue.global(qos: .utility).async {
             let outcome = run(s)
             runLock.lock()
             running.remove(s.id)
             runLock.unlock()
-            advance(s, result: outcome)
+            advance(s, result: outcome, fired: false)
             Store.log(["cmd": "schedule", "schedule": s.id, "result": outcome])
             if outcome != "ok" { Notify.local("schedule \(s.name): \(outcome)", title: "apprentice schedule") }
         }
@@ -497,7 +532,10 @@ enum Schedules {
         handle.write(Data(header.utf8))
 
         let proc = Process()
-        let argv = command(s)
+        var argv = command(s)
+        // An agent CLI is found on the user's login PATH: a daemon started at login (`schedule agent on`)
+        // has only launchd's.
+        if s.kind == .prompt { argv = ["/bin/zsh", "-lc", "exec \"$@\"", "zsh"] + argv }
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         proc.arguments = argv
         var env = ProcessInfo.processInfo.environment
@@ -577,16 +615,40 @@ enum Schedules {
     static let usage = "schedule add <name> (--at|<date>|--every <min>|--daily <HH:MM>|--weekly \"mon,wed 09:00\"|--cron \"m h dom mon dow\") (--prompt \"…\" [--agent claude] | --run \"…\" | --do <flow> | --sh \"…\") [--dir] [--vm] [--model] [--jitter min] [--site] · list | show <id> | pause <id> | resume <id> | rm <id> | now <id> | agent on|off"
 
     static func command(_ a: Args) throws -> String {
+        // An MCP client or an older caller names the schedule with --id; the subcommands take it as a word.
+        var a = a
+        if let id = a.value("id"), a.pos.count == 1, ["show", "pause", "resume", "rm", "now"].contains(a.pos[0]) { a.pos.append(id) }
         switch a.pos.first ?? "list" {
         case "add", "set": return try add(a)
         case "list": return list()
         case "show": return try show(a)
-        case "pause", "resume": return try toggle(a, on: a.pos.first == "resume")
-        case "rm": return try remove(a)
-        case "now": return try now(a)
-        case "agent": return a.pos.dropFirst().first == "off" ? removeAgent() : installAgent()
+        case "pause", "resume":
+            let s = try findOrThrow(a.pos.dropFirst().first)
+            try userOnly("\(a.pos[0]) schedule \(s.id) · \(s.name)", ["runs \(s.kind.label): \(s.target)", "when: \(s.when_)"])
+            return try toggle(a, on: a.pos.first == "resume")
+        case "rm":
+            let s = try findOrThrow(a.pos.dropFirst().first)
+            try userOnly("remove schedule \(s.id) · \(s.name)", ["runs \(s.kind.label): \(s.target)"])
+            return try remove(a)
+        case "now":
+            let s = try findOrThrow(a.pos.dropFirst().first)
+            try userOnly("run schedule \(s.id) · \(s.name) now", ["runs \(s.kind.label): \(s.target)"])
+            return try now(a)
+        case "agent":
+            let off = a.pos.dropFirst().first == "off"
+            try userOnly(off ? "stop starting apprentice at login" : "start apprentice at login (a LaunchAgent)",
+                         [off ? "removes \(agentPath.path)" : "writes \(agentPath.path)"])
+            return off ? removeAgent() : installAgent()
         default: throw Fail(5, usage)
         }
+    }
+
+    /// Anything that changes what runs later without the user: only the user approves it (the `confirm`
+    /// window, the menu bar or the app), as `[gate] user_only` works. Every caller is gated, a person at a
+    /// terminal included: a missing model name never stands for the user.
+    static func userOnly(_ summary: String, _ details: [String]) throws {
+        if Approvals.fromUser { return }
+        try Approvals.check(summary, details: details, warnings: [Gate.userOnlyStep])
     }
 
     private static func describe(_ s: Schedule) -> String {
@@ -604,7 +666,7 @@ enum Schedules {
         let all = all()
         guard !all.isEmpty else { return "no schedules · \(usage)" }
         return (["schedules · \(path.path)"] + all.map { (s: Schedule) in
-            let next = s.enabled ? (fireTime(s, after: Date())?.at).map(stamp) ?? "-" : "paused"
+            let next = s.enabled ? (s.next ?? fireTime(s, after: Date())?.at).map(stamp) ?? "-" : "paused"
             return "\(s.id) · \(s.name) · \(s.kind.rawValue) · \(s.when_) · next \(next)" + (s.lastResult.map { " · last \($0)" } ?? "")
         }).joined(separator: "\n")
     }
@@ -686,7 +748,7 @@ enum Schedules {
             guard let raw = a.value("daily"), timeOfDay(raw) != nil else { throw Fail(6, "schedule add: --daily takes HH:MM") }
             (s.at, s.every, s.daily, s.weekly, s.cron) = (nil, nil, raw, nil, nil)
         case "weekly":
-            guard let raw = a.value("weekly"), raw.split(separator: " ").count == 2,
+            guard let raw = a.value("weekly"), raw.split(separator: " ").count == 2, weekdays(raw.split(separator: " ")[0]) != nil,
                   timeOfDay(String(raw.split(separator: " ")[1])) != nil else { throw Fail(6, "schedule add: --weekly takes \"mon,wed 09:00\"") }
             (s.at, s.every, s.daily, s.weekly, s.cron) = (nil, nil, nil, raw, nil)
         default:
@@ -701,18 +763,16 @@ enum Schedules {
         s.model = a.value("model")
         s.enabled = true
         if existing == nil { s.created = Date() }
-        s.next = fireTime(s, after: Date())?.at
+        let first = fireTime(s, after: Date())
+        (s.next, s.base) = (first?.at, first?.base)
 
         // Only the user approves something that will act again and again without them: an agent's
-        // `schedule add` is a ⚠ step it cannot approve itself (the `confirm` window, the menu bar or the
-        // app can), which is how `[gate] user_only` already works.
-        if Approvals.request.model != nil, Approvals.byUser == nil {
-            try Approvals.check("add schedule \(s.id) · \(s.name)", details: [
-                "runs \(kind.label): \(target)",
-                "when: \(s.when_)" + (s.jitter > 0 ? " ±\(s.jitter) min" : ""),
-                s.vm.map { "in VM \($0)" } ?? "on this Mac",
-            ], warnings: [Gate.userOnlyStep])
-        }
+        // `schedule add` is a ⚠ step it cannot approve itself.
+        try userOnly("add schedule \(s.id) · \(s.name)", [
+            "runs \(kind.label): \(target)",
+            "when: \(s.when_)" + (s.jitter > 0 ? " ±\(s.jitter) min" : ""),
+            s.vm.map { "in VM \($0)" } ?? "on this Mac",
+        ])
 
         update { list in
             list.removeAll { $0.id == id }

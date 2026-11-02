@@ -2,7 +2,16 @@ import AppKit
 
 /// The user can hold apprentice still from the overlay: new actions wait here until they resume.
 enum Pause {
-    static var on = false
+    /// A marker file, so the app's Pause and the overlay's are the same switch the daemon waits on. A new
+    /// daemon starts unpaused (`Daemon.start` clears it).
+    static var on: Bool {
+        get { FileManager.default.fileExists(atPath: marker.path) }
+        set {
+            if newValue { FileManager.default.createFile(atPath: marker.path, contents: nil) }
+            else { try? FileManager.default.removeItem(at: marker) }
+        }
+    }
+    static var marker: URL { Store.stateDir.appendingPathComponent("paused") }
 
     /// Blocks an action about to start until the person resumes; the kill switch or a stop ends the wait.
     static func wait() {

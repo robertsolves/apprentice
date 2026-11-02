@@ -13,28 +13,34 @@ struct Hand: Codable {
     /// Median time a key is held down, and how much it varies.
     var hold: Double
     var holdSigma: Double
-    /// The gap between keys, as a multiple of the profile's `key_ms_median`.
+    /// The time from one key down to the next, as a multiple of the profile's `key_ms_median`.
     var rhythm: Double
-    /// Share of quick letter pairs whose second key goes down before the first comes up.
-    var rollover: Double
     /// Median time a mouse button is held down.
     var click: Double
+    /// Gives each letter pair its own lasting lean (`Typing.lean`). Nil in a file from before it.
+    var seed: UInt64?
 
     static func draw() -> Hand {
         Hand(speed: Rand.uniform(0.85...1.2), side: Rand.uniform(0.3...0.7), hold: Rand.uniform(0.075...0.115),
-             holdSigma: Rand.uniform(0.18...0.3), rhythm: Rand.uniform(0.85...1.15), rollover: Rand.uniform(0.15...0.4),
-             click: Rand.uniform(0.07...0.12))
+             holdSigma: Rand.uniform(0.18...0.3), rhythm: Rand.uniform(0.85...1.15),
+             click: Rand.uniform(0.07...0.12), seed: Rand.next())
     }
 
     /// Values from an old or hand-edited file are kept inside the ranges `draw` uses.
     var bounded: Hand {
         func b(_ v: Double, _ r: ClosedRange<Double>) -> Double { v.isFinite ? min(max(v, r.lowerBound), r.upperBound) : r.lowerBound }
         return Hand(speed: b(speed, 0.7...1.4), side: b(side, 0.2...0.8), hold: b(hold, 0.05...0.15), holdSigma: b(holdSigma, 0.1...0.4),
-                    rhythm: b(rhythm, 0.7...1.4), rollover: b(rollover, 0...0.6), click: b(click, 0.05...0.16))
+                    rhythm: b(rhythm, 0.7...1.4), click: b(click, 0.05...0.16), seed: seed)
     }
 
     static let current: Hand = {
-        if let saved = Store.load(Hand.self, "hand.json") { return saved.bounded }
+        if var saved = Store.load(Hand.self, "hand.json")?.bounded {
+            if saved.seed == nil {
+                saved.seed = Rand.next()
+                Store.save(saved, "hand.json")
+            }
+            return saved
+        }
         let hand = draw()
         Store.save(hand, "hand.json")
         return hand
@@ -44,26 +50,10 @@ struct Hand: Codable {
 enum Pace {
     static func gaussian() -> Double { Rand.gaussian() }
 
-    /// Log-normal gap between keystrokes, median about 100 ms by default. Longer after a space or
-    /// punctuation; a little shorter when the two letters fall to different hands, and a little longer
-    /// when one hand types both, as typing rhythm goes.
-    static func keyGap(after ch: Character?, before next: Character? = nil) -> Double {
-        let p = Config.current.pace
-        var gap = p.keyMedian * Hand.current.rhythm * exp(p.keySigma * gaussian())
-        if let ch, ch == " " || ch.isPunctuation { gap *= 1.6 }
-        if let a = ch.flatMap(handOf), let b = next.flatMap(handOf) { gap *= a == b ? 1.15 : 0.85 }
-        return min(max(gap, 0.035), 0.9)
-    }
-
-    /// Which hand types a letter on a QWERTY-like board: true for the left.
-    static func handOf(_ ch: Character) -> Bool? {
-        guard let c = ch.lowercased().first, c.isLetter || c.isNumber, c.isASCII else { return nil }
-        return "qwertasdfgzxcvb12345".contains(c)
-    }
-
-    /// How long one key stays down: log-normal around the hand's own hold, shorter for the space bar's
-    /// thumb, longer for a key that needs Shift.
+    /// How long one key stays down: the recorded hold (`typing learn`), else log-normal around the
+    /// hand's own, shorter for the space bar's thumb and longer for a key that needs Shift.
     static func keyHold(_ ch: Character?, shifted: Bool = false) -> Double {
+        if let recorded = Typing.hold(ch, shifted: shifted) { return recorded }
         let h = Hand.current
         var hold = h.hold * exp(h.holdSigma * gaussian())
         if ch == " " { hold *= 0.85 }
@@ -115,8 +105,24 @@ enum Keys {
 
     /// The input-source calls assert they run on the main queue, and commands run on `Daemon.queue`:
     /// read there, it trapped the daemon (a VM `type`, through `Keys.parse`).
+    /// Kept for 2 s on top of the per-source map: typing asks on every character, and even a cached map
+    /// costs a hop to main. Short enough that a switch of input source takes effect at once.
+    private static var layoutCache: (at: Double, value: (keys: [Character: (CGKeyCode, Bool)], sequences: [Character: [(CGKeyCode, CGEventFlags)]]))?
+    private static let layoutCacheLock = NSLock()
+
     private static func readLayout() -> (keys: [Character: (CGKeyCode, Bool)], sequences: [Character: [(CGKeyCode, CGEventFlags)]]) {
-        Thread.isMainThread ? readLayoutHere() : DispatchQueue.main.sync { readLayoutHere() }
+        let t = ProcessInfo.processInfo.systemUptime
+        layoutCacheLock.lock()
+        if let c = layoutCache, t - c.at < 2 {
+            layoutCacheLock.unlock()
+            return c.value
+        }
+        layoutCacheLock.unlock()
+        let value = Thread.isMainThread ? readLayoutHere() : DispatchQueue.main.sync { readLayoutHere() }
+        layoutCacheLock.lock()
+        layoutCache = (t, value)
+        layoutCacheLock.unlock()
+        return value
     }
 
     private static func readLayoutHere() -> (keys: [Character: (CGKeyCode, Bool)], sequences: [Character: [(CGKeyCode, CGEventFlags)]]) {
@@ -335,16 +341,24 @@ enum Keys {
         var upAt: Double
     }
 
+    /// The physical key a character is typed on, for the pair's kind (`Typing.kind`).
+    private static func code(of ch: Character) -> CGKeyCode? {
+        ch == " " ? 49 : layout()[ch]?.0 ?? layout()[Character(ch.lowercased().count == 1 ? ch.lowercased() : String(ch))]?.0
+    }
+
     private static var now: Double { ProcessInfo.processInfo.systemUptime }
 
     private static func wait(until t: Double) { Pace.sleep(t - now) }
 
     /// Types like a person, key by key. `fast` shortens the gaps; every key is still a real key.
-    /// Each key is held for its own time and, for a quick pair of letters on different hands, the
-    /// next key often goes down before the last one is up, as fluent typing overlaps (P1, A4). Shift
+    /// Each pair of keys keeps its own rhythm (`Typing.interval`: the person's recording, else the
+    /// board), timed from one key going down to the next, so when that comes before the last key is
+    /// up the two overlap, as fluent typing does (P1, A4); never on one finger or one key. Shift
     /// is a key of its own, held across a run of capitals. Characters no key types are pasted.
-    /// At the profile's `key_error_rate`, a letter is first mistyped as a neighbouring key and corrected
-    /// with backspace, never in a password field (`corrections: false`) or with `fast`.
+    /// Where the profile allows slips (`key_error_rate` above 0), a letter is now and then mistyped as a
+    /// neighbouring key and corrected with backspace: at the person's own rate, noticed as late and
+    /// paused over as long as theirs when `Typing` has learned them (`Typing.slip`), else at the profile's
+    /// rate and noticed at once. Never in a password field (`corrections: false`) or with `fast`.
     /// Throws exit 6 when the person or the kill switch stops it partway, so nothing after it (such as
     /// a return that would send a half-typed message) runs (D8).
     static func type(_ text: String, fast: Bool = false, corrections: Bool = false, newline: String = "return") throws {
@@ -353,9 +367,14 @@ enum Keys {
         Pace.sleep(Rand.uniform(0.08...0.2))
         let rate = fast || !corrections ? 0 : Config.current.pace.keyErrorRate
         var prev: Character?
+        var prevCode: CGKeyCode?
         var sent = 0
         var slips = 0
-        var nextPause = Rand.uniform(20...40)
+        let chars = Array(text)
+        let maxSlips = max(3, chars.count / 40)
+        var sincePause = 0
+        // When the last key went down; nil after anything that was not a plain key (a pause, a slip).
+        var lastDown: Double?
         var pending: Pending?
         var held: CGEventFlags = []
         // Whatever stops the typing, no key and no Shift is left down.
@@ -368,32 +387,46 @@ enum Keys {
             modifiers(held, down: false, held: &held)
         }
         defer { if !Remote.active { release() } }
-        for ch in text {
+        for (index, ch) in chars.enumerated() {
             if KillSwitch.tripped || Watch.stopped {
                 throw Fail(6, "interrupted after \(sent) of \(text.count) characters: you used the keyboard or mouse. Check the field before retrying")
             }
             sent += 1
-            let gap = Pace.keyGap(after: prev, before: ch) * (fast ? 0.35 : 1)
+            sincePause += 1
+            let chCode = code(of: ch)
+            let interval = Typing.interval(prev, prevCode, ch, chCode) * (fast ? 0.35 : 1)
+            // What a key-at-a-time path waits between keys: the interval less the hold it already spent.
+            let gap = max(interval - 0.09, 0.02)
             // Character(String) traps when a letter lowercases to two characters (İ): skip those.
             let lower = ch.lowercased()
-            if slips < 3, rate > 0, lower.count == 1, let key = lower.first,
-               Rand.chance(rate), let near = neighbours[key].flatMap({ Rand.pick(Array($0)) }) {
+            if slips < maxSlips, rate > 0, lower.count == 1, let key = lower.first, let slip = Typing.slip(styleRate: rate),
+               let near = neighbours[key].flatMap({ Rand.pick(Array($0)) }) {
                 slips += 1
                 if !Remote.active { release() }
                 typeChar(ch.isUppercase ? Character(near.uppercased()) : near)
-                Pace.sleep(Rand.uniform(0.1...0.35))
-                try press("delete")
+                // Noticed a key or two late: the next letters go in first, then all of them come out.
+                let ahead = chars[(index + 1)...].prefix(slip.run - 1).prefix { !$0.isNewline && Keys.strokes(for: $0)?.count == 1 }
+                for c in ahead {
+                    Pace.sleep(Rand.uniform(0.06...0.14))
+                    typeChar(c)
+                }
+                Pace.sleep(slip.notice)
+                for n in 0...ahead.count {
+                    if n > 0 { Pace.sleep(Rand.uniform(0.07...0.14)) }
+                    try press("delete")
+                }
                 Pace.sleep(Rand.uniform(0.08...0.2))
+                lastDown = nil
             }
             let strokes = Remote.active || ch.isNewline ? nil : strokes(for: ch)
             if let strokes, strokes.count == 1, let s = strokes.first {
                 let shifted = s.flags.contains(.maskShift)
-                // The previous key's down time is `upAt - hold`; this one goes down a gap after it is up,
-                // or, rolled over, while it is still down. Never across a change of modifiers.
-                var downAt = (pending?.upAt ?? now) + gap
-                if let p = pending, held == s.flags, !fast, prev.flatMap(Pace.handOf) != nil,
-                   Pace.handOf(ch).map({ $0 != prev.flatMap(Pace.handOf) }) == true, Rand.chance(Hand.current.rollover) {
-                    downAt = p.upAt - Rand.uniform(0.01...0.045)
+                // An interval after the last key went down: while it is still down, the two overlap. Not
+                // across a change of modifiers, on one key, or on one finger, which must lift first.
+                var downAt = lastDown.map { $0 + interval } ?? now + interval * 0.5
+                if let p = pending, held != s.flags || p.stroke.code == s.code
+                    || Typing.places[p.stroke.code].map({ $0.finger == Typing.places[s.code]?.finger }) == true {
+                    downAt = max(downAt, p.upAt + Rand.uniform(0.012...0.03))
                 }
                 if let p = pending, p.upAt <= downAt || held != s.flags {
                     wait(until: p.upAt)
@@ -407,6 +440,7 @@ enum Keys {
                 }
                 wait(until: downAt)
                 send(s, down: true, held: held)
+                lastDown = now
                 let upAt = now + Pace.keyHold(ch, shifted: shifted)
                 if let p = pending {
                     // Rolled over: the earlier key comes up while this one is down.
@@ -419,14 +453,17 @@ enum Keys {
                 if !Remote.active { release() }
                 typeChar(ch, newline: newline)
                 Pace.sleep(gap)
+                lastDown = nil
             }
             // A pause to think now and then, at the end of a word.
-            if !fast, ch == " " || ch.isPunctuation, sent >= nextPause {
+            if !fast, ch == " " || ch.isPunctuation, let pause = Typing.pause(sincePause) {
                 if !Remote.active { release() }
-                Pace.sleep(Rand.uniform(0.5...1.8))
-                nextPause = sent + Rand.uniform(20...40)
+                Pace.sleep(pause)
+                sincePause = 0
+                lastDown = nil
             }
             prev = ch
+            prevCode = chCode
         }
     }
 

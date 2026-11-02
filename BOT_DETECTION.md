@@ -2,6 +2,8 @@
 
 What a site, a server, a native app or the Linux VM can tell apart from a person using the same browser by hand, and what apprentice does about each. The aim is that Meta, Instagram, TikTok, LinkedIn, Reddit and X see the user's own account used at a person's pace, with a person's input, and no fingerprint spoofing (a non-goal: where the only fix would be to lie about the device, the item is **accepted**).
 
+**The bar:** every check a page or a server can run on apprentice's input comes back "human" or "inconclusive", never "bot". A signal that reads as a bot is a bug, whatever its severity. The accepted items are the exceptions this bar cannot reach without spoofing: what only the OS sees (A2) and the VM being another device (S6).
+
 - **Audited:** `6f958ba` (2026-11-02), static read of `Sources/apprentice`, `agent/vm` and the shell entry points, plus OS probes of the CGEvent fields apprentice posts.
 - **Fixed:** `b4513c0` and `7313b81` (2026-11-02).
 - **Measured:** `agent/canary.html` on this Mac (Chrome 156, macOS 26.2) and in the VM (Chromium); results below. Re-run it after any change to `Input.swift`, `Fidget.swift` or `agent/vm/helper.py`: `apprentice do canary-full-test` (see `playbooks/web/canary.md`).
@@ -11,7 +13,8 @@ What a site, a server, a native app or the Linux VM can tell apart from a person
 | Mark | Meaning | Items |
 | --- | --- | --- |
 | ✅ | Fixed and measured on the canary | P1 P2 P3 P6 P7 P16 P18 P19 · S2 · V4 |
-| ☑️ | Fixed; covered by `selftest`, not measurable on a page | P4 P5 P9 P10 P13 P14 P17 · S1 S3 S4 S5 S12 · A1 A3 · D1 D2 D3 · V9 |
+| ☑️ | Fixed; covered by `selftest`, not measurable on a page | P4 P5 P9 P10 P13 P14 P17 P21 P22 · S1 S3 S4 S5 S12 · A1 A3 · D1 D2 D3 · V9 |
+| 🔁 | Changed since the canary run: measure again | P1 P7 (per-pair typing rhythm, drag correction and settle) |
 | 🔍 | Measured: not a tell, left as it is | P8 P20 |
 | ⛔ | Accepted: device identity or the tool's own footprint; the fix would be spoofing | P15 · S6–S9 S11 · A2 A4 A7 A8 A12 · V1 V3 V6–V8 V10–V12 |
 | ⏳ | Open, in `TODO.md` | P11 P12 · S10 · A5 A11 · V5 · P17's new tab per site |
@@ -44,13 +47,13 @@ VM, Chromium: typing, the map, form controls, routes and back, popups, dialog, d
 
 | ID | Signal | Sev. | Status and what changed |
 | --- | --- | --- | --- |
-| P1 | Keystroke rhythm: uniform hold, no overlap, `fast` gaps on pages | High | ✅ Holds are log-normal around the person's own hold, letter pairs on different hands are quicker and often overlap, `--pace fast` is ignored on web pages |
+| P1 | Keystroke rhythm: uniform hold, no overlap, `fast` gaps on pages | High | ✅ Holds are log-normal around the person's own hold, `--pace fast` is ignored on web pages. Gaps are now timed from one key down to the next, so overlap comes from the timing itself (never on one finger or one key); see P22 for the per-pair rhythm |
 | P2 | `key`/`code` disagree for accents and exotic characters | Med | ✅ Option layer and dead keys come from the layout (`Keys.sequences`); the US table is used only when the layout cannot be read |
 | P3 | Shift is a flag with no Shift keydown | Low–Med | ✅ Shift, cmd, option and ctrl are `flagsChanged` keys of their own; Shift is held across a run of capitals. The VM already pressed `Shift_L` |
 | P4 | Mouse paths: small curve family, every long move capped at `move_ms` max, 120 Hz | High | ☑️ Above the cap a move still grows slowly (`Mouse.duration`), the sample rate is drawn per stroke (100–135 Hz). No deliberate miss-click: a miss can click something else |
 | P5 | The "hand" changes on every daemon start | Med–High | ☑️ `Hand` is drawn once and kept in `hand.json`, shared by every VM's daemon |
 | P6 | Clicks: fixed hold, centre-heavy | Low–Med | ✅ Button hold is log-normal around the hand's own median |
-| P7 | Linear drag | High | ✅ Already one curved stroke with a drawn shape, speed profile and hold before this audit; measured above |
+| P7 | Linear drag | High | ✅ Already one curved stroke with a drawn shape, speed profile and hold before this audit; measured above. Since then a drag over 120 px reaches a little short of or past the drop and corrects, and every drag settles with micro-moves before the release |
 | P8 | Wheel in line units, bursts | Med | 🔍 Chrome reports pixels in steps of 40, as from a mouse wheel; nothing to change on the Mac. VM notches are now spaced (V4) |
 | P9 | Focus raised with no click in the page | Med | ☑️ A frontmost window is not raised again; a reaction delay follows the raise |
 | P10 | Every page reached through the address bar | Med–High | ☑️ Agent docs and playbooks: arrive with `open`, then follow links and go back; `open` on the same site prints that tip |
@@ -64,6 +67,8 @@ VM, Chromium: typing, the map, form controls, routes and back, popups, dialog, d
 | P18 | Page never blurred | Med–High | ✅ Now and then a fidget switches to the last app with cmd+tab and back. `visibilityState` stays `visible` |
 | P19 | `movementX/Y` possibly zero while the pointer moves | Med | ✅ Every move carries its deltas |
 | P20 | Line-mode wheel ticks | Low–Med | 🔍 See P8 |
+| P21 | The pointer rests on one pixel twice: an exact `--at` point, an exact `drag --by` offset, or a landing that repeats on a small control | Med | ☑️ Every rest (landing, settle, `--at` aim, drop) is checked against the last 256 (`Mouse.Rest`) and redrawn or nudged 1–6 px, so no two paths share both ends. `--at` lands within 1–2 px of the point; `drag --by` lets go about 1% off the offset. In memory, per daemon run |
+| P22 | Key gaps with no per-pair structure: each gap drawn around one mean, so "ed" (one finger) runs as fast as "th" (two hands), and a pair's rhythm is not the same from day to day | High | ☑️ `Typing.interval`: with a recording (learned from the person's own typing a few minutes at a time by `Typing.Sampler`, or `apprentice typing learn` at once), each pair keeps the person's own time; a pair not recorded is interpolated from recorded pairs of its kind, weighted by key distance, fingers and rows. Without one, the kind (same finger, same hand, other hand, to and from space) and the distance between the keys set the gap, and each pair keeps a lasting lean from the hand's seed. Slips follow the person's own rate, run length and time to notice, once learned. Only timings are stored, never text |
 
 ## Server
 

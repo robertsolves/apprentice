@@ -131,7 +131,7 @@ enum AgentLoop {
                     result = try Wire.send(Request(cmd: ok ? "approve" : "deny", args: [p.token]))
                 }
                 print("step \(step) · \(yes ? "approve" : "deny") \(p.summary) → \(result.out.split(separator: "\n").prefix(2).joined(separator: " · "))")
-                if result.code == 4 || result.code == 6 { throw Fail(result.code, result.out) }
+                if result.code == 4 || result.code == 6 || result.code == 10 { throw Fail(result.code, result.out) }
                 if yes, result.code == 0 {
                     // The element it named, so a replay approves the same step only while it still names it.
                     var row: [String: Any] = ["cmd": p.cmd, "args": p.args]
@@ -170,7 +170,7 @@ enum AgentLoop {
                 continue
             }
             proposal = nil
-            if result.code == 4 || result.code == 6 {
+            if result.code == 4 || result.code == 6 || result.code == 10 {
                 print(result.out)
                 throw Fail(result.code, result.out)
             }

@@ -127,6 +127,12 @@ dock_icon = true
 # `apprentice away on` switches to the terminal until `apprentice away off`.
 ask_in = "both"
 ask_window_s = 60
+# Optional questions: a small window you may answer or leave (choices only; anything that needs typing is a real question). Unanswered after
+# optional_wait_s, apprentice carries on with its assumption. The built-in voice questions come at most
+# every optional_every_h, only when apprentice is idle. Answers go to ~/.apprentice/voice.md, per site.
+optional_questions = true
+optional_wait_s = 60
+optional_every_h = 4
 # A push to your phone when a question goes to the chat: an ntfy topic URL (install the ntfy app and
 # subscribe to the same topic). Pick a long random topic name: anyone who knows it can read the pushes.
 # Only the question text is sent, never a screenshot; a scrubbed app's question is sent as "a question is waiting".

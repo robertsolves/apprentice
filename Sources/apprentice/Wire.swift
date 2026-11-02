@@ -14,6 +14,8 @@ struct Request: Codable {
     var tab: String? = Request.callerTab
     /// True for a command started by an away task (`APPRENTICE_AWAY=1`): its steps go in the journal.
     var away: Bool? = Request.callerAway
+    /// The away task that started it (`APPRENTICE_AWAY_TASK`), so its journal units name the task.
+    var awayTask: String? = Request.callerAwayTask
     /// True when the app (`apprentice app`) sends it: the user's own channel, like the menu bar.
     var user: Bool?
 
@@ -28,6 +30,11 @@ struct Request: Codable {
     }
 
     static var callerAway: Bool { ProcessInfo.processInfo.environment["APPRENTICE_AWAY"] == "1" }
+
+    static var callerAwayTask: String? {
+        let raw = ProcessInfo.processInfo.environment["APPRENTICE_AWAY_TASK"] ?? ""
+        return raw.isEmpty ? nil : String(raw.prefix(40))
+    }
 }
 
 struct Response: Codable {
@@ -123,6 +130,18 @@ enum Wire {
     /// Every request goes to this Mac's daemon; it drives the browser VM itself (`Remote`).
     static func send(_ req: Request) throws -> Response { try sendLocal(req) }
 
+    /// One request to a VM's daemon (`vms/<name>/sock`), which must already be running.
+    static func send(_ req: Request, vm: String) throws -> Response {
+        let path = Store.dir.appendingPathComponent("vms/\(vm)/sock").path
+        guard let fd = connect(path) else { throw Fail(5, "the \(vm) daemon is not running") }
+        setTimeout(fd, 1500)
+        let reply = roundTrip(fd, req)
+        guard !reply.isEmpty, let resp = try? JSONDecoder().decode(Response.self, from: reply) else {
+            throw Fail(5, "no reply from the \(vm) daemon")
+        }
+        return resp
+    }
+
     static func sendLocal(_ req: Request) throws -> Response {
         var fd = connect()
         if fd == nil {
@@ -147,6 +166,11 @@ enum Wire {
     }
 
     static func binaryPath() -> String {
+        // The app's bundle only ever opens the window, so from there the CLI is the installed binary.
+        if AppBundle.inBundle {
+            let bin = Build.install?.bin ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/apprentice").path
+            if FileManager.default.isExecutableFile(atPath: bin) { return bin }
+        }
         if let path = Bundle.main.executablePath { return path }
         return URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL.path
     }
@@ -291,7 +315,9 @@ final class UnixServer {
         var stop = false
         let response: Response
         if let line = data.split(separator: 0x0A).first,
-           let req = try? JSONDecoder().decode(Request.self, from: Data(line)) {
+           var req = try? JSONDecoder().decode(Request.self, from: Data(line)) {
+            // The user's channel is the signed app only: a `user` flag from anything else is dropped (`Peer`).
+            if req.user == true, !Peer.isApp(cfd) { req.user = nil }
             // ping and stop never wait behind a running command, such as an open question window (H1).
             if req.cmd == "ping" {
                 response = Response(code: 0, out: "pong")

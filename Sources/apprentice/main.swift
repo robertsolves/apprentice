@@ -24,6 +24,7 @@ func usage() {
     apprentice \(version) · text-first control of one Mac app or browser window
 
     usage:
+      apprentice tour [name] | list | use <name> | show [name] | rm <name>   set everything up one choice at a time, saved as a named setup; switch or update any one
       apprentice doctor [--fix]                 check permissions, signature, PATH, clone and settings; --fix opens the panes and runs a smoke test
       apprentice session [--app Safari] [--on mac|linux] [--new-window|--new-tab] [--allow a.com,b.com] [--task "…"] [--no-options]
       apprentice open <url>
@@ -64,6 +65,9 @@ func usage() {
       apprentice activity <domain> [--days 7]   actions per day, rate limits, challenges and flags on one site
       apprentice flag <domain> "what you saw"   record when the user saw a warning or restriction
       apprentice awake on|off|status            keep the Mac from idle sleep and locking while tasks run
+      apprentice ask --optional "question" --choices "A|B" [--multi] [--assume A]   a question the user may leave; carries on with the assumption
+      apprentice pref <key> [--for site] [--choices "A|B"] [--assume A]   the user's preference here: this site's, else elsewhere, then an optional question
+      apprentice voice [show | init | ask]      how the user wants comments and posts written, and their answers per site
       apprentice typing [learn | show | forget]   record how you type (only key timings), so typing keeps your rhythm per letter pair
       apprentice resume                         after the kill switch, carry on once the user says so
       apprentice phone [on|off|test]            one-tap phone setup: questions that go to the chat buzz the phone
@@ -110,7 +114,7 @@ let rest = Array(argv.dropFirst())
 /// Commands answered in this process log their own row, so `log --session` and `grow` see `learn`, `bug`,
 /// `route` and the rest beside the daemon's commands.
 let loggedHere: Set<String> = ["route", "playbooks", "notes", "learn", "bug", "commit", "update", "settings", "repo", "policy", "budget",
-                               "activity", "flag", "grow", "sessions", "project", "doctor", "pr", "vm", "replay", "phone", "prefs", "remember", "forget"]
+                               "activity", "flag", "grow", "sessions", "project", "doctor", "pr", "vm", "replay", "phone", "tour", "prefs", "remember", "forget"]
 if loggedHere.contains(command) { Timing.begin() }
 
 func done(_ code: Int32) -> Never {
@@ -144,10 +148,6 @@ case "serve":
 case "app":
     if rest.contains("--install") { exit(AppBundle.install()) }
     AppBundle.launchFromCLI()
-case "schedule":
-    attempt { print(try Schedules.command(Args.parse(rest))) }
-case "away":
-    attempt { print(try Away.command(Args.parse(rest))) }
 case "stop":
     // Says what happened, and fails when the daemon is still there (E3).
     let (stopped, how) = Wire.stopDaemon()
@@ -205,6 +205,8 @@ case "project":
     attempt { print(try Project.command(Args.parse(rest))) }
 case "doctor":
     attempt { print(try Doctor.run(Args.parse(rest))) }
+case "tour":
+    attempt { print(try Tour.command(Args.parse(rest))) }
 case "uninstall":
     attempt { print(try Doctor.uninstall(Args.parse(rest))) }
 case "pr":

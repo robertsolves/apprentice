@@ -83,6 +83,8 @@ extension Commands {
                 guard !tokens.isEmpty, tokens[0] != "do" else { throw Fail(5, "bad step") }
                 tokens = try resolveRefs(tokens)
                 let cmd = tokens.removeFirst()
+                // Steps skip `run`, so the user's return in away mode is checked before each one.
+                try Away.yieldIfPresent(cmd)
                 let result = try dispatch(Request(cmd: cmd, args: tokens))
                 lastResult = result
                 out.append("\(n) ✓ \(step) → \(result.split(separator: "\n").first ?? "")")

@@ -370,17 +370,21 @@ final class AppModel: ObservableObject {
     // MARK: - reads
 
     func refresh() {
-        let pendingFiles = [Store.url("pending.json")]
-            + ((try? FileManager.default.contentsOfDirectory(atPath: Store.dir.appendingPathComponent("vms").path)) ?? [])
-            .map { Store.dir.appendingPathComponent("vms/\($0)/pending.json") }
+        let vms = (try? FileManager.default.contentsOfDirectory(atPath: Store.dir.appendingPathComponent("vms").path)) ?? []
+        let pendingFiles: [(vm: String?, url: URL)] = [(nil, Store.url("pending.json"))]
+            + vms.map { ($0, Store.dir.appendingPathComponent("vms/\($0)/pending.json")) }
         var found: [Approvals.Pending] = []
-        for file in pendingFiles {
+        var owners: [String: String] = [:]
+        for (vm, file) in pendingFiles {
             guard let data = try? Data(contentsOf: file) else { continue }
             let list = (try? JSONDecoder().decode([Approvals.Pending].self, from: data))
                 ?? (try? JSONDecoder().decode(Approvals.Pending.self, from: data)).map { [$0] } ?? []
             let now = Date().timeIntervalSince1970
-            found += list.filter { now < $0.expires }
+            let open = list.filter { now < $0.expires }
+            if let vm { for p in open { owners[p.token] = vm } }
+            found += open
         }
+        vmOf = owners
         pending = found.sorted { $0.at < $1.at }
         schedules = Schedules.all()
         awayTasks = Away.all()
@@ -410,19 +414,57 @@ final class AppModel: ObservableObject {
 
     // MARK: - acts
 
-    /// Every button: the same request the CLI sends, marked as the user's own.
-    @discardableResult
-    func run(_ cmd: String, _ args: [String] = []) -> (code: Int32, out: String) {
+    /// The file as it was before a form writes it: `<file>.bak`, replaced each time, so it is the last copy.
+    static func backup(_ path: URL) {
+        let bak = path.appendingPathExtension("bak")
+        try? FileManager.default.removeItem(at: bak)
+        try? FileManager.default.copyItem(at: path, to: bak)
+    }
+
+    /// The commands `main.swift` runs in the CLI process: the daemon does not know them, so the app runs
+    /// the installed CLI for these instead of sending them over the socket.
+    static let inClient: Set<String> = ["route", "playbooks", "notes", "prefs", "remember", "forget", "learn", "bug",
+                                        "commit", "update", "settings", "repo", "policy", "budget", "activity", "flag",
+                                        "grow", "sessions", "project", "doctor", "tour", "pr", "run", "replay", "vm",
+                                        "phone", "selftest", "version"]
+
+    /// Every button: the same request the CLI sends, marked as the user's own. It blocks, so it never runs
+    /// on the main thread: `run(_:_:then:)` and `act` call it from a background queue.
+    private func send(_ cmd: String, _ args: [String]) -> (code: Int32, out: String) {
+        if Self.inClient.contains(cmd) { return cli([cmd] + args) }
         guard let response = try? Wire.send(Request(cmd: cmd, args: args, user: true)) else {
             return (5, "daemon did not answer: run `apprentice serve` to see why")
         }
         return (response.code, response.out)
     }
 
+    private func cli(_ argv: [String]) -> (code: Int32, out: String) {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: Wire.binaryPath())
+        proc.arguments = argv
+        let pipe = Pipe()
+        proc.standardOutput = pipe
+        proc.standardError = pipe
+        proc.standardInput = FileHandle.nullDevice
+        do { try proc.run() } catch { return (5, "could not run apprentice: \(error.localizedDescription)") }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        proc.waitUntilExit()
+        return (proc.terminationStatus, String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// Runs a command off the main thread and hands its result back on it, so a busy daemon never freezes
+    /// the window.
+    func run(_ cmd: String, _ args: [String] = [], then: @escaping (Int32, String) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let (code, out) = self.send(cmd, args)
+            DispatchQueue.main.async { then(code, out) }
+        }
+    }
+
     func act(_ cmd: String, _ args: [String] = []) {
         busy = true
         DispatchQueue.global(qos: .userInitiated).async {
-            let (code, out) = self.run(cmd, args)
+            let (code, out) = self.send(cmd, args)
             DispatchQueue.main.async {
                 self.busy = false
                 self.output = (code == 0 ? "" : "exit \(code): ") + out
@@ -431,12 +473,33 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func approve(_ token: String) { act("approve", [token]) }
-    func deny(_ token: String) { act("deny", [token]) }
+    /// A VM's proposal is answered by that VM's daemon (`vms/<name>/pending.json`).
+    func approve(_ p: Approvals.Pending) { answer("approve", p) }
+    func deny(_ p: Approvals.Pending) { answer("deny", p) }
 
+    private func answer(_ cmd: String, _ p: Approvals.Pending) {
+        guard let vm = vmOf[p.token] else { return act(cmd, [p.token]) }
+        // The user flag goes only to the Mac's socket; a VM daemon gets the same request with --vm.
+        busy = true
+        DispatchQueue.global(qos: .userInitiated).async {
+            let req = Request(cmd: cmd, args: [p.token], user: true)
+            let r = (try? Wire.send(req, vm: vm)).map { ($0.code, $0.out) } ?? (5, "the \(vm) daemon did not answer")
+            DispatchQueue.main.async {
+                self.busy = false
+                self.output = (r.0 == 0 ? "" : "exit \(r.0): ") + r.1
+                self.refresh()
+            }
+        }
+    }
+
+    /// Which VM each open proposal came from; the Mac's own are absent.
+    private var vmOf: [String: String] = [:]
+
+    /// Pause is the daemon's (`Pause.on` is a marker file it reads), so the window and the overlay agree.
     func togglePause() {
         Pause.on.toggle()
         output = Pause.on ? "paused: new actions wait" : "running"
+        revision += 1
     }
 
     // MARK: - tabs
@@ -860,7 +923,6 @@ private struct TabChip: View {
 struct ApprovalBanner: View {
     @ObservedObject var model: AppModel
     let pending: Approvals.Pending
-    @State private var answer = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.s3) {
@@ -880,22 +942,17 @@ struct ApprovalBanner: View {
             if let warnings = pending.warnings, !warnings.isEmpty {
                 FlowChips(items: warnings.map { "⚠ \($0)" }, tint: Theme.orange)
             }
+            // No default key: Allow takes a click, so a stray Return (or a script's keystroke) never approves.
             HStack(spacing: Theme.s2) {
-                TextField("Anything to add (optional)", text: $answer)
-                    .textFieldStyle(.roundedBorder)
+                Spacer()
+                Button("Deny", role: .destructive) { model.deny(pending) }
                     .controlSize(.small)
-                Button("Deny", role: .destructive) { model.deny(pending.token); answer = "" }
-                    .controlSize(.small)
-                Button {
-                    model.approve(pending.token)
-                    answer = ""
-                } label: {
+                Button { model.approve(pending) } label: {
                     Label("Allow", systemImage: "checkmark")
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(Theme.orange)
                 .controlSize(.small)
-                .keyboardShortcut(.defaultAction)
             }
             Text("Same as `apprentice approve \(pending.token)` · tab \(pending.tab ?? "—") · expires \(Date(timeIntervalSince1970: pending.expires).formatted(date: .omitted, time: .shortened))")
                 .font(.system(size: 9.5, design: .monospaced))
@@ -1449,9 +1506,9 @@ private struct ApprovalCard: View {
             }
             HStack {
                 Spacer()
-                Button("Deny", role: .destructive) { model.deny(pending.token) }
+                Button("Deny", role: .destructive) { model.deny(pending) }
                     .controlSize(.small)
-                Button { model.approve(pending.token) } label: {
+                Button { model.approve(pending) } label: {
                     Label("Allow", systemImage: "checkmark")
                 }
                 .buttonStyle(.borderedProminent)
@@ -1526,22 +1583,25 @@ struct ActivityView: View {
         switch part {
         case 0:
             let s = model.session
-            let bits = [
+            let sessionLine: String = s.map { (s: Session) -> String in
+                "session \(s.id ?? "-") · \(s.app) · window \(s.wid)" + (s.url.map { " · \($0)" } ?? "")
+            } ?? "no session bound"
+            let bits: [String] = [
                 "daemon: \(model.daemonUp ? "running" : "not running") · \(model.status)",
-                s.map { "session \($0.id ?? "-") · \($0.app) · window \($0.wid)" + ($0.url.map { " · \($0)" } ?? "") } ?? "no session bound",
+                sessionLine,
                 "pending approvals: \(model.pending.count)",
                 "away: \(model.awayOn ? "on" : "off") · queued \(model.awayTasks.filter { $0.state == .queued }.count)",
-                "",
-                model.run("budget", []).out,
-                "",
-                model.run("cool", []).out,
             ]
             text = bits.joined(separator: "\n")
-        case 1: text = model.run("grow", ["--days", "14"]).out
-        case 2: text = model.run("sessions", ["--limit", "25"]).out
+            model.run("budget") { _, budget in
+                model.run("cool") { _, cool in text = (bits + ["", budget, "", cool]).joined(separator: "\n") }
+            }
+        case 1: text = "…"; model.run("grow", ["--days", "14"]) { _, out in text = out }
+        case 2: text = "…"; model.run("sessions", ["--limit", "25"]) { _, out in text = out }
         default:
             let host = model.session?.url.flatMap { URL(string: $0)?.host } ?? ""
-            text = host.isEmpty ? "open a session to see one site's events" : model.run("activity", [host, "--days", "14"]).out
+            if host.isEmpty { text = "open a session to see one site's events" }
+            else { text = "…"; model.run("activity", [host, "--days", "14"]) { _, out in text = out } }
         }
     }
 }
@@ -1681,7 +1741,7 @@ struct SitesView: View {
 
     private func load() {
         guard !site.isEmpty else { return }
-        usage = model.run("budget", [site]).out
+        model.run("budget", [site]) { _, out in usage = out }
         let pace = Config.current.profiles[site] ?? Config.current.defaultPace
         quiet = pace.quietFrom >= 0 ? "\(Int(pace.quietFrom)),\(Int(pace.quietTo))" : ""
         perDay = pace.actionsPerDay > 0 ? "\(Int(pace.actionsPerDay))" : ""
@@ -1691,7 +1751,7 @@ struct SitesView: View {
 
     private func savePace() {
         let path = Config.path
-        try? FileManager.default.copyItem(at: path, to: path.appendingPathExtension("bak"))
+        AppModel.backup(path)
         let section = "pace.\"\(site)\""
         if quiet.isEmpty {
             Toml.remove(path, section, "quiet_hours")
@@ -1707,6 +1767,7 @@ struct SitesView: View {
 
     private func saveNote() {
         let path = Settings.dir.appendingPathComponent("routes.toml")
+        AppModel.backup(path)
         Toml.set(path, "policy.\"\(site)\"", "notes", "\"\(note.replacingOccurrences(of: "\"", with: "\\\""))\"")
         model.act("policy", [site])
     }
@@ -1748,7 +1809,7 @@ struct NewSiteWizard: View {
                 Button("Cancel") { done() }
                 Button("Add") {
                     let path = Config.path
-                    try? FileManager.default.copyItem(at: path, to: path.appendingPathExtension("bak"))
+                    AppModel.backup(path)
                     let section = "pace.\"\(domain)\""
                     Toml.set(path, section, "style", "\"\(style)\"")
                     let parts = quiet.split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
@@ -1777,6 +1838,7 @@ struct SettingsView: View {
     @State private var edits: [String: String] = [:]
     @State private var status = ""
     @State private var fields: [ConfigField] = []
+    @State private var projects = "…"
 
     private func icon(for section: String) -> String {
         switch section {
@@ -1837,7 +1899,8 @@ struct SettingsView: View {
                     }
                 }
                 CardSection(title: "Projects, routes and phone", symbol: "point.3.connected.trianglepath.dotted", tint: Theme.teal) {
-                    FieldRow(label: "Projects", value: model.run("project", ["status"]).out)
+                    FieldRow(label: "Projects", value: projects)
+                        .onAppear { model.run("project", ["status"]) { _, out in projects = out } }
                     HStack(spacing: Theme.s2) {
                         Button {
                             NSWorkspace.shared.open(Settings.dir.appendingPathComponent("routes.toml"))
@@ -1885,19 +1948,16 @@ struct SettingsView: View {
         try? FileManager.default.copyItem(at: path, to: backup)
         if raw {
             // Never write a file that does not parse: an invalid config would leave the daemon guessing.
-            let temp = FileManager.default.temporaryDirectory.appendingPathComponent("apprentice-config-\(getpid()).toml")
-            try? text.write(to: temp, atomically: true, encoding: .utf8)
-            let parsed = Toml.load(temp)
-            try? FileManager.default.removeItem(at: temp)
-            guard !parsed.isEmpty, parsed["agent"] != nil || parsed["pace.default"] != nil else {
-                status = "not saved: the TOML does not parse"
+            let problems = Toml.problems(text)
+            guard problems.isEmpty else {
+                status = "not saved: " + problems.prefix(3).joined(separator: "; ")
                 return
             }
             try? text.write(to: path, atomically: true, encoding: .utf8)
         } else {
             for (key, value) in edits {
                 guard let field = fields.first(where: { $0.id == key }) else { continue }
-                Toml.set(path, field.section, field.key, field.literal(value))
+                Toml.set(path, field.header.isEmpty ? field.section : field.header, field.key, field.literal(value))
             }
         }
         Config.reloadIfChanged()
@@ -1946,6 +2006,9 @@ private struct SettingFieldRow: View {
 /// the live `config.toml`.
 struct ConfigField: Hashable {
     var section: String
+    /// The header as the example writes it, quotes kept (`pace."github.com"`), so a section added to the
+    /// live file is valid TOML.
+    var header = ""
     var key: String
     var comment: String
     var value: String
@@ -1967,6 +2030,7 @@ struct ConfigField: Hashable {
         let liveTable = Config.loadTable(live)
         var out: [ConfigField] = []
         var section = ""
+        var header = ""
         var comment: [String] = []
         for raw in exampleText.components(separatedBy: "\n") {
             let trimmed = raw.trimmingCharacters(in: .whitespaces)
@@ -1975,7 +2039,8 @@ struct ConfigField: Hashable {
                 continue
             }
             if trimmed.hasPrefix("[") && trimmed.hasSuffix("]") {
-                section = trimmed.dropFirst().dropLast().replacingOccurrences(of: "\"", with: "")
+                header = trimmed.dropFirst().dropLast().trimmingCharacters(in: .whitespaces)
+                section = header.replacingOccurrences(of: "\"", with: "")
                 comment = []
                 continue
             }
@@ -1986,7 +2051,7 @@ struct ConfigField: Hashable {
             let current = liveTable[section]?[key].map { _ in
                 Config.loadedLiteral(section: section, key: key, raw: liveTable[section]?[key] ?? "")
             } ?? value
-            out.append(ConfigField(section: section, key: key, comment: comment.suffix(3).joined(separator: " "),
+            out.append(ConfigField(section: section, header: header, key: key, comment: comment.suffix(3).joined(separator: " "),
                                    value: current, example: value))
             comment = []
         }
@@ -2025,7 +2090,7 @@ struct PlaybooksView: View {
              icon: "book.closed.fill", tint: Theme.plum) {
             AnyView(
                 HStack(spacing: Theme.s2) {
-                    Button { check = model.run("playbooks", ["--check"]).out } label: {
+                    Button { model.run("playbooks", ["--check"]) { _, out in check = out } } label: {
                         Label("Check", systemImage: "checkmark.shield")
                     }
                     .controlSize(.small)
@@ -2074,7 +2139,7 @@ struct PlaybooksView: View {
                                 Label("Edit", systemImage: "pencil")
                             }
                             .buttonStyle(.link).font(.system(size: 10.5))
-                            Button { check = model.run("do", ["--explain", book.title]).out } label: {
+                            Button { model.run("do", ["--explain", book.title]) { _, out in check = out } } label: {
                                 Label("Which flow a task picks", systemImage: "arrow.triangle.branch")
                             }
                             .buttonStyle(.link).font(.system(size: 10.5))
@@ -2124,7 +2189,8 @@ struct VMsView: View {
             HStack(spacing: Theme.s2) {
                 ForEach(actions, id: \.0) { action, icon in
                     Button {
-                        text = model.run("vm", [action]).out
+                        text = "…"
+                        model.run("vm", [action]) { _, out in text = out }
                     } label: {
                         Label(action, systemImage: icon)
                     }
@@ -2140,7 +2206,7 @@ struct VMsView: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .onAppear { text = model.run("vm", ["list"]).out }
+        .onAppear { model.run("vm", ["list"]) { _, out in text = out } }
     }
 }
 
@@ -2167,13 +2233,13 @@ struct HealthView: View {
                     FieldRow(label: "built", value: install.built ?? "?", mono: true, tint: .secondary)
                 }
                 HStack(spacing: Theme.s2) {
-                    Button { checks = model.run("update", []).out } label: {
+                    Button { checks = "updating…"; model.run("update") { _, out in checks = out } } label: {
                         Label("Update now", systemImage: "arrow.down.circle")
                     }
-                    Button { checks = model.run("update", ["--check"]).out } label: {
+                    Button { model.run("update", ["--check"]) { _, out in checks = out } } label: {
                         Label("Check upstream", systemImage: "arrow.triangle.2.circlepath")
                     }
-                    Button { checks = model.run("pr", ["--local"]).out } label: {
+                    Button { model.run("pr", ["--local"]) { _, out in checks = out } } label: {
                         Label("Share my fixes", systemImage: "arrow.up.forward.square")
                     }
                     Spacer()
@@ -2187,10 +2253,10 @@ struct HealthView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: Theme.s2) {
-                    Button { _ = model.run("doctor", ["--fix"]) } label: {
+                    Button { model.run("doctor", ["--fix"]) { _, out in checks = out } } label: {
                         Label("Fix permissions", systemImage: "wrench.and.screwdriver")
                     }
-                    Button { checks = model.run("selftest", []).out } label: {
+                    Button { checks = "running…"; model.run("selftest") { _, out in checks = out } } label: {
                         Label("Self-test", systemImage: "checkmark.seal")
                     }
                     Spacer()
@@ -2221,7 +2287,7 @@ struct HealthView: View {
 
     private func load() {
         version = Build.version
-        checks = model.run("doctor", []).out
+        model.run("doctor") { _, out in checks = out }
     }
 
     private func bugCount() -> Int {
@@ -2291,10 +2357,12 @@ struct CommandPalette: View {
     }
 
     private func run() {
-        let words = model.paletteText.split(separator: " ").map(String.init)
-        guard let cmd = words.first else { return }
-        let result = model.run(cmd, Array(words.dropFirst()))
-        output = (result.code == 0 ? "" : "exit \(result.code)\n") + result.out
-        model.refresh()
+        // Quoted words stay one argument, as in a flow step: `schedule add "daily check" …`.
+        guard let words = try? Commands.tokenize(model.paletteText), let cmd = words.first else { return }
+        output = "running…"
+        model.run(cmd, Array(words.dropFirst())) { code, out in
+            output = (code == 0 ? "" : "exit \(code)\n") + out
+            model.refresh()
+        }
     }
 }

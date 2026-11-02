@@ -565,6 +565,9 @@ enum Approvals {
     static var granted: Pending?
     /// The token the user is approving right now, in the `confirm` window or the menu bar.
     static var byUser: String?
+    /// The user acts in person: approving in the window or the menu bar, or a click in the app (its `user`
+    /// flag survives only from the signed bundle, `Peer.isApp`).
+    static var fromUser: Bool { byUser != nil || request.user == true }
 
     /// The proposals still open, oldest first, each answered by its own token.
     static var all: [Pending] {

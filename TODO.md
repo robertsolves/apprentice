@@ -32,6 +32,8 @@ From a `/simplify` pass on 2026-11-02; the small shared helpers landed, these we
 
 ## Pacing
 
+- Re-run the canary on this Mac after the per-pair typing rhythm, the drag correction and settle, and no repeated rest pixels (BOT_DETECTION P1 P7 P21 P22, marked 🔁): with and without `typing learn`, and add a check to `agent/canary.html` that per-pair gaps are consistent across runs and no two pointer rests share a pixel.
+- Typing in the VM goes one character at a time (`Remote.typeChar`): send down and up times so the per-pair rhythm and overlap reach it too.
 - Read the canary's Metrics section in a VM session (`apprentice do canary-full-test` there) and add the VM column to BOT_DETECTION.md; the Mac numbers are in.
 - Tab between form fields where the next field is the obvious one, instead of a click per field (BOT_DETECTION P11).
 - A real IME composition path for CJK locales: today a character no key types is pasted (P12).
@@ -47,7 +49,18 @@ From a `/simplify` pass on 2026-11-02; the small shared helpers landed, these we
 
 ## UI
 
-- A window for apprentice (schedules, settings, site rules, updates, a terminal with tabs): design in `UI_DESIGN_TODO.md`.
+The window (`apprentice app`), schedules and away are built; FEATURES.md lists what they do.
+
+- Terminal: split panes inside a tab (⌘D / ⇧⌘D); tab drag-reorder, pinning and torn-off windows; scrollback restored across a relaunch (`[app] keep_scrollback` is read but not yet used); clickable paths and URLs; find in scrollback (⌘F); copy on select; per-preset environment keys.
+- Terminal fidelity: mouse reporting and bracketed paste are accepted and ignored; some rare DEC modes are not emulated. Verified against a shell and `claude`, not against every TUI.
+- First run: the window's grant check marks on first launch, and `UNUserNotificationCenter` notifications through the bundle.
+- The new-site wizard should preview the TOML it will add; today it writes it and shows the result.
+- `[agent] ask_in = "app"`: answering an `ask` in the tab's banner instead of the floating window.
+- Phone page: `phone` runs from the palette and shows its text; no QR page in the window yet.
+- LaunchAgent offer: the hint is in `schedule add`'s output and on the Schedules screen, not a modal when the first schedule is added.
+- Away resume by the journal: `Away.decide` (proceed / redo / needs-you) is written and tested but nothing calls it, and there is no field undo, so a return always makes the task needs-you. An undo must check the focused field holds exactly the unit's text (its digest), in the unit's window, and press its keys through `gate()` and `Borrow.run`, never while the user is at the Mac.
+- Schedules written by hand: the daemon runs whatever `schedules.toml` holds, so an agent with a shell can add one without the gate (as it could a crontab). A record of what the user approved (a keyed hash in the keychain) would let the daemon skip entries nobody approved.
+- With an ad hoc signature, `Peer.isApp` trusts whatever code is in `~/.apprentice/Apprentice.app`, which a same-user process can replace; with a signing identity it checks the certificate. `kit.sh` should warn when it signs ad hoc.
 
 ## Install
 
@@ -84,10 +97,10 @@ From a `/simplify` pass on 2026-11-02; the small shared helpers landed, these we
 
 ## Agent commands
 
-- Away tasks: queued work that runs while the user is away, stops when they return and resumes from the screen, never from memory. Design and build order in `AWAY.md`.
-
 - Site skills (`skills/apprentice-<site>`) were written from general knowledge, not from runs: the limits and messages they name (LinkedIn's weekly invitations and note allowance, X's duplicate rule, Reddit's "doing that too much", TikTok's puzzles) need confirming on real sessions, then the wording tightened. Add skills for other `Config.socialSites` (threads, pinterest, youtube, bsky) once they see use.
 - The MCP apps (Claude desktop, Cursor) don't get skills as skills: they rely on `session`'s `skills ·` line and the `playbooks` tool with the skill's name. Check in `grow` whether they actually load them, and if not, expose the skills as MCP prompts or resources, or have `session` print a site skill's first section on the first visit.
+- Away tasks: queued work that runs while the user is away, stops when they return and resumes from the screen, never from memory. Design and build order in `AWAY.md`.
+
 ## Site
 
 - `robots.txt` is not served: Pages publishes `site/` under `/apprentice/`, and crawlers read only the domain root (`robertsolves.github.io/robots.txt`). Submit `https://robertsolves.github.io/apprentice/sitemap.xml` in Google Search Console and Bing Webmaster Tools instead, or move the site to its own domain and add one there.

@@ -198,6 +198,7 @@ Exit codes (kept in sync with `usage()` and `agent/*.md`):
 | 7 | permission missing (Accessibility or Screen Recording) |
 | 8 | approval needed: the action was proposed, nothing was done |
 | 9 | ask the user in the chat: they are away (`away on`) or did not answer the little window in time. The output names a screenshot of the screen it is about, and `[agent] notify` pushes the question to the phone |
+| 10 | yielded: in away mode the user is back at the Mac, so the acting command (or the flow's next step) did nothing. Do not retry; wait with `apprentice away wait` |
 
 ## Pacing
 
@@ -209,7 +210,7 @@ All randomness in pacing comes from `Rand` (`Rand.swift`): one xoshiro256** gene
 
 `Mouse.move` takes a Fitts' law duration, scaled by the hand and a ±12% log-normal draw, within `move_ms` (50–200 ms by default, 250–1000 ms in `careful`). Above the top of the range a move still grows, slowly (`Mouse.duration`, at most 2.5× the top), so long moves never pile up on one value.
 
-- **Hand.** `Hand` draws a speed (0.85–1.2×), a favoured bend side, a key hold and rhythm, a rollover share and a click hold once, and keeps them in `~/.apprentice/hand.json`, shared by every VM's daemon, so restarts and updates do not change the person. Delete the file for a new hand.
+- **Hand.** `Hand` draws a speed (0.85–1.2×), a favoured bend side, a key hold and rhythm, a click hold and a seed for each letter pair's lasting lean once, and keeps them in `~/.apprentice/hand.json`, shared by every VM's daemon, so restarts and updates do not change the person. Delete the file for a new hand.
 - **Path.** Moves over 120 px run in two strokes: a reach that stops at 92–97% of the way, or (`overshoot`, a third of moves by default) passes the target by 1.5–5% of the distance, 3–40 px; then a 40–140 ms correction, which one time in four lands short first and nudges again. Each stroke draws its shape (a one-sided bow, an arc, an S-wave, a bow with a slow 1–3 cycle tremor of up to 2 px, or a nearly straight line) and its speed profile (skewed ease, minimum jerk, or a quick start), samples 100–135 times a second (drawn per stroke) with uneven timing and 0.3–0.8 px jitter, each sample carrying its movement delta as a mouse reports it, and a long stroke hesitates once on the way one time in sixteen.
 - **Landing.** `Mouse.landing` draws a Gaussian point around the centre, never within 8% of an edge. No rest repeats a pixel: every landing, settle, `--at` aim and drop is checked against the last 256 rests (`Mouse.Rest`, in memory per daemon run), redrawn or nudged 1–6 px when it matches, so no two paths share both ends. An exact point (`click --at`, `scroll --at`, `drag --at`) is aimed within 1–2 px of it (`Mouse.aim`).
 - **Settle.** `Mouse.settle` rests 40–120 ms over the target with small micro-moves before the press, so `mousedown` never lands on the frame of the last move.
@@ -224,7 +225,8 @@ All randomness in pacing comes from `Rand` (`Rand.swift`): one xoshiro256** gene
 ### Keyboard
 
 - **Gaps.** `Pace.keyGap` is log-normal with a 100 ms median (times the hand's rhythm) and sigma 0.4, 1.6× after a space or punctuation, 0.85× when the two letters fall to different hands and 1.15× on the same hand, clamped to 35–900 ms. A 0.5–1.8 s thinking pause comes every 20–40 characters at a word end.
-- **Keys.** Real key codes from the current layout, each held log-normal around the hand's own hold (`Pace.keyHold`), shorter for the space bar and longer with Shift. Shift, cmd, option and ctrl are keys of their own: a `flagsChanged` press before the key and a release after it, with Shift held across a run of capitals. For a quick pair of letters on different hands the next key often goes down before the last one is up (the hand's `rollover` share), as fluent typing overlaps.
+- **Keys.** Real key codes from the current layout, each held log-normal around the hand's own hold (`Pace.keyHold`), shorter for the space bar and longer with Shift. Shift, cmd, option and ctrl are keys of their own: a `flagsChanged` press before the key and a release after it, with Shift held across a run of capitals. Each gap runs from one key going down to the next (`Typing.interval`), so when it is shorter than the last key's hold the two overlap, as fluent typing does; never on one key or one finger.
+- **Typing rhythm.** Each letter pair keeps its own time. The main daemon learns it from the person's own typing on this Mac (`Typing.Sampler`): it listens 2–5 minutes at a time, every 15–35 min while it knows little, every 1–3 h after 3,000 keys and every 6–12 h after 20,000, never to apprentice's own keys, a key while it acts, a password field (secure input) or a scrubbed app; `[typing] learn = false` turns it off. `apprentice typing learn` records it now, the person copying a sample. Either way it keeps, per pair, the time from one key down to the next, per key its hold, and the pauses after words; never the text (`typing.json`, at most 40 samples a pair). A pair not recorded is interpolated from recorded pairs of its kind (same key, same finger, same hand, other hand, to or from space), weighted by how alike the keys sit (distance, fingers, rows). Without a recording the kind and the key distance set the gap around `key_ms_median` (now one key down to the next: 140 ms by default, 150 `steady`, 180 `careful`, 70 `fastest`), and each pair keeps a lasting ±14% lean from the hand's seed. Pauses after words come from the recording, else 0.4–1.4 s every 30–60 characters. `typing show` summarises it; `typing forget` removes it. The samples also give the person's slips: how often they correct, how many keys at a time (up to 4) and how long they take to notice. Where a profile allows slips (`key_error_rate` above 0), typing slips at that rate instead (at most 6%), sometimes a key or two late, and never in a password field.
 - **Characters off the main layers.** Option-layer characters (ß, ©) use their option key; accents use the layout's dead key and then the letter (é is option+e, e on a US board), with the layout composing the text. A character no key on the layout types (an emoji, CJK without an input method) is pasted on its own, clipboard restored, rather than sent on a key that types something else.
 - **Corrections.** At `key_error_rate` (off by default, 1.5% in the social profiles, at most 0.1), a neighbouring QWERTY key is typed, then deleted and retyped. At most 3 per field, never in password or secure fields, never with `--pace fast`.
 - **Field entry.** `type` clicks the field and sends `cmd+a` only when the field already has text.
@@ -257,7 +259,7 @@ All ranges live in `~/.apprentice/config.toml`. Each `[pace."<domain>"]` profile
 ```toml
 [pace.default]
 move_ms = [50, 200]
-key_ms_median = 100
+key_ms_median = 140
 key_ms_sigma = 0.4
 between_actions_ms = [0, 0]
 nav_min_gap_s = 5
@@ -296,6 +298,10 @@ The default profile is fast on purpose (`78ff6d6`); the slow settings apply wher
 ## Approval gate and safety
 
 apprentice is driven by an LLM, and the LLM talks to the user: CLI ↔ LLM ↔ the user. Every action that can change state is proposed first, and the LLM approves it, denies it, or asks the user. The one direct channel to the user is the little window in `Ask.swift`.
+
+Preferences are not decisions, and the user is never made to wait over them. `pref <key>` (`Voice.swift`) answers from `~/.apprentice/voice.md`: the scope's own answer (the session's site or app, or `--for`), else the user's answer everywhere, else the one most other scopes got. Without a real answer for the scope it puts an optional question (`OptionalAsk`): a small window that never takes focus, radio buttons or checkboxes, with the assumption shown. An answer that needs typing is critical by definition, so it is a real `ask --text` that waits, not an optional one; choices come first wherever they can carry the answer. It closes after `[agent] optional_wait_s` (60 s), and the command returns the answer or the assumption, exit 0 either way. Every answer is saved for its scope for future sessions; an unanswered one is saved as assumed and asked again later, at most three times and not twice in 12 hours. `ask --optional` is the same for a one-off question. When apprentice has been idle for 2 minutes and nothing waits on the user, it asks one built-in voice question (tone, length, emoji, casual style, what never to say, language) or a still-assumed site preference, at most every `optional_every_h` (4 h). None while the user is away; `[agent] optional_questions = false` turns them all off. The top of `voice.md` is the user's own words; `session` tells agents to read it before writing posts, comments, replies or messages, never for code or docs. It never goes into the repo or a playbook.
+
+`apprentice tour [name]` sets everything up in eight steps, one window of choices each, every one skippable; the terminal asks when the window cannot show. What it sets is a named setup in `~/.apprentice/setups/` (the settings it wrote, and a copy of `voice.md`): `tour list`, `tour use <name>` puts one in place, `tour <name>` updates it starting from it, `tour show`, `tour rm`.
 
 What needs approval: `open`, `click`, `type`, `key`, `menu`, `drag`, `upload`, `download`, `choose` and `do`. Reading (`read`, `ocr`, `shot`, `wait-for`) and moving the view (`scroll`, `browse`, `hover`) do not.
 

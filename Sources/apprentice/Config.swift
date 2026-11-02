@@ -97,28 +97,15 @@ enum Toml {
     static func set(_ path: URL, _ section: String, _ key: String, _ literal: String) -> Bool {
         var lines = ((try? String(contentsOf: path, encoding: .utf8)) ?? "").components(separatedBy: "\n")
         guard !lines.isEmpty else { return false }
-        let header = section.isEmpty ? nil : "[\(section)]"
-        var start = 0
-        var end = lines.count
-        if let header {
-            guard let found = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == header }) else {
-                lines.append("")
-                lines.append(header)
-                lines.append("\(key) = \(literal)")
-                return write(lines, path)
-            }
-            start = found + 1
-            var i = start
-            while i < lines.count, !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("[") { i += 1 }
-            end = i
+        guard let (start, end) = bounds(lines, section) else {
+            lines.append("")
+            lines.append("[\(section)]")
+            lines.append("\(key) = \(literal)")
+            return write(lines, path)
         }
-        for i in start..<end {
-            let bare = stripComment(lines[i])
-            let body = bare.trimmingCharacters(in: .whitespaces)
-            guard body.hasPrefix(key) else { continue }
-            let after = body.dropFirst(key.count).trimmingCharacters(in: .whitespaces)
-            guard after.hasPrefix("=") else { continue }
+        if let i = keyLine(lines, start, end, key) {
             // Keep the line's own indentation and whatever comment followed the old value.
+            let bare = stripComment(lines[i])
             let indent = String(lines[i].prefix { $0 == " " || $0 == "\t" })
             let comment = String(lines[i].dropFirst(bare.count)).trimmingCharacters(in: .whitespaces)
             lines[i] = indent + key + " = " + literal + (comment.isEmpty ? "" : " " + comment)
@@ -134,22 +121,106 @@ enum Toml {
     /// Removes a key from a section, leaving its comments alone. False when it was not there.
     @discardableResult
     static func remove(_ path: URL, _ section: String, _ key: String) -> Bool {
-        guard var lines = try? String(contentsOf: path, encoding: .utf8).components(separatedBy: "\n") else { return false }
-        let header = section.isEmpty ? nil : "[\(section)]"
+        guard var lines = try? String(contentsOf: path, encoding: .utf8).components(separatedBy: "\n"),
+              let (start, end) = bounds(lines, section), let i = keyLine(lines, start, end, key) else { return false }
+        lines.remove(at: i)
+        return write(lines, path)
+    }
+
+    /// A section name as the reader keys it: no quotes, no spaces around the dots, so `[pace."x.com"]`,
+    /// `[ pace.x.com ]` and `pace.x.com` are one section.
+    static func canonical(_ section: String) -> String {
+        section.replacingOccurrences(of: "\"", with: "").split(separator: ".", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: ".")
+    }
+
+    /// The section a line opens, or nil when it is not a header (`[[…]]` tables included as headers).
+    static func header(_ line: String) -> String? {
+        let t = stripComment(line).trimmingCharacters(in: .whitespaces)
+        guard t.hasPrefix("["), t.hasSuffix("]"), !t.contains("=") else { return nil }
+        return t.trimmingCharacters(in: CharacterSet(charactersIn: "[]")).trimmingCharacters(in: .whitespaces)
+    }
+
+    /// The lines of `section`'s body (after its header, up to the next header outside a multi-line array);
+    /// the whole file for the top level. Nil when the section is not there.
+    static func bounds(_ lines: [String], _ section: String) -> (Int, Int)? {
         var start = 0
-        var end = lines.count
-        if let header {
-            guard let found = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == header }) else { return false }
+        if !section.isEmpty {
+            let want = canonical(section)
+            guard let found = lines.firstIndex(where: { header($0).map(canonical) == want }) else { return nil }
             start = found + 1
-            var i = start
-            while i < lines.count, !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("[") { i += 1 }
-            end = i
         }
-        for i in start..<end where stripComment(lines[i]).trimmingCharacters(in: .whitespaces).hasPrefix(key + " ") || stripComment(lines[i]).trimmingCharacters(in: .whitespaces).hasPrefix(key + "=") {
-            lines.remove(at: i)
-            return write(lines, path)
+        var depth = 0
+        for i in start..<lines.count {
+            if depth == 0, header(lines[i]) != nil { return (start, i) }
+            depth = max(0, depth + bracketDepth(stripComment(lines[i])))
         }
-        return false
+        return (start, lines.count)
+    }
+
+    /// Every `"` string on the line ends on it (`\"` escapes).
+    static func closedStrings(_ line: String) -> Bool {
+        var inString = false
+        var prev: Character = " "
+        for ch in line {
+            if ch == "\"" && prev != "\\" { inString.toggle() }
+            prev = ch
+        }
+        return !inString
+    }
+
+    /// `[` minus `]` outside strings: how far a line opens a multi-line array.
+    static func bracketDepth(_ text: String) -> Int {
+        var depth = 0
+        var quote: Character?
+        var prev: Character = " "
+        for ch in text {
+            if let q = quote { if ch == q && prev != "\\" { quote = nil } }
+            else if ch == "\"" || ch == "'" { quote = ch }
+            else if ch == "[" { depth += 1 }
+            else if ch == "]" { depth -= 1 }
+            prev = ch
+        }
+        return depth
+    }
+
+    /// The line that sets `key` (exactly that key: `allow` never matches `allow_x`).
+    private static func keyLine(_ lines: [String], _ start: Int, _ end: Int, _ key: String) -> Int? {
+        (start..<end).first { i in
+            let body = stripComment(lines[i]).trimmingCharacters(in: .whitespaces)
+            guard body.hasPrefix(key) else { return false }
+            return body.dropFirst(key.count).trimmingCharacters(in: .whitespaces).hasPrefix("=")
+        }
+    }
+
+    /// What is wrong with a TOML text this reader would misread, with line numbers; empty when it reads
+    /// cleanly. The raw settings view saves nothing while there is a problem.
+    static func problems(_ text: String) -> [String] {
+        var out: [String] = []
+        var depth = 0
+        for (n, raw) in text.components(separatedBy: "\n").enumerated() {
+            let line = stripComment(raw).trimmingCharacters(in: .whitespaces)
+            if line.isEmpty { continue }
+            if depth > 0 {
+                depth = max(0, depth + bracketDepth(line))
+                continue
+            }
+            if !closedStrings(line) { out.append("line \(n + 1): a string is not closed"); continue }
+            if line.hasPrefix("[") {
+                if header(raw) == nil || header(raw)?.isEmpty == true { out.append("line \(n + 1): a section header is not closed") }
+                continue
+            }
+            guard let eq = line.firstIndex(of: "="), !line[..<eq].trimmingCharacters(in: .whitespaces).isEmpty else {
+                out.append("line \(n + 1): expected key = value")
+                continue
+            }
+            let value = line[line.index(after: eq)...].trimmingCharacters(in: .whitespaces)
+            if value.isEmpty { out.append("line \(n + 1): \(line[..<eq].trimmingCharacters(in: .whitespaces)) has no value") }
+            depth = max(0, bracketDepth(value))
+            if value.hasPrefix("{"), !value.hasSuffix("}") { out.append("line \(n + 1): an inline table must close on its line") }
+        }
+        if depth > 0 { out.append("an array is not closed") }
+        return out
     }
 
     private static func write(_ lines: [String], _ path: URL) -> Bool {
@@ -367,6 +438,10 @@ struct Config {
     var menuBar = true
     /// `[typing] learn`: sample the person's own typing now and then, for `Typing`'s per-pair rhythm.
     var typingLearn = true
+    /// `[agent] optional_questions`: now and then a question the user may answer or leave (`OptionalAsk`).
+    var optionalQuestions = true
+    var optionalWaitSeconds = 60.0
+    var optionalEveryHours = 4.0
     var overlay = true
     var sounds = true
     var notifications = false
@@ -542,6 +617,9 @@ struct Config {
         if let v = toml["agent"]?["keep_awake"] { c.keepAwake = Toml.unquote(v) == "true" }
         if let v = toml["agent"]?["menu_bar"] { c.menuBar = Toml.unquote(v) != "false" }
         if let v = toml["typing"]?["learn"] { c.typingLearn = Toml.unquote(v) != "false" }
+        if let v = toml["agent"]?["optional_questions"] { c.optionalQuestions = Toml.unquote(v) != "false" }
+        if let v = toml["agent"]?["optional_wait_s"].flatMap({ Double(Toml.unquote($0)) }), v.isFinite { c.optionalWaitSeconds = min(max(v, 10), 600) }
+        if let v = toml["agent"]?["optional_every_h"].flatMap({ Double(Toml.unquote($0)) }), v.isFinite { c.optionalEveryHours = min(max(v, 0.25), 168) }
         if let v = toml["agent"]?["dock_icon"] { c.dockIcon = Toml.unquote(v) != "false" }
         if let v = toml["agent"]?["notifications"] { c.notifications = Toml.unquote(v) == "true" }
         if let v = toml["agent"]?["sounds"] { c.sounds = Toml.unquote(v) != "false" }
@@ -571,7 +649,8 @@ struct Config {
         if let v = toml["app"]?["theme"] { c.appTheme = Toml.unquote(v) }
         if let v = toml["app"]?["keep_scrollback"] { c.keepScrollback = Toml.unquote(v) == "true" }
         if let v = toml["app"]?["copy_on_select"] { c.copyOnSelect = Toml.unquote(v) == "true" }
-        for (name, raw) in toml["app.tabs"] ?? [:] { c.tabPresets[name] = Toml.table(raw) }
+        // Values as text, without their quotes: `dir = "~/work"` is a folder, not a quoted word.
+        for (name, raw) in toml["app.tabs"] ?? [:] { c.tabPresets[name] = Toml.table(raw).mapValues(Toml.unquote) }
         if let r = toml["run"] {
             if let v = r["base_url"] { c.runURL = Toml.unquote(v) }
             if let v = r["model"] { c.runModel = Toml.unquote(v) }

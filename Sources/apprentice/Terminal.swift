@@ -6,9 +6,13 @@ import SwiftUI
 /// such as `claude`. It is a child of the app's process, never of the daemon, so a stuck terminal cannot
 /// take a pending approval down with it.
 final class Pty {
-    private(set) var fd: Int32 = -1
+    /// Every use of `fd` (read, write, resize) runs on `queue`, and only the read source's cancel handler
+    /// closes it, so a write can never land on a closed or reused descriptor.
+    private var fd: Int32 = -1
     private(set) var pid: pid_t = 0
+    private let queue = DispatchQueue(label: "apprentice.pty")
     private var source: DispatchSourceRead?
+    private var exitSource: DispatchSourceProcess?
     private var args: [UnsafeMutablePointer<CChar>?] = []
     private var envp: [UnsafeMutablePointer<CChar>?] = []
     let onData: (Data) -> Void
@@ -22,19 +26,30 @@ final class Pty {
         self.onExit = onExit
         var master: Int32 = 0, slave: Int32 = 0
         var size = winsize(ws_row: UInt16(rows), ws_col: UInt16(cols), ws_xpixel: 0, ws_ypixel: 0)
-        guard openpty(&master, &slave, nil, nil, &size) == 0 else { return }
+        guard openpty(&master, &slave, nil, nil, &size) == 0 else { onExit(127); return }
+        guard let name = ttyname(slave).map({ String(cString: $0) }) else {
+            close(master); close(slave); onExit(127); return
+        }
         var actions: posix_spawn_file_actions_t?
         posix_spawn_file_actions_init(&actions)
-        posix_spawn_file_actions_adddup2(&actions, slave, 0)
-        posix_spawn_file_actions_adddup2(&actions, slave, 1)
-        posix_spawn_file_actions_adddup2(&actions, slave, 2)
-        posix_spawn_file_actions_addclose(&actions, slave)
+        // Opened by name after `setsid`, the slave becomes the child's controlling terminal: ctrl+C reaches
+        // the foreground job, a resize sends it SIGWINCH, and closing the tab hangs up its children.
         posix_spawn_file_actions_addclose(&actions, master)
+        posix_spawn_file_actions_addclose(&actions, slave)
+        posix_spawn_file_actions_addopen(&actions, 0, name, O_RDWR, 0)
+        posix_spawn_file_actions_adddup2(&actions, 0, 1)
+        posix_spawn_file_actions_adddup2(&actions, 0, 2)
         posix_spawn_file_actions_addchdir_np(&actions, dir.path)
 
         var attr: posix_spawnattr_t?
         posix_spawnattr_init(&attr)
         posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_SETSID))
+        // The tab's shell answers for itself: an agent in it never borrows the app's Accessibility grant to
+        // click the app's own Allow (`responsibility_spawnattrs_setdisclaim`, as Terminal does).
+        typealias Disclaim = @convention(c) (UnsafeMutablePointer<posix_spawnattr_t?>, Int32) -> Int32
+        if let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "responsibility_spawnattrs_setdisclaim") {
+            _ = unsafeBitCast(sym, to: Disclaim.self)(&attr, 1)
+        }
 
         var env = ProcessInfo.processInfo.environment
         // The tab knows which project and VM it belongs to, so an agent started here needs no setup.
@@ -51,39 +66,65 @@ final class Pty {
         posix_spawn_file_actions_destroy(&actions)
         posix_spawnattr_destroy(&attr)
         close(slave)
-        guard spawn == 0 else { close(master); return }
+        // A tab whose shell or folder cannot start says so instead of staying blank.
+        guard spawn == 0 else { close(master); onExit(127); return }
         fd = master
         pid = child
         _ = fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK)
-        let src = DispatchSource.makeReadSource(fileDescriptor: fd, queue: DispatchQueue(label: "apprentice.pty"))
+        let src = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
         src.setEventHandler { [weak self] in self?.drain() }
+        src.setCancelHandler { [weak self, master] in
+            close(master)
+            self?.fd = -1
+        }
         src.resume()
         source = src
-    }
-
-    private func drain() {
-        var buffer = [UInt8](repeating: 0, count: 32 * 1024)
-        let n = read(fd, &buffer, buffer.count)
-        if n > 0 {
-            onData(Data(buffer[0..<n]))
-        } else if n == 0 || (n < 0 && errno != EAGAIN && errno != EINTR) {
+        // The child is reaped when it exits, whether it ends by itself or the tab is closed. The handler holds
+        // the Pty until then, so a closed tab never leaves a zombie.
+        let exit = DispatchSource.makeProcessSource(identifier: child, eventMask: .exit, queue: queue)
+        exit.setEventHandler { [self] in
+            var status: Int32 = 0
+            while waitpid(child, &status, 0) < 0 && errno == EINTR {}
+            drain()
             source?.cancel()
             source = nil
-            var status: Int32 = 0
-            waitpid(pid, &status, WNOHANG)
+            exitSource?.cancel()
+            exitSource = nil
             let code = (status & 0x7f) == 0 ? (status >> 8) & 0xff : 128 + (status & 0x7f)
             onExit(code)
+        }
+        exit.resume()
+        exitSource = exit
+    }
+
+    /// Reads what is there now; end of file is left to the exit handler, which reaps the child.
+    private func drain() {
+        guard fd >= 0 else { return }
+        var buffer = [UInt8](repeating: 0, count: 32 * 1024)
+        while true {
+            let n = read(fd, &buffer, buffer.count)
+            if n > 0 {
+                onData(Data(buffer[0..<n]))
+                if n < buffer.count { return }
+            } else {
+                if n == 0 || (errno != EAGAIN && errno != EINTR) { source?.cancel(); source = nil }
+                return
+            }
         }
     }
 
     func write(_ data: Data) {
-        guard fd >= 0 else { return }
-        data.withUnsafeBytes { raw in
-            var sent = 0
-            while sent < raw.count {
-                let n = Darwin.write(fd, raw.baseAddress!.advanced(by: sent), raw.count - sent)
-                if n <= 0 { break }
-                sent += n
+        queue.async { [weak self] in
+            guard let self, self.fd >= 0 else { return }
+            data.withUnsafeBytes { raw in
+                guard let base = raw.baseAddress else { return }
+                var sent = 0
+                while sent < raw.count {
+                    let n = Darwin.write(self.fd, base.advanced(by: sent), raw.count - sent)
+                    if n < 0, errno == EAGAIN || errno == EINTR { usleep(2000); continue }
+                    if n <= 0 { break }
+                    sent += n
+                }
             }
         }
     }
@@ -91,17 +132,22 @@ final class Pty {
     func write(_ text: String) { write(Data(text.utf8)) }
 
     func resize(cols: Int, rows: Int) {
-        guard fd >= 0 else { return }
-        var size = winsize(ws_row: UInt16(max(rows, 2)), ws_col: UInt16(max(cols, 10)), ws_xpixel: 0, ws_ypixel: 0)
-        _ = ioctl(fd, TIOCSWINSZ, &size)
-        if pid > 0 { kill(pid, SIGWINCH) }
+        queue.async { [weak self] in
+            guard let self, self.fd >= 0 else { return }
+            // The kernel sends SIGWINCH to the foreground job of the controlling terminal.
+            var size = winsize(ws_row: UInt16(max(rows, 2)), ws_col: UInt16(max(cols, 10)), ws_xpixel: 0, ws_ypixel: 0)
+            _ = ioctl(self.fd, TIOCSWINSZ, &size)
+        }
     }
 
     func terminate() {
-        if pid > 0 { kill(pid, SIGHUP) }
-        source?.cancel()
-        source = nil
-        if fd >= 0 { close(fd); fd = -1 }
+        let pid = pid
+        queue.async { [weak self] in
+            // The shell leads its own session and process group: the hangup reaches its jobs too.
+            if pid > 0 { kill(-pid, SIGHUP); kill(pid, SIGHUP) }
+            self?.source?.cancel()
+            self?.source = nil
+        }
     }
 
     deinit {
@@ -151,10 +197,12 @@ final class TermScreen {
     private(set) var alt = false
     private var altSaved: ([TermLine], Int, Int)?
     private var wrapPending = false
-    private var state = 0   // 0 ground, 1 after ESC, 2 in CSI, 3 in OSC, 4 in OSC after ESC
+    private var state = 0   // 0 ground, 1 after ESC, 2 in CSI, 3 in OSC, 4 in OSC after ESC, 5 ESC intermediate
     private var csi = ""
     private var osc = ""
     private var pending = Data()
+    /// Answers to the program's queries (cursor position, device attributes), written back to the pty.
+    var reply: ((String) -> Void)?
 
     init(cols: Int = 100, rows: Int = 30) {
         self.cols = cols
@@ -172,13 +220,24 @@ final class TermScreen {
 
     func feed(_ data: Data) {
         pending.append(data)
-        // A multi-byte character can be split across reads; keep what will not decode yet.
-        guard let text = String(data: pending, encoding: .utf8) else {
-            if pending.count > 4 { pending.removeFirst() }
-            return
+        // A multi-byte character can be split across reads: its start waits for the next read. Anything
+        // else that is not UTF-8 (a binary on `cat`) draws as U+FFFD instead of stopping the screen.
+        let keep = TermScreen.incompleteTail(pending)
+        let ready = pending.prefix(pending.count - keep)
+        pending = Data(pending.suffix(keep))
+        for ch in String(decoding: ready, as: UTF8.self) { step(ch) }
+    }
+
+    /// How many bytes at the end start a UTF-8 character that is not complete yet (0…3).
+    static func incompleteTail(_ data: Data) -> Int {
+        let bytes = [UInt8](data.suffix(3))
+        for back in 1...max(1, bytes.count) where back <= bytes.count {
+            let b = bytes[bytes.count - back]
+            if b & 0xC0 == 0x80 { continue }   // a continuation byte: look further back
+            let need = b & 0xE0 == 0xC0 ? 2 : b & 0xF0 == 0xE0 ? 3 : b & 0xF8 == 0xF0 ? 4 : 1
+            return need > back ? back : 0
         }
-        pending.removeAll()
-        for ch in text { step(ch) }
+        return 0
     }
 
     private func step(_ ch: Character) {
@@ -194,13 +253,16 @@ final class TermScreen {
             case "7": saved = (cursorX, cursorY, attr)
             case "8": if let s = saved { (cursorX, cursorY, attr) = (s.x, s.y, s.attr) }
             case "M":
-                if cursorY == scrollTop { scrollUp(1) } else { cursorY = max(0, cursorY - 1) }
+                // Reverse index: at the top margin the region moves down, as `less` does scrolling back.
+                if cursorY == scrollTop { scrollDown(1) } else { cursorY = max(0, cursorY - 1) }
             case "D":
                 lineFeed()
             case "E":
                 cursorX = 0; lineFeed()
             case "c": reset()
-            default: break   // character set choices and keypad modes change nothing here
+            // ESC ( B and the like choose a character set: the byte after it is part of the sequence.
+            case " ", "!", "\"", "#", "$", "%", "&", "'", "(", ")", "*", "+", ",", "-", ".", "/": state = 5
+            default: break   // keypad modes change nothing here
             }
         case 2:
             if ch.isLetter || ch == "@" || ch == "`" || ch == "~" || ch == "{" || ch == "|" || ch == "}" {
@@ -213,9 +275,11 @@ final class TermScreen {
             if ch == "\u{07}" { state = 0; oscApply() }
             else if ch == "\u{1b}" { state = 4 }
             else { osc.append(ch) }
-        default:
+        case 4:
             state = 0
             if ch == "\\" { oscApply() }
+        default:
+            state = 0
         }
     }
 
@@ -253,6 +317,13 @@ final class TermScreen {
         }
     }
 
+    private func scrollDown(_ n: Int) {
+        for _ in 0..<n {
+            grid.remove(at: scrollBottom)
+            grid.insert(TermLine(cells: Array(repeating: blank(), count: cols)), at: scrollTop)
+        }
+    }
+
     private func put(_ text: String) {
         let width = TermScreen.width(text)
         guard width > 0 else {
@@ -267,6 +338,11 @@ final class TermScreen {
         var cell = attr
         cell.text = text
         cell.wide = width == 2
+        // Writing over half of a wide character blanks its other half, so the line keeps its columns.
+        let line = grid[cursorY].cells
+        if line[cursorX].wide, line[cursorX].text.isEmpty, cursorX > 0 { grid[cursorY].cells[cursorX - 1] = blank() }
+        let end = cursorX + width
+        if end < cols, line[end].wide, line[end].text.isEmpty { grid[cursorY].cells[end] = blank() }
         grid[cursorY].cells[cursorX] = cell
         if width == 2, cursorX + 1 < cols {
             var filler = cell
@@ -311,11 +387,22 @@ final class TermScreen {
     }
 
     private func csiApply(_ raw: String, _ final: Character) {
-        // A leading ? is a private mode (alternate screen, cursor visibility, paste, wrapping).
+        // A leading ? is a private mode (alternate screen, cursor visibility, paste, wrapping). `>`, `<` and
+        // `=` belong to other protocols (modifyOtherKeys, the kitty keyboard), and an intermediate byte such as
+        // the space in `CSI 2 SP q` (cursor shape) names another command: none of them may run as the plain one.
         var body = raw
         var priv = false
         if body.hasPrefix("?") { priv = true; body.removeFirst() }
-        let params = body.split(separator: ";", omittingEmptySubsequences: false).map { Int($0) ?? 0 }
+        if body.hasPrefix(">") {
+            if final == "c" { reply?("\u{1b}[>0;10;1c") }   // secondary device attributes
+            return
+        }
+        if body.hasPrefix("<") || body.hasPrefix("=") { return }
+        guard body.allSatisfy({ $0.isASCII && ($0.isNumber || $0 == ";" || $0 == ":") }) else { return }
+        // Colon subparameters (`4:3`, `38:2::r:g:b`) stay with their parameter.
+        let groups = body.split(separator: ";", omittingEmptySubsequences: false)
+            .map { $0.split(separator: ":", omittingEmptySubsequences: false).map { Int($0) ?? 0 } }
+        let params = groups.map { $0.first ?? 0 }
         func p(_ i: Int, _ fallback: Int = 1) -> Int { i < params.count && params[i] != 0 ? params[i] : fallback }
         switch final {
         case "A": cursorY = max(scrollTop, cursorY - p(0)); wrapPending = false
@@ -354,7 +441,9 @@ final class TermScreen {
             for _ in 0..<n { grid[cursorY].cells.remove(at: cursorX); grid[cursorY].cells.append(blank()) }
             grid[cursorY].dirty = true
         case "L", "M":
-            let n = p(0)
+            // Outside the scroll region, insert and delete line do nothing (as in xterm).
+            guard (scrollTop...scrollBottom).contains(cursorY) else { break }
+            let n = min(p(0), scrollBottom - cursorY + 1)
             for _ in 0..<n {
                 if final == "L" {
                     grid.insert(TermLine(cells: Array(repeating: blank(), count: cols)), at: cursorY)
@@ -366,16 +455,12 @@ final class TermScreen {
             }
             for y in cursorY...scrollBottom { grid[y].dirty = true }
         case "S": scrollUp(p(0))
-        case "T":
-            for _ in 0..<p(0) {
-                grid.remove(at: scrollBottom)
-                grid.insert(TermLine(cells: Array(repeating: blank(), count: cols)), at: scrollTop)
-            }
+        case "T": scrollDown(p(0))
         case "r":
             let top = max(0, p(0) - 1)
             let bottom = min(rows - 1, (params.count > 1 ? p(1, rows) : rows) - 1)
             if top < bottom { scrollTop = top; scrollBottom = bottom; (cursorX, cursorY) = (0, top) }
-        case "m": sgr(params)
+        case "m": sgr(TermScreen.flatten(groups))
         case "h", "l":
             let on = final == "h"
             if priv {
@@ -389,7 +474,29 @@ final class TermScreen {
             }
         case "s": saved = (cursorX, cursorY, attr)
         case "u": if let s = saved { (cursorX, cursorY, attr) = (s.x, s.y, s.attr) }
+        case "n":
+            // Device status: 5 asks "are you there", 6 asks where the cursor is.
+            if !priv, params.first == 5 { reply?("\u{1b}[0n") }
+            if !priv, params.first == 6 { reply?("\u{1b}[\(cursorY + 1);\(cursorX + 1)R") }
+        case "c":
+            if !priv, (params.first ?? 0) == 0 { reply?("\u{1b}[?62;22c") }   // primary device attributes
         default: break
+        }
+    }
+
+    /// SGR parameters with colon groups written the way `sgr` reads them: `38:2::r:g:b` as 38;2;r;g;b,
+    /// `38:5:n` as 38;5;n, an underline style `4:n` as on or off, anything else as its first number.
+    static func flatten(_ groups: [[Int]]) -> [Int] {
+        groups.flatMap { g -> [Int] in
+            guard g.count > 1 else { return g }
+            switch g[0] {
+            case 38, 48, 58:
+                if g.count >= 3, g[1] == 5 { return [g[0], 5, g[2]] }
+                if g.count >= 5, g[1] == 2 { return [g[0], 2] + Array(g.suffix(3)) }
+                return []
+            case 4: return [g[1] == 0 ? 24 : 4]
+            default: return [g[0]]
+            }
         }
     }
 
@@ -443,6 +550,9 @@ final class TermScreen {
             case 49: attr.bg = nil
             case 90...97: attr.fg = Int32(v - 90 + 8)
             case 100...107: attr.bg = Int32(v - 100 + 8)
+            case 58:
+                // Underline colour is not drawn; its arguments are skipped, not read as attributes.
+                if i + 1 < params.count { i += params[i + 1] == 5 ? 2 : params[i + 1] == 2 ? 4 : 0 }
             case 38, 48:
                 let index = v == 38 ? \TermCell.fg : \TermCell.bg
                 if i + 2 < params.count, params[i + 1] == 5 {
@@ -469,28 +579,32 @@ final class TermScreen {
     }
 
     func resize(cols newCols: Int, rows newRows: Int) {
-        guard newCols != cols || newRows != rows else { return }
-        var fresh: [TermLine] = []
-        for y in 0..<newRows {
-            if y < rows {
-                var cells = grid[y].cells
-                if newCols < cols { cells.removeLast(cols - newCols) }
-                if newCols > cols { cells.append(contentsOf: Array(repeating: termFiller(), count: newCols - cols)) }
-                fresh.append(TermLine(cells: cells))
-            } else {
-                fresh.append(TermLine(cells: Array(repeating: termFiller(), count: newCols)))
-            }
+        guard newCols > 0, newRows > 0, newCols != cols || newRows != rows else { return }
+        grid = TermScreen.fit(grid, cols: newCols, rows: newRows)
+        // The screen saved under the alternate one, and the saved cursors, take the new size too: quitting vim
+        // after a resize must not bring back a grid of the old height.
+        if let a = altSaved {
+            altSaved = (TermScreen.fit(a.0, cols: newCols, rows: newRows), min(a.1, newCols - 1), min(a.2, newRows - 1))
         }
+        if let s = saved { saved = (min(s.x, newCols - 1), min(s.y, newRows - 1), s.attr) }
         cols = newCols
         rows = newRows
-        grid = fresh
         cursorX = min(cursorX, max(0, cols - 1))
         cursorY = min(cursorY, max(0, rows - 1))
         scrollTop = 0
         scrollBottom = rows - 1
+        wrapPending = false
     }
 
-    private func termFiller() -> TermCell { TermCell() }
+    /// Lines cut or padded to `cols`, and to `rows` lines.
+    static func fit(_ lines: [TermLine], cols: Int, rows: Int) -> [TermLine] {
+        (0..<rows).map { y in
+            var cells = y < lines.count ? lines[y].cells : []
+            if cells.count > cols { cells.removeLast(cells.count - cols) }
+            if cells.count < cols { cells.append(contentsOf: Array(repeating: TermCell(), count: cols - cells.count)) }
+            return TermLine(cells: cells)
+        }
+    }
 }
 
 /// A tab's terminal: the pty, the screen it feeds and the view's natural size.
@@ -517,7 +631,7 @@ final class TermSession: ObservableObject, Identifiable {
         if let vm { environment["APPRENTICE_VM"] = vm }
         var shellArgs = ["-l"]
         if let command, !command.isEmpty { shellArgs = ["-l", "-c", command] }
-        pty = Pty(args: shellArgs, dir: dir, env: environment, cols: cols, rows: rows, onData: { [weak self] data in
+        let pty = Pty(args: shellArgs, dir: dir, env: environment, cols: cols, rows: rows, onData: { [weak self] data in
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.screen.feed(data)
@@ -531,6 +645,8 @@ final class TermSession: ObservableObject, Identifiable {
                 self.revision += 1
             }
         })
+        self.pty = pty
+        screen.reply = { [weak pty] answer in pty?.write(answer) }
     }
 
     private func scheduleRender() {
@@ -564,7 +680,7 @@ final class TermSession: ObservableObject, Identifiable {
         }
         switch event.keyCode {
         case 36, 76: pty.write("\r"); return true
-        case 48: pty.write("\t"); return true
+        case 48: pty.write(flags.contains(.shift) ? "\u{1b}[Z" : "\t"); return true
         case 53: pty.write("\u{1b}"); return true
         case 51: pty.write("\u{7f}"); return true
         case 117: pty.write("\u{1b}[3~"); return true
@@ -681,36 +797,38 @@ enum Renderer {
         // Only the tail of the scrollback is drawn: enough to scroll back through, not the whole day.
         if !screen.scrollback.isEmpty { lines.append(contentsOf: screen.scrollback.suffix(400)) }
         lines.append(contentsOf: screen.grid.map { $0.cells })
+        // The cursor: a block over the character it sits on, found by its UTF-16 offset while the text is built.
+        let cursorRow = lines.count - screen.grid.count + screen.cursorY
+        var cursorAt: Int?
         for (index, cells) in lines.enumerated() {
             var run: [TermCell] = []
             func flush() {
                 guard !run.isEmpty else { return }
-                let string = run.map { $0.text.isEmpty ? " " : $0.text }.joined()
+                let string = run.map(\.text).joined()
                 out.append(NSAttributedString(string: string, attributes: attributes(run[0], base: base)))
                 run.removeAll()
             }
-            for cell in cells {
-                if run.isEmpty || run[0].fg == cell.fg, run[0].bg == cell.bg, run[0].bold == cell.bold,
-                   run[0].italic == cell.italic, run[0].underline == cell.underline, run[0].inverse == cell.inverse {
+            var runStart = out.length
+            for (x, cell) in cells.enumerated() {
+                if index == cursorRow, x == screen.cursorX {
+                    cursorAt = runStart + run.reduce(0) { $0 + ($1.text as NSString).length }
+                }
+                // The second half of a wide character is drawn by the first.
+                if cell.wide, cell.text.isEmpty { continue }
+                if run.isEmpty || (run[0].fg == cell.fg && run[0].bg == cell.bg && run[0].bold == cell.bold
+                    && run[0].italic == cell.italic && run[0].underline == cell.underline && run[0].inverse == cell.inverse) {
                     run.append(cell)
                 } else {
                     flush()
+                    runStart = out.length
                     run.append(cell)
                 }
             }
             flush()
             if index < lines.count - 1 { out.append(NSAttributedString(string: "\n", attributes: base)) }
         }
-        // The cursor: a block over the character it sits on.
-        let gridStart = lines.count - screen.grid.count
-        let row = gridStart + screen.cursorY
-        var offset = 0
         let string = out.string as NSString
-        for i in 0..<min(row, lines.count) {
-            offset += lines[i].count
-        }
-        let at = min(offset + screen.cursorX, string.length)
-        if at < string.length, screen.cursorVisible {
+        if let at = cursorAt, at < string.length, screen.cursorVisible {
             let existing = out.attributes(at: at, effectiveRange: nil)
             var block = existing
             block[.backgroundColor] = (block[.foregroundColor] as? NSColor) ?? .textColor
@@ -778,6 +896,9 @@ final class TerminalTextView: NSTextView {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        // AppKit offers key equivalents to every view in the window: ⌘V is the terminal's only while it has
+        // the focus, and never while a banner is open.
+        guard !locked, window?.firstResponder === self else { return super.performKeyEquivalent(with: event) }
         if event.modifierFlags.contains(.command), let chars = event.charactersIgnoringModifiers?.lowercased() {
             if chars == "c", selectedRange().length > 0 { return super.performKeyEquivalent(with: event) }
             if chars == "v", onKey?(event) == true { return true }

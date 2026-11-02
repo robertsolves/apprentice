@@ -70,6 +70,7 @@ enum Daemon {
             return
         }
         try requireAccessibility()
+        Pause.on = false
         let app = NSApplication.shared
         // A Dock icon shows it is running; without one it is menu-bar only.
         app.setActivationPolicy(Config.current.dockIcon ? .regular : .accessory)
@@ -88,6 +89,8 @@ enum Daemon {
         StatusItem.install()
         Overlay.install()
         Borrow.watchHuman()
+        Typing.Sampler.install()
+        Voice.install()
         // The window's own process is separate (`apprentice app`), so a stuck terminal or a crashed view
         // never takes the daemon and a pending approval down with it.
         if Store.vmName == nil { Repo.scheduleChecks() }
@@ -102,7 +105,7 @@ enum Daemon {
             }
             do {
                 // An away task's steps go in the journal, so a return can undo a half-typed unit.
-                if req.away == true { Away.recording = req.tab ?? "away" }
+                if req.away == true { Away.recording = req.awayTask ?? "" }
                 // The app is a user channel, like the menu bar: its click is the user's own approval.
                 if req.user == true, req.cmd == "approve" { Approvals.byUser = req.args.first }
                 defer { Away.recording = nil; if req.user == true { Approvals.byUser = nil } }

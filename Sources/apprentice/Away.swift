@@ -1,5 +1,6 @@
 import AppKit
 import CoreGraphics
+import CryptoKit
 import Foundation
 
 /// Work that runs while the user is away and stops the moment they come back: `away add`, the monitor in
@@ -33,36 +34,27 @@ enum Away {
 
     // MARK: - presence
 
-    /// Apps that hold a display-sleep assertion: a video player, a call. Being idle in front of one is not
-    /// being away (`pmset -g assertions`).
-    static func displayAsserters() -> [String] {
-        guard let text = try? String(contentsOfFile: "/usr/bin/pmset", encoding: .utf8) else { return [] }
-        return text.components(separatedBy: "pid ").compactMap { part in
-            guard part.contains("PreventUserIdleDisplaySleep") else { return nil }
-            let name = part.split(separator: "(").first.map(String.init) ?? ""
-            return name.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-    }
-
-    /// The list of assertion holders, read from `pmset` (a subprocess, so it is cheap and cached briefly).
+    /// The apps holding a display-sleep assertion: a video player, a call. Being idle in front of one is not
+    /// being away. Read from `pmset -g assertions` (cached briefly): only its per-process lines, such as
+    /// `pid 412(zoom.us): [0x…] 00:12:03 PreventUserIdleDisplaySleep named: "…"`, never the summary table.
     private static var asserterCache: (at: Date, names: [String]) = (.distantPast, [])
     static func holdingDisplay() -> [String] {
         if Date().timeIntervalSince(asserterCache.at) < 20 { return asserterCache.names }
-        let out = Repo.run("/usr/bin/pmset", ["-g", "assertions"]).out
-        var names: [String] = []
-        var inside = false
-        for line in out.components(separatedBy: "\n") {
-            if line.contains("PreventUserIdleDisplaySleep") { inside = true; continue }
-            if inside {
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                if trimmed.isEmpty { inside = false; continue }
-                if let name = trimmed.split(separator: " ").first, name != "pid" { names.append(String(name)) }
-            }
-        }
-        // apprentice's own hold (`Awake`) does not keep the user at the Mac.
-        names.removeAll { $0.contains("apprentice") }
+        let names = displayHolders(Repo.run("/usr/bin/pmset", ["-g", "assertions"]).out)
         asserterCache = (Date(), names)
         return names
+    }
+
+    /// Pure: the process names of `pmset -g assertions` lines that hold PreventUserIdleDisplaySleep.
+    /// apprentice's own hold (`Awake`) does not keep the user at the Mac.
+    static func displayHolders(_ out: String) -> [String] {
+        out.components(separatedBy: "\n").compactMap { line -> String? in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard trimmed.hasPrefix("pid "), trimmed.contains(" PreventUserIdleDisplaySleep "),
+                  let open = trimmed.firstIndex(of: "("), let close = trimmed[open...].firstIndex(of: ")") else { return nil }
+            let name = String(trimmed[trimmed.index(after: open)..<close])
+            return name.lowercased().contains("apprentice") ? nil : name
+        }
     }
 
     static var screenLocked: Bool {
@@ -72,10 +64,10 @@ enum Away {
 
     /// Away needs both: the person has not touched anything for `after_min`, and nothing holds the display
     /// awake. A video or a call keeps it, so nobody is "away" while watching.
-    static func isAway(now: Date = Date()) -> Bool {
-        guard mode else { return false }
-        return Borrow.humanIdle >= afterMinutes * 60 && holdingDisplay().isEmpty
-    }
+    static func isAway(now: Date = Date()) -> Bool { mode && absent() }
+
+    /// The same test without the mode: `away wait` uses it, so waiting never turns away mode on for others.
+    static func absent() -> Bool { Borrow.humanIdle >= afterMinutes * 60 && holdingDisplay().isEmpty }
 
     /// Used by commands: the user is at the Mac right now.
     static func userPresent() -> Bool { Borrow.humanIdle < afterMinutes * 60 }
@@ -163,14 +155,20 @@ enum Away {
         var host: String?
         var window: Int?
         var label: String?
-        var typed: String?
-        /// What undo does: `clear` a field that still holds exactly what was typed.
+        /// How many characters were typed, and a SHA-256 of them: never the text itself, so the journal is
+        /// no more revealing than the step log, yet a later check can tell the field still holds exactly them.
+        var chars: Int?
+        var digest: String?
+        /// What undo would do: `clear` a field that still holds exactly what was typed.
         var inverse: String?
         var at: Double
+
+        static func digest(_ text: String) -> String {
+            SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
+        }
     }
 
     /// The queue task whose command is running now, so its steps land in the journal.
-    private static let recordingKey = DispatchSpecificKey<String>()
     static var recording: String? {
         get { Thread.current.threadDictionary["apprentice.away.recording"] as? String }
         set {
@@ -191,6 +189,16 @@ enum Away {
         chmod(journalPath.path, 0o600)
     }
 
+    /// Drops the units of finished tasks and anything older than a week.
+    static func pruneJournal(now: Date = Date()) {
+        guard FileManager.default.fileExists(atPath: journalPath.path) else { return }
+        let live = Set(all().filter { $0.state != .done && $0.state != .failed }.map(\.id))
+        let keep = units().filter { live.contains($0.task) && now.timeIntervalSince1970 - $0.at < 7 * 86400 }
+        let lines = keep.compactMap { try? JSONEncoder().encode($0) }.map { String(decoding: $0, as: UTF8.self) }
+        try? (lines.map { $0 + "\n" }.joined()).write(to: journalPath, atomically: true, encoding: .utf8)
+        chmod(journalPath.path, 0o600)
+    }
+
     static func units(_ task: String? = nil) -> [Unit] {
         Store.readLines(journalPath).compactMap { row -> Unit? in
             guard let data = try? JSONSerialization.data(withJSONObject: row) else { return nil }
@@ -203,8 +211,8 @@ enum Away {
     static func leftover(_ task: Task) -> String? {
         guard let unit = units(task.id).last else { return nil }
         let where_ = unit.host.map { " on \($0)" } ?? ""
-        if let text = unit.typed, !text.isEmpty {
-            return "typed \(text.count) character\(text.count == 1 ? "" : "s") into \(unit.label ?? "a field")\(where_), nothing sent"
+        if let n = unit.chars, n > 0 {
+            return "typed \(n) character\(n == 1 ? "" : "s") into \(unit.label ?? "a field")\(where_), nothing sent"
         }
         return "stopped after \(unit.step)\(where_)"
     }
@@ -226,24 +234,6 @@ enum Away {
         return .proceed
     }
 
-    /// Clears a field that still holds exactly what was typed, and nothing else. False when it cannot be
-    /// sure, which makes the task needs-you.
-    static func undo(_ unit: Unit) -> Bool {
-        guard unit.inverse == "clear", let typed = unit.typed, !typed.isEmpty,
-              let session = Session.stored, session.vm != true else { return false }
-        guard let app = NSRunningApplication(processIdentifier: session.pid), !app.isTerminated else { return false }
-        let root = appElement(session.pid)
-        guard let focused = root.attr(kAXFocusedUIElementAttribute) as! AXUIElement?,
-              let value = focused.string(kAXValueAttribute),
-              // Only the field that still holds exactly apprentice's partial text: never the user's words.
-              value.filter({ !$0.isWhitespace }) == typed.filter({ !$0.isWhitespace }) else { return false }
-        app.activate()
-        Pace.sleep(0.3)
-        try? Keys.press("cmd+a")
-        try? Keys.press("delete")
-        return true
-    }
-
     /// On the return: stop before the next event, give the app back, and say what was left. Never resumes
     /// by memory: the caller reads the screen again first.
     static func resume(_ task: Task) {
@@ -260,12 +250,17 @@ enum Away {
 
     // MARK: - monitor
 
+    /// The monitor's own queue: `runningTask`, `runningProc` and `yielding` are touched only on it.
+    static let queue = DispatchQueue(label: "apprentice.away")
     private static var timer: DispatchSourceTimer?
     private static var runningTask: String?
+    private static var runningProc: Process?
+    private static var yielding = false
 
     static func install() {
         guard timer == nil, Store.vmName == nil else { return }
-        let t = DispatchSource.makeTimerSource(queue: DispatchQueue(label: "apprentice.away"))
+        pruneJournal()
+        let t = DispatchSource.makeTimerSource(queue: queue)
         t.schedule(deadline: .now() + 5, repeating: 5)
         t.setEventHandler { tick() }
         t.resume()
@@ -277,11 +272,16 @@ enum Away {
         timer = nil
     }
 
-    /// One look: yield a running task when the user is back, start the next one when they are away.
+    /// One look, on `queue`: stop a running task once when the user is back (or away mode is off), start
+    /// the next one when they are away.
     static func tick(now: Date = Date()) {
-        guard mode else { return }
-        if let id = runningTask, let task = find(id) {
-            if !isAway(now: now) { resume(task) }
+        if let id = runningTask {
+            if !isAway(now: now), !yielding {
+                yielding = true
+                // The child is stopped and the flow under way yields at its next step (`yieldIfPresent`).
+                runningProc?.interrupt()
+                if let task = find(id) { resume(task) }
+            }
             return
         }
         guard isAway(now: now) else { return }
@@ -300,32 +300,51 @@ enum Away {
         }
         if next.host == true, !hostAllowed { return }
         guard next.host == true || next.vm != nil || hostAllowed else { return }
-        start(next)
+        if let task = claim(next.id, from: [.queued]) { start(task) }
     }
 
-    /// Runs one task on its own queue, so the monitor keeps watching for the user's return.
-    static func start(_ task: Task) {
-        runningTask = task.id
-        update { list in
-            guard let i = list.firstIndex(where: { $0.id == task.id }) else { return }
+    /// Marks a task running, only if it is still in one of `states`: two starts never launch it twice.
+    static func claim(_ id: String, from states: Set<State>) -> Task? {
+        update { list -> Task? in
+            guard let i = list.firstIndex(where: { $0.id == id }), states.contains(list[i].state) else { return nil }
             list[i].state = .running
             list[i].started = Date().timeIntervalSince1970
-        }
-        DispatchQueue.global(qos: .utility).async {
-            let (state, note) = run(task)
-            runningTask = nil
-            update { list in
-                guard let i = list.firstIndex(where: { $0.id == task.id }) else { return }
-                list[i].state = state
-                list[i].note = note
-                list[i].finished = Date().timeIntervalSince1970
-            }
-            Store.log(["cmd": "away", "task": task.id, "state": state.rawValue])
-            if state == .needsYou || state == .failed { Notify.local("Away task \(task.target): \(note ?? state.label)", title: "apprentice away") }
+            list[i].note = nil
+            return list[i]
         }
     }
 
-    private static func run(_ task: Task) -> (State, String?) {
+    /// Runs one claimed task on its own thread, so the monitor keeps watching for the user's return. Call on
+    /// `queue`.
+    private static func start(_ task: Task) {
+        runningTask = task.id
+        yielding = false
+        DispatchQueue.global(qos: .utility).async {
+            let (state, note) = run(task) { proc in queue.sync { runningProc = proc } }
+            queue.async {
+                runningTask = nil
+                runningProc = nil
+                // A yield or a cancel already said what happened; the child's exit does not overwrite it.
+                let changed = update { list -> Bool in
+                    guard let i = list.firstIndex(where: { $0.id == task.id }), list[i].state == .running else { return false }
+                    list[i].state = state
+                    list[i].note = note
+                    list[i].finished = Date().timeIntervalSince1970
+                    return true
+                }
+                guard changed else { return }
+                Store.log(["cmd": "away", "task": task.id, "state": state.rawValue])
+                if state == .needsYou || state == .failed { Notify.local("Away task \(task.target): \(note ?? state.label)", title: "apprentice away") }
+            }
+        }
+    }
+
+    /// In away mode, an acting command (a flow's next step included) with the user at the Mac yields at once.
+    static func yieldIfPresent(_ cmd: String) throws {
+        if mode, acting.contains(cmd), userPresent() { throw Fail(10, yieldMessage) }
+    }
+
+    private static func run(_ task: Task, started: (Process) -> Void) -> (State, String?) {
         let binary = Wire.binaryPath()
         var argv = [binary]
         if let vm = task.vm, !vm.isEmpty { argv += ["--vm", vm] }
@@ -346,6 +365,7 @@ enum Away {
         proc.standardError = handle
         proc.standardInput = FileHandle.nullDevice
         do { try proc.run() } catch { return (.failed, "could not start: \(error.localizedDescription)") }
+        started(proc)
         proc.waitUntilExit()
         let note = "exit \(proc.terminationStatus) · output in \(logURL.path)"
         switch proc.terminationStatus {
@@ -372,12 +392,8 @@ enum Away {
         case "off":
             let was = mode
             setMode(false)
-            update { list in
-                for i in list.indices where list[i].state == .running {
-                    list[i].state = .yielded
-                    list[i].note = "away mode turned off"
-                }
-            }
+            // The monitor stops a running task at once: it is no longer away.
+            queue.async { tick() }
             return was ? "away: off · nothing new starts; questions open the little window again" : "away: off"
         case "status": return status()
         case "wait": return try wait(a)
@@ -446,29 +462,29 @@ enum Away {
     private static func cancel(_ a: Args) throws -> String {
         guard let id = a.pos.dropFirst().first ?? a.pos.first, let task = find(id) else { throw Fail(5, "away cancel <id>") }
         update { list in list.removeAll { $0.id == task.id } }
+        queue.sync { if runningTask == task.id { runningProc?.interrupt() } }
+        pruneJournal()
         return "away cancel: \(task.id) · \(task.target) dropped"
     }
 
     private static func runNow(_ a: Args) throws -> String {
         guard let id = a.pos.dropFirst().first, let task = find(id) else { throw Fail(5, "away run <id>") }
-        guard task.state == .queued || task.state == .yielded || task.state == .needsYou else {
-            throw Fail(5, "away run: \(task.id) is \(task.state.label)")
+        try queue.sync {
+            if let other = runningTask { throw Fail(5, "away run: \(other) is running; one away task at a time") }
+            guard let claimed = claim(task.id, from: [.queued, .yielded, .needsYou]) else {
+                throw Fail(5, "away run: \(task.id) is \(find(task.id)?.state.label ?? "gone")")
+            }
+            start(claimed)
         }
-        update { list in
-            if let i = list.firstIndex(where: { $0.id == task.id }) { list[i].state = .queued }
-        }
-        start(task)
         return "away run: \(task.id) started"
     }
 
     /// Blocks until the user is away, then returns: an agent can wait out a visit and carry on.
     private static func wait(_ a: Args) throws -> String {
-        let timeout = a.value("timeout").flatMap(Double.init) ?? 3600
+        // Under the socket's 25 min read timeout (`Wire.sendLocal`): call it again to keep waiting.
+        let timeout = min(a.value("timeout").flatMap(Double.init) ?? 1200, 1440)
         let deadline = Date().addingTimeInterval(timeout)
-        let wasMode = mode
-        if !wasMode { setMode(true) }
-        defer { if !wasMode { setMode(false) } }
-        while !isAway() {
+        while !absent() {
             if Date() > deadline {
                 throw Fail(5, "away wait: you are still here after \(Int(timeout)) s")
             }

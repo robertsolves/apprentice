@@ -343,9 +343,7 @@ enum Commands {
         // Away mode means work runs only while nobody is here. An acting command started with the person at
         // the Mac yields at once (exit 10) instead of waiting thirty seconds for them to go still, so an
         // agent pauses instead of fighting them for the mouse (AWAY.md).
-        if Away.mode, Away.acting.contains(req.cmd), Away.userPresent() {
-            throw Fail(10, Away.yieldMessage)
-        }
+        try Away.yieldIfPresent(req.cmd)
         Borrow.interrupted = false
         charged = nil
         notice = nil
@@ -376,7 +374,7 @@ enum Commands {
 
     /// Commands that wait on the person or only read files. They run off the command queue
     /// (`Daemon.queue(for:)`), touch no per-command state, and hop onto the queue for anything on screen.
-    static let asides: Set<String> = ["ask", "confirm", "show", "log", "pending", "away"]
+    static let asides: Set<String> = ["ask", "confirm", "show", "log", "pending", "away", "pref"]
 
     /// Commands that only look at the screen: they take in a page changed by someone else, where an
     /// action is refused until the caller has read it.
@@ -385,7 +383,8 @@ enum Commands {
     static func aside(_ req: Request) throws -> String {
         let a = Args.parse(req.args)
         switch req.cmd {
-        case "ask": return try Ask.run(a)
+        case "ask": return a.has("optional") ? try OptionalAsk.ask(a) : try Ask.run(a)
+        case "pref": return try Voice.pref(a)
         case "confirm": return try Ask.confirm(a)
         case "show": return try Ask.pointAt(a)
         case "log": return try log(a)
@@ -422,6 +421,8 @@ enum Commands {
         case "choose": return try choose(a)
         case "do": return try runFlow(a)
         case "awake": return try Awake.run(a)
+        case "typing": return try Typing.command(a)
+        case "voice": return try Voice.command(a)
         case "away": return try Away.command(a)
         case "schedule": return try Schedules.command(a)
         case "login": return try Login.command(a)
@@ -475,6 +476,8 @@ enum Commands {
                 + o.bools.sorted().map { "--\($0)" }
         }
         Store.log(["gate": p.summary, "approved": true, "edited": edited != nil, "token": token])
+        // An approval reaches the step without `run`, so it yields here too; the proposal stays pending.
+        try Away.yieldIfPresent(p.cmd)
         Approvals.granted = p
         defer { Approvals.granted = nil }
         return try dispatch(Request(cmd: p.cmd, args: p.args))
@@ -510,6 +513,7 @@ enum Commands {
         let hints = Routes.hintLines(for: hostOf(s.url)) + Policies.lines(for: hostOf(s.url))
         if !hints.isEmpty { out += "\n" + hints.joined(separator: "\n") }
         out += "\n" + Config.policyLine
+        if let voice = Voice.sessionLine { out += "\n" + voice }
         if Awake.enabled { out += "\n" + Awake.status }
         if let update = Repo.updateLine() { out += "\n" + update }
         out += playbookLines(s)
@@ -583,7 +587,9 @@ enum Commands {
         try refuseOwnWindow(running)
         enableWebAccessibility(appElement(running.processIdentifier), pid: running.processIdentifier)
         Pace.sleep(0.3)
+        // Re-resolved by name, so it is checked again: a loose name match must not land on the app.
         let app = runningApp(named: name) ?? running
+        try refuseOwnWindow(app)
         var picked = pickWindow(appElement(app.processIdentifier))
         if picked == nil {
             // A fresh daemon may see the app's windows half-described until it is active.
@@ -874,10 +880,11 @@ enum Commands {
         let (node, rect) = focused ? (el, e.rect) : liveRect(el, e, target)
         // An away task's step is a unit: what it changes and how to undo it, so a return mid-unit can put
         // the field back instead of guessing.
-        if let recorder = Away.recording {
+        // Never the text itself, and nothing for a scrubbed app.
+        if let recorder = Away.recording, !Privacy.blocked(session, url: target.url) {
             Away.journal(Away.Unit(task: recorder, step: "type into \(e.short)", host: hostOf(target.url),
-                                   window: Int(session.wid), label: e.short, typed: text, inverse: "clear",
-                                   at: Date().timeIntervalSince1970))
+                                   window: Int(session.wid), label: e.short, chars: text.count,
+                                   digest: Away.Unit.digest(text), inverse: "clear", at: Date().timeIntervalSince1970))
         }
         var note: String?
         try Borrow.run(target) {

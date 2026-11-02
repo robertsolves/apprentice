@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 
 /// `selftest`: checks of the pure parts, built into the binary so kit.sh can run the exact build it is
@@ -145,10 +146,70 @@ enum SelfTest {
         let long = (0..<200).map { _ in Mouse.duration(2, base) }
         check(long.allSatisfy { $0 > base.moveMax && $0 <= base.moveMax * 2.5 } && Set(long).count > 150 && Mouse.duration(0.001, base) == base.moveMin,
               "long moves pass the cap without piling up on it; short ones keep the floor")
-        let wild = Hand(speed: 9, side: -1, hold: .nan, holdSigma: 0, rhythm: 1, rollover: 2, click: 1).bounded
-        check(wild.speed <= 1.4 && wild.side >= 0.2 && wild.hold >= 0.05 && wild.rollover <= 0.6 && wild.click <= 0.16, "a hand from a bad file is bounded")
-        check((0..<500).allSatisfy { _ in (0.035...0.25).contains(Pace.keyHold("a")) && (0.035...0.9).contains(Pace.keyGap(after: "a", before: "k")) },
+        let wild = Hand(speed: 9, side: -1, hold: .nan, holdSigma: 0, rhythm: 1, click: 1).bounded
+        check(wild.speed <= 1.4 && wild.side >= 0.2 && wild.hold >= 0.05 && wild.click <= 0.16, "a hand from a bad file is bounded")
+        check((0..<500).allSatisfy { _ in (0.035...0.25).contains(Pace.keyHold("a")) && (0.03...1.2).contains(Typing.interval("a", 0, "k", 40)) },
               "key holds and gaps stay in range")
+        func median(_ a: Character, _ ca: CGKeyCode, _ b: Character, _ cb: CGKeyCode) -> Double {
+            let s = (0..<301).map { _ in Typing.interval(a, ca, b, cb) }.sorted()
+            return s[150]
+        }
+        // "ed" is one finger, "th" two hands: by the board alone the first is slower, and each pair keeps its lean.
+        check(Typing.kind(14, 2) == .finger && Typing.kind(17, 4) == .other && Typing.kind(0, 49) == .toSpace
+              && median("e", 14, "d", 2) > median("t", 17, "h", 4) * 1.2
+              && Typing.lean("th", 0.14) == Typing.lean("th", 0.14) && Typing.lean("th", 0.14) != Typing.lean("ht", 0.14),
+              "gaps follow the board: one finger slower than two hands, and each pair keeps its own lean")
+        var recorded = Typing.Profile(recorded: Date())
+        // The person types "th" at 60 ms and "ed" at 300 ms: the recording wins over the board.
+        var presses: [Typing.Press] = []
+        var t = 0.0
+        for _ in 0..<12 {
+            for (code, ch, gap) in [(CGKeyCode(17), Character("t"), 0.2), (4, "h", 0.06), (14, "e", 0.15), (2, "d", 0.3), (49, " ", 0.12)] as [(CGKeyCode, Character, Double)] {
+                t += gap
+                presses.append(Typing.Press(code: code, char: ch, down: t, up: t + 0.09, edit: false))
+            }
+        }
+        presses[5].edit = true
+        Typing.add(presses, to: &recorded)
+        Store.save(recorded, Typing.file)
+        Typing.reload()
+        check(abs(median("t", 17, "h", 4) - 0.06) < 0.02 && abs(median("e", 14, "d", 2) - 0.3) < 0.08
+              && recorded.pairs["th"]?.count == 11 && recorded.holds["t"]?.first == 90,
+              "a recording sets each pair's own rhythm and hold; a pair beside a correction is left out")
+        Store.remove(Typing.file)
+        Typing.reload()
+        // "teh" noticed 250 ms late and taken back two keys, then a whole word deleted on purpose (not a slip).
+        var slipped = Typing.Profile(recorded: Date())
+        let keys: [(CGKeyCode, Character?, Double)] = [(17, "t", 0), (14, "e", 0.1), (4, "h", 0.2), (51, nil, 0.45), (51, nil, 0.55),
+                                                         (4, "h", 0.7), (14, "e", 0.8)] + (0..<6).map { (51, nil, 1.5 + Double($0) * 0.1) }
+        Typing.add(keys.map { Typing.Press(code: $0.0, char: $0.1, down: $0.2, up: $0.2 + 0.08, edit: $0.1 == nil) }, to: &slipped)
+        check(slipped.corrections == 1 && slipped.runs == [2] && slipped.notice == [250],
+              "a slip is learned with its length and how late it was noticed; deleting a word is not a slip")
+        var voice = Voice.template.replacingOccurrences(of: "(Optional. Tone, phrases I use, what I never say, anything per site.)", with: "I write like me.")
+        voice = Voice.setting(voice, "tone", "Professional", assumed: false, scope: "linkedin.com")
+        voice = Voice.setting(voice, "emoji", "Never", assumed: false)
+        voice = Voice.setting(voice, "tone", "Warm and casual", assumed: false, scope: "x.com")
+        voice = Voice.setting(voice, "tone", "Warm and casual", assumed: false, scope: "reddit.com")
+        voice = Voice.setting(voice, "tone", "Match the thread", assumed: true, scope: "bsky.app")
+        voice = Voice.setting(voice, "tone", "Short and to the point", assumed: false, scope: "x.com")
+        check(voice.contains("I write like me.") && Voice.answers(voice, "x.com")["tone"]?.value == "Short and to the point"
+              && Voice.resolve(voice, "tone", scope: "linkedin.com").map { $0.value == "Professional" && $0.source == .here } == true
+              && Voice.resolve(voice, "emoji", scope: "x.com")?.source == .everywhere
+              && Voice.resolve(voice, "tone", scope: "threads.net").map { $0.source != .here && $0.source != .guess } == true
+              && Voice.resolve(voice, "tone", scope: "bsky.app").map { $0.source != .here && $0.assumedHere } == true
+              && Voice.resolve(voice, "length", scope: "x.com") == nil,
+              "a preference: the site's own answer, else everywhere, else other sites; an assumed one never wins over a real one")
+        try? "# work voice\n".write(to: Voice.url, atomically: true, encoding: .utf8)
+        Tour.save(Tour.Setup(name: "work", values: ["agent.ui_only": "true"]))
+        try? "# home voice\n".write(to: Voice.url, atomically: true, encoding: .utf8)
+        Tour.save(Tour.Setup(name: "home", values: ["agent.ui_only": "false"]))
+        _ = try? Tour.use("work")
+        let workConfig = (try? String(contentsOf: Config.path, encoding: .utf8)) ?? ""
+        let workVoice = Voice.read() ?? ""
+        _ = try? Tour.use("home")
+        check(workConfig.contains("ui_only = true") && workVoice == "# work voice\n" && Voice.read() == "# home voice\n"
+              && Tour.active == "home" && (try? Tour.validName("../x")) == nil,
+              "named setups: each keeps its settings and voice, and pulling one up puts both in place")
         check(Keys.tag != 0x646B_6374 && Keys.tag > 0, "the event tag is drawn, not the old constant")
         check(Mouse.Speed.allCases.allSatisfy { abs(Mouse.progress($0, 1, skew: 0.8) - 1) < 1e-9 && abs(Mouse.progress($0, 0, skew: 0.8)) < 1e-9 },
               "every speed profile starts at the start and ends on the target")
@@ -194,6 +255,8 @@ enum SelfTest {
             check(!vm(cmd), "\(cmd) stays on this Mac")
         }
         check(VM.isBrowser("Safari") && VM.isBrowser("Brave Browser.app") && !VM.isBrowser("Finder"), "browser names")
+        check(isBlankTab("chrome://newtab/") && isBlankTab("chrome://new-tab-page/") && isBlankTab(nil) && isBlankTab("about:blank")
+              && !isBlankTab("https://example.com/newtab") && !isBlankTab("https://example.com/"), "blank browser tabs")
     }
 
     private static func notify() {
@@ -553,6 +616,26 @@ enum SelfTest {
         }
         check(seen("www.example.com", "linux") == ["linux", "site"], "the VM sees its own playbooks and the site's, not the Mac's")
         check(seen("badexample.com", "macos") == ["mac"], "a look-alike host gets no site playbook, and flows never show")
+
+        // Skills sit beside the playbooks in the repo: skills/<name>/SKILL.md, matched by `metadata: hosts:` or `system:`.
+        let clone = Store.dir.appendingPathComponent("skills-test")
+        defer { try? FileManager.default.removeItem(at: clone) }
+        func skill(_ name: String, _ meta: String) {
+            let folder = clone.appendingPathComponent("skills/\(name)")
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try? "---\nname: \(name)\n\(meta)\n---\n# \(name)\nbody of \(name)\n".write(to: folder.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        }
+        try? FileManager.default.createDirectory(at: clone.appendingPathComponent("playbooks"), withIntermediateDirectories: true)
+        skill("apprentice-web", "metadata:\n  hosts: \"*\"")
+        skill("apprentice-site", "metadata:\n  hosts: example.com, example.org")
+        skill("apprentice-macos", "metadata:\n  system: macos")
+        setenv("APPRENTICE_PLAYBOOKS", clone.appendingPathComponent("playbooks").path, 1)
+        func guides(_ host: String?, _ system: String) -> [String] { Playbooks.skills(host: host, system: system).map(\.name) }
+        check(guides("www.example.com", "linux") == ["apprentice-web", "apprentice-site"], "a page gets the web skill, then the site's")
+        check(guides("badexample.com", "macos") == ["apprentice-web"], "a look-alike host gets no site skill")
+        check(guides(nil, "macos") == ["apprentice-macos"] && guides(nil, "linux").isEmpty, "an app gets its system's skill")
+        check(Playbooks.search("apprentice-site").contains("body of apprentice-site"), "playbooks <skill name> prints the skill")
+        check(Playbooks.hintLines(app: "Chromium", bundle: nil, host: "example.org").first?.hasPrefix("skills · apprentice-web, apprentice-site") == true, "session names the skills")
     }
 
     /// What makes the next run faster: flows ranked per model, `do --explain`, the scrubbed session copy,
@@ -616,26 +699,6 @@ enum SelfTest {
     private static func schedules() {
         let cal = Calendar.current
         let now = Date()
-
-        // Skills sit beside the playbooks in the repo: skills/<name>/SKILL.md, matched by `metadata: hosts:` or `system:`.
-        let clone = Store.dir.appendingPathComponent("skills-test")
-        defer { try? FileManager.default.removeItem(at: clone) }
-        func skill(_ name: String, _ meta: String) {
-            let folder = clone.appendingPathComponent("skills/\(name)")
-            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-            try? "---\nname: \(name)\n\(meta)\n---\n# \(name)\nbody of \(name)\n".write(to: folder.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
-        }
-        try? FileManager.default.createDirectory(at: clone.appendingPathComponent("playbooks"), withIntermediateDirectories: true)
-        skill("apprentice-web", "metadata:\n  hosts: \"*\"")
-        skill("apprentice-site", "metadata:\n  hosts: example.com, example.org")
-        skill("apprentice-macos", "metadata:\n  system: macos")
-        setenv("APPRENTICE_PLAYBOOKS", clone.appendingPathComponent("playbooks").path, 1)
-        func guides(_ host: String?, _ system: String) -> [String] { Playbooks.skills(host: host, system: system).map(\.name) }
-        check(guides("www.example.com", "linux") == ["apprentice-web", "apprentice-site"], "a page gets the web skill, then the site's")
-        check(guides("badexample.com", "macos") == ["apprentice-web"], "a look-alike host gets no site skill")
-        check(guides(nil, "macos") == ["apprentice-macos"] && guides(nil, "linux").isEmpty, "an app gets its system's skill")
-        check(Playbooks.search("apprentice-site").contains("body of apprentice-site"), "playbooks <skill name> prints the skill")
-        check(Playbooks.hintLines(app: "Chromium", bundle: nil, host: "example.org").first?.hasPrefix("skills · apprentice-web, apprentice-site") == true, "session names the skills")
         var s = Schedules.Schedule(id: "t", name: "t", kind: .run, target: "true")
         s.created = now
         s.every = 60
@@ -663,6 +726,44 @@ enum SelfTest {
         } else {
             check(false, "a weekly schedule has a next time")
         }
+        var badWeekly = weekly
+        badWeekly.weekly = "mon,funday 09:00"
+        check(Schedules.baseNext(badWeekly, after: now) == nil, "a weekly schedule with a day that is not one never stands")
+        check(Schedules.nextCron("0 9 * * mon", after: now).map { cal.component(.weekday, from: $0) == 2 } == true,
+              "cron takes day names")
+        check(Schedules.nextCron("0 0 29 2 *", after: now) != nil, "a cron line for 29 February finds a leap year")
+        // Both day fields restricted only when neither starts with `*`: `*/2` with a weekday is AND.
+        if let next = Schedules.nextCron("0 9 */2 * 1", after: now) {
+            let c = cal.dateComponents([.day, .weekday], from: next)
+            check(c.weekday == 2 && (c.day ?? 0) % 2 == 1, "a stepped day field still counts as unrestricted")
+        } else {
+            check(false, "a stepped cron line has a next time")
+        }
+        // A once schedule that fired early (jitter) is done; a daily one never reuses the base it fired on.
+        var once = daily
+        once.daily = nil
+        once.at = now.addingTimeInterval(600)
+        once.jitter = 0
+        Schedules.update { $0.removeAll { $0.id == "selftest-once" || $0.id == "selftest-daily" } }
+        once.id = "selftest-once"
+        Schedules.update { $0.append(once) }
+        Schedules.advance(once, now: now)
+        check(Schedules.find("selftest-once")?.enabled == false, "a once schedule is off after it fires, even early")
+        var early = daily
+        early.id = "selftest-daily"
+        early.jitter = 0
+        let base = Schedules.baseNext(early, after: now)!
+        early.base = base
+        Schedules.update { $0.append(early) }
+        Schedules.advance(early, now: base.addingTimeInterval(-600))
+        check((Schedules.find("selftest-daily")?.base ?? base) > base.addingTimeInterval(3600),
+              "a daily run fired early draws its next from the day after")
+        Schedules.update { $0.removeAll { $0.id == "selftest-once" || $0.id == "selftest-daily" } }
+        var tight = s
+        tight.every = 10
+        tight.jitter = 30
+        let draws = (0..<50).compactMap { _ in Schedules.fireTime(tight, after: now)?.at }
+        check(draws.allSatisfy { $0 > now }, "jitter never puts the next run in the past")
         var cron = weekly
         cron.weekly = nil
         cron.cron = "30 8 * * *"
@@ -719,8 +820,26 @@ enum SelfTest {
         Away.add(task)
         check(Away.find("t1")?.target == "true", "an away task is queued and found")
         Away.journal(Away.Unit(task: "t1", step: "type into Message", host: "example.com", window: 7,
-                               label: "Message", typed: "hello", inverse: "clear", at: 0))
+                               label: "Message", chars: 5, digest: Away.Unit.digest("hello"), inverse: "clear",
+                               at: Date().timeIntervalSince1970))
         check(Away.leftover(task)?.contains("5 characters") == true, "the journal says what was left half-done")
+        check((try? String(contentsOf: Away.journalPath, encoding: .utf8))?.contains("hello") == false,
+              "the journal never holds the typed text")
+        check(Away.claim("t1", from: [.queued])?.state == .running && Away.claim("t1", from: [.queued]) == nil,
+              "an away task is claimed once, so two starts never launch it twice")
+        let pmset = """
+        Assertion status system-wide:
+           PreventUserIdleDisplaySleep    1
+           SoftwareUpdateTask             0
+        Listed by owning process:
+           pid 412(zoom.us): [0x0001] 00:12:03 PreventUserIdleDisplaySleep named: "call"
+           pid 79(caffeinate): [0x0002] 00:00:10 PreventUserIdleSystemSleep named: "caffeinate"
+           pid 90(apprentice): [0x0003] 00:00:10 PreventUserIdleDisplaySleep named: "awake"
+        \tDetails: something
+        """
+        check(Away.displayHolders(pmset) == ["zoom.us"], "only a process holding the display awake counts, never the summary table")
+        check(Away.displayHolders("   PreventUserIdleDisplaySleep    0\nListed by owning process:\n").isEmpty,
+              "nothing holds the display when no process line says so")
         Away.update { $0.removeAll() }
         try? FileManager.default.removeItem(at: Away.journalPath)
         Away.setMode(false)
@@ -780,6 +899,17 @@ enum SelfTest {
         check(Toml.set(file, "app", "font", "\"Menlo\""), "a missing section is added")
         check(Toml.load(file)["app"]?["font"].map(Toml.unquote) == "Menlo", "the new section reads back")
         check(Toml.remove(file, "agent", "menu_bar") && Toml.load(file)["agent"]?["menu_bar"] == nil, "a key can be removed")
+        check(Toml.set(file, "pace.x.com", "actions_per_min", "6") && Toml.set(file, "pace.\"x.com\"", "actions_per_day", "40"),
+              "a quoted section is found by either spelling")
+        let quoted = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
+        check(quoted.components(separatedBy: "[pace.").count == 2 && Toml.load(file)["pace.x.com"]?["actions_per_min"] == "6",
+              "editing a quoted section never adds a second copy of it")
+        let multi = ["[a]", "list = [", "  [1, 2],", "]", "x = 1", "[b]"]
+        check(Toml.bounds(multi, "a").map { $0 == (1, 5) } == true, "a multi-line array does not end its section")
+        check(Toml.problems("[agent]\nask_sound = \"Ping\"\nlist = [\n  1,\n]\n").isEmpty, "valid TOML has no problems")
+        check(!Toml.problems("[agent]\nask_sound = \"Ping\n").isEmpty, "an unclosed string is a problem")
+        check(!Toml.problems("[agent\n").isEmpty && !Toml.problems("just words\n").isEmpty && !Toml.problems("a = [1,\n").isEmpty,
+              "a broken header, a bare line and an open array are problems")
     }
 
     /// The automatic update against throwaway git repos: a clean update, a dirty tree, a conflict and a

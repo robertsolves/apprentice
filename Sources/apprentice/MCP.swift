@@ -55,8 +55,13 @@ enum MCP {
         tool("budget", "What is left of today's and this hour's action caps per site and kind", ["domain": ["type": "string"]]),
         tool("choose", "In an open or save dialog, go to a path: picks a file or fills in a new name", ["path": ["type": "string"]], ["path"]),
         tool("do", "Run a flow from playbooks/flows with one approval. vars: {\"name\": \"value\"} fills {name}", ["flow": ["type": "string"], "vars": ["type": "object"]], ["flow"]),
-        tool("ask", "When stuck or deciding, show the user a little window: free text, or choices (multi for checkboxes, text to add a reply field). Returns their reply",
-             ["question": ["type": "string"], "choices": ["type": "array", "items": ["type": "string"]], "multi": ["type": "boolean"], "text": ["type": "boolean"]], ["question"]),
+        tool("ask", "When stuck or deciding, show the user a little window: free text, or choices (multi for checkboxes, text to add a reply field). Returns their reply. optional: a question they may leave (choices only); after a minute it returns 'carry on assuming <assume>'. Prefer choices, and optional for preferences",
+             ["question": ["type": "string"], "choices": ["type": "array", "items": ["type": "string"]], "multi": ["type": "boolean"], "text": ["type": "boolean"],
+              "optional": ["type": "boolean"], "assume": ["type": "string"]], ["question"]),
+        tool("pref", "The user's preference for a key here (this site or app unless `for` names one): theirs for it, else what they chose elsewhere, then an optional question with choices; returns the answer or the assumption to carry on with. Saved per site for next time",
+             ["key": ["type": "string"], "for": ["type": "string"], "choices": ["type": "array", "items": ["type": "string"]], "multi": ["type": "boolean"],
+              "assume": ["type": "string"], "question": ["type": "string"]], ["key"]),
+        tool("voice", "How the user wants posts, comments, replies and messages written, and their answers per site. Read it before writing to people for them; not for code or docs", [:]),
         tool("confirm", "Show the user a pending step with Approve and Deny; runs it if they approve. Use for ⚠ steps", ["token": ["type": "string"], "why": ["type": "string"]], ["token"]),
         tool("approve", "Run a proposed action. Optional text replaces the text of a proposed type", ["token": ["type": "string"], "text": ["type": "string"]], ["token"]),
         tool("deny", "Drop a proposed action", ["token": ["type": "string"]], ["token"]),
@@ -234,7 +239,19 @@ enum MCP {
             if let choices = args["choices"] as? [String], !choices.isEmpty { a += ["--choices", choices.joined(separator: "|")] }
             if b("multi") { a.append("--multi") }
             if b("text") { a.append("--text") }
+            if b("optional") { a.append("--optional") }
+            if let assume = s("assume") { a += ["--assume", assume] }
             return Request(cmd: "ask", args: a)
+        case "pref":
+            var a = [s("key") ?? ""]
+            if let scope = s("for") { a += ["--for", scope] }
+            if let choices = args["choices"] as? [String], !choices.isEmpty { a += ["--choices", choices.joined(separator: "|")] }
+            if b("multi") { a.append("--multi") }
+            if let assume = s("assume") { a += ["--assume", assume] }
+            if let question = s("question") { a += ["--question", question] }
+            return Request(cmd: "pref", args: a)
+        case "voice":
+            return Request(cmd: "voice")
         case "confirm":
             var a = [s("token") ?? ""]
             if let why = s("why") { a += ["--why", why] }
