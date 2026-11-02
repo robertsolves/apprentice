@@ -357,7 +357,7 @@ enum Commands {
         // Away mode means work runs only while nobody is here. An acting command started with the person at
         // the Mac yields at once (exit 10) instead of waiting thirty seconds for them to go still, so an
         // agent pauses instead of fighting them for the mouse.
-        try Away.yieldIfPresent(req.cmd)
+        try Away.yieldIfPresent(req.cmd, hasArgs: !req.args.isEmpty)
         Borrow.interrupted = false
         charged = nil
         notice = nil
@@ -917,6 +917,7 @@ enum Commands {
             }
             Pace.sleep(0.1)
         }
+        Login.typed(secret, url: target.url)
         return try finish("type", session, target, old, extra: note.map { [$0] } ?? [],
                       log: ["id": id, "chars": secret == nil ? text.count : 0, "label": e.label, "name": e.name, "secret": secret ?? ""])
     }
@@ -1068,9 +1069,9 @@ enum Commands {
 
     /// `x,y` in screen points, as `click --at`, `scroll --at` and `drag --at` take it (and `--by`'s offset).
     static func screenPoint(_ raw: String, _ usage: String) throws -> CGPoint {
-        let parts = raw.split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
-        guard parts.count == 2, parts.allSatisfy(\.isFinite) else { throw Fail(5, usage) }
-        return CGPoint(x: parts[0], y: parts[1])
+        let parts = raw.split(separator: ",", omittingEmptySubsequences: false).map { Double($0.trimmingCharacters(in: .whitespaces)) }
+        guard parts.count == 2, let x = parts[0], let y = parts[1], x.isFinite, y.isFinite else { throw Fail(5, usage) }
+        return CGPoint(x: x, y: y)
     }
 
     static func clickVerb(right: Bool, double: Bool) -> String {

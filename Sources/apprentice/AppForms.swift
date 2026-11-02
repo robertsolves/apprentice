@@ -81,8 +81,12 @@ struct Setting: Identifiable {
     func literal(_ shown: String) -> String {
         switch kind {
         case .toggle: return shown == "true" ? "true" : "false"
-        case .number: return String(Int(shown) ?? Int(Toml.unquote(fallback)) ?? 0)
-        case .choice, .text, .font: return "\"" + shown.replacingOccurrences(of: "\"", with: "\\\"") + "\""
+        case .number(let range):
+            // Never a value the config would throw away.
+            let n = Int(shown) ?? Int(Toml.unquote(fallback)) ?? 0
+            return String(min(max(n, range.lowerBound), range.upperBound))
+        case .choice, .text, .font:
+            return "\"" + shown.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
         }
     }
 }

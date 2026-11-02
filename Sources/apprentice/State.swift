@@ -73,7 +73,7 @@ enum Store {
     /// The same lock for a file outside the state folder, such as a project's.
     static func locked<T>(at file: URL, _ body: () throws -> T) rethrows -> T {
         let fd = open(file.path + ".lock", O_CREAT | O_RDWR, 0o600)
-        if fd >= 0 { flock(fd, LOCK_EX) }
+        if fd >= 0 { flock(fd, LOCK_EX) } else { Store.log(["lock": file.path, "failed": errno]) }
         defer { if fd >= 0 { flock(fd, LOCK_UN); close(fd) } }
         return try body()
     }
@@ -129,10 +129,11 @@ enum Store {
     static func appendLine(_ row: [String: Any], to file: URL) {
         guard var line = try? JSONSerialization.data(withJSONObject: row, options: [.sortedKeys]) else { return }
         line.append(0x0A)
-        if let h = try? FileHandle(forWritingTo: file) {
-            h.seekToEndOfFile()
-            h.write(line)
-            try? h.close()
+        // O_APPEND puts each row at the current end atomically, so daemons sharing the file never overwrite each other.
+        let fd = open(file.path, O_WRONLY | O_APPEND)
+        if fd >= 0 {
+            line.withUnsafeBytes { _ = write(fd, $0.baseAddress, $0.count) }
+            close(fd)
         } else {
             // First row of the day, or the folder was removed while the daemon ran.
             try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -271,8 +272,8 @@ enum Timing {
     static var fields: [String: Any] {
         guard let started else { return [:] }
         var f: [String: Any] = ["ms": Int(Date().timeIntervalSince(started) * 1000)]
-        if !waits.isEmpty { f["waits"] = waits.mapValues { Int($0 * 1000) } }
         f["pace"] = "\(Config.activeProfile) \(Config.current.pace.mode)"
+        if !waits.isEmpty { f["waits"] = waits.mapValues { Int($0 * 1000) } }
         return f
     }
 }

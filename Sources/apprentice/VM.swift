@@ -23,10 +23,17 @@ enum VM {
     /// `[vm]` sets the defaults; a named VM (`APPRENTICE_VM=linkedin`) reads `[vm.linkedin]` over them. Its
     /// place (`name`, `host`, `port`) is its own, never inherited, so a second VM is never the first one.
     static var settings: [String: String] {
-        let all = Toml.load(Config.path)
+        // The copy `uninstall --keep-vms` left in `vm/` answers for a config.toml that was removed.
+        let all = tables
         guard let vm = Store.vmName else { return all["vm"] ?? [:] }
         let base = (all["vm"] ?? [:]).filter { !["name", "host", "port"].contains($0.key) }
         return base.merging(all["vm.\(vm)"] ?? [:]) { $1 }
+    }
+    /// config.toml's tables over the copy `uninstall --keep-vms` left beside the ssh key.
+    static var tables: [String: [String: String]] {
+        var all = Toml.load(shared.appendingPathComponent("config.toml"))
+        for (section, keys) in Toml.load(Config.path) { all[section] = keys }
+        return all
     }
     static func setting(_ key: String, _ fallback: String) -> String { settings[key].map(Toml.unquote) ?? fallback }
     static var name: String { setting("name", Store.vmName.map { "apprentice-\($0)" } ?? "apprentice-browser") }
@@ -98,16 +105,28 @@ enum VM {
     /// cloud never exposes its screen to the network.
     static func openViewer() throws {
         let ip = try address()
-        // A port of its own per VM, so a tunnel left from one VM never shows another.
-        let port = 5959 + Int(name.utf8.reduce(0) { ($0 &* 31 &+ UInt32($1)) % 1000 } % 40)
-        // A tunnel from an earlier `look` may still be up; then the port is taken and this one exits.
-        let tunnel = run("/usr/bin/ssh", ["-f", "-N", "-o", "ExitOnForwardFailure=yes", "-L", "127.0.0.1:\(port):127.0.0.1:5900"]
-            + sshArgs(ip, shared: false))
-        if tunnel.code != 0 {
-            // Usually the tunnel from an earlier look, still holding the port; anything else is told.
-            let listening = run("/usr/bin/nc", ["-z", "-w", "2", "127.0.0.1", "\(port)"]).code == 0
-            guard listening else { throw Fail(5, "could not open the ssh tunnel to the VM on port \(port): \(tunnel.err)") }
+        // A port of its own per VM, so a tunnel left from one VM never shows another. Names that hash to the
+        // same port take the next free one; a busy port counts as this VM's tunnel only when this VM opened it.
+        let first = Int(name.utf8.reduce(0) { ($0 &* 31 &+ UInt32($1)) % 1000 } % 40)
+        let mark = dir.appendingPathComponent("look-port")
+        let mine = (try? String(contentsOf: mark, encoding: .utf8)).flatMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+        func listening(_ port: Int) -> Bool { run("/usr/bin/nc", ["-z", "-w", "2", "127.0.0.1", "\(port)"]).code == 0 }
+        var chosen: Int?
+        var lastError = ""
+        if let mine, listening(mine) { chosen = mine }
+        for step in 0..<40 where chosen == nil {
+            let port = 5959 + (first + step) % 40
+            let tunnel = run("/usr/bin/ssh", ["-f", "-N", "-o", "ExitOnForwardFailure=yes", "-L", "127.0.0.1:\(port):127.0.0.1:5900"]
+                + sshArgs(ip, shared: false))
+            if tunnel.code == 0 {
+                chosen = port
+                try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                try? "\(port)".write(to: mark, atomically: true, encoding: .utf8)
+            } else {
+                lastError = tunnel.err
+            }
         }
+        guard let port = chosen else { throw Fail(5, "could not open the ssh tunnel to the VM: \(lastError)") }
         let pass = password.addingPercentEncoding(withAllowedCharacters: .urlPasswordAllowed) ?? ""
         guard let url = URL(string: "vnc://:\(pass)@127.0.0.1:\(port)") else { throw Fail(5, "bad VM address \(ip)") }
         NSWorkspace.shared.open(url)
@@ -293,7 +312,7 @@ enum VM {
 
     /// The Tart VMs named apprentice-…, and `[vm.<name>]` hosts, for the window's VMs screen.
     static func inventory() -> [Machine] {
-        let all = Toml.load(Config.path)
+        let all = tables
         var out: [String: Machine] = [:]
         for vm in tartList() where (vm["Source"] as? String) == "local" {
             guard let n = vm["Name"] as? String, n.hasPrefix("apprentice-") else { continue }
@@ -311,7 +330,7 @@ enum VM {
 
     /// Whether a named VM is set up: a Tart VM `apprentice-<name>`, or a `[vm.<name>]` host.
     static func exists(_ vm: String) -> Bool {
-        if Toml.load(Config.path)["vm.\(vm)"]?["host"] != nil { return true }
+        if tables["vm.\(vm)"]?["host"] != nil { return true }
         return tartList().contains { ($0["Name"] as? String) == "apprentice-\(vm)" }
     }
 
@@ -324,7 +343,7 @@ enum VM {
                 return (n, vm["State"] as? String ?? "?")
             }
         var names = Set(tartVMs.map { $0.0 == "apprentice-browser" ? "" : String($0.0.dropFirst("apprentice-".count)) })
-        let all = Toml.load(Config.path)
+        let all = tables
         for key in all.keys where key.hasPrefix("vm.") { names.insert(String(key.dropFirst(3))) }
         guard !names.isEmpty else { return "no VMs: run `apprentice vm setup`" }
         let states = Dictionary(tartVMs, uniquingKeysWith: { a, _ in a })

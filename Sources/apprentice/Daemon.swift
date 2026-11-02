@@ -76,6 +76,7 @@ enum Daemon {
         // icon is enough: two Dock icons for one tool read as two tools (`DockIcon`).
         app.setActivationPolicy(Config.current.dockIcon && !DockIcon.windowOpen ? .regular : .accessory)
         if Config.current.dockIcon { app.applicationIconImage = Ask.icon; DockIcon.watch() }
+        DockIcon.follow()
 
         // A pid file left behind means the last daemon died without `stop`: say so once, with its last error output.
         if FileManager.default.fileExists(atPath: Store.pidPath) {

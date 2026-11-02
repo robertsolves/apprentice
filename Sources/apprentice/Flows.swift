@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// `do <flow>`: runs a flow from playbooks/flows with one approval, so the LLM only steps in when a step fails.
 /// A step is a line under "## Steps" that starts with a backticked command. `#label "name"` in it is
@@ -138,19 +139,33 @@ extension Commands {
     /// Runs one step in the user's login shell, in their home folder, for at most `[flow] sh_timeout_s` (two minutes by default).
     static func runShell(_ command: String) -> (code: Int32, out: String) {
         let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        proc.arguments = ["-lc", command]
+        // perl puts the shell in a process group of its own, so the timeout can stop whatever it started too.
+        proc.executableURL = URL(fileURLWithPath: "/usr/bin/perl")
+        proc.arguments = ["-e", "setpgrp(0,0); exec @ARGV", "/bin/zsh", "-lc", command]
         proc.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
         proc.standardInput = FileHandle.nullDevice
         let pipe = Pipe()
         proc.standardOutput = pipe
         proc.standardError = pipe
-        do { try proc.run() } catch { return (127, "\(error)") }
-        let timer = DispatchWorkItem { if proc.isRunning { proc.terminate() } }
-        DispatchQueue.global().asyncAfter(deadline: .now() + Config.current.flowShellSeconds, execute: timer)
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        proc.waitUntilExit()
-        timer.cancel()
+        // Read as it arrives and wait on the shell itself: a child that keeps the pipe open cannot hold this up.
+        let collected = OSAllocatedUnfairLock(initialState: Data())
+        pipe.fileHandleForReading.readabilityHandler = { h in
+            let chunk = h.availableData
+            if !chunk.isEmpty { collected.withLock { $0.append(chunk) } }
+        }
+        let exited = DispatchSemaphore(value: 0)
+        proc.terminationHandler = { _ in exited.signal() }
+        do { try proc.run() } catch {
+            pipe.fileHandleForReading.readabilityHandler = nil
+            return (127, "\(error)")
+        }
+        if exited.wait(timeout: .now() + Config.current.flowShellSeconds) == .timedOut {
+            kill(-proc.processIdentifier, SIGTERM)
+            if exited.wait(timeout: .now() + 2) == .timedOut { kill(-proc.processIdentifier, SIGKILL); exited.wait() }
+        }
+        Thread.sleep(forTimeInterval: 0.1)
+        pipe.fileHandleForReading.readabilityHandler = nil
+        let data = collected.withLock { $0 }
         return (proc.terminationStatus, String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
     }
 

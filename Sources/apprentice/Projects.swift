@@ -116,7 +116,8 @@ enum Projects {
         var lines = ["# This folder is an apprentice project. `apprentice project` reads this file.", "[project]",
                      "name = \(quote(name))", "agent = \(quote(agent))"]
         if let vm { lines.append("vm = \(quote(vm))") }
-        try (lines.joined(separator: "\n") + "\n").write(to: settings, atomically: true, encoding: .utf8)
+        // A cloned project keeps the name, agent and VM it was saved with.
+        if !fm.fileExists(atPath: settings.path) { try (lines.joined(separator: "\n") + "\n").write(to: settings, atomically: true, encoding: .utf8) }
         // The counts are this Mac's; everything else in the project travels with it.
         let ignore = folder.appendingPathComponent(".apprentice/.gitignore")
         if !fm.fileExists(atPath: ignore.path) { try "limits.json\nlimits.json.lock\n".write(to: ignore, atomically: true, encoding: .utf8) }
@@ -229,8 +230,8 @@ enum Projects {
         guard let p = info(folder) else { throw Fail(5, "could not read \(folder.path)") }
         remember(p)
         out.append("project \(name) · \(folder.path) · " + (vm.map { "VM \($0)" } ?? "this Mac"))
-        if let vm, !VM.exists(vm) { out.append("the VM \(vm) is not set up yet: apprentice --vm \(vm) vm setup") }
         if let note = AgentCLIs.missingNote(agent) { out.append(note) }
+        if let vm, !VM.exists(vm) { out.append("the VM \(vm) is not set up yet: apprentice --vm \(vm) vm setup") }
         out.append("open it: cd \(VM.shellQuoted(folder.path))" + (vm.map { " && export APPRENTICE_VM=\($0)" } ?? ""))
         return out.joined(separator: "\n")
     }
@@ -244,11 +245,12 @@ enum Projects {
             let r = Repo.run("git", ["init", "-q"], in: dir)
             guard r.code == 0 else { throw Fail(5, "git init failed: \(r.out)") }
         }
-        Repo.run("git", ["add", "-A"], in: dir)
+        // Only this folder, even when it sits inside a bigger repo: its other changes are not ours to commit.
+        Repo.run("git", ["add", "-A", "--", "."], in: dir)
         var out: [String] = []
-        if Repo.run("git", ["diff", "--cached", "--quiet"], in: dir).code != 0 {
+        if Repo.run("git", ["diff", "--cached", "--quiet", "--", "."], in: dir).code != 0 {
             let message = a.value("message") ?? "Save \(p.name) · \(Schedules.stamp(Date()))"
-            let r = Repo.run("git", ["commit", "-q", "-m", message], in: dir)
+            let r = Repo.run("git", ["commit", "-q", "-m", message, "--", "."], in: dir)
             guard r.code == 0 else { throw Fail(5, "commit failed: \(r.out)") }
             out.append("saved \(p.name): \(Repo.run("git", ["rev-parse", "--short", "HEAD"], in: dir).out)")
         } else {

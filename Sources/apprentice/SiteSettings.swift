@@ -264,7 +264,10 @@ enum SiteSettings {
 
     /// A website with no preset starts at the style it runs at already, so it shows in the list.
     static func add(_ raw: String, spec: Spec, _ files: Files = Files()) throws -> String {
-        let site = PaceStyles.key(raw.trimmingCharacters(in: .whitespaces))
+        // `example.com/settings`, as pasted from an address bar, is the site `example.com`.
+        var typed = raw.trimmingCharacters(in: .whitespaces)
+        if !typed.contains("://"), typed.contains(where: { "/#?".contains($0) }) { typed = "https://" + typed }
+        let site = PaceStyles.key(typed)
         guard site.contains("."), !site.contains(" ") else { throw Fail(5, "a website is a name like example.com") }
         if let preset = spec.preset(site) { try apply(preset, spec: spec, files); return site }
         if let style = spec.fields.first(where: { $0.store == "style" }) {

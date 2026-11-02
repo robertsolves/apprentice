@@ -130,9 +130,12 @@ enum Playbooks {
     static var skillsDir: URL { repo.appendingPathComponent("skills") }
 
     static func skills() -> [Skill] {
-        let names = (try? FileManager.default.contentsOfDirectory(atPath: skillsDir.path)) ?? []
+        // Yours over learned over the clone's own, so a copy shadows the skill it came from.
+        let dirs = [Skills.yoursDir, Skills.learnedDir, skillsDir]
+        let names = Set(dirs.flatMap { (try? FileManager.default.contentsOfDirectory(atPath: $0.path)) ?? [] })
         return names.sorted().compactMap { name in
-            let url = skillsDir.appendingPathComponent(name).appendingPathComponent("SKILL.md")
+            guard let url = dirs.map({ $0.appendingPathComponent(name).appendingPathComponent("SKILL.md") })
+                .first(where: { FileManager.default.fileExists(atPath: $0.path) }) else { return nil }
             guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
             return Skill(name: name, url: url, note: parse(text, url: url, path: "skills/\(name)/SKILL.md"))
         }

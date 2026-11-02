@@ -681,6 +681,7 @@ enum Remote {
             }
             Pace.sleep(0.1)
         }
+        Login.typed(secret, url: page.url)
         return try done("type", session, page, old, navigates: enter, extra: note.map { [$0] } ?? [],
                         log: ["id": e.id, "chars": secret == nil ? text.count : 0, "label": e.label, "name": e.name, "secret": secret ?? ""])
     }

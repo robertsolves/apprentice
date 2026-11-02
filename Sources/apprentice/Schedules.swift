@@ -337,7 +337,7 @@ enum Schedules {
             var from = low, to = high
             if range != "*" {
                 let ends = range.split(separator: "-")
-                guard let a = Int(ends[0]), a >= low, a <= high else { return nil }
+                guard let first = ends.first, let a = Int(first), a >= low, a <= high else { return nil }
                 from = a
                 to = ends.count > 1 ? (Int(ends[1]) ?? -1) : (step > 1 ? high : a)
                 guard to >= low, to <= high, to >= from else { return nil }
@@ -742,6 +742,7 @@ enum Schedules {
             guard let raw = a.value("at"), let at = parseDate(raw) ?? ISO8601DateFormatter().date(from: raw) else {
                 throw Fail(6, "schedule add: --at takes 2026-11-05T09:00:00")
             }
+            guard at > Date() else { throw Fail(6, "schedule add: --at \(raw) has already passed") }
             (s.at, s.every, s.daily, s.weekly, s.cron) = (at, nil, nil, nil, nil)
         case "every":
             guard let n = a.value("every").flatMap(Int.init), n >= 1 else { throw Fail(6, "schedule add: --every takes minutes, 1 or more") }
@@ -757,12 +758,13 @@ enum Schedules {
             guard let raw = a.value("cron"), nextCron(raw, after: Date()) != nil else { throw Fail(6, "schedule add: --cron takes five fields, \"0 9 * * mon\"") }
             (s.at, s.every, s.daily, s.weekly, s.cron) = (nil, nil, nil, nil, raw)
         }
-        s.agent = a.value("agent") ?? (kind == .prompt ? AgentCLIs.defaultID : nil)
-        s.jitter = max(0, a.int("jitter", 15))
-        s.site = a.value("site")
-        s.dir = a.value("dir").map { ($0 as NSString).expandingTildeInPath }
-        s.vm = a.value("vm")
-        s.model = a.value("model")
+        s.agent = a.value("agent") ?? (kind == .prompt ? (existing?.agent ?? AgentCLIs.defaultID) : nil)
+        s.jitter = max(0, a.int("jitter", existing?.jitter ?? 15))
+        s.site = a.value("site") ?? existing?.site
+        s.dir = a.value("dir").map { ($0 as NSString).expandingTildeInPath } ?? existing?.dir
+        s.vm = a.value("vm") ?? existing?.vm
+        s.model = a.value("model") ?? existing?.model
+        if kind == .sh, s.vm != nil { throw Fail(6, "schedule add: --vm does not apply to --sh; the command would run on this Mac") }
         s.enabled = true
         if existing == nil { s.created = Date() }
         let first = fireTime(s, after: Date())
@@ -781,9 +783,9 @@ enum Schedules {
             list.append(s)
         }
         var out = "added \(describe(s))"
+        if let id = s.agent, let note = AgentCLIs.missingNote(id) { out += "\n" + note }
         if !agentInstalled {
             out += "\nschedules fire while the daemon runs. `apprentice schedule agent on` starts it at login, so they run without anything else open"
-        if let id = s.agent, let note = AgentCLIs.missingNote(id) { out += "\n" + note }
         }
         return out
     }

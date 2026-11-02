@@ -72,7 +72,8 @@ enum Login {
         guard let saved = saved(host) else {
             throw Fail(5, "nothing is saved for \(domain) in the Keychain. The user can save it with `apprentice login add \(domain)`, or sign in themselves")
         }
-        if kind == "password" { try record(domain) }
+        // Checked now, counted once the characters are in the field (`typed`), so a step that fails costs nothing.
+        if kind == "password" { try paced(domain) }
         return kind == "password" ? saved.password : saved.account
     }
 
@@ -121,6 +122,12 @@ enum Login {
         if tries.count >= c.loginPerDay {
             throw Fail(4, "sign-in: \(domain) was signed into \(tries.count) times today ([login] per_day). Do not retry, tell the user")
         }
+    }
+
+    /// Counts a password sign-in after it was typed.
+    static func typed(_ kind: String?, url: String?) {
+        guard kind == "password" else { return }
+        try? record(Site.domain(hostOf(url) ?? ""))
     }
 
     static func record(_ domain: String) throws {

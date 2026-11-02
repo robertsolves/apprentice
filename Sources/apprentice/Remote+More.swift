@@ -243,7 +243,7 @@ extension Remote {
 
     static func waitFor(_ a: Args) throws -> String {
         guard let text = a.pos.first else { throw Fail(5, "wait-for \"text\"") }
-        let timeout = a.value("timeout").flatMap(Double.init) ?? 10
+        let timeout = Double(min(try a.count("timeout", 10, min: 1), 600))
         _ = try prepare()
         let needle = text.lowercased()
         let start = Date()

@@ -395,6 +395,7 @@ struct SiteFieldRow: View {
 
     private var percent: some View {
         PercentSlider(value: Double(Toml.unquote(value)) ?? 0, max: field.max, off: spec.text("off")) { set(SiteSettings.number($0)) }
+            .id(value)
     }
 
     private var hours: some View {

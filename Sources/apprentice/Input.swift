@@ -481,6 +481,8 @@ enum Keys {
                 if let data = item.data(forType: type) { out[type] = data }
             }
         }.filter { !$0.isEmpty }
+        // A clipboard that cannot be put back (file promises, a Continuity item) is left alone: type instead.
+        if saved.isEmpty, !(board.pasteboardItems ?? []).isEmpty { return try type(text, fast: true) }
         // Runs on every exit, so a throw between the clear and the paste still gives the clipboard back.
         defer {
             if !saved.isEmpty {

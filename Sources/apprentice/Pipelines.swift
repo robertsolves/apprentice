@@ -158,7 +158,7 @@ enum Pipelines {
     static func find(_ ref: String) throws -> Pipeline {
         let all = all()
         let key = ref.lowercased()
-        let hits = all.filter { $0.ref == key || $0.slug == slug(ref) || $0.name.lowercased() == key }
+        let hits = all.filter { $0.ref.lowercased() == key || slug($0.slug) == slug(ref) || $0.name.lowercased() == key }
         if hits.count == 1 { return hits[0] }
         if hits.isEmpty { throw Fail(5, "no pipeline \(ref) · apprentice pipeline list") }
         if let here = Projects.here()?.folder, let mine = hits.first(where: { $0.project?.standardizedFileURL == here.standardizedFileURL }) { return mine }

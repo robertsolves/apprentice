@@ -285,7 +285,17 @@ enum Away {
             return
         }
         guard isAway(now: now) else { return }
-        let queued = all().filter { $0.state == .queued }.sorted { $0.created < $1.created }
+        var queued = all().filter { $0.state == .queued }.sorted { $0.created < $1.created }
+        // A task for this Mac queued while `[away] host` was on cannot start now: it needs the user, and the ones behind it go on.
+        for task in queued where task.host == true && !hostAllowed {
+            update { list in
+                if let i = list.firstIndex(where: { $0.id == task.id }) {
+                    list[i].state = .needsYou
+                    list[i].note = "this Mac runs away work only with [away] host = true"
+                }
+            }
+        }
+        queued.removeAll { $0.host == true && !hostAllowed }
         guard let next = queued.first else { return }
         if let earliest = next.earliest, earliest > now.timeIntervalSince1970 { return }
         if let deadline = next.deadline, deadline < now.timeIntervalSince1970 {
@@ -298,7 +308,6 @@ enum Away {
             }
             return
         }
-        if next.host == true, !hostAllowed { return }
         guard next.host == true || next.vm != nil || hostAllowed else { return }
         if let task = claim(next.id, from: [.queued]) { start(task) }
     }
@@ -340,7 +349,11 @@ enum Away {
     }
 
     /// In away mode, an acting command (a flow's next step included) with the user at the Mac yields at once.
-    static func yieldIfPresent(_ cmd: String) throws {
+    /// A command that needs an argument and got none answers its usage line instead: that is not an action.
+    static let needsArgument: Set<String> = ["hover", "do", "download", "browse", "session"]
+
+    static func yieldIfPresent(_ cmd: String, hasArgs: Bool = true) throws {
+        if !hasArgs, needsArgument.contains(cmd) { return }
         if mode, acting.contains(cmd), userPresent() { throw Fail(10, yieldMessage) }
     }
 
@@ -482,7 +495,7 @@ enum Away {
     /// Blocks until the user is away, then returns: an agent can wait out a visit and carry on.
     private static func wait(_ a: Args) throws -> String {
         // Under the socket's 25 min read timeout (`Wire.sendLocal`): call it again to keep waiting.
-        let timeout = min(a.value("timeout").flatMap(Double.init) ?? 1200, 1440)
+        let timeout = min(max(a.value("timeout").flatMap(Double.init) ?? 1200, 1), 1440)
         let deadline = Date().addingTimeInterval(timeout)
         while !absent() {
             if Date() > deadline {

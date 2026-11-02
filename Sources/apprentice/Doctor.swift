@@ -231,6 +231,16 @@ enum Doctor {
         }
         if (try? fm.removeItem(atPath: bin)) != nil { done.append("removed \(bin)") }
         var failed: [String] = []
+        // The VMs' places (host, port, user) live in config.toml, which goes; keep them beside the ssh key.
+        if keepVMs {
+            var text = ["# kept by `apprentice uninstall --keep-vms`: where the VMs are"]
+            for (section, keys) in Toml.load(Config.path).sorted(by: { $0.key < $1.key }) where section == "vm" || section.hasPrefix("vm.") {
+                text.append("[\(section)]")
+                text += keys.sorted { $0.key < $1.key }.map { "\($0.key) = \($0.value)" }
+            }
+            try? fm.createDirectory(at: VM.shared, withIntermediateDirectories: true)
+            try? (text.joined(separator: "\n") + "\n").write(to: VM.shared.appendingPathComponent("config.toml"), atomically: true, encoding: .utf8)
+        }
         let items = (try? fm.contentsOfDirectory(atPath: Store.dir.path)) ?? []
         for item in items {
             let path = Store.dir.appendingPathComponent(item).path

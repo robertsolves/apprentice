@@ -1020,6 +1020,10 @@ struct RootView: View {
     /// ⌘1…9 choose the sidebar sections; keyboard first, as the design asks.
     private var shortcuts: some View {
         ZStack {
+            Button("New shell") { model.newTab(preset: "Shell", command: nil) }
+                .keyboardShortcut("t", modifiers: .command)
+                .frame(width: 0, height: 0)
+                .opacity(0.01)
             ForEach(Array(Section.ordered.enumerated()), id: \.offset) { index, section in
                 Button(section.label) { model.section = section }
                     .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
@@ -1199,7 +1203,7 @@ private struct TabChip: View {
                     Text("×").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary).frame(width: 14, height: 14)
                 }
                 .buttonStyle(.plain)
-                .help("Close tab (⌘W)")
+                .help("Close tab")
             }
         }
         .padding(.horizontal, Theme.s3)
@@ -1521,9 +1525,10 @@ struct ScheduleEditor: View {
                         Text("every few minutes").tag("every")
                         Text("every day").tag("daily")
                         Text("on chosen days").tag("weekly")
-                        if !cron.isEmpty { Text("a cron line").tag("cron") }
+                        Text("a cron line").tag("cron")
                     }
                     .labelsHidden().pickerStyle(.menu).frame(maxWidth: 240)
+                    .onChange(of: trigger) { _, now in if now == "cron", cron.isEmpty { cron = "0 9 * * 1-5" } }
                 }
                 switch trigger {
                 case "at":

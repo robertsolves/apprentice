@@ -121,21 +121,34 @@ enum Skills {
         facts.insert("\(day) · \(line)", at: 0)
         let dropped = max(0, facts.count - maxFacts)
         facts = Array(facts.prefix(maxFacts))
-        let text = """
-        ---
-        scope: \(scope)
-        match: \(match)
-        status: learned
-        updated: \(day)
-        ---
-        # \(match)
+        let block = "## Key facts\n" + facts.map { "- " + $0 }.joined(separator: "\n") + "\n"
+        let text: String
+        if let existing = try? String(contentsOf: url, encoding: .utf8), let at = existing.range(of: "## Key facts") {
+            // Edit in place: only the facts change; whatever else the file holds stays as it is.
+            let after = existing[at.upperBound...]
+            let rest = after.range(of: "\n## ").map { String(after[$0.lowerBound...]) } ?? ""
+            var out = String(existing[..<at.lowerBound]) + block + (rest.isEmpty ? "" : "\n" + rest.dropFirst())
+            if let u = out.range(of: "\nupdated:.*", options: .regularExpression), out.distance(from: out.startIndex, to: u.lowerBound) < 400 {
+                out.replaceSubrange(u, with: "\nupdated: \(day)")
+            }
+            text = out
+        } else if let existing = try? String(contentsOf: url, encoding: .utf8) {
+            text = existing.trimmingCharacters(in: .newlines) + "\n\n" + block
+        } else {
+            text = """
+            ---
+            scope: \(scope)
+            match: \(match)
+            status: learned
+            updated: \(day)
+            ---
+            # \(match)
 
-        Learned by apprentice while working: one fact per line, newest first, at most \(maxFacts).
+            Learned by apprentice while working: one fact per line, newest first, at most \(maxFacts).
 
-        ## Key facts
-        \(facts.map { "- " + $0 }.joined(separator: "\n"))
-
-        """
+            \(block)
+            """
+        }
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try text.write(to: url, atomically: true, encoding: .utf8)
         prune()
@@ -210,6 +223,9 @@ enum Skills {
         let task = rows.compactMap { $0["task"] as? String }.last ?? "steps on \(hostOf(session.url) ?? session.app)"
         let slug = Playbooks.slugify("\(hostOf(session.url) ?? session.app) \(task)")
         guard !slug.isEmpty else { return nil }
+        // `run` and `learn` already kept this session's work, named from the app: not a second copy under the host.
+        guard !rows.contains(where: { $0["cmd"] as? String == "learn" }),
+              Playbooks.flow(named: Playbooks.slugify("\(session.app) \(task)")) == nil else { return nil }
         let url = learnedDir.appendingPathComponent("flows/\(slug).md")
         // A draft never replaces another: the first one may have been cleaned up since.
         guard !FileManager.default.fileExists(atPath: url.path), Playbooks.flow(named: slug) == nil else { return nil }

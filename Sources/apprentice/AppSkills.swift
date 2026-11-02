@@ -14,12 +14,16 @@ struct SkillItem: Identifiable, Equatable {
     var path: String
 
     static func load() -> [SkillItem] {
-        let files = Playbooks.all().map {
+        let skills = Playbooks.skills()
+        // Each judgement skill is listed once, from wherever it won.
+        let shown = Set(skills.map { $0.url.standardizedFileURL.path })
+        let files = Playbooks.all().filter { !shown.contains($0.url.standardizedFileURL.path) }.map {
             SkillItem(title: $0.title, detail: kindLabel($0), origin: $0.origin, url: $0.url, path: $0.path)
         }
-        let judgement = Playbooks.skills().map {
-            SkillItem(title: $0.note.meta["name"].map(prettyName) ?? prettyName($0.name), detail: "how a person behaves there",
-                      origin: .builtIn, url: $0.url, path: $0.note.path)
+        let judgement = skills.map { s -> SkillItem in
+            let own = s.url.path.hasPrefix(Skills.yoursDir.path)
+            return SkillItem(title: s.note.meta["name"].map(prettyName) ?? prettyName(s.name), detail: "how a person behaves there",
+                             origin: own ? .yours : .builtIn, url: s.url, path: s.note.path)
         }
         return files + judgement
     }

@@ -41,6 +41,14 @@ enum Settings {
             }
             try? fm.removeItem(at: source)
         }
+        // Anything else kept there (a custom agents.toml, sites.toml, a backup) goes too, beside the rest;
+        // a file with the same name in ~/.apprentice stays and the old one is kept as `<name>.from-settings`.
+        for item in (try? fm.contentsOfDirectory(atPath: repoDir.path)) ?? [] where !item.hasPrefix(".") {
+            let source = repoDir.appendingPathComponent(item)
+            var dest = Store.dir.appendingPathComponent(item)
+            if fm.fileExists(atPath: dest.path) { dest = Store.dir.appendingPathComponent(item + ".from-settings") }
+            if !fm.fileExists(atPath: dest.path) { try fm.moveItem(at: source, to: dest) }
+        }
         try fm.removeItem(at: repoDir)
         return "settings: now in \(Store.dir.path), on this Mac only"
     }

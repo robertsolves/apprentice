@@ -833,6 +833,10 @@ enum SelfTest {
         check(Schedules.nextCron("0 9 * * mon", after: now).map { cal.component(.weekday, from: $0) == 2 } == true,
               "cron takes day names")
         check(Schedules.nextCron("0 0 29 2 *", after: now) != nil, "a cron line for 29 February finds a leap year")
+        check(Schedules.nextCron("/5 * * * *", after: now) == nil, "a cron field starting with a slash is refused, not a crash")
+        let quoted = "say \"hi\" \\t"
+        let written = "\"" + quoted.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
+        check(Toml.unquote(written) == quoted, "a quoted value with a quote and a backslash reads back as written")
         // Both day fields restricted only when neither starts with `*`: `*/2` with a weekday is AND.
         if let next = Schedules.nextCron("0 9 */2 * 1", after: now) {
             let c = cal.dateComponents([.day, .weekday], from: next)

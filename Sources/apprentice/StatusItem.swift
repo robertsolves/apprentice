@@ -149,8 +149,26 @@ enum DockIcon {
         }
     }
 
+    /// The setting as the file says it now: the Settings window is another process, so the daemon looks.
+    static var wanted: Bool {
+        (Toml.load(Config.path)["agent"]?["dock_icon"]).map { Toml.unquote($0) != "false" } ?? Config.current.dockIcon
+    }
+
+    private static var timer: Timer?
+
     static func apply() {
-        guard Config.current.dockIcon else { return }
-        NSApp.setActivationPolicy(windowOpen ? .accessory : .regular)
+        let on = wanted
+        NSApp.setActivationPolicy(on && !windowOpen ? .regular : .accessory)
+        if on { NSApp.applicationIconImage = Ask.icon }
+    }
+
+    /// Follows the setting while the daemon runs, so turning the icon on or off takes effect at once.
+    static func follow() {
+        guard timer == nil else { return }
+        var last = wanted
+        timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { _ in
+            let now = wanted
+            if now != last { last = now; apply() }
+        }
     }
 }

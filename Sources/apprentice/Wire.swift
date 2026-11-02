@@ -111,6 +111,7 @@ enum Wire {
             var sent = 0
             while sent < raw.count {
                 let n = write(fd, raw.baseAddress!.advanced(by: sent), raw.count - sent)
+                if n < 0, errno == EINTR { continue }
                 if n <= 0 { break }
                 sent += n
             }

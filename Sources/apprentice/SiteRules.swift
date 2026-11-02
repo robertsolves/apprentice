@@ -108,7 +108,10 @@ enum Budgets {
 
     /// Throws when the file is there but cannot be read, so a typo stops work instead of lifting every cap.
     static func load(_ file: URL) throws -> [String: [String: Cap]] {
-        guard let data = try? Data(contentsOf: file) else { return [:] }
+        guard FileManager.default.fileExists(atPath: file.path) else { return [:] }
+        guard let data = try? Data(contentsOf: file) else {
+            throw Fail(4, "budget: \(file.path) cannot be read. Fix its permissions; until then apprentice takes no budgeted actions")
+        }
         guard let raw = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
             throw Fail(4, "budget: \(file.path) is not valid JSON. Fix it; until then apprentice takes no budgeted actions")
         }
@@ -402,8 +405,8 @@ enum Challenge {
             if s.elements.contains(where: { $0.label == "password" }) { return nil }
         }
         if let p = paths.first(where: { URL(string: url)?.path.contains($0) ?? false }) { return "address \(p)" }
-        if let other { return "\"\(other)\"" }
-        return Config.current.challengeMarkers.first { m in !m.isEmpty && texts.contains { $0.contains(m) } }.map { "\"\($0)\"" }
+        // A sign-in code prompt with login off is a plain page, not a check to stop at.
+        return other.map { "\"\($0)\"" }
     }
 
     static func start(_ host: String, _ marker: String, session: Session) -> Fail {

@@ -45,7 +45,7 @@ enum Toml {
         for ch in line {
             if ch == "\"" && prev != "\\" { inString.toggle() }
             if !inString { depth += ch == "[" ? 1 : ch == "]" ? -1 : 0 }
-            prev = ch
+            prev = ch == "\\" && prev == "\\" ? " " : ch
         }
         return depth
     }
@@ -56,14 +56,28 @@ enum Toml {
         for (i, ch) in line.enumerated() {
             if ch == "\"" && prev != "\\" { inString.toggle() }
             if ch == "#" && !inString { return String(line.prefix(i)) }
-            prev = ch
+            prev = ch == "\\" && prev == "\\" ? " " : ch
         }
         return line
     }
 
     static func unquote(_ s: String) -> String {
         var t = s.trimmingCharacters(in: .whitespaces)
-        if t.count >= 2, (t.hasPrefix("\"") && t.hasSuffix("\"")) || (t.hasPrefix("'") && t.hasSuffix("'")) {
+        if t.count >= 2, t.hasPrefix("\""), t.hasSuffix("\"") {
+            // A basic string: undo the two escapes `Schedules.q` writes, in one pass so `\\"` stays a backslash and a quote.
+            var out = "", escaped = false
+            for ch in t.dropFirst().dropLast() {
+                if escaped {
+                    if ch != "\\" && ch != "\"" { out.append("\\") }
+                    out.append(ch)
+                    escaped = false
+                }
+                else if ch == "\\" { escaped = true }
+                else { out.append(ch) }
+            }
+            if escaped { out.append("\\") }
+            t = out
+        } else if t.count >= 2, t.hasPrefix("'"), t.hasSuffix("'") {
             t = String(t.dropFirst().dropLast())
         }
         return t
@@ -92,7 +106,7 @@ enum Toml {
                 continue
             }
             cur.append(ch)
-            prev = ch
+            prev = ch == "\\" && prev == "\\" ? " " : ch
         }
         if !cur.trimmingCharacters(in: .whitespaces).isEmpty { parts.append(cur) }
         return parts
@@ -636,11 +650,11 @@ struct Config {
         if let v = toml["sites"]?["cooldown_hours"].flatMap(Toml.doubles), !v.isEmpty { c.cooldownHours = v }
         if let v = toml["sites"]?["on_challenge"].map(Toml.unquote), ["stop", "warn", "off"].contains(v) { c.onChallenge = v }
         if let v = toml["login"]?["auto"] { c.loginAuto = Toml.unquote(v) == "true" }
-        if let v = toml["login"]?["gap_min"].flatMap({ Double(Toml.unquote($0)) }) { c.loginGapMinutes = v }
-        if let v = toml["login"]?["per_day"].flatMap({ Int(Toml.unquote($0)) }) { c.loginPerDay = v }
+        if let v = toml["login"]?["gap_min"].flatMap({ Double(Toml.unquote($0)) }), v.isFinite, v >= 0 { c.loginGapMinutes = v }
+        if let v = toml["login"]?["per_day"].flatMap({ Int(Toml.unquote($0)) }), v >= 1 { c.loginPerDay = v }
         if let v = toml["login"]?["sites"].flatMap(Toml.array) { c.loginSites = v.map { $0.lowercased() }.filter { !$0.isEmpty } }
         if let v = toml["gate"]?["user_only"].flatMap(Toml.array) { c.userOnly = v.map { $0.lowercased() }.filter { !$0.isEmpty } }
-        if let v = toml["agent"]?["ask_window_s"].flatMap({ Double(Toml.unquote($0)) }) { c.askWindowSeconds = v }
+        if let v = toml["agent"]?["ask_window_s"].flatMap({ Double(Toml.unquote($0)) }), v.isFinite, v > 0 { c.askWindowSeconds = v }
         if let v = toml["schedules"]?["enabled"] { c.schedulesOn = Toml.unquote(v) != "false" }
         if let v = toml["app"]?["font"] { c.appFont = Toml.unquote(v) }
         if let v = toml["app"]?["font_size"].flatMap({ Double(Toml.unquote($0)) }), v >= 8, v <= 32 { c.appFontSize = v }
@@ -674,9 +688,15 @@ struct Config {
     /// Activates the profile for a domain or app for the next action.
     static func activate(_ key: String?) {
         current.pace = current.defaultPace
+        activeProfile = "default"
         guard let key, let p = current.profiles[key.lowercased()] else { return }
         current.pace = p
+        activeProfile = key.lowercased()
     }
+
+    /// The profile the last `activate` chose, written on each log row (`pace`, with the mode) so `grow` can
+    /// tell whether `careful` sites see fewer soft blocks.
+    static var activeProfile = "default"
 
     static func profileKey(session: Session, url: String?) -> String {
         // `[pace."linkedin.com"]` also covers www.linkedin.com and any other subdomain.
@@ -688,15 +708,9 @@ struct Config {
             }
         }
         if current.profiles[session.app.lowercased()] != nil { return session.app.lowercased() }
-        activeProfile = "default"
         return session.isBrowser ? "web" : "native"
     }
-        activeProfile = key.lowercased()
 }
-
-    /// The profile the last `activate` chose, written on each log row (`pace`, with the mode) so `grow` can
-    /// tell whether `careful` sites see fewer soft blocks.
-    static var activeProfile = "default"
 
 /// `pace [site [style | default]]`: which style a site or app runs at, kept as `[pace.styles]` lists in
 /// config.toml. `fastest` suits a logged-out site the user only reads (scouting): real input still, but
