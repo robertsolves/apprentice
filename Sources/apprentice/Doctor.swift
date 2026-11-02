@@ -59,6 +59,14 @@ enum Doctor {
                          fix: open ? "chmod 700 \(Store.dir.path); chmod 600 \(Config.path.path)" : nil))
         out.append(Check(ok: true, line: "sessions in the clone: \(Sessions.mode) ([storage] sessions)"))
         out.append(Check(ok: true, line: "vm: " + (VM.tartPath == nil ? "not installed (optional; `apprentice vm setup`)" : (VM.state.on ? "browser sessions go to the VM" : "installed, off"))))
+        // To a site the VM is another device, Linux with its own fingerprint (BOT_DETECTION S6, S12).
+        if VM.state.on || VM.host != nil {
+            out.append(Check(ok: true, line: "vm: sites see it as a separate Linux device; accounts whose standing matters are safest in this Mac's own browser ([vm] local = [\"linkedin.com\", …])"))
+        }
+        if VM.host != nil {
+            out.append(Check(ok: false, line: "vm: a remote host reaches sites from its own network, while its time zone and language are this Mac's",
+                             fix: "keep social accounts off it ([vm] local), or set the guest's zone and language to match where it is"))
+        }
         return out
     }
 

@@ -2,21 +2,73 @@ import AppKit
 import ApplicationServices
 import Carbon
 
-// TODO(/interview-code): post the modifier keys themselves (a flagsChanged press of Shift before a
-// capital, of cmd before cmd+a, released after), as a real keyboard does. Today a page sees a keydown
-// with shiftKey or metaKey set but never a "Shift" or "Meta" keydown before it, a keystroke tell
-// (SPEC "What it does not leak" claims shiftKey matches a real keyboard). Touches every key apprentice
-// sends, so it needs a run on real hardware and in the VM (Remote.typeChar) before it lands.
+/// The person's hand: how fast they move, which way their strokes bend, and how they type. Drawn once
+/// and kept in `hand.json`, shared by every VM's daemon, so a restart or an update does not turn
+/// apprentice into someone else (BOT_DETECTION P5). Delete the file to draw a new hand.
+struct Hand: Codable {
+    /// Cursor travel time, as a multiple of the Fitts estimate.
+    var speed: Double
+    /// Share of strokes that bend to the favoured side.
+    var side: Double
+    /// Median time a key is held down, and how much it varies.
+    var hold: Double
+    var holdSigma: Double
+    /// The gap between keys, as a multiple of the profile's `key_ms_median`.
+    var rhythm: Double
+    /// Share of quick letter pairs whose second key goes down before the first comes up.
+    var rollover: Double
+    /// Median time a mouse button is held down.
+    var click: Double
+
+    static func draw() -> Hand {
+        Hand(speed: Rand.uniform(0.85...1.2), side: Rand.uniform(0.3...0.7), hold: Rand.uniform(0.075...0.115),
+             holdSigma: Rand.uniform(0.18...0.3), rhythm: Rand.uniform(0.85...1.15), rollover: Rand.uniform(0.15...0.4),
+             click: Rand.uniform(0.07...0.12))
+    }
+
+    /// Values from an old or hand-edited file are kept inside the ranges `draw` uses.
+    var bounded: Hand {
+        func b(_ v: Double, _ r: ClosedRange<Double>) -> Double { v.isFinite ? min(max(v, r.lowerBound), r.upperBound) : r.lowerBound }
+        return Hand(speed: b(speed, 0.7...1.4), side: b(side, 0.2...0.8), hold: b(hold, 0.05...0.15), holdSigma: b(holdSigma, 0.1...0.4),
+                    rhythm: b(rhythm, 0.7...1.4), rollover: b(rollover, 0...0.6), click: b(click, 0.05...0.16))
+    }
+
+    static let current: Hand = {
+        if let saved = Store.load(Hand.self, "hand.json") { return saved.bounded }
+        let hand = draw()
+        Store.save(hand, "hand.json")
+        return hand
+    }()
+}
 
 enum Pace {
     static func gaussian() -> Double { Rand.gaussian() }
 
-    /// Log-normal gap between keystrokes, median about 100 ms by default.
-    static func keyGap(after ch: Character?) -> Double {
+    /// Log-normal gap between keystrokes, median about 100 ms by default. Longer after a space or
+    /// punctuation; a little shorter when the two letters fall to different hands, and a little longer
+    /// when one hand types both, as typing rhythm goes.
+    static func keyGap(after ch: Character?, before next: Character? = nil) -> Double {
         let p = Config.current.pace
-        var gap = p.keyMedian * exp(p.keySigma * gaussian())
+        var gap = p.keyMedian * Hand.current.rhythm * exp(p.keySigma * gaussian())
         if let ch, ch == " " || ch.isPunctuation { gap *= 1.6 }
-        return min(max(gap, 0.04), 0.9)
+        if let a = ch.flatMap(handOf), let b = next.flatMap(handOf) { gap *= a == b ? 1.15 : 0.85 }
+        return min(max(gap, 0.035), 0.9)
+    }
+
+    /// Which hand types a letter on a QWERTY-like board: true for the left.
+    static func handOf(_ ch: Character) -> Bool? {
+        guard let c = ch.lowercased().first, c.isLetter || c.isNumber, c.isASCII else { return nil }
+        return "qwertasdfgzxcvb12345".contains(c)
+    }
+
+    /// How long one key stays down: log-normal around the hand's own hold, shorter for the space bar's
+    /// thumb, longer for a key that needs Shift.
+    static func keyHold(_ ch: Character?, shifted: Bool = false) -> Double {
+        let h = Hand.current
+        var hold = h.hold * exp(h.holdSigma * gaussian())
+        if ch == " " { hold *= 0.85 }
+        if shifted { hold *= 1.1 }
+        return min(max(hold, 0.035), 0.25)
     }
 
     /// The pause between two steps of a flow, which an agent's thinking time would otherwise have
@@ -52,40 +104,78 @@ enum Keys {
     /// Rebuilt when the input source changes; `codes` covers named keys and layouts it cannot read.
     private static var layoutID = ""
     private static var layoutMap: [Character: (CGKeyCode, Bool)] = [:]
+    private static var sequenceMap: [Character: [(CGKeyCode, CGEventFlags)]] = [:]
     private static let layoutLock = NSLock()
 
-    static func layout() -> [Character: (CGKeyCode, Bool)] {
+    static func layout() -> [Character: (CGKeyCode, Bool)] { readLayout().keys }
+
+    /// Characters the layout types with Option, or with a dead key and then a letter (é is option+e, e
+    /// on a US board): the keys a person presses for them, in order (BOT_DETECTION P2, P16).
+    static func sequences() -> [Character: [(CGKeyCode, CGEventFlags)]] { readLayout().sequences }
+
+    private static func readLayout() -> (keys: [Character: (CGKeyCode, Bool)], sequences: [Character: [(CGKeyCode, CGEventFlags)]]) {
         guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
-              let idPtr = TISGetInputSourceProperty(source, kTISPropertyInputSourceID) else { return [:] }
+              let idPtr = TISGetInputSourceProperty(source, kTISPropertyInputSourceID) else { return ([:], [:]) }
         // The hardware keyboard type is part of the key: UCKeyTranslate reads it, so another keyboard needs a new map.
         let id = (Unmanaged<CFString>.fromOpaque(idPtr).takeUnretainedValue() as String) + "|\(LMGetKbdType())"
         layoutLock.lock()
         defer { layoutLock.unlock() }
-        if id == layoutID { return layoutMap }
+        if id == layoutID { return (layoutMap, sequenceMap) }
         var map: [Character: (CGKeyCode, Bool)] = [:]
+        var seqs: [Character: [(CGKeyCode, CGEventFlags)]] = [:]
         if let dataPtr = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) {
             let data = Unmanaged<CFData>.fromOpaque(dataPtr).takeUnretainedValue() as Data
             data.withUnsafeBytes { raw in
                 guard let layout = raw.baseAddress?.assumingMemoryBound(to: UCKeyboardLayout.self) else { return }
+                func translate(_ code: UInt16, _ mods: UInt32, _ dead: inout UInt32, noDead: Bool) -> Character? {
+                    var chars = [UniChar](repeating: 0, count: 4)
+                    var length = 0
+                    guard UCKeyTranslate(layout, code, UInt16(kUCKeyActionDown), (mods >> 8) & 0xFF, UInt32(LMGetKbdType()),
+                                         OptionBits(noDead ? kUCKeyTranslateNoDeadKeysBit : 0), &dead, 4, &length, &chars) == noErr,
+                          length == 1, let ch = String(utf16CodeUnits: chars, count: 1).first,
+                          !ch.isWhitespace, !ch.isNewline else { return nil }
+                    return ch
+                }
                 // Unshifted first, so a character on two keys keeps the plain one.
                 for shift in [false, true] {
                     for code in 0..<UInt16(128) {
                         var dead: UInt32 = 0
-                        var chars = [UniChar](repeating: 0, count: 4)
-                        var length = 0
-                        let mods = UInt32(shift ? shiftKey >> 8 : 0) & 0xFF
-                        guard UCKeyTranslate(layout, code, UInt16(kUCKeyActionDown), mods, UInt32(LMGetKbdType()),
-                                             OptionBits(kUCKeyTranslateNoDeadKeysBit), &dead, 4, &length, &chars) == noErr,
-                              length == 1, let ch = String(utf16CodeUnits: chars, count: 1).first,
-                              !ch.isWhitespace, !ch.isNewline, map[ch] == nil else { continue }
+                        guard let ch = translate(code, shift ? UInt32(shiftKey) : 0, &dead, noDead: true), map[ch] == nil else { continue }
                         map[ch] = (CGKeyCode(code), shift)
+                    }
+                }
+                let layers: [(UInt32, CGEventFlags)] = [(UInt32(optionKey), .maskAlternate), (UInt32(optionKey | shiftKey), [.maskAlternate, .maskShift])]
+                // The Option layer typed directly (ß, ©, –).
+                for (mods, flags) in layers {
+                    for code in 0..<UInt16(128) {
+                        var dead: UInt32 = 0
+                        guard let ch = translate(code, mods, &dead, noDead: true), map[ch] == nil, seqs[ch] == nil else { continue }
+                        // A dead key also yields its accent alone with the no-dead-keys bit; that is not what it types.
+                        var probe: UInt32 = 0
+                        if translate(code, mods, &probe, noDead: false) == nil, probe != 0 { continue }
+                        seqs[ch] = [(CGKeyCode(code), flags)]
+                    }
+                }
+                // Dead keys on any layer, then a plain or shifted letter: é, ñ, ü, â.
+                for (mods, flags) in [(UInt32(0), CGEventFlags()), (UInt32(shiftKey), .maskShift)] + layers {
+                    for code in 0..<UInt16(128) {
+                        var dead: UInt32 = 0
+                        guard translate(code, mods, &dead, noDead: false) == nil, dead != 0 else { continue }
+                        for (mods2, flags2) in [(UInt32(0), CGEventFlags()), (UInt32(shiftKey), CGEventFlags.maskShift)] {
+                            for code2 in 0..<UInt16(128) {
+                                var state = dead
+                                guard let ch = translate(code2, mods2, &state, noDead: false), map[ch] == nil, seqs[ch] == nil else { continue }
+                                seqs[ch] = [(CGKeyCode(code), flags), (CGKeyCode(code2), flags2)]
+                            }
+                        }
                     }
                 }
             }
         }
         layoutID = id
         layoutMap = map
-        return map
+        sequenceMap = seqs
+        return (map, seqs)
     }
 
     /// The key for a one-character key name on the current layout, else the US position.
@@ -113,17 +203,87 @@ enum Keys {
         return (key, flags)
     }
 
-    /// A real key press on the system keyboard stream, as from a person's keyboard.
+    /// The modifier keys, left-hand ones as most people use, with the device bit a real keyboard sets
+    /// beside the generic flag, in the order they go down.
+    static let modifierKeys: [(flag: CGEventFlags, code: CGKeyCode, device: UInt64)] = [
+        (.maskControl, 59, 0x01), (.maskAlternate, 58, 0x20), (.maskShift, 56, 0x02), (.maskCommand, 55, 0x08),
+    ]
+
+    /// The flags field of an event while `held` modifiers are down, device bits included.
+    static func eventFlags(_ held: CGEventFlags) -> CGEventFlags {
+        var raw = held.rawValue | CGEventFlags.maskNonCoalesced.rawValue
+        for m in modifierKeys where held.contains(m.flag) { raw |= m.device }
+        return CGEventFlags(rawValue: raw)
+    }
+
+    /// Presses (or releases, in the reverse order) each modifier in `flags` that is not already in
+    /// `held`, one flagsChanged event per key as a keyboard sends them, so a page sees Shift go down
+    /// before a capital and cmd before cmd+a (BOT_DETECTION P3).
+    static func modifiers(_ flags: CGEventFlags, down: Bool, held: inout CGEventFlags) {
+        for m in (down ? modifierKeys : modifierKeys.reversed()) where flags.contains(m.flag) && held.contains(m.flag) != down {
+            if down { held.insert(m.flag) } else { held.remove(m.flag) }
+            guard let e = CGEvent(keyboardEventSource: nil, virtualKey: m.code, keyDown: down) else { continue }
+            e.type = .flagsChanged
+            e.flags = eventFlags(held)
+            post(e)
+            Pace.sleep(Rand.uniform(0.025...0.07))
+        }
+    }
+
+    /// A real key press on the system keyboard stream, as from a person's keyboard: its modifiers go
+    /// down first and come up after it.
     static func press(_ combo: String) throws {
         let (code, flags) = try parse(combo)
         if Remote.active { return try Remote.press(combo) }
+        var held: CGEventFlags = []
+        modifiers(flags, down: true, held: &held)
         for down in [true, false] {
             guard let e = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down) else { continue }
-            e.flags = flags
+            e.flags = eventFlags(held)
             post(e)
-            // Held as long as a typed key (50–110 ms): return, delete and tab land in page forms too.
-            Pace.sleep(down ? Rand.uniform(0.05...0.11) : 0.02)
+            // Held as long as a typed key: return, delete and tab land in page forms too.
+            Pace.sleep(down ? Pace.keyHold(nil) : Rand.uniform(0.015...0.04))
         }
+        modifiers(flags, down: false, held: &held)
+    }
+
+    /// One key of typed text: the key, the modifiers it needs, and the text it carries (nil lets the
+    /// layout decide, as for the two keys of a dead-key accent).
+    struct Stroke {
+        var code: CGKeyCode
+        var flags: CGEventFlags
+        var text: [UniChar]?
+    }
+
+    /// The keys a person presses for `ch` on the current layout, or nil when no key types it (an
+    /// emoji, CJK without an input method), which is then pasted instead of typed on the wrong key.
+    static func strokes(for ch: Character) -> [Stroke]? {
+        let units = Array(String(ch).utf16)
+        if ch == " " { return [Stroke(code: codes["space"] ?? 49, flags: [], text: units)] }
+        let keys = layout()
+        if let (code, shift) = keys[ch] { return [Stroke(code: code, flags: shift ? .maskShift : [], text: units)] }
+        if let seq = sequences()[ch] {
+            // A one-key Option character carries its text; the two keys of an accent let the layout compose it.
+            if seq.count == 1 { return [Stroke(code: seq[0].0, flags: seq[0].1, text: units)] }
+            return seq.map { Stroke(code: $0.0, flags: $0.1, text: nil) }
+        }
+        // The US positions only when the layout could not be read at all; on a known layout they would
+        // put the character on a key that types something else.
+        guard keys.isEmpty else { return nil }
+        if let base = shifted[ch], let code = codes[String(base)] { return [Stroke(code: code, flags: .maskShift, text: units)] }
+        let lower = Character(ch.lowercased().count == 1 ? ch.lowercased() : String(ch))
+        if let code = codes[String(lower)] { return [Stroke(code: code, flags: ch != lower ? .maskShift : [], text: units)] }
+        return nil
+    }
+
+    /// One key going down or up, with the modifiers held now.
+    private static func send(_ s: Stroke, down: Bool, held: CGEventFlags) {
+        guard let e = CGEvent(keyboardEventSource: nil, virtualKey: s.code, keyDown: down) else { return }
+        // Always set: an event without flags can pick up a modifier still held from a shortcut
+        // just before (cmd from cmd+a), turning letters into commands.
+        e.flags = eventFlags(held)
+        if let text = s.text { e.keyboardSetUnicodeString(stringLength: text.count, unicodeString: text) }
+        post(e)
     }
 
     /// `newline` is the key a line break in the text is typed with: plain return in apps, or shift+return
@@ -135,19 +295,20 @@ enum Keys {
             return
         }
         if Remote.active { return Remote.typeChar(ch) }
-        let units = Array(String(ch).utf16)
-        // The key a person would press for it on the current layout; the Unicode string still
-        // decides what is typed. Characters with no key keep code 0.
-        let (code, shift) = keyFor(ch)
-        for down in [true, false] {
-            guard let e = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down) else { continue }
-            // Always set: an event without flags can pick up a modifier still held from a shortcut
-            // just before (cmd from cmd+a), turning letters into commands.
-            e.flags = shift ? .maskShift : []
-            e.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units)
-            post(e)
-            if down { Pace.sleep(Rand.uniform(0.05...0.11)) }
+        guard let strokes = strokes(for: ch) else {
+            try? paste(String(ch))
+            return
         }
+        var held: CGEventFlags = []
+        for s in strokes {
+            modifiers(held.subtracting(s.flags), down: false, held: &held)
+            modifiers(s.flags, down: true, held: &held)
+            send(s, down: true, held: held)
+            Pace.sleep(Pace.keyHold(ch, shifted: s.flags.contains(.maskShift)))
+            send(s, down: false, held: held)
+            if strokes.count > 1 { Pace.sleep(Rand.uniform(0.06...0.16)) }
+        }
+        modifiers(held, down: false, held: &held)
     }
 
     /// Keys next to each letter on a QWERTY board, for the occasional slip that is then corrected.
@@ -162,16 +323,20 @@ enum Keys {
         "_": "-", "+": "=", "{": "[", "}": "]", "|": "\\", ":": ";", "\"": "'", "<": ",", ">": ".", "?": "/", "~": "`",
     ]
 
-    static func keyFor(_ ch: Character) -> (CGKeyCode, Bool) {
-        if ch == " " { return (codes["space"] ?? 49, false) }
-        if let hit = layout()[ch] { return hit }
-        if let base = shifted[ch], let code = codes[String(base)] { return (code, true) }
-        let lower = Character(ch.lowercased())
-        if let code = codes[String(lower)] { return (code, ch != lower) }
-        return (0, false)
+    /// A key that is down and the time it comes up, so the next key can go down first (rollover).
+    private struct Pending {
+        var stroke: Stroke
+        var upAt: Double
     }
 
+    private static var now: Double { ProcessInfo.processInfo.systemUptime }
+
+    private static func wait(until t: Double) { Pace.sleep(t - now) }
+
     /// Types like a person, key by key. `fast` shortens the gaps; every key is still a real key.
+    /// Each key is held for its own time and, for a quick pair of letters on different hands, the
+    /// next key often goes down before the last one is up, as fluent typing overlaps (P1, A4). Shift
+    /// is a key of its own, held across a run of capitals. Characters no key types are pasted.
     /// At the profile's `key_error_rate`, a letter is first mistyped as a neighbouring key and corrected
     /// with backspace, never in a password field (`corrections: false`) or with `fast`.
     /// Throws exit 6 when the person or the kill switch stops it partway, so nothing after it (such as
@@ -185,25 +350,73 @@ enum Keys {
         var sent = 0
         var slips = 0
         var nextPause = Rand.uniform(20...40)
+        var pending: Pending?
+        var held: CGEventFlags = []
+        // Whatever stops the typing, no key and no Shift is left down.
+        func release() {
+            if let p = pending {
+                wait(until: p.upAt)
+                send(p.stroke, down: false, held: held)
+                pending = nil
+            }
+            modifiers(held, down: false, held: &held)
+        }
+        defer { if !Remote.active { release() } }
         for ch in text {
             if KillSwitch.tripped || Watch.stopped {
                 throw Fail(6, "interrupted after \(sent) of \(text.count) characters: you used the keyboard or mouse. Check the field before retrying")
             }
             sent += 1
+            let gap = Pace.keyGap(after: prev, before: ch) * (fast ? 0.35 : 1)
             // Character(String) traps when a letter lowercases to two characters (İ): skip those.
             let lower = ch.lowercased()
             if slips < 3, rate > 0, lower.count == 1, let key = lower.first,
                Rand.chance(rate), let near = neighbours[key].flatMap({ Rand.pick(Array($0)) }) {
                 slips += 1
+                if !Remote.active { release() }
                 typeChar(ch.isUppercase ? Character(near.uppercased()) : near)
                 Pace.sleep(Rand.uniform(0.1...0.35))
                 try press("delete")
                 Pace.sleep(Rand.uniform(0.08...0.2))
             }
-            typeChar(ch, newline: newline)
-            Pace.sleep(Pace.keyGap(after: prev) * (fast ? 0.35 : 1))
+            let strokes = Remote.active || ch.isNewline ? nil : strokes(for: ch)
+            if let strokes, strokes.count == 1, let s = strokes.first {
+                let shifted = s.flags.contains(.maskShift)
+                // The previous key's down time is `upAt - hold`; this one goes down a gap after it is up,
+                // or, rolled over, while it is still down. Never across a change of modifiers.
+                var downAt = (pending?.upAt ?? now) + gap
+                if let p = pending, held == s.flags, !fast, prev.flatMap(Pace.handOf) != nil,
+                   Pace.handOf(ch).map({ $0 != prev.flatMap(Pace.handOf) }) == true, Rand.chance(Hand.current.rollover) {
+                    downAt = p.upAt - Rand.uniform(0.01...0.045)
+                }
+                if let p = pending, p.upAt <= downAt || held != s.flags {
+                    wait(until: p.upAt)
+                    send(p.stroke, down: false, held: held)
+                    pending = nil
+                }
+                if held != s.flags {
+                    modifiers(held.subtracting(s.flags), down: false, held: &held)
+                    wait(until: downAt - 0.05)
+                    modifiers(s.flags, down: true, held: &held)
+                }
+                wait(until: downAt)
+                send(s, down: true, held: held)
+                let upAt = now + Pace.keyHold(ch, shifted: shifted)
+                if let p = pending {
+                    // Rolled over: the earlier key comes up while this one is down.
+                    wait(until: p.upAt)
+                    send(p.stroke, down: false, held: held)
+                }
+                pending = Pending(stroke: s, upAt: upAt)
+            } else {
+                // A line break, an accent typed as two keys, a pasted character, or the VM: one at a time.
+                if !Remote.active { release() }
+                typeChar(ch, newline: newline)
+                Pace.sleep(gap)
+            }
             // A pause to think now and then, at the end of a word.
             if !fast, ch == " " || ch.isPunctuation, sent >= nextPause {
+                if !Remote.active { release() }
                 Pace.sleep(Rand.uniform(0.5...1.8))
                 nextPause = sent + Rand.uniform(20...40)
             }
@@ -242,8 +455,10 @@ enum Keys {
         Pace.sleep(0.25)
     }
 
-    /// Marks every event apprentice posts, so monitors can tell them from the person's own input.
-    static let tag: Int64 = 0x646B_6374
+    /// Marks every event apprentice posts, so monitors can tell them from the person's own input. Drawn
+    /// anew each time the daemon starts: a constant would be one value any app could look for on every
+    /// install (BOT_DETECTION A1). The events are still visibly posted ones (A2); this only drops the signature.
+    static let tag: Int64 = Int64.random(in: 0x1000_0000...Int64.max)
 
     /// Every event goes through the system input stream, like a person's mouse and keyboard.
     static func post(_ e: CGEvent) {
@@ -264,9 +479,16 @@ enum Mouse {
         return CGPoint(x: r.midX + offset() * r.width, y: r.midY + offset() * r.height)
     }
 
-    /// This run's hand: a speed and a favoured side drawn once when the daemon starts, so moves vary
-    /// around one person's habits instead of around a fixed mean that every install shares.
-    static let hand = (speed: Rand.uniform(0.85...1.2), side: Rand.uniform(0.3...0.7))
+    /// The person's hand (`Hand`), kept across restarts, so moves vary around one person's habits
+    /// instead of around a fixed mean that every install shares.
+    static var hand: Hand { Hand.current }
+
+    /// How long a move of `fitts` seconds takes under the profile's `move_ms`. Above the top of the range
+    /// it still grows, slowly, so long moves do not all take exactly the cap (BOT_DETECTION P4).
+    static func duration(_ fitts: Double, _ p: PaceConfig) -> Double {
+        guard fitts > p.moveMax else { return max(fitts, p.moveMin) }
+        return min(p.moveMax * (1 + 0.35 * log(fitts / p.moveMax)) * Rand.logNormal(median: 1, sigma: 0.08), p.moveMax * 2.5)
+    }
 
     /// Fitts' law duration along a curved path. Longer moves arrive in two phases, as a hand does: a
     /// fast reach that stops a little short of or past the target (`overshoot` of the time), then a
@@ -280,7 +502,7 @@ enum Mouse {
         let width = max(min(size.width, size.height), 8)
         let p = Config.current.pace
         let fitts = (0.12 + 0.11 * log2(dist / width + 1)) * hand.speed * Rand.logNormal(median: 1, sigma: 0.12)
-        let duration = min(max(fitts, p.moveMin), p.moveMax)
+        let duration = duration(fitts, p)
         guard dist > 120 else {
             stroke(from: start, to: target, duration: duration, bend: 0.5)
             return
@@ -345,7 +567,8 @@ enum Mouse {
         }
         let c1 = CGPoint(x: start.x + dx * 0.3 + normal.x * bend1, y: start.y + dy * 0.3 + normal.y * bend1)
         let c2 = CGPoint(x: start.x + dx * 0.7 + normal.x * bend2, y: start.y + dy * 0.7 + normal.y * bend2)
-        let steps = min(max(Int(duration.isFinite ? duration * 120 : 8), 4), 600)
+        // About the rate a mouse reports at, drawn per stroke so no two share one beat.
+        let steps = min(max(Int(duration.isFinite ? duration * Rand.uniform(100.0...135.0) : 8), 4), 600)
         let skew = Rand.uniform(0.75...0.9)
         // A tremor is a slow wobble across the line: 1–3 cycles of up to 2 px.
         let wobble = shape == .tremor ? (amp: Rand.uniform(0.6...2.0), cycles: Rand.uniform(1.0...3.0), phase: Rand.uniform(0.0...(2 * .pi)))
@@ -370,10 +593,21 @@ enum Mouse {
         }
     }
 
+    /// Where the last posted move went, for the next one's deltas.
+    private static var lastSample: CGPoint?
+
+    /// A move carries how far it went since the last one, as a mouse reports it, so a page's
+    /// `movementX`/`movementY` agree with the coordinates (BOT_DETECTION P19).
     private static func post(_ p: CGPoint, _ type: CGEventType = .mouseMoved) {
         if let e = CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: p, mouseButton: .left) {
+            let actual = Remote.active ? Remote.cursor : location
+            // The cursor can trail the last posted move by one event; anything further means it moved on its own.
+            let from = lastSample.flatMap { hypot($0.x - actual.x, $0.y - actual.y) <= 10 ? $0 : nil } ?? actual
+            e.setIntegerValueField(.mouseEventDeltaX, value: Int64((p.x - from.x).rounded()))
+            e.setIntegerValueField(.mouseEventDeltaY, value: Int64((p.y - from.y).rounded()))
             Keys.post(e)
         }
+        lastSample = p
         Borrow.noteMove(p)
     }
 
@@ -445,7 +679,8 @@ enum Mouse {
                 guard let e = CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: p, mouseButton: button) else { continue }
                 e.setIntegerValueField(.mouseEventClickState, value: Int64(n))
                 Keys.post(e)
-                Pace.sleep(type == down ? Rand.uniform(0.06...0.14) : 0.02)
+                // The hand's own press length, log-normal: mostly near it, now and then a long one.
+                Pace.sleep(type == down ? min(max(Rand.logNormal(median: hand.click, sigma: 0.3), 0.04), 0.3) : Rand.uniform(0.015...0.04))
             }
             if double { Pace.sleep(Rand.uniform(0.07...0.13)) }
         }
@@ -539,6 +774,8 @@ enum Borrow {
             active = false
             if let monitor { DispatchQueue.main.sync { NSEvent.removeMonitor(monitor) } }
         }
+        // A person takes a moment to see the screen before the hand moves (BOT_DETECTION P13).
+        if Config.current.pace.mode != "fast" { Pace.sleep(min(max(Rand.logNormal(median: 0.22, sigma: 0.35), 0.1), 0.9)) }
         return try body()
     }
 }

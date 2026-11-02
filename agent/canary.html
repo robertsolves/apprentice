@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>apprentice canary</title>
+<style>
+  :root { --bg: #fafafa; --fg: #1d1d1f; --muted: #6e6e73; --line: #d2d2d7; --bad: #c0392b; --ok: #1e824c; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #161617; --fg: #f5f5f7; --muted: #a1a1a6; --line: #3a3a3c; --bad: #ff6b5b; --ok: #4cd182; } }
+  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg); font: 14px/1.45 -apple-system, system-ui, sans-serif; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  p { color: var(--muted); margin: 0 0 12px; max-width: 70ch; }
+  textarea { width: 100%; max-width: 640px; height: 90px; box-sizing: border-box; font: inherit; padding: 8px; background: transparent; color: inherit; border: 1px solid var(--line); border-radius: 6px; }
+  #feed { height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; margin: 12px 0; max-width: 640px; }
+  #feed div { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  button { font: inherit; padding: 6px 14px; margin: 8px 8px 0 0; }
+  /* Fixed columns and digits, so the table keeps its size while the numbers change under the pointer. */
+  table { border-collapse: collapse; margin-top: 12px; width: 100%; max-width: 640px; table-layout: fixed; }
+  td { padding: 4px 8px; border-bottom: 1px solid var(--line); vertical-align: top; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+  td:first-child { color: var(--muted); width: 45%; }
+  .bad { color: var(--bad); } .ok { color: var(--ok); }
+</style>
+</head>
+<body>
+<h1>apprentice canary</h1>
+<p>Open this page in the session's browser, then let apprentice click, type into the box, scroll the feed and drag. It reports what a page can measure about that input (BOT_DETECTION.md, priority fixes 14 and 17). Nothing leaves the page.</p>
+<textarea id="box" placeholder="type here"></textarea>
+<div><button id="like">Like</button><button id="reset">Reset</button></div>
+<table id="out"></table>
+<div id="feed"></div>
+<script>
+(function () {
+  const feed = document.getElementById('feed');
+  for (let i = 1; i <= 60; i++) { const d = document.createElement('div'); d.textContent = 'Post ' + i; feed.appendChild(d); }
+  let s;
+  function reset() {
+    s = { moves: 0, zeroDelta: 0, deltaMismatch: 0, coalesced: 0, moveTimes: [], untrusted: 0,
+          downs: {}, holds: [], flights: [], overlaps: 0, keys: 0, lastDown: 0, shiftDowns: 0, shiftedNoShiftKey: 0, shiftHeld: false,
+          codeA: 0, wheel: 0, wheelModes: {}, wheelDeltas: {}, clicks: 0, clickHolds: [], btnDown: 0,
+          blur: 0, focus: 0, hidden: 0, lastXY: null, pastes: 0, compositions: 0 };
+    render();
+  }
+  const med = a => { if (!a.length) return '-'; const b = a.slice().sort((x, y) => x - y); return Math.round(b[b.length >> 1]); };
+  const spread = a => { if (a.length < 2) return '-'; const m = a.reduce((x, y) => x + y, 0) / a.length; return Math.round(Math.sqrt(a.reduce((x, y) => x + (y - m) ** 2, 0) / a.length)); };
+  function rate() {
+    const t = s.moveTimes; if (t.length < 10) return '-';
+    const gaps = []; for (let i = 1; i < t.length; i++) { const g = t[i] - t[i - 1]; if (g < 50) gaps.push(g); }
+    return gaps.length ? Math.round(1000 / (gaps.reduce((x, y) => x + y, 0) / gaps.length)) + ' Hz' : '-';
+  }
+  function row(k, v, bad) { return '<tr><td>' + k + '</td><td class="' + (bad === undefined ? '' : bad ? 'bad' : 'ok') + '">' + v + '</td></tr>'; }
+  function render() {
+    const o = [];
+    o.push(row('navigator.webdriver', String(navigator.webdriver), navigator.webdriver === true));
+    o.push(row('userAgent', navigator.userAgent));
+    o.push(row('platform · languages', navigator.platform + ' · ' + (navigator.languages || []).join(', ')));
+    o.push(row('time zone', Intl.DateTimeFormat().resolvedOptions().timeZone));
+    o.push(row('screen · DPR · cores · memory', screen.width + '×' + screen.height + ' · ' + devicePixelRatio + ' · ' + navigator.hardwareConcurrency + ' · ' + (navigator.deviceMemory || '?')));
+    o.push(row('pointer moves · rate', s.moves + ' · ' + rate()));
+    o.push(row('moves with movementX/Y = 0 (P19)', s.zeroDelta + ' of ' + s.moves, s.moves > 20 && s.zeroDelta / s.moves > 0.5));
+    o.push(row('moves whose deltas disagree with coordinates', s.deltaMismatch, s.moves > 20 && s.deltaMismatch / s.moves > 0.3));
+    o.push(row('coalesced samples per event', s.moves ? (s.coalesced / s.moves).toFixed(2) : '-'));
+    o.push(row('untrusted events', s.untrusted, s.untrusted > 0));
+    o.push(row('keys · hold median ± sd (ms)', s.keys + ' · ' + med(s.holds) + ' ± ' + spread(s.holds)));
+    o.push(row('flight median ± sd (ms)', med(s.flights) + ' ± ' + spread(s.flights)));
+    o.push(row('overlapping keys (rollover, P1)', s.overlaps, s.keys > 30 && s.overlaps === 0));
+    o.push(row('Shift keydowns · shifted keys with no Shift down (P3)', s.shiftDowns + ' · ' + s.shiftedNoShiftKey, s.shiftedNoShiftKey > 0));
+    o.push(row('code KeyA for a non-a character (P16)', s.codeA, s.codeA > 0));
+    o.push(row('pastes · compositions', s.pastes + ' · ' + s.compositions));
+    o.push(row('wheel events · deltaMode (P20)', s.wheel + ' · ' + JSON.stringify(s.wheelModes)));
+    o.push(row('wheel deltaY values', JSON.stringify(s.wheelDeltas).slice(0, 120)));
+    o.push(row('clicks · hold median ± sd (ms)', s.clicks + ' · ' + med(s.clickHolds) + ' ± ' + spread(s.clickHolds)));
+    o.push(row('blur · focus · hidden (P18)', s.blur + ' · ' + s.focus + ' · ' + s.hidden));
+    const typed = document.getElementById('box').value;
+    for (let i = 0; i < typed.length; i += 60) o.push(row('typed ' + (i + 1) + '–' + Math.min(i + 60, typed.length) + ' of ' + typed.length, typed.slice(i, i + 60).replace(/ /g, '·')));
+    document.getElementById('out').innerHTML = o.join('');
+  }
+  addEventListener('pointermove', e => {
+    if (!e.isTrusted) s.untrusted++;
+    s.moves++; s.moveTimes.push(e.timeStamp); if (s.moveTimes.length > 400) s.moveTimes.shift();
+    if (e.movementX === 0 && e.movementY === 0) s.zeroDelta++;
+    if (s.lastXY) {
+      const dx = e.screenX - s.lastXY[0], dy = e.screenY - s.lastXY[1];
+      if (Math.abs(dx - e.movementX) > 2 + Math.abs(dx) * 0.5 || Math.abs(dy - e.movementY) > 2 + Math.abs(dy) * 0.5) s.deltaMismatch++;
+    }
+    s.lastXY = [e.screenX, e.screenY];
+    if (e.getCoalescedEvents) s.coalesced += e.getCoalescedEvents().length;
+  }, true);
+  addEventListener('keydown', e => {
+    if (!e.isTrusted) s.untrusted++;
+    if (e.key === 'Shift') { s.shiftDowns++; s.shiftHeld = true; return; }
+    if (['Meta', 'Control', 'Alt'].includes(e.key) || e.repeat) return;
+    const t = e.timeStamp;
+    if (Object.keys(s.downs).length) s.overlaps++;
+    if (s.lastDown) s.flights.push(t - s.lastDown);
+    s.lastDown = t; s.downs[e.code] = t; s.keys++;
+    if (e.shiftKey && !s.shiftHeld) s.shiftedNoShiftKey++;
+    if (e.code === 'KeyA' && e.key.length === 1 && e.key.toLowerCase() !== 'a') s.codeA++;
+  }, true);
+  addEventListener('keyup', e => {
+    if (e.key === 'Shift') { s.shiftHeld = false; return; }
+    if (s.downs[e.code] !== undefined) { s.holds.push(e.timeStamp - s.downs[e.code]); delete s.downs[e.code]; }
+    render();
+  }, true);
+  addEventListener('wheel', e => {
+    s.wheel++; s.wheelModes[e.deltaMode] = (s.wheelModes[e.deltaMode] || 0) + 1;
+    const k = String(Math.round(e.deltaY)); s.wheelDeltas[k] = (s.wheelDeltas[k] || 0) + 1; render();
+  }, { capture: true, passive: true });
+  addEventListener('pointerdown', e => { s.btnDown = e.timeStamp; }, true);
+  addEventListener('pointerup', e => { if (s.btnDown) { s.clicks++; s.clickHolds.push(e.timeStamp - s.btnDown); s.btnDown = 0; render(); } }, true);
+  addEventListener('paste', () => { s.pastes++; render(); }, true);
+  addEventListener('compositionstart', () => { s.compositions++; }, true);
+  addEventListener('blur', () => { s.blur++; render(); });
+  addEventListener('focus', () => { s.focus++; render(); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) s.hidden++; render(); });
+  document.getElementById('reset').addEventListener('click', reset);
+  setInterval(render, 1000);
+  reset();
+})();
+</script>
+</body>
+</html>

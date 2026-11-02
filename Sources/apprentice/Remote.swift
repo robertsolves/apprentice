@@ -140,8 +140,14 @@ enum Remote {
         input = nil
     }
 
-    /// Input goes out as it happens; the host's own sleeps between events set the pace.
+    /// Input goes out as it happens; the host's own sleeps between events set the pace. Each input op
+    /// carries the host time it was meant for (`at`), and the helper plays it at that offset, so ssh
+    /// buffering several lines into one read does not play them back to back (BOT_DETECTION V4).
+    static let inputOps: Set<String> = ["move", "down", "up", "wheel", "key", "char"]
+
     static func send(_ op: [String: Any]) {
+        var op = op
+        if let name = op["op"] as? String, inputOps.contains(name) { op["at"] = ProcessInfo.processInfo.systemUptime }
         guard let input, var data = try? JSONSerialization.data(withJSONObject: op) else { return }
         data.append(0x0A)
         // A dead connection must not take the daemon down: the next query reports it.
@@ -618,7 +624,8 @@ enum Remote {
                  details: (e.value.map { ["current text: \($0)"] } ?? []) + ["replaces it with: \(text)"] + (enter ? ["then presses return"] : []),
                  warn: enter ? ["return may submit or send"] : [], force: a.has("gate"))
         try beforeAction(session, url: page.url)
-        let fast = a.value("pace") == "fast" || Config.current.pace.mode == "fast"
+        // Never on a web page: typing at a third of a person's gaps is a keystroke-timing tell (BOT_DETECTION P1).
+        let fast = (a.value("pace") == "fast" || Config.current.pace.mode == "fast") && page.url == nil
         var note: String?
         try act {
             if !isFocused {
@@ -756,7 +763,10 @@ enum Remote {
             throw Fail(5, "the browser did not go to \(hostname): it shows \((try? snapshot())?.url ?? "no page"). Check it with `read`")
         }
         let playbooks = hostname == hostOf(page.url) ? [] : Playbooks.hintLines(app: nil, bundle: nil, host: hostname, system: "linux")
-        let extra = ["→ \(raw)"] + Routes.hintLines(for: hostname) + Policies.lines(for: hostname) + playbooks
+        // Within a site a person follows links and goes back; a run of typed deep links is a tell (P10, P17).
+        let sameSite = hostOf(page.url).map { Site.domain($0) == Site.domain(hostname) } ?? false
+        let tip = sameSite ? ["tip: within a site, click its links (`click --on \"…\"`) and go back with `key alt+left`; `open` is for arriving"] : []
+        let extra = ["→ \(raw)"] + Routes.hintLines(for: hostname) + Policies.lines(for: hostname) + playbooks + tip
         return try done("open", session, page, old, navigates: true, extra: extra, log: ["url": raw])
     }
 

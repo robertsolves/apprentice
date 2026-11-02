@@ -61,14 +61,16 @@ enum Wheel {
     }
 }
 
-/// Now and then after an action (the profile's `fidget` share, off by default), the hand does
-/// something that changes nothing: glances the cursor across the window, traces a few lines as if
-/// reading, rests with a drift, or on a web page scrolls down a little and back. Never a click, a key
+/// Now and then after an action (the profile's `fidget` share; on by default only for web pages and
+/// social sites), the hand does something that changes nothing: glances the cursor across the window,
+/// traces a few lines as if reading, rests with a drift, on a web page scrolls down a little and back,
+/// or on this Mac switches to the last app for a moment and back, so the page sees a blur now and then
+/// as it does from a person who looks at another window (BOT_DETECTION P18). Never a click, a key
 /// or a hover held on purpose, so a fidget cannot act on anything. It runs once per command, in
 /// `finish` after every step and before the re-read, so the diff the agent sees is of the screen as
 /// it was left and no later step aims at a point the fidget scrolled away.
 enum Fidget {
-    enum Kind { case glance, trace, rest, peek }
+    enum Kind { case glance, trace, rest, peek, away }
 
     /// What a command ends with: nothing, a fidget, or (on a web page, the profile's `browse` share) a
     /// spell of reading down the feed. Never after `hover`, whose point is where the cursor rests, or
@@ -87,9 +89,10 @@ enum Fidget {
         return nil
     }
 
-    static func perform(_ plan: Plan, in area: CGRect, web: Bool) {
+    /// `refocus` brings the session window back if a glance away left another one in front.
+    static func perform(_ plan: Plan, in area: CGRect, web: Bool, refocus: (() -> Void)? = nil) {
         switch plan {
-        case .fidget(let scrolls): run(in: area, web: web, scrolls: scrolls)
+        case .fidget(let scrolls): run(in: area, web: web, scrolls: scrolls, refocus: refocus)
         case .browse(let seconds): browse(seconds, in: area)
         }
     }
@@ -108,7 +111,7 @@ enum Fidget {
         }
     }
 
-    static func run(in area: CGRect, web: Bool, scrolls: Bool = true) {
+    static func run(in area: CGRect, web: Bool, scrolls: Bool = true, refocus: (() -> Void)? = nil) {
         guard !Wheel.stopped, area.width > 200, area.height > 200 else { return }
         let inner = area.insetBy(dx: area.width * 0.1, dy: area.height * 0.15)
         func point(_ fx: Double, _ fy: Double) -> CGPoint {
@@ -116,6 +119,8 @@ enum Fidget {
         }
         var kinds: [(Kind, Double)] = [(.glance, 3), (.trace, 2), (.rest, 2)]
         if web, scrolls { kinds.append((.peek, 1.5)) }
+        // cmd+tab and back, with real keys; not in the VM, where cmd is ctrl and ctrl+tab changes tabs.
+        if web, scrolls, refocus != nil, !Remote.active { kinds.append((.away, 0.7)) }
         Timing.measure("fidget") {
             switch Rand.weighted(kinds) {
             case .glance:
@@ -139,6 +144,12 @@ enum Fidget {
                 Wheel.scroll(lines: lines, down: true)
                 Mouse.linger(Rand.uniform(0.8...3.0))
                 if !KillSwitch.tripped { Wheel.scroll(lines: lines, down: false) }
+            case .away:
+                try? Keys.press("cmd+tab")
+                Pace.sleep(min(max(Rand.logNormal(median: 2.5, sigma: 0.5), 1), 8))
+                try? Keys.press("cmd+tab")
+                Pace.sleep(Rand.uniform(0.3...0.6))
+                refocus?()
             }
         }
     }

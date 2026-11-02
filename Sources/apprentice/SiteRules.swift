@@ -44,22 +44,28 @@ enum Site {
 
     /// Looks at the screen after an action: a challenge or a throttling message stops work on the site,
     /// or with `on_challenge` / `on_soft_block = "warn"` comes back as a Fail with code 0, a warning.
-    /// The throttling check reads only what the action brought up on the same page, outside text
-    /// fields: a new page, a scrolled feed or the user's own words that merely mention "rate limit"
-    /// do not cool the site down.
+    /// The throttling check reads what the action brought up on the same page (a banner, or text that
+    /// changed in place), outside text fields. After a navigation it reads the new page only when it is
+    /// sparse, as a block page is, and its title: a long page, a scrolled feed or the user's own words
+    /// that merely mention "rate limit" do not cool the site down (BOT_DETECTION D2).
     static func inspect(_ command: String, _ old: Snapshot?, _ new: Snapshot, session: Session) -> Fail? {
         guard let host = hostOf(new.url) else { return nil }
         if Config.current.onChallenge != "off", let marker = Challenge.find(new) { return Challenge.start(host, marker, session: session) }
-        guard Config.current.onSoftBlock != "off", let old, old.url == new.url, !["scroll", "browse", "hover", "open"].contains(command) else { return nil }
-        let before = Set(old.elements.map(\.key))
+        guard Config.current.onSoftBlock != "off", let phrase = softBlock(command, old, new) else { return nil }
+        return Cooldown.start(host, phrase, session: session)
+    }
+
+    /// The throttling phrase an action brought up, if any.
+    static func softBlock(_ command: String, _ old: Snapshot?, _ new: Snapshot) -> String? {
+        guard !["scroll", "browse", "hover"].contains(command) else { return nil }
+        let samePage = old?.url == new.url && command != "open"
+        guard samePage || new.elements.count <= 60 else { return nil }
+        let before = samePage ? Set(old?.elements.map(\.key) ?? []) : []
         let fresh = new.elements.filter { !before.contains($0.key) && !Element.fieldLabels.contains($0.label) }
-        let texts = fresh.map { $0.name.lowercased() }
-        for phrase in Config.current.softBlockPhrases where !phrase.isEmpty {
-            if texts.contains(where: { $0.count < 400 && $0.contains(phrase) }) {
-                return Cooldown.start(host, phrase, session: session)
-            }
+        let texts = fresh.map { $0.name.lowercased() } + (samePage ? [] : [new.title.lowercased()])
+        return Config.current.softBlockPhrases.first { phrase in
+            !phrase.isEmpty && texts.contains { $0.count < 400 && $0.contains(phrase) }
         }
-        return nil
     }
 
     /// A macOS notification, for things the user has to see even when the chat is elsewhere.
@@ -132,19 +138,63 @@ enum Budgets {
     }
 
     /// Kinds in the order they are tested, so "unfollow" wins over "follow" and "add friend" over "add".
+    /// English first, then the words the big sites use in German, French, Spanish, Portuguese, Italian,
+    /// Dutch, Polish, Turkish, Russian, Japanese, Korean and Chinese, so a "Gefällt mir" or a "いいね" is
+    /// budgeted like a "Like" (BOT_DETECTION S2). `[sites.kinds]` in config.toml adds more.
     static let words: [(String, [String])] = [
-        ("unfollow", ["unfollow"]), ("friend_request", ["add friend"]), ("connect", ["connect"]),
-        ("repost", ["repost", "retweet", "reshare", "quote"]), ("endorse", ["endorse"]), ("join", ["join"]),
-        ("follow", ["follow", "subscribe"]), ("upvote", ["upvote"]), ("like", ["like", "heart"]),
-        ("comment", ["comment", "reply"]), ("message", ["message", "send"]), ("story", ["story"]),
-        ("post", ["post", "publish", "tweet", "share"]),
+        ("unfollow", ["unfollow", "nicht mehr folgen", "entfolgen", "ne plus suivre", "se désabonner", "dejar de seguir",
+                      "deixar de seguir", "smetti di seguire", "ontvolgen", "przestań obserwować", "takibi bırak",
+                      "отписаться", "フォロー解除", "언팔로우", "팔로우 취소", "取消关注", "取消關注"]),
+        ("friend_request", ["add friend", "freund hinzufügen", "freundschaftsanfrage", "ajouter en ami", "agregar amigo",
+                            "añadir amigo", "adicionar amigo", "aggiungi agli amici", "vriend toevoegen", "dodaj do znajomych",
+                            "arkadaş ekle", "добавить в друзья", "友達を追加", "친구 추가", "加好友", "添加好友"]),
+        ("connect", ["connect", "vernetzen", "se connecter", "conectar", "collegati", "connectie maken", "nawiąż kontakt",
+                     "bağlantı kur", "установить контакт", "つながりを申請", "1촌 맺기", "建立联系"]),
+        ("repost", ["repost", "retweet", "reshare", "quote", "reposten", "republier", "republicar", "ripubblica", "repostuj",
+                    "yeniden paylaş", "репост", "リポスト", "リツイート", "재게시", "转发", "轉發", "转帖"]),
+        ("endorse", ["endorse", "empfehlen", "recommander", "onderschrijven"]),
+        ("join", ["join", "beitreten", "rejoindre", "unirse", "unirme", "entrar no grupo", "partecipa", "unisciti",
+                  "lid worden", "dołącz", "katıl", "вступить", "присоединиться", "参加する", "가입", "加入"]),
+        ("follow", ["follow", "subscribe", "folgen", "abonnieren", "suivre", "s'abonner", "seguir", "suscribirse", "segui",
+                    "iscriviti", "volgen", "abonneren", "obserwuj", "subskrybuj", "takip et", "abone ol", "подписаться",
+                    "フォロー", "チャンネル登録", "팔로우", "구독", "关注", "關注", "订阅", "訂閱"]),
+        ("upvote", ["upvote", "hochvoten", "voter pour", "votar a favor", "voto positivo", "賛成票"]),
+        ("like", ["like", "heart", "gefällt mir", "j'aime", "me gusta", "curtir", "gosto", "mi piace", "vind ik leuk",
+                  "lubię to", "beğen", "нравится", "いいね", "좋아요", "赞", "讚", "点赞", "喜欢"]),
+        ("comment", ["comment", "reply", "kommentieren", "antworten", "commenter", "répondre", "comentar",
+                     "responder", "commenta", "rispondi", "reageren", "beantwoorden", "skomentuj", "odpowiedz", "yorum yap",
+                     "yanıtla", "комментировать", "ответить", "コメント", "返信", "댓글", "답글", "评论", "評論", "回复", "回覆"]),
+        ("message", ["message", "send", "nachricht", "senden", "envoyer", "mensaje", "enviar", "mensagem", "messaggio", "invia",
+                     "bericht", "verzenden", "verstuur", "wiadomość", "wyślij", "mesaj", "gönder", "сообщение", "отправить",
+                     "メッセージ", "送信", "메시지", "보내기", "私信", "发送", "發送", "傳送"]),
+        ("story", ["story", "stories", "storys", "ストーリーズ", "스토리", "快拍"]),
+        ("post", ["post", "publish", "tweet", "share", "posten", "veröffentlichen", "teilen", "publier", "partager",
+                  "publicar", "compartir", "compartilhar", "pubblica", "condividi", "plaatsen", "delen", "publiceren",
+                  "opublikuj", "udostępnij", "paylaş", "опубликовать", "поделиться", "投稿", "シェア", "ポスト",
+                  "게시", "공유", "发布", "發佈", "分享", "发帖"]),
     ]
+
+    /// Words in lower case, split into letters-only words, as `kind` reads a control.
+    static func normalized(_ text: String) -> String {
+        " " + text.lowercased().split(whereSeparator: { !$0.isLetter && $0 != "'" }).map { $0.replacingOccurrences(of: "'", with: "") }
+            .filter { !$0.isEmpty }.joined(separator: " ") + " "
+    }
+
+    /// Japanese, Chinese and Korean write words without spaces between them, so their entries match inside the text.
+    static func unspaced(_ word: String) -> Bool {
+        word.unicodeScalars.contains { (0x3040...0x30FF).contains($0.value) || (0x3400...0x9FFF).contains($0.value) || (0xAC00...0xD7AF).contains($0.value) }
+    }
 
     /// The budgeted kind of an action from its label and name, or "default" for any other gated
     /// action. Whole words only: "Unlike" and "Following" are not a like or a follow.
     static func kind(_ text: String, gated: Bool) -> String? {
-        let padded = " " + text.lowercased().split(whereSeparator: { !$0.isLetter }).joined(separator: " ") + " "
-        for (kind, list) in words where list.contains(where: { padded.contains(" \($0) ") }) { return kind }
+        let padded = normalized(text)
+        let extra = Config.current.kindWords
+        for (kind, list) in words {
+            for word in list + (extra[kind] ?? []) {
+                if unspaced(word) ? padded.contains(word) : padded.contains(normalized(word)) { return kind }
+            }
+        }
         return gated ? "default" : nil
     }
 

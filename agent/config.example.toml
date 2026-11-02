@@ -1,7 +1,8 @@
 # ~/.apprentice/config.toml
 
-# Keystrokes keep a slight human rhythm. The cursor and the pause between actions do not wait;
-# raise move_ms (e.g. [200, 900]) and between_actions_ms (e.g. [500, 2000]) for a site that needs it.
+# Keystrokes keep a slight human rhythm. In native apps the cursor and the pause between actions do
+# not wait. Built in, web pages run at the steady style and the social sites (Facebook, Instagram,
+# Threads, TikTok, LinkedIn, X, Reddit, Pinterest, YouTube, Bluesky) at careful; [pace.styles] below wins.
 [pace.default]
 move_ms = [50, 200]
 key_ms_median = 100
@@ -14,13 +15,19 @@ overshoot = 0.33   # share of long cursor moves that pass the target, then corre
 fidget = 0         # share of actions followed by a gesture that changes nothing (glance, trace, rest, scroll and back); at most 0.5
 browse = 0         # share of commands on a web page that end with browse_s of reading down the feed, then back up; at most 0.2
 browse_s = [10, 40]
-# style = "fast"   # sets every timing key at once: "fastest", "fast" (default), "steady", or "careful" (slowest, least scripted)
+# style = "fast"   # sets every timing key at once: "fastest", "fast" (native default), "steady" (web default), or "careful" (social default; slowest, least scripted)
+# A person's day, set by careful; any profile can set or change them:
+# quiet_hours = [2, 6]      # local hours with no actions on the site; [] turns them off
+# session_max_min = 50      # a sitting on one site this long starts a break (0 is off)
+# break_min = [15, 40]      # the break, in minutes
+# actions_per_day = 400     # actions on one site in a day (0 is off)
 
 # Styles per site or app in one place. "web" is every browser, "native" every other app.
 # A [pace."<site>"] section below then starts from that site's style and lists only what differs.
 [pace.styles]
-careful = ["linkedin.com", "x.com", "reddit.com"]
+careful = ["facebook.com", "instagram.com", "threads.net", "tiktok.com", "linkedin.com", "x.com", "reddit.com"]
 # steady = ["news.ycombinator.com"]
+# fast = ["web"]      # put web pages back on the fast style
 # fastest = ["native"]
 
 # Every profile starts from pace.default (or its style); list only the keys that differ.
@@ -28,9 +35,9 @@ careful = ["linkedin.com", "x.com", "reddit.com"]
 # actions_per_min = 20
 
 # Social sites: a person's pace. Reads a page before acting on it (dwell_s), rests after a few quick
-# actions (burst, rest_s), and moves and types at hand speed. Budgets per action kind are in budgets.json.
-# A profile covers its subdomains too (www.linkedin.com).
-# They use the careful style above; these keys differ from it.
+# actions (burst, rest_s), moves and types at hand speed, keeps quiet hours and takes breaks.
+# Budgets per action kind are in budgets.json. A profile covers its subdomains too (www.linkedin.com),
+# and x.com covers twitter.com. They use the careful style above; these keys differ from it.
 [pace."x.com"]
 between_actions_ms = [2000, 8000]
 dwell_s = [2, 6]
@@ -40,7 +47,11 @@ actions_per_min = 8
 between_actions_ms = [2000, 8000]
 dwell_s = [2, 6]
 actions_per_min = 8
-# browse = 0.1      # now and then read down the feed for a while, then scroll back
+# browse = 0.1      # now and then read down the feed for a while, then scroll back (0.08 on social sites)
+
+[pace."instagram.com"]
+browse = 0.12       # a feed is mostly read
+# quiet_hours = [1, 7]
 
 [pace.native]
 mode = "fast"   # shorter key gaps in native apps
@@ -56,8 +67,17 @@ cooldown_hours = [1, 6, 24]
 on_challenge = "stop"
 # Text that means the site is throttling, and signs of a check. These replace the built-in lists;
 # matched lower case, no commas inside a phrase.
+# The built-in lists cover English and the big sites' other languages.
 # soft_block = ["try again later", "temporarily restricted", "unusual activity", "rate limit"]
 # challenge = ["captcha", "verify you are human", "confirm it's you", "enter the code"]
+# Or add to the built-in lists instead of replacing them:
+# soft_block_extra = ["something your site says"]
+# challenge_extra = []
+
+# More words per budgeted kind, for a language or a site's own labels (whole words; CJK inside text).
+# [sites.kinds]
+# like = ["gostei"]
+# follow = ["seguir perfil"]
 
 [gate]
 # Steps only the user can approve, in apprentice's window or menu-bar item; the agent's approve is
@@ -75,14 +95,15 @@ allow = []
 # true: everything goes through the UI. Websites always go through the UI.
 # APPRENTICE_UI_ONLY=1 sets it for one shell.
 ui_only = false
-# The first `session` after apprentice starts opens a little window asking for these options.
-ask_on_start = true
+# true: the first `session` after apprentice starts opens a little window asking for these options.
+ask_on_start = false
 # Sound when apprentice's little window pops up: a system sound name (Ping, Glass, Pop…) or "none".
 ask_sound = "Ping"
 # Keep the display and system from idle sleep and locking while a task runs, and 2 min after (`apprentice awake on|off`).
 keep_awake = false
 # The menu-bar item: α idle, α … working, α ? waiting for you, α ! a step needs approval (its menu approves or denies it).
 menu_bar = true
+# A small always-on-top box: working, handed to you while you move, paused. Close asks, then stops apprentice.
 # Where questions go. "both": the little window first, and if nobody answers within ask_window_s the
 # agent asks in the chat (terminal), so the user can answer remotely. "window" or "terminal" for one only.
 # `apprentice away on` switches to the terminal until `apprentice away off`.

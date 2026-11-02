@@ -11,6 +11,7 @@ macOS reader. Nothing here decides anything: approvals, pacing, budgets and logs
 import base64
 import json
 import os
+import random
 import subprocess
 import sys
 import time
@@ -430,8 +431,28 @@ def fake(kind, code):
     xtest.fake_input(dpy, kind, code)
 
 
+# The host's clock against this one: `at` is the host time an input op was meant for. The first op, or
+# one that arrives well after its time, sets the offset; the rest wait for theirs, so a burst of lines
+# ssh delivered in one read plays at the spacing the host gave it.
+clock = {"offset": None}
+
+
+def wait_for(at):
+    if at is None:
+        return
+    now = time.monotonic()
+    offset = clock["offset"]
+    if offset is None or at + offset < now - 0.25:
+        clock["offset"] = now - at + 0.03
+        return
+    delay = at + offset - now
+    if delay > 0:
+        time.sleep(min(delay, 0.5))
+
+
 def play(req):
     op = req["op"]
+    wait_for(req.get("at"))
     if op == "move":
         xtest.fake_input(dpy, X.MotionNotify, x=int(round(req["x"])), y=int(round(req["y"])))
     elif op in ("down", "up"):
@@ -442,7 +463,11 @@ def play(req):
             button = 7 if req["n"] < 0 else 6
         else:
             button = 5 if req["n"] < 0 else 4
-        for _ in range(abs(int(req["n"]))):
+        for i in range(abs(int(req["n"]))):
+            if i:
+                # Notches of one turn a few ms apart, as a wheel's detents come, not in one instant.
+                dpy.flush()
+                time.sleep(random.uniform(0.012, 0.035))
             fake(X.ButtonPress, button)
             fake(X.ButtonRelease, button)
     elif op == "key":

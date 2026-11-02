@@ -189,6 +189,8 @@ struct Session: Codable {
         return Session.webHandlers.contains(bundle) || Config.current.browsers.contains(bundle)
     }
 
+    static func handlesWeb(_ bundle: String) -> Bool { webHandlers.contains(bundle) || Config.current.browsers.contains(bundle) }
+
     /// Every installed app that can open https links, so any browser counts without a fixed list.
     private static let webHandlers: Set<String> = {
         guard let probe = URL(string: "https://example.com") else { return [] }
@@ -290,6 +292,21 @@ struct Limits: Codable {
     /// Web actions in the current burst, and how many the burst may hold before a rest.
     var burst: Int?
     var burstAt: Int?
+    /// Each site's current sitting and any break it is on (`session_max_min`), shared by every VM's daemon.
+    var sittings: [String: Sitting]?
+    /// Actions per site today (`actions_per_day`).
+    var days: [String: DayCount]?
+
+    struct Sitting: Codable {
+        var start: Double
+        var last: Double
+        var breakUntil: Double
+    }
+
+    struct DayCount: Codable {
+        var day: String
+        var count: Int
+    }
 
     struct Cooling: Codable {
         var until: Double
@@ -367,12 +384,55 @@ struct Limits: Codable {
     }
 
     /// Holds actions on a host to its per-minute cap, then waits out the pause between web actions. One load, one save.
+    /// What a person's day allows on a site right now: nil, or why not. Quiet hours, a sitting that has
+    /// run its length (which starts a break), and the daily count (BOT_DETECTION S4). Counts the action.
+    static func sittingRefusal(_ l: inout Limits, host: String, cfg: PaceConfig, now: Double) -> String? {
+        let date = Date(timeIntervalSince1970: now)
+        if cfg.isQuiet(hour: Calendar.current.component(.hour, from: date)) {
+            return "quiet hours: apprentice takes no actions on \(host) between \(Int(cfg.quietFrom)):00 and \(Int(cfg.quietTo) % 24):00 local time ([pace] quiet_hours). Stop here and tell the user; reading still works"
+        }
+        var sittings = l.sittings ?? [:]
+        var s = sittings[host] ?? Sitting(start: now, last: 0, breakUntil: 0)
+        if s.breakUntil > now {
+            return "break: \(host) is resting until \(Site.time(s.breakUntil)) after a long sitting ([pace] session_max_min). Do other work or tell the user"
+        }
+        // A pause as long as the shortest break is a break already: a new sitting starts.
+        if s.last == 0 || now - s.last >= cfg.breakMin * 60 { s.start = now }
+        if cfg.sittingMax > 0, now - s.start >= cfg.sittingMax * 60 {
+            s.breakUntil = now + Rand.uniform(cfg.breakMin...cfg.breakMax) * 60
+            s.start = s.breakUntil
+            sittings[host] = s
+            l.sittings = sittings
+            return "break: \(host) has been used for \(Int(cfg.sittingMax)) min in one sitting, so apprentice rests it until \(Site.time(s.breakUntil)) ([pace] session_max_min). Do other work or tell the user"
+        }
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        let today = f.string(from: date)
+        var days = l.days ?? [:]
+        var d = days[host].flatMap { $0.day == today ? $0 : nil } ?? DayCount(day: today, count: 0)
+        if cfg.actionsPerDay > 0, Double(d.count) >= cfg.actionsPerDay {
+            return "daily cap: \(d.count) actions on \(host) today ([pace] actions_per_day = \(Int(cfg.actionsPerDay))). Stop here and tell the user; it resets at midnight"
+        }
+        d.count += 1
+        days[host] = d
+        l.days = days
+        s.last = now
+        sittings[host] = s
+        l.sittings = sittings
+        return nil
+    }
+
     static func beforeAction(host: String?, web: Bool) throws {
         guard web || !(host ?? "").isEmpty else { return }
         let cfg = Config.current.pace
-        let waits = update { l -> (gap: Double, rest: Double) in
+        let waits = update { l -> (gap: Double, rest: Double, refusal: String?) in
         let now = Date().timeIntervalSince1970
         var gapWait = 0.0, restWait = 0.0, minuteWait = 0.0
+        if let host, !host.isEmpty, let refusal = sittingRefusal(&l, host: host, cfg: cfg, now: now) {
+            Events.add(host, "pace", ["reason": String(refusal.prefix(while: { $0 != ":" }))])
+            // Thrown after the file is written, so a break that starts here holds for every daemon.
+            return (0, 0, refusal)
+        }
         if let host, !host.isEmpty {
             var times = (l.acts[host] ?? []).filter { now - $0 < 60 }.sorted()
             // At the cap, wait (under a minute) until the oldest action leaves the window rather than
@@ -404,10 +464,12 @@ struct Limits: Codable {
             }
             l.lastAction = now + max(gapWait, minuteWait) + restWait
         }
-        return (max(gapWait, minuteWait), restWait)
+        return (max(gapWait, minuteWait), restWait, nil)
         }
+        if let refusal = waits.refusal { throw Fail(4, refusal) }
         if waits.gap + waits.rest > 0 { Timing.measure("gap") { Pace.sleep(waits.gap + waits.rest) } }
     }
+
 }
 
 enum Gate {

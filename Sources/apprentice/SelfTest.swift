@@ -97,8 +97,28 @@ enum SelfTest {
         check(PaceConfig(["style": "\"nonsense\""]).fidget == PaceConfig().fidget, "an unknown style changes nothing")
         let feed = PaceConfig(["browse": "0.9", "browse_s": "[500, 5]"])
         check(feed.browseShare <= 0.2 && feed.browseMin <= feed.browseMax && feed.browseMax <= 120, "browse share and length are clamped and ordered")
-        check(PaceConfig().browseShare == 0 && PaceConfig(["style": "\"careful\""]).browseShare == 0, "auto-browse is off unless a site turns it on")
+        check(PaceConfig().browseShare == 0 && PaceConfig(["style": "\"steady\""]).browseShare == 0 && PaceConfig(["style": "\"careful\""]).browseShare > 0,
+              "auto-browse is off unless a site turns it on or it is careful")
         check(PaceConfig(["fidget": "0.9", "overshoot": "2"]).fidget <= 0.5 && PaceConfig(["overshoot": "2"]).overshoot <= 1, "fidget and overshoot are clamped")
+        let day = PaceConfig(["quiet_hours": "[22, 6]", "session_max_min": "30", "break_min": "[40, 10]"])
+        check(day.isQuiet(hour: 23) && day.isQuiet(hour: 2) && !day.isQuiet(hour: 6) && !day.isQuiet(hour: 12), "quiet hours wrap past midnight")
+        check(day.breakMin <= day.breakMax && !PaceConfig(["quiet_hours": "[5, 5]"]).isQuiet(hour: 5) && !PaceConfig().isQuiet(hour: 3),
+              "break ranges are ordered; an empty or missing quiet range is off")
+        check(PaceConfig(["style": "\"careful\""]).sittingMax > 0 && PaceConfig(["style": "\"careful\""]).actionsPerDay > 0
+              && PaceConfig(["style": "\"steady\""]).sittingMax == 0, "careful brings a person's day; steady does not")
+        var sitting = Limits()
+        let start = Date().timeIntervalSince1970
+        var cfg = PaceConfig()
+        (cfg.sittingMax, cfg.breakMin, cfg.breakMax, cfg.actionsPerDay) = (30, 10, 10, 8)
+        check(stride(from: 0, through: 25, by: 5).allSatisfy { Limits.sittingRefusal(&sitting, host: "example.com", cfg: cfg, now: start + Double($0) * 60) == nil },
+              "a sitting under its length goes on")
+        check(Limits.sittingRefusal(&sitting, host: "example.com", cfg: cfg, now: start + 31 * 60)?.hasPrefix("break") == true
+              && Limits.sittingRefusal(&sitting, host: "example.com", cfg: cfg, now: start + 35 * 60)?.hasPrefix("break") == true,
+              "a long sitting starts a break that holds")
+        check(Limits.sittingRefusal(&sitting, host: "example.com", cfg: cfg, now: start + 42 * 60) == nil
+              && Limits.sittingRefusal(&sitting, host: "example.com", cfg: cfg, now: start + 43 * 60) == nil
+              && Limits.sittingRefusal(&sitting, host: "example.com", cfg: cfg, now: start + 44 * 60)?.hasPrefix("daily cap") == true,
+              "after the break work goes on, up to the daily cap")
         let fastest = PaceConfig(["style": "\"fastest\""])
         check(fastest.moveMax < PaceConfig().moveMax && fastest.navGap == PaceConfig().navGap, "a fast style never loosens the navigation gap")
 
@@ -115,6 +135,15 @@ enum SelfTest {
         }
         check(inRange && sawBoth.0 && sawBoth.1, "draws stay in range and reach both ends")
         check((0..<200).allSatisfy { _ in Rand.weighted([("a", 1.0), ("b", 0)]) == "a" }, "a zero weight is never picked")
+        let base = PaceConfig()
+        let long = (0..<200).map { _ in Mouse.duration(2, base) }
+        check(long.allSatisfy { $0 > base.moveMax && $0 <= base.moveMax * 2.5 } && Set(long).count > 150 && Mouse.duration(0.001, base) == base.moveMin,
+              "long moves pass the cap without piling up on it; short ones keep the floor")
+        let wild = Hand(speed: 9, side: -1, hold: .nan, holdSigma: 0, rhythm: 1, rollover: 2, click: 1).bounded
+        check(wild.speed <= 1.4 && wild.side >= 0.2 && wild.hold >= 0.05 && wild.rollover <= 0.6 && wild.click <= 0.16, "a hand from a bad file is bounded")
+        check((0..<500).allSatisfy { _ in (0.035...0.25).contains(Pace.keyHold("a")) && (0.035...0.9).contains(Pace.keyGap(after: "a", before: "k")) },
+              "key holds and gaps stay in range")
+        check(Keys.tag != 0x646B_6374 && Keys.tag > 0, "the event tag is drawn, not the old constant")
         check(Mouse.Speed.allCases.allSatisfy { abs(Mouse.progress($0, 1, skew: 0.8) - 1) < 1e-9 && abs(Mouse.progress($0, 0, skew: 0.8)) < 1e-9 },
               "every speed profile starts at the start and ends on the target")
         Rand.seed(UInt64.random(in: .min ... .max))
@@ -286,6 +315,20 @@ enum SelfTest {
         check(Budgets.kind("button \"Archive\"", gated: true) == "default" && Budgets.kind("link \"Home\"", gated: false) == nil,
               "any other gated action counts as default, an ungated one not at all")
         check(Budgets.plural("friend_request") == "friend requests" && Budgets.plural("default") == "gated actions", "plurals")
+        check(Budgets.kind("button \"Gefällt mir\"", gated: false) == "like" && Budgets.kind("button \"J'aime\"", gated: false) == "like",
+              "a like in German or French is a like")
+        check(Budgets.kind("button \"いいね！\"", gated: false) == "like" && Budgets.kind("button \"关注\"", gated: false) == "follow",
+              "Japanese and Chinese words match without spaces")
+        check(Budgets.kind("button \"Nicht mehr folgen\"", gated: false) == "unfollow" && Budgets.kind("button \"Dejar de seguir\"", gated: false) == "unfollow",
+              "a localized unfollow is not a follow")
+        // A sparse page reached by navigation that says it is throttling cools the site; a long one that mentions it does not.
+        let old = Snapshot(snap: 1, scope: "web", url: "https://example.com/a", title: "a", total: 0, elements: [])
+        let block = Snapshot(snap: 2, scope: "web", url: "https://example.com/b", title: "Bitte später erneut versuchen", total: 0, elements: [])
+        var long = block
+        long.elements = (0..<80).map { Element(id: $0, path: [$0], label: "text", name: "post \($0)", value: nil, frame: [0, 0, 1, 1], offscreen: false, gated: false) }
+        check(Site.softBlock("open", old, block) == "später erneut" && Site.softBlock("open", old, long) == nil,
+              "a sparse block page after open is a soft block; a long page that mentions one is not")
+        check(Site.softBlock("scroll", old, block) == nil, "scrolling a feed never cools a site")
     }
 
     /// Caps from budgets.json, counted across aliases, in this run's temporary settings.

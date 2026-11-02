@@ -47,6 +47,11 @@ The important split is **who can see a signal**:
 | A28 | Guest `/tmp/apprentice-session.env` and `/etc/environment` name the rig | guest app | Medium for guest apps | confirmed |
 | A29 | Xvfb exposes only the XTEST fake input devices | guest app | Medium | likely |
 | A30 | Accessibility forced on at the session bus; launched apps inherit the helper’s environment | guest app | Low–Medium | likely |
+| A31 | `movementX`/`movementY` may stay zero while the pointer moves (no delta fields set) | page | Medium if confirmed | unverified |
+| A32 | Wheel arrives as integer line ticks only | page | Low–Medium | likely |
+| A33 | One image on the wire: identical JA4/HTTP-2/TCP, from a hosting ASN | server | Medium–High | confirmed |
+| A34 | Mac timezone and locale pushed into a guest with its own egress | server | Medium for remote VMs | confirmed |
+| A35 | Two-package font set: DejaVu and Noto Colour Emoji only | page | Medium | confirmed |
 
 The rest of this document explains each item, what a detector can actually observe, and what can be done about it without adding fingerprint spoofing (a project non-goal).
 
@@ -58,7 +63,16 @@ Every known way a page, a server, a native app or the VM can tell apprentice fro
 
 **Added:** `43591b2` (2026-11-02).
 
-The top-findings table numbers its own rows A1–A30; the section IDs below are per-section (P, S, A, V, D). Rows A10–A20 alias section items — A10 = P10, A11 = S6, A12 = S6, A13 = V4, A14 = S4, A15 = S8/V6, A16 = S3/D1, A17 = P9, A18 = A5, A19 = V3, A20 = P13 — and A21–A30 are new: A21 = P16, A22 = P17, A23 = P18, A24 = S10, A25 = §3 A10, A26 = §3 A11, A27 = §3 A12, A28 = V9, A29 = V10, A30 = V11. Ticking the section item covers the alias.
+The top-findings table numbers its own rows A1–A35; the section IDs below are per-section (P, S, A, V, D). Rows A10–A20 alias section items — A10 = P10, A11 = S6, A12 = S6, A13 = V4, A14 = S4, A15 = S8/V6, A16 = S3/D1, A17 = P9, A18 = A5, A19 = V3, A20 = P13 — and A21–A35 are new: A21 = P16, A22 = P17, A23 = P18, A24 = S10, A25 = §3 A10, A26 = §3 A11, A27 = §3 A12, A28 = V9, A29 = V10, A30 = V11, A31 = P19, A32 = P20, A33 = S11, A34 = S12, A35 = V12. Ticking the section item covers the alias.
+
+### Status after the 2026-11-02 changes
+
+Each item below was re-checked against the code before changing it. Nothing is ticked: a box is ticked only after a canary run shows the signal gone (`agent/canary.html`, priority fixes 14 and 17), and none has been run yet.
+
+- **Changed in code, awaiting the canary:** P1 (per-key holds around a persistent hand, hand-alternation gaps, rollover on quick pairs, `--pace fast` ignored on web pages), P2 (Option layer and dead keys from the layout; the US table only when the layout cannot be read), P3 (Shift, cmd, option and ctrl as `flagsChanged` keys on the Mac; the VM already pressed `Shift_L`), P4 (no plateau at `move_ms` max, sample rate drawn per stroke), P5 (`hand.json`), P6 (log-normal button hold per hand), P9/P13 (reaction delay after the raise; the raise was already skipped for a frontmost app), P10/S5 (agent docs, and `open` on the same site says to click links and go back), P14 (`steady` on every web page and `careful` on social sites carry fidgets), P16 (characters with no key are pasted, never sent on keycode 0), P18 (an occasional cmd+tab away and back on web pages; `visibilityState` still stays `visible`), P19 (every move carries its deltas), S1 (`steady` for web, `careful` built in for Facebook, Instagram, Threads, TikTok, LinkedIn, X, Reddit, Pinterest, YouTube and Bluesky), S2 (budget words in twelve more languages, CJK matched inside text, `[sites.kinds]`), S3/D1 (localized soft-block and challenge lists, `_extra` lists), D2 (a sparse page after navigation and its title are read too), D3 (an in-place page swap resets the dwell), S4 (`quiet_hours`, `session_max_min` with `break_min`, `actions_per_day`, on in `careful`), S12 (a `doctor` warning for a remote VM), A1 (the tag is drawn per daemon run), A3 (web accessibility only on browsers and apps that bundle Chromium or Electron), V4 (input ops carry a host timestamp the helper plays at; wheel notches spaced), V9 (session env file is `600`).
+- **Already fixed before this pass (the item's text was stale):** P7 (drag already used the curved stroke with a drawn shape and speed profile and a variable hold), P9 in part (`Target.raise` already returned early for a frontmost app), P17 in part (`key cmd+[` and `key cmd+r` already gave a back and a reload path; what was missing was guidance).
+- **Left as they are on purpose:** P8/P20 (a notched wheel mouse sends line ticks too; measure on the canary before changing), P6's clicks during the settle and P4's genuine miss-clicks (a miss can click something else), A10 (keep-awake is opt-in and already named plainly), V5 (spare keycodes stay mapped per character, bounded), and every item marked **accepted** (P15, S6–S9, S11, A2, A4, A7, A8, A12, V1, V3, V6–V8, V10–V12): they are device identity or the tool's own footprint, and the fix would be spoofing.
+- **Deferred to `TODO.md`:** P11 (Tab between fields), P12 (a real IME composition path), S10 (a consent step), A5 (a smaller re-read), A11 (`UNUserNotificationCenter` needs an app bundle, which the CLI binary is not), P17's new tab per site.
 
 ### Page JavaScript
 
@@ -68,7 +82,7 @@ The top-findings table numbers its own rows A1–A30; the section IDs below are 
 - [ ] **P4 · Mouse paths** — High. Bézier curves from five fixed families, Fitts durations clamped at the 200 ms default (long moves all hit the cap), ~120 samples/s, one-sided bend, always lands on target. Fix: more shape families, jittered sample interval, no duration plateau at the cap, occasional genuine miss-and-correct.
 - [ ] **P5 · Per-daemon hand** — Medium–High. Speed (0.85–1.2×) and bend side are redrawn on every daemon start, so the “person” changes after an update or restart. Fix: persist the hand and timing draws per account in `~/.apprentice`.
 - [ ] **P6 · Click geometry and timing** — Low–Medium. Clicks cluster near the element centre with a 60–140 ms hold, always after a full stop, never during motion, never a miss. Fix: wider geometry and hold spread, some clicks during the settle.
-- [ ] **P7 · Linear drag** — High for drag challenges. Button down, 120 ms pause, constant 12 ms steps on a straight line, no tremor, no easing, button up. Fix: reuse the stroke generator with easing, jitter and a variable hold.
+- [ ] **P7 · Linear drag** — High for drag challenges. *Stale:* `Mouse.drag` already holds the press 100–220 ms and travels one `stroke` with a drawn shape, speed profile and uneven samples. Left open for the canary.
 - [ ] **P8 · Wheel units and bursts** — Medium. `deltaMode` is line, no momentum or trackpad phase; the VM replays notches with no delay so a flick arrives as one timestamp. Fix: pixel deltas with decaying momentum, occasional phase events, per-notch delays in the guest.
 - [ ] **P9 · Focus raised without a click** — Medium. `focus`/`visibilitychange` with no preceding pointerdown or keydown inside the page, then synthetic input. Fix: prefer an in-window click when the cursor is already there; keep the raise as a fallback and vary it.
 - [ ] **P10 · URL-bar-only navigation** — Medium–High server-side. Every page is a direct visit: no in-site link click, usually no referrer. Fix: make in-site links the default path and `open` the exception (first entry or a deliberate deep link).
@@ -78,8 +92,10 @@ The top-findings table numbers its own rows A1–A30; the section IDs below are 
 - [ ] **P14 · Pointer perfectly still** — Low. `fidget` and `browse` default to 0 and `dwell_s` is 0, so the cursor can sit on one pixel for minutes. Fix: idle micro-motion by default on web sessions.
 - [ ] **P15 · Forced accessibility** — Medium at browser level. No standard page API, but the browser knows the AX tree is forced on permanently. **Accepted** (the tree is how the tool reads the page); scope it to web areas only where possible (A3).
 - [ ] **P16 · Unmappable characters on the “a” key** — Medium. `keyFor` falls back to keycode 0 for characters the layout has no key for, so an emoji or CJK arrives as `key: "€"`, `code: "KeyA"`, keycode 65. Fix: type only what the layout can produce, or take a dead-key/composition path.
-- [ ] **P17 · One tab, history only grows** — Medium. `open` reuses the current tab (`cmd+l`), there is no new-tab, back or reload path, so `history.length` climbs all day, navigation type is always `navigate` and the referrer is always empty. Fix: new tab per site, back within a site, occasional reload.
+- [ ] **P17 · One tab, history only grows** — Medium. `open` reuses the current tab (`cmd+l`), nothing tells the agent to use the back (`key cmd+[`) or reload (`key cmd+r`) paths that do exist, and there is no new-tab path, so `history.length` climbs all day, navigation type is always `navigate` and the referrer is always empty. Fix: new tab per site, back within a site, occasional reload.
 - [ ] **P18 · Never hidden, never blurred** — Medium–High. Each action raises the window and nothing backgrounds the browser, so `visibilityState` stays `visible` and `hasFocus()` stays true for hours, with no `blur` or `visibilitychange`. Fix: leave the tab now and then; don’t raise a window that is already in front.
+- [ ] **P19 · Movement deltas may be zero** — Medium if confirmed, unverified. No event ever sets a delta field, so the page may see coordinates advance while `movementX`/`movementY` stay 0. Measure on the canary first; if it is zero, set `kCGMouseEventDeltaX/Y` from consecutive samples.
+- [ ] **P20 · Line-mode wheel ticks** — Low–Medium. `units: .line` in one-to-three-notch bursts with no sub-line deltas. Measure `deltaMode` on the canary before changing anything.
 
 ### Server
 
@@ -93,6 +109,8 @@ The top-findings table numbers its own rows A1–A30; the section IDs below are 
 - [ ] **S8 · Identical fingerprints across VMs** — High for multi-account. Same image means same browser build, screen, fonts, CPU/memory and timezone offset. **Accepted for out-of-scope multi-account**; do not add fingerprint spoofing.
 - [ ] **S9 · `Sec-CH-UA` platform mismatch** — Medium. A real Chromium TLS/HTTP fingerprint that declares Linux while the account’s history is macOS. Part of S6; no spoofing.
 - [ ] **S10 · No consent/cookie step** — Low. Nothing handles a consent wall, so it is left standing for the session or hit blind on the first snapshot; a site that keys on consent state sees a visitor who never accepts. Fix: a first-class consent step with dwell and a remembered choice.
+- [ ] **S11 · One image on the wire** — Medium–High. Every VM of the image sends the same JA4, HTTP/2 SETTINGS and pseudo-header order from a hosting ASN. Part of S8; no spoofing, and keep high-value accounts on the Mac.
+- [ ] **S12 · Pushed zone over the VM’s egress** — Medium for remote VMs. Mac timezone and locale in a guest that egresses elsewhere is a VPN-style mismatch. Fix: derive both from the egress, or keep the VM local.
 
 ### Native app / OS (macOS)
 
@@ -122,6 +140,7 @@ The top-findings table numbers its own rows A1–A30; the section IDs below are 
 - [ ] **V9 · Guest env files name the rig** — Medium for guest apps. `/tmp/apprentice-session.env` is world-readable and `/etc/environment` carries `DISPLAY=:0` and `QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1`. Fix: `chmod 600`, keep tool names out of global environment files.
 - [ ] **V10 · Only XTEST fake input devices** — Medium, **accepted**. Xvfb has no pointer or keyboard hardware, so every event is visibly XTEST. Fix: none; do not document VM input as indistinguishable.
 - [ ] **V11 · Accessibility forced at the session bus, helper env inherited by launched apps** — Low–Medium. `IsEnabled=true` is set on the bus and `QT_LINUX_ACCESSIBILITY_ALWAYS_ON` reaches every app started from a session. Fix: launch apps with a clean environment; force a11y for Chromium only.
+- [ ] **V12 · Two-package font set** — Medium. DejaVu and Noto Colour Emoji only, so `fonts`, `font_preferences` and `emoji` hashes are a container signature. No honest fix; document it.
 
 ### Detection-response gaps (no signal, but they make the next one worse)
 
@@ -311,6 +330,26 @@ Evidence: `Sources/apprentice/Input.swift:504-505` (`t.raise()` before every bod
 
 Severity Medium–High. Fix: leave the page now and then (a second tab and back), and do not raise a window that is already frontmost (priority fix 15).
 
+### P19. `movementX`/`movementY` may be zero while the pointer moves — unverified, Medium if confirmed
+
+Every posted pointer event carries a cursor position and nothing else: no code in the source sets a delta field. `MouseEvent.movementX` is meant to report the change since the previous move, but browsers compute it from platform deltas and in units of their own choosing, so whether a page sees `0` or the true delta depends on how this macOS Chromium translates the event, not on the specification. If it is zero, the page holds two accounts of one displacement that disagree — a listed check, and one that costs a detector a single listener. Do not “fix” it before measuring: add `movementX`/`movementY` to the canary page and read the values.
+
+Evidence: `Sources/apprentice/Input.swift:373-377` (`post` sets only `mouseCursorPosition`); no `mouseEventDelta` assignment anywhere in `Sources/`.
+
+Sources: [2] (`pointer-movement-delta-coherence`), [13], [3].
+
+Severity Medium if confirmed, currently unverified. If the page does see zeros, the fix is to set `kCGMouseEventDeltaX/Y` from the difference between consecutive samples.
+
+### P20. Wheel input is integer line ticks — Low–Medium
+
+`Wheel.notch` posts a scroll event in line units in one-to-three-notch bursts, and `scroll` multiplies the requested count by three. `WheelEvent.deltaMode` therefore reports line units with small integer deltas and no sub-line values, which is not the shape a precision device produces on macOS. How this Chrome build maps a line-unit `CGEvent` on macOS is the open question, so this is a canary item rather than a certain tell — do not “fix” it before measuring it.
+
+Evidence: `Sources/apprentice/Fidget.swift:11-16`, `:19-30`; `Sources/apprentice/Commands.swift:921`.
+
+Sources: [10], [2].
+
+Severity Low–Medium, confidence likely.
+
 ---
 
 ## 2. What a server can infer
@@ -403,6 +442,26 @@ Nothing in the code knows what a cookie/consent banner is: the only page-state c
 Evidence: `Sources/apprentice/SiteRules.swift:50-67` (challenge and soft-block checks, nothing else); no `consent`/`cookie`/`gdpr` handling in `Sources/apprentice/`.
 
 Severity Low, confidence likely. Fix: treat a consent wall as a first-class step with its own dwell, and let the user set the preference once per site.
+
+### S11. One image on the wire: identical JA4, HTTP/2 and TCP, from a hosting ASN — Medium–High
+
+The browser is real Chrome, so the TLS and HTTP/2 fingerprints are a real Chrome fingerprint — good, and already noted in S9. The problem is that they are *one* Chrome: every VM of the same image sends the same JA4 hash (it groups by version and platform), the same HTTP/2 SETTINGS values, window sizes and pseudo-header order, and the same TCP/IP parameters. On top of that sits the one signal no browser realism fixes: an address with hosting/ASN metadata is scored on its own, and it is what makes a cluster of identical fingerprints look like one machine. This is S8 seen from the wire rather than from the canvas.
+
+Evidence: `agent/vm/provision.sh` (one apt package set, one image), `agent/vm/session.sh:28-32` (one Chromium invocation); no proxy or egress control in `Sources/` or `agent/`.
+
+Sources: [5] (JA4 grouping), [6] (HTTP/2 fingerprint fields), [9] (TTL and window size), [3] (datacenter flag), [4] (38% of the top 10K blocked by Cloudflare, 26% by Akamai, mostly on infrastructure signals).
+
+Severity Medium–High. No fix short of not using a datacenter address; keep the accounts that matter on the Mac.
+
+### S12. The timezone and locale are the Mac’s, the egress is the VM’s — Medium for remote VMs
+
+`VM.install` copies the Mac’s time zone and language into the guest. Where the guest egresses through a remote host, the IP geolocation disagrees with `Intl.DateTimeFormat().resolvedOptions().timeZone` and with `Accept-Language` — the same comparison commercial systems use for VPN detection, and one of the cheapest cross-checks available. A local VM behind the Mac’s own connection has no mismatch; a rented one usually does.
+
+Evidence: `Sources/apprentice/VM.swift:414-418`.
+
+Sources: [3] (timezone-versus-IP VPN detection), [4].
+
+Severity Medium for remote VMs, none for a local one. Fix: derive zone and locale from the egress, or keep the VM on the Mac’s connection.
 
 ---
 
@@ -588,6 +647,16 @@ Evidence: `agent/vm/session.sh:16-20`; `agent/vm/helper.py:36`; `agent/vm/helper
 
 Severity Low–Medium. Fix: launch apps with a clean environment, and force accessibility for Chromium only rather than for the whole session bus.
 
+### V12. The font set is two Debian packages — Medium
+
+The image installs `fonts-dejavu-core` and `fonts-noto-color-emoji` and nothing else, so font enumeration, `font_preferences` width measurements and emoji box metrics all come back as a minimal Linux container: DejaVu for text, Noto for emoji, and none of the Arial/Helvetica/Times families a Mac or Windows visitor has. Fingerprinting agents hash precisely these attributes, and a two-family result is as distinctive as a wrong platform string.
+
+Evidence: `agent/vm/provision.sh:19`; `agent/vm/session.sh:28-29` (`--lang`, `--accept-lang`).
+
+Sources: [3] (`fonts`, `font_preferences`, `emoji` attributes), [12], [4].
+
+Severity Medium. Fix: none honest — installing more fonts makes a better Linux, not a Mac. Document it as part of the second-device story.
+
 ---
 
 ## 5. Detection-response gaps
@@ -634,8 +703,8 @@ Same as S4. A site can see a dense block at an unusual hour or a session that ne
 
 These are genuine advantages; do not “improve” them into spoofing.
 
-- **No WebDriver, CDP or injected script.** `navigator.webdriver` is false. There is no remote-debugging port, no extension, no page script. This avoids the largest browser-automation fingerprint family.
-- **Trusted events.** Every event goes through `.cghidEventTap` on the Mac, so `event.isTrusted` is true and the browser generates the full pointer sequence. In the VM, XTest injects at the X server, so X clients see normal core events.
+- **No WebDriver, CDP or injected script.** `navigator.webdriver` is false. There is no remote-debugging port, no extension, no page script. This avoids the largest browser-automation fingerprint family: CDP attachment is a documented detection vector in its own right [7][8], and apprentice touches none of it.
+- **Trusted events.** Every event goes through `.cghidEventTap` on the Mac, so `event.isTrusted` is true and the browser generates the full pointer sequence. In the VM, XTest injects at the X server, so X clients see normal core events. Worth keeping honest about: `isTrusted` is not a provenance check at all — detectors treat it as a debunked row [2] — so this helps only against naive checks, and the real tells are in P19–P20.
 - **Real browser profile on the Mac.** The session uses the user’s normal Safari/Chrome with their cookies, extensions, history and logins. That is the strongest defence on this Mac.
 - **Real keycodes for normal text.** Keys come from the current layout, with Shift for capitals; normal prose produces the right `key`/`code`/`shiftKey`. The exceptions are P2/P3.
 - **Paste stays out of pages.** The clipboard is used only in the address bar and system dialogs.
@@ -668,6 +737,7 @@ Ordered by expected reduction in detection risk per unit of work. These are sugg
 14. **Build a canary page.** Add a local HTML page (or a `doctor --fingerprint` command) that prints `navigator.webdriver`, UA/CH, platform, languages, screen/DPR, hardware, WebGL/WebGPU, canvas/audio hashes, focus events, and the timing/overlap of pointer, key and wheel events. Run it in a Mac session and a VM session and compare before/after changes. This is the only way to know which of the “likely” items above are real in the current browser build.
 15. **Vary the foreground and the tab.** Open a second tab now and then and come back; leave the page rather than sitting on it; do not raise a window that is already frontmost; reload occasionally (P17/P18).
 16. **Tidy the guest environment and give the app its own identity.** `chmod 600` the session env file, keep tool-specific variables out of `/etc/environment`, launch guest apps with a clean environment, and post notifications through `UNUserNotificationCenter` (A11, V9, V11).
+17. **Measure the two cheap page checks before changing anything.** `movementX` and `deltaMode` are one listener each on the canary page. Confirm the values in this Chrome build, then fix only what is actually wrong (P19–P20).
 
 ---
 
@@ -708,6 +778,11 @@ Ordered by expected reduction in detection risk per unit of work. These are sugg
 | Guest env files name the rig | no | no | yes (guest app) | V9 |
 | Only XTEST input devices | no | no | yes (guest X app) | V10 |
 | A11y forced on the guest session bus | no | no | yes (guest app) | V11 |
+| `movementX/Y` possibly zero while coordinates change | **maybe** | no | yes | P19; delta-coherence check; measure first |
+| Wheel in line units, integer deltas | **yes** | no | no | P20 |
+| Identical JA4/HTTP-2/TCP from a hosting ASN | no | **yes** | no | S11 |
+| Mac zone and locale, VM egress | no | **yes** | no | S12 |
+| Two-package font set | **yes** | maybe | no | V12 |
 
 ---
 
@@ -720,3 +795,45 @@ The app-level surface is the opposite: macOS makes synthetic input easy to ident
 On the VM, the browser is real Chromium but the device is not the user’s: Linux, software WebGL, fixed 1280×800, DPR 1, few fonts, no battery/camera/audio, a new profile per site, and (for a remote VM) a datacenter IP. Treat it as a second device and keep the accounts whose standing matters most on the Mac.
 
 The highest-value work is therefore: safer defaults (S1), label-independent budgets and detection (S2/S3/D1), persistent behavioural profiles (P5), better keystroke and drag models (P1/P7), and honest documentation of the app-level provenance limit (A1/A2). Two cheap behavioural signals sit beside those and cost almost nothing to fix: the page is never hidden and the tab set never changes (P18/P17), and the local footprint names itself in the power assertions and notifications (A10/A11). Everything else is refinement.
+
+---
+
+## 10. Where each finding is documented externally
+
+The sections above are written from the code. This table says which public source describes the same measurement, so a claim can be checked against something other than this document.
+
+| Finding | What the source establishes | Source |
+| --- | --- | --- |
+| P1, A4 | Dwell and flight time are the two features keystroke detectors use | [2], [11] |
+| P4, P5 | Pointer path geometry and kinematics are scored as a movement model | [2] |
+| P19 | Coordinates and movement deltas should agree; a mismatch is a listed check | [2], [13] |
+| P20 | `deltaMode` distinguishes line, pixel and page deltas | [10] |
+| P8, V4 | Batching of hardware reports into one dispatched event | [1], [2] |
+| P16, P2, P3 | Consistency of the reported browser surface is what “lie” checks look for | [12] |
+| P10, P17, P18, S4 | Header-level and behavioural signals dominate real block rates | [4] |
+| S8, S11 | JA4, HTTP/2 fields and TCP parameters fingerprint the client stack | [5], [6], [9] |
+| S9, S12, V8 | Timezone/IP and datacenter flags are scored in commercial systems | [3] |
+| A1, A2 | Provenance of posted input is visible outside the page, not to it | [2], [3] |
+| V12 | `fonts`, `font_preferences` and `emoji` are hashed device attributes | [3], [12] |
+| §6, CDP | CDP attachment is detectable through `Runtime.enable` side effects | [7], [8] |
+
+Two cautions about using vendor material. First, it describes what is *measured*, not what is unbeatable: a detector can compute a score and still ignore it, and one that behaves differently for a clean browser is not evidence about this one. Second, several of these sources are vendors arguing for their product; they are cited for the mechanism, not for a claim about accuracy.
+
+---
+
+## 11. References
+
+1. MDN, `PointerEvent.getCoalescedEvents()` — hardware reports batched into one dispatched event. https://developer.mozilla.org/en-US/docs/Web/API/PointerEvent/getCoalescedEvents
+2. Clearcote, “Pointer events arrive on hardware time” (`pointer-event-cadence`), whose sibling checks include `pointer-movement-delta-coherence`, `pointer-kinematics`, `settle-before-press`, `pointer-jump-from-rest`, `keystroke-timing-distribution` and `event-istrusted-provenance`. https://www.clearcotelabs.com/audit/checks/pointer-event-cadence
+3. Fingerprint, “Smart Signals reference” — datacenter and proxy flags, timezone-versus-IP VPN detection, `fonts`/`font_preferences`/`emoji`/canvas/WebGL attributes. https://docs.fingerprint.com/docs/smart-signals-reference
+4. Gundelach, Mühlhauser and Herrmann, “Detecting Bot Detection: Prevalence, Techniques, and Implications for Web Measurement Research” — 46% of 10,000 sites probe JavaScript properties present only in automated browsers; 75% of headless-Chrome blocks come from header-level signals alone; Cloudflare blocks 37% and Akamai 26%. https://arxiv.org/html/2606.14525v1
+5. Cloudflare, “JA3/JA4 fingerprint” — JA4 sorts ClientHello extensions and groups clients by version and platform. https://developers.cloudflare.com/bots/additional-configurations/ja3-ja4-fingerprint/
+6. Shuster et al., “Passive Fingerprinting of HTTP/2 Clients”, Black Hat EU ’17 — SETTINGS, WINDOW_UPDATE, PRIORITY and pseudo-header order as a client fingerprint. https://blackhat.com/docs/eu-17/materials/eu-17-Shuster-Passive-Fingerprinting-Of-HTTP2-Clients-wp.pdf
+7. DataDome, “How New Headless Chrome & the CDP Signal Are Impacting Bot Detection”. https://datadome.co/threat-research/how-new-headless-chrome-the-cdp-signal-are-impacting-bot-detection/
+8. Castle, “Why a classic CDP bot detection signal suddenly stopped working” — the `console.debug` / `Runtime.consoleAPICalled` trigger. https://blog.castle.io/why-a-classic-cdp-bot-detection-signal-suddenly-stopped-working-and-nobody-noticed/
+9. Netresec, “Passive OS Fingerprinting” — initial TTL and TCP window size; with the browserleaks TCP test. https://www.netresec.com/?page=Blog&month=2011-11&post=Passive-OS-Fingerprinting · https://browserleaks.com/tcp
+10. MDN, `WheelEvent.deltaMode` — pixel, line and page units. https://developer.mozilla.org/en-US/docs/Web/API/WheelEvent/deltaMode
+11. “Keystroke Dynamics: Concepts, Techniques, and Applications” — hold (dwell) and flight time as the core features. https://arxiv.org/html/2303.04605v3
+12. CreepJS — consistency and “lie” checks across the browser surface. https://github.com/abrahamjuliot/creepjs
+13. MDN, `MouseEvent.movementX` — defines the value as the change since the previous move, and warns that units differ between browsers and platforms. https://developer.mozilla.org/en-US/docs/Web/API/MouseEvent/movementX
+

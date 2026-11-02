@@ -32,11 +32,17 @@ From a `/simplify` pass on 2026-11-02; the small shared helpers landed, these we
 
 ## Pacing
 
-- Modifier keys are never posted on their own, so a page sees `shiftKey`/`metaKey` with no Shift/Meta keydown first (TODO at the top of `Input.swift`). Needs testing on real hardware and in the VM.
+- Run `agent/canary.html` in a Mac session and a VM session and record the numbers in BOT_DETECTION.md: the new modifier keydowns, rollover, dead keys, movement deltas (P19), wheel `deltaMode` (P20) and the cmd+tab fidget have only run in `selftest`. Tick the boxes the run clears.
+- Tab between form fields where the next field is the obvious one, instead of a click per field (BOT_DETECTION P11).
+- A real IME composition path for CJK locales: today a character no key types is pasted (P12).
+- `open` to a new site could open a new tab now and then (cmd+t), so the tab set changes as a person's does (P17). Needs a cap so tabs do not pile up.
+- A consent-wall step with its own dwell and a remembered choice per site (BOT_DETECTION S10); a playbook may do for the big sites.
+- A smaller re-read after an action whose diff is small, instead of a full walk (BOT_DETECTION A5).
+- Notifications come from `osascript` (A11): `UNUserNotificationCenter` needs apprentice to ship as an app bundle.
 - Try `browse`, fidgets and the new path shapes live, on this Mac and in the VM, and tune the ranges in `Fidget.swift` and `Mouse.stroke` from what they look like (only `selftest` has run them so far).
 - Log the active pace style and profile on each row, so FEATURES.md can tell whether `careful` sites see fewer soft blocks.
 - `run`'s tiny grammar has no `browse` yet.
-- Try `scroll left|right`, `scroll --at` and `drag --by` live on a web map, on this Mac and in the VM (only `selftest` has run them): check the sideways direction is right, and that `Mouse.drag`'s straight 12 ms steps pan smoothly. It may need the curved `Mouse.stroke` path and a short hold before the move.
+- Try `scroll left|right`, `scroll --at` and `drag --by` live on a web map, on this Mac and in the VM (only `selftest` has run them): check the sideways direction is right, and that `Mouse.drag`'s curved stroke pans smoothly.
 - No pinch or trackpad zoom (gesture events). The wheel and `+`/`-` cover web maps, but some apps zoom only by pinch.
 
 ## Install

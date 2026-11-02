@@ -118,11 +118,22 @@ struct PaceConfig {
     var browseShare = 0.0
     var browseMin = 10.0
     var browseMax = 40.0
+    /// Local hours, `[from, to)`, in which apprentice takes no actions on the site; -1 is off.
+    var quietFrom = -1.0
+    var quietTo = -1.0
+    /// Longest sitting on one site, in minutes, before a break of `break_min`; 0 is off. A pause at
+    /// least as long as the shortest break starts a new sitting.
+    var sittingMax = 0.0
+    var breakMin = 15.0
+    var breakMax = 40.0
+    /// Actions on one site in a day, under any budget; 0 is off.
+    var actionsPerDay = 0.0
 
     init() {}
 
     /// `style = "fastest" | "fast" | "steady" | "careful"`: the timing keys at once. `fast` is the
-    /// built-in default; `careful` is the least likely to be taken for a script and the slowest.
+    /// built-in default for native apps, `steady` for web pages, and `careful` for social sites
+    /// (`Config.socialSites`); `careful` is the least likely to be taken for a script and the slowest.
     /// Limits that guard the account (navigation gap, reload cap) are never loosened by a style.
     static func preset(_ name: String, on base: PaceConfig) -> PaceConfig? {
         var p = base
@@ -147,6 +158,11 @@ struct PaceConfig {
             (p.restMin, p.restMax) = (30, 120)
             (p.keyErrorRate, p.overshoot, p.fidget, p.mode) = (0.015, 0.45, 0.25, "human")
             p.actionsPerMin = min(p.actionsPerMin, 6)
+            // A person's day: nothing in the small hours, a break after most of an hour, a few hundred actions at most.
+            (p.quietFrom, p.quietTo, p.sittingMax, p.breakMin, p.breakMax) = (2, 6, 50, 15, 40)
+            // Now and then a spell of reading the feed, as a person mostly reads one.
+            p.browseShare = 0.08
+            p.actionsPerDay = p.actionsPerDay > 0 ? min(p.actionsPerDay, 400) : 400
         default:
             return nil
         }
@@ -194,6 +210,15 @@ struct PaceConfig {
             p.browseMin = a[0]
             p.browseMax = a[1]
         }
+        if let a = values["quiet_hours"].flatMap(Toml.doubles) {
+            (p.quietFrom, p.quietTo) = a.count >= 2 ? (a[0], a[1]) : (-1, -1)
+        }
+        if let v = values["session_max_min"].flatMap(Double.init) { p.sittingMax = v }
+        if let a = values["break_min"].flatMap(Toml.doubles), a.count >= 2 {
+            p.breakMin = a[0]
+            p.breakMax = a[1]
+        }
+        if let v = values["actions_per_day"].flatMap(Double.init) { p.actionsPerDay = v }
         self = p.sanitized()
     }
 
@@ -237,7 +262,22 @@ struct PaceConfig {
         p.browseMin = ok(browseMin, 1, 120, d.browseMin)
         p.browseMax = ok(browseMax, 1, 120, d.browseMax)
         if p.browseMin > p.browseMax { swap(&p.browseMin, &p.browseMax) }
+        // Whole hours of the day; a pair that is off, out of range or empty turns quiet hours off.
+        let hours = (quietFrom.rounded(), quietTo.rounded())
+        if hours.0 >= 0, hours.0 <= 23, hours.1 >= 0, hours.1 <= 24, hours.0 != hours.1 { (p.quietFrom, p.quietTo) = hours } else { (p.quietFrom, p.quietTo) = (-1, -1) }
+        p.sittingMax = ok(sittingMax, 0, 24 * 60, d.sittingMax)
+        p.breakMin = ok(breakMin, 1, 24 * 60, d.breakMin)
+        p.breakMax = ok(breakMax, 1, 24 * 60, d.breakMax)
+        if p.breakMin > p.breakMax { swap(&p.breakMin, &p.breakMax) }
+        p.actionsPerDay = ok(actionsPerDay.rounded(), 0, 100_000, d.actionsPerDay)
         return p
+    }
+
+    /// True when local hour `hour` falls in the quiet hours; a range like 22–6 wraps past midnight.
+    func isQuiet(hour: Int) -> Bool {
+        guard quietFrom >= 0 else { return false }
+        let h = Double(hour)
+        return quietFrom < quietTo ? h >= quietFrom && h < quietTo : h >= quietFrom || h < quietTo
     }
 }
 
@@ -248,7 +288,7 @@ struct Config {
     var allow: [String] = []
     /// When true, macOS tasks go through the UI too; the LLM may not use shell commands for them.
     var uiOnly = false
-    var askOnStart = true
+    var askOnStart = false
     /// The system sound played when the little window pops up; "none" turns it off.
     var askSound = "Ping"
     var keepAwake = false
@@ -268,10 +308,20 @@ struct Config {
     var runKey = ""
     var visionModel = ""
     /// Text a site shows when it throttles the account; seeing one after an action cools the site down.
+    /// English first, then the same messages as the big sites word them in other languages (BOT_DETECTION D1).
     var softBlockPhrases = [
         "try again later", "you're doing that too much", "you are doing that too much", "temporarily restricted",
         "temporarily blocked", "unusual activity", "we limit how often", "rate limit", "too many requests",
         "action blocked", "suspicious activity", "temporarily limited", "over the daily limit",
+        "später erneut", "vorübergehend gesperrt", "vorübergehend eingeschränkt", "ungewöhnliche aktivität", "zu viele anfragen",
+        "réessayer plus tard", "réessayez plus tard", "temporairement bloqué", "temporairement restreint", "activité inhabituelle",
+        "trop de requêtes", "inténtalo más tarde", "vuelve a intentarlo más tarde", "bloqueado temporalmente",
+        "restringido temporalmente", "actividad inusual", "demasiadas solicitudes", "tente novamente mais tarde",
+        "bloqueado temporariamente", "atividade incomum", "riprova più tardi", "temporaneamente bloccato", "attività insolita",
+        "probeer het later opnieuw", "tijdelijk geblokkeerd", "spróbuj ponownie później", "tymczasowo zablokowane",
+        "daha sonra tekrar dene", "geçici olarak engellendi", "повторите попытку позже", "временно заблокирован",
+        "необычная активность", "しばらくしてから", "一時的にブロック", "制限されています", "잠시 후 다시", "일시적으로 차단",
+        "稍后再试", "請稍後再試", "暂时被限制", "操作过于频繁",
     ]
     /// What a soft block does: "stop" cools the site down and refuses actions there until it ends,
     /// "warn" only says so, "off" does not look.
@@ -293,7 +343,19 @@ struct Config {
         "captcha", "verify you are human", "verify you're human", "i'm not a robot", "i am not a robot",
         "are you a robot", "confirm it's you", "confirm it is you", "enter the code", "security check",
         "press and hold", "help us confirm", "your account has been locked", "your account is locked",
+        "bestätige, dass du ein mensch bist", "sicherheitsüberprüfung", "je ne suis pas un robot", "vérifiez que vous êtes humain",
+        "confirmez qu'il s'agit bien de vous", "no soy un robot", "verifica que eres humano", "confirma que eres tú",
+        "não sou um robô", "confirme que é você", "non sono un robot", "conferma che sei tu", "ik ben geen robot",
+        "nie jestem robotem", "robot değilim", "я не робот", "подтвердите, что это вы", "ロボットではありません",
+        "本人確認", "로봇이 아닙니다", "본인 인증", "我不是机器人", "安全验证", "验证身份",
     ]
+    /// More words per budgeted kind, from `[sites.kinds]`: `like = ["gostei"]`.
+    var kindWords: [String: [String]] = [:]
+
+    /// Sites built in at the `careful` style: the social networks, where an account's standing is
+    /// what is at stake. twitter.com counts as x.com (`Site.domain`).
+    static let socialSites = ["facebook.com", "instagram.com", "threads.net", "threads.com", "tiktok.com", "linkedin.com",
+                              "x.com", "reddit.com", "pinterest.com", "youtube.com", "bsky.app"]
 
     static var current = Config.load()
     static var path: URL { Settings.dir.appendingPathComponent("config.toml") }
@@ -351,9 +413,15 @@ struct Config {
         let toml = Toml.load(path)
         if let d = toml["pace.default"] { c.pace = PaceConfig(d) }
         c.defaultPace = c.pace
+        // Built in, under anything the file says: web pages at `steady`, social sites at `careful`
+        // (BOT_DETECTION S1). `[pace.styles] fast = ["web"]` undoes it.
+        var styled: [String: PaceConfig] = [:]
+        if let steady = PaceConfig.preset("steady", on: c.pace) { styled["web"] = steady }
+        if let careful = PaceConfig.preset("careful", on: c.pace) {
+            for site in socialSites { styled[site] = careful }
+        }
         // `[pace.styles] careful = ["linkedin.com", "x.com"]`: a style for each listed site or app.
         // A `[pace."<site>"]` section for the same site starts from that style and lists what differs.
-        var styled: [String: PaceConfig] = [:]
         for (style, raw) in toml["pace.styles"] ?? [:] {
             guard let preset = PaceConfig.preset(style.lowercased(), on: c.pace) else { continue }
             for site in Toml.array(raw) ?? [] where !site.isEmpty { styled[site.lowercased()] = preset }
@@ -369,7 +437,7 @@ struct Config {
             else if let one = s["allow"] { c.allow = parseAllow(Toml.unquote(one)) }
         }
         if let v = toml["agent"]?["ui_only"] { c.uiOnly = Toml.unquote(v) == "true" }
-        if let v = toml["agent"]?["ask_on_start"] { c.askOnStart = Toml.unquote(v) != "false" }
+        if let v = toml["agent"]?["ask_on_start"] { c.askOnStart = Toml.unquote(v) == "true" }
         if let v = toml["agent"]?["ask_sound"] { c.askSound = Toml.unquote(v) }
         if let v = toml["agent"]?["keep_awake"] { c.keepAwake = Toml.unquote(v) == "true" }
         if let v = toml["agent"]?["menu_bar"] { c.menuBar = Toml.unquote(v) != "false" }
@@ -379,6 +447,10 @@ struct Config {
         if let v = toml["agent"]?["browsers"].flatMap(Toml.array) { c.browsers = v }
         if let v = toml["sites"]?["soft_block"].flatMap(Toml.array) { c.softBlockPhrases = v.map { $0.lowercased() } }
         if let v = toml["sites"]?["challenge"].flatMap(Toml.array) { c.challengeMarkers = v.map { $0.lowercased() } }
+        // `_extra` lists add to the built-in ones instead of replacing them.
+        if let v = toml["sites"]?["soft_block_extra"].flatMap(Toml.array) { c.softBlockPhrases += v.map { $0.lowercased() } }
+        if let v = toml["sites"]?["challenge_extra"].flatMap(Toml.array) { c.challengeMarkers += v.map { $0.lowercased() } }
+        for (kind, raw) in toml["sites.kinds"] ?? [:] { c.kindWords[kind.lowercased()] = (Toml.array(raw) ?? []).map { $0.lowercased() } }
         if let v = toml["sites"]?["on_soft_block"].map(Toml.unquote), ["stop", "warn", "off"].contains(v) { c.onSoftBlock = v }
         if let v = toml["sites"]?["cooldown_hours"].flatMap(Toml.doubles), !v.isEmpty { c.cooldownHours = v }
         if let v = toml["sites"]?["on_challenge"].map(Toml.unquote), ["stop", "warn", "off"].contains(v) { c.onChallenge = v }

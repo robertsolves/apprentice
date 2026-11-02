@@ -1,25 +1,14 @@
 # apprentice
 
-> apprentice is a free, open-source (MIT) macOS 14+ CLI and daemon in one Swift binary. It lets a coding agent (Claude Code, Codex, Gemini CLI, opencode, Kilo, Cursor and others) or a hosted model use macOS, Linux and the web like a careful person: it reads one window as a numbered text list through the accessibility tree (no screenshots by default), acts with the real cursor and keyboard at a human pace, and proposes every change for approval.
+apprentice lets a coding agent or a hosted model use macOS, Linux and the web for you the way a careful person would: it reads the screen as text, uses the real cursor and keyboard at human pace, and proposes every change for approval.
 
-apprentice is in beta: bug reports, playbooks for apps and sites, and fixes are welcome at https://github.com/robertsolves/apprentice/issues.
+Install:
 
-Use it at your own risk: it drives the Mac with the real cursor and keyboard, can make mistakes, and comes with no warranty; the user is responsible for what it does on their accounts. Playbooks are shared, so they must never hold personal information.
+```sh
+git clone https://github.com/robertsolves/apprentice.git ~/.apprentice/src && ~/.apprentice/src/install.sh
+```
 
-- Every change is a proposal first; risky steps (send, delete, buy, passwords, settings) go to the user in a small window or the chat.
-- `apprentice phone` sets up push notifications in one tap (a private ntfy topic), so questions reach the user on their phone while they're away.
-- Per-site budgets, cooldowns and allowlists; CAPTCHAs go to the user.
-- Linux apps and browser sessions can run in a small Debian VM under Tart.
-- Out of scope by design: bulk outreach, mass following, scraping at volume, several accounts on one site.
+It needs macOS 14 or later and Swift (Xcode or the command-line tools). Then just ask your agent to do things on your Mac, in a Linux VM, or on the web. Questions reach you in a small window on the Mac, or on your phone once `apprentice phone` is set up.
 
-## Docs
-
-- [Landing page](https://robertsolves.github.io/apprentice/): what it does, what to ask, FAQ, install
-- [README](https://github.com/robertsolves/apprentice#readme): install, usage and configuration
-- [SPEC](https://github.com/robertsolves/apprentice/blob/main/SPEC.md): design, approval gate, site rules, exit codes
-- [Features](https://github.com/robertsolves/apprentice/blob/main/FEATURES.md): feature list
-
-## Optional
-
-- [Source](https://github.com/robertsolves/apprentice): Swift source, agent docs and playbooks
+- [GitHub](https://github.com/robertsolves/apprentice): source and install
 - [Issues](https://github.com/robertsolves/apprentice/issues)

@@ -56,7 +56,7 @@ ok · snap 4 · +2 -0 ~0
 ## How it works
 
 - **It reads text, not pixels.** The macOS accessibility tree becomes a numbered list of what is on screen. A step costs tens of tokens, not a screenshot. `shot` and `ocr` exist for the rare page that hides from accessibility.
-- **It uses real input only.** Every click, scroll and keystroke goes through the system's own input stream with the window in front, and the cursor moves at a human pace along paths that vary every time: different curves and speeds, overshoot and correction, all drawn from one fast random generator. Nothing is injected into pages, and nothing is pressed through accessibility. Addresses and file-dialog paths are pasted, because no website can see those boxes. Text inside pages is typed key by key.
+- **It uses real input only.** Every click, scroll and keystroke goes through the system's own input stream with the window in front, and the cursor moves at a human pace along paths that vary every time: different curves and speeds, overshoot and correction, all drawn from one fast random generator. Nothing is injected into pages, and nothing is pressed through accessibility. Addresses and file-dialog paths are pasted, because no website can see those boxes. Text inside pages is typed key by key, with Shift as a key of its own, keys that overlap as fluent typing does, and dead keys for accents; only a character no key types (an emoji) is pasted. The hand's speed and typing rhythm are kept across restarts, so the person never changes.
 - **It stops for you.** It waits until you have been idle for a moment. If you press a key or click while it is acting, it stops with exit 6 and leaves the cursor where you are. ctrl+opt+cmd+. is a kill switch: nothing more runs until you answer the agent or click Resume in the menu bar.
 - **It proposes, then acts.** Every command that changes something (`open`, `click`, `type`, `key`, `menu`, `drag`, `upload`, `download`, `choose`, `do`) returns `approve? …` and a token, with exit 8. Nothing happens until `apprentice approve <token>`. Steps that look risky carry a `⚠` line: send, post, delete, buy, a password field, a settings page.
 - **It asks you.** For any decision that is yours, it opens a little window at the top of the screen and pings:
@@ -101,7 +101,7 @@ If `kit.sh` can't add its signing identity to your keychain, it signs the binary
 
 `apprentice uninstall` lists everything apprentice installed, and `apprentice uninstall --yes` removes it: the binary, the agent skills and rules sections, the MCP entries, the signing identity, the PATH lines, the VMs and `~/.apprentice`. Your clone stays, since it holds your commits and playbooks; `--all` removes it too.
 
-The first `session` after the daemon starts opens an options window:
+With `[agent] ask_on_start = true`, the first `session` after the daemon starts opens an options window (off by default, so nothing stands between install and the first task):
 - **UI only:** no shell commands for macOS tasks;
 - **Keep the Mac awake** while a task runs;
 - **Allowed sites**, as a list;
@@ -161,7 +161,7 @@ Settings are `config.toml` (see `agent/config.example.toml`), `routes.toml` and 
 
 `config.toml` has:
 
-- **`[pace.*]`:** mouse, typing and navigation timing, with profiles per site or app. `style` sets them all at once: `fastest`, `fast` (the default), `steady`, or `careful`, the slowest and least scripted. `[pace.styles]` assigns a style to each site or app, e.g. `careful = ["linkedin.com", "x.com"]`. `overshoot` and `fidget` tune how often the cursor passes its target and how often a harmless gesture (a glance, reading a few lines, a scroll and back) follows an action; `browse` and `browse_s` make a site now and then read down its feed for a while and scroll back. All are off until a site or style turns them on.
+- **`[pace.*]`:** mouse, typing and navigation timing, with profiles per site or app. `style` sets them all at once: `fastest`, `fast` (the default in native apps), `steady` (the default on web pages), or `careful`, the slowest and least scripted, which is built in for Facebook, Instagram, Threads, TikTok, LinkedIn, X, Reddit, Pinterest, YouTube and Bluesky and also keeps quiet hours (2–6), takes a break after 50 minutes on a site and stops at 400 actions a day. `[pace.styles]` assigns a style to each site or app and wins over the built-in ones, e.g. `fast = ["web"]`. `overshoot` and `fidget` tune how often the cursor passes its target and how often a harmless gesture (a glance, reading a few lines, a scroll and back) follows an action; `browse` and `browse_s` make a site now and then read down its feed for a while and scroll back. `steady` and `careful` turn them on.
 - **`[session] allow`:** the sites a session may act on.
 - **`[agent]`:**
   - `ui_only` turns off shell commands for macOS tasks;
@@ -178,7 +178,7 @@ Site rules ship as defaults and live in your own files:
 - `budgets.json` caps each kind of action per site, per hour and per day, with a minimum gap. Only the caps in it apply; it starts with conservative ones for LinkedIn, X, Reddit, Instagram, Facebook and TikTok, well below shadow-ban levels.
 - `[sites]` in `config.toml` says what a rate-limit message or a CAPTCHA does: `on_soft_block` and `on_challenge` are `stop` (the default), `warn` or `off`, and `cooldown_hours` sets the waits. apprentice never completes a CAPTCHA.
 - `[gate] user_only` lists steps only you can approve, in apprentice's window or menu-bar item: payments, checkout, donations, transfers, CAPTCHAs, closing an account. Password fields always are.
-- `[pace.styles]` puts LinkedIn, X and Reddit on the `careful` style (dwell, bursts, rests, fidgets), with `[pace."<site>"]` sections for what differs.
+- `[pace.styles]` lists the social sites on the `careful` style (dwell, bursts, rests, fidgets, quiet hours, breaks), with `[pace."<site>"]` sections for what differs.
 - `[policy."<site>"]` in `routes.toml` is your note on a site's terms (link, date checked, official API). It never refuses a site: apprentice works on any site.
 
 The counts behind budgets and cooldowns are kept in `~/.apprentice/limits.json`, shared by every session and VM. `apprentice budget` shows what is left.

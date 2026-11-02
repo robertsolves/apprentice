@@ -188,7 +188,7 @@ func finish(_ command: String, _ session: Session, _ target: Target, _ old: Snap
             extra: [String] = [], log fields: [String: Any] = [:]) throws -> String {
     // Once per command, after every step of it, so a fidget never moves the page between steps.
     if let plan = Fidget.plan(after: command, web: target.url != nil) {
-        _ = try? Borrow.run(target) { Fidget.perform(plan, in: target.bounds, web: target.url != nil) }
+        _ = try? Borrow.run(target) { Fidget.perform(plan, in: target.bounds, web: target.url != nil, refocus: target.raise) }
     }
     let new = Timing.measure("settle") { settle(target) }
     return try finish(command, session, url: target.url, old, new, extra: extra, log: fields)
@@ -201,6 +201,12 @@ func finish(_ command: String, _ session: Session, url: String?, _ old: Snapshot
     Commands.reserved = nil
     var session = session
     let new = keepIds(old, new)
+    // A page that swaps most of its content without a new address (a single-page app's route) is a new
+    // page to read: the dwell before a like or follow counts from here (BOT_DETECTION D3).
+    if let old, old.url == new.url, new.url != nil {
+        let before = Set(old.elements.map(\.key))
+        if new.elements.filter({ !before.contains($0.key) }).count >= max(20, new.elements.count / 2) { Limits.notePage() }
+    }
     session.track(new.url)
     SnapStore.save(new)
     SnapshotCache.put(session.wid, new)
@@ -524,7 +530,7 @@ enum Commands {
 
     /// Picks the app's main window and saves it as the session. `keep` carries over its id and allowlist.
     private static func attach(_ running: NSRunningApplication, _ name: String, _ a: Args, keep: Session? = nil) throws -> Session {
-        enableWebAccessibility(appElement(running.processIdentifier))
+        enableWebAccessibility(appElement(running.processIdentifier), pid: running.processIdentifier)
         Pace.sleep(0.3)
         let app = runningApp(named: name) ?? running
         var picked = pickWindow(appElement(app.processIdentifier))
@@ -584,7 +590,10 @@ enum Commands {
             throw Fail(5, "the window did not go to \(hostname): it shows \((try? locate(session).url) ?? "no page"). Check it with `read`")
         }
         let playbooks = hostname == hostOf(target.url) ? [] : Playbooks.hintLines(app: nil, bundle: nil, host: hostname, system: Session.stored?.vm == true ? "linux" : "macos")
-        let extra = ["→ \(raw)"] + Routes.hintLines(for: hostname) + Policies.lines(for: hostname) + playbooks
+        // Within a site a person follows links and goes back; a run of typed deep links is a tell (P10, P17).
+        let sameSite = hostOf(target.url).map { Site.domain($0) == Site.domain(hostname) } ?? false
+        let tip = sameSite ? ["tip: within a site, click its links (`click --on \"…\"`) and go back with `key cmd+[`; `open` is for arriving"] : []
+        let extra = ["→ \(raw)"] + Routes.hintLines(for: hostname) + Policies.lines(for: hostname) + playbooks + tip
         return try finish("open", session, target, old, extra: extra, log: ["url": raw])
     }
 
@@ -798,7 +807,8 @@ enum Commands {
                     + (enter ? ["then presses return"] : []),
                  warn: enter ? ["return may submit or send"] : [], force: a.has("gate"))
         try beforeAction(session, url: target.url)
-        let fast = a.value("pace") == "fast" || Config.current.pace.mode == "fast"
+        // Never on a web page: typing at a third of a person's gaps is a keystroke-timing tell (BOT_DETECTION P1).
+        let fast = (a.value("pace") == "fast" || Config.current.pace.mode == "fast") && target.url == nil
         let (node, rect) = focused ? (el, e.rect) : liveRect(el, e, target)
         var note: String?
         try Borrow.run(target) {

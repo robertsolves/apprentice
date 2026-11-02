@@ -19,8 +19,10 @@ sleep 0.5
 dbus-send --session --dest=org.a11y.Bus /org/a11y/bus org.freedesktop.DBus.Properties.Set \
   string:org.a11y.Status string:IsEnabled variant:boolean:true
 
-# The helper reads this to join the same session.
-printf 'DBUS_SESSION_BUS_ADDRESS=%s\nDISPLAY=:0\n' "$DBUS_SESSION_BUS_ADDRESS" > /tmp/apprentice-session.env.new
+# The helper reads this to join the same session. This user only: other users and apps in the guest
+# have no business reading the session bus address (BOT_DETECTION V9).
+(umask 077 && printf 'DBUS_SESSION_BUS_ADDRESS=%s\nDISPLAY=:0\n' "$DBUS_SESSION_BUS_ADDRESS" > /tmp/apprentice-session.env.new)
+chmod 600 /tmp/apprentice-session.env.new
 mv /tmp/apprentice-session.env.new /tmp/apprentice-session.env
 
 # The host's language, so pages see the same languages as in the user's usual browser.

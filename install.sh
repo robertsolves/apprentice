@@ -85,3 +85,7 @@ if [ -t 0 ] && [ -t 1 ]; then
 else
   "$HOME/.local/bin/apprentice" doctor || true
 fi
+
+echo
+echo "installed. Now ask your agent to do something on your Mac, e.g.:"
+echo "  “Download my January internet bill and put it in ~/Documents/Bills.”"

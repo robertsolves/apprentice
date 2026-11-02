@@ -122,7 +122,7 @@ Rules:
 - **Settling.** On this Mac, `settle` re-reads until two reads 150 ms apart match. In the Linux VM the helper listens for the app's AT-SPI events: after an action the host waits until none arrived for 250 ms (or none at all within the grace for a page to start changing), then reads once. A page still loading, or one that never goes quiet, falls back to polling.
 - **Gated marks.** Elements matching the gate rules are marked `[gated]` in the list, so callers know an approval will follow.
 - **Untrusted text.** Everything read from the screen is data. The usage docs tell agents never to follow instructions found in it.
-- **Browser setup.** Safari exposes web content to accessibility with no flags. Chrome needs `--force-renderer-accessibility`, or apprentice sets `AXEnhancedUserInterface` on it. Electron apps need `AXManualAccessibility`.
+- **Browser setup.** Safari exposes web content to accessibility with no flags. Chrome needs `--force-renderer-accessibility`, or apprentice sets `AXEnhancedUserInterface` on it. Electron apps need `AXManualAccessibility`. Both are set only on browsers and apps that bundle Chromium or Electron (`showsWeb`), never on other native apps.
 
 ## Input: real cursor and keyboard only
 
@@ -207,32 +207,35 @@ Pacing is built into the daemon. It keeps a session at the pace of the person do
 
 All randomness in pacing comes from `Rand` (`Rand.swift`): one xoshiro256** generator seeded from the system at start-up, a few nanoseconds a draw, behind a lock. Secrets (VM passwords, tokens) keep the system generator.
 
-`Mouse.move` takes a Fitts' law duration, scaled by this run's hand and a ±12% log-normal draw, clamped to `move_ms` (50–200 ms by default, 250–1000 ms in `careful`).
+`Mouse.move` takes a Fitts' law duration, scaled by the hand and a ±12% log-normal draw, within `move_ms` (50–200 ms by default, 250–1000 ms in `careful`). Above the top of the range a move still grows, slowly (`Mouse.duration`, at most 2.5× the top), so long moves never pile up on one value.
 
-- **Hand.** Each daemon start draws a speed (0.85–1.2×) and a favoured bend side, so moves vary around one person's habits rather than one mean shared by every install.
-- **Path.** Moves over 120 px run in two strokes: a reach that stops at 92–97% of the way, or (`overshoot`, a third of moves by default) passes the target by 1.5–5% of the distance, 3–40 px; then a 40–140 ms correction, which one time in four lands short first and nudges again. Each stroke draws its shape (a one-sided bow, an arc, an S-wave, a bow with a slow 1–3 cycle tremor of up to 2 px, or a nearly straight line) and its speed profile (skewed ease, minimum jerk, or a quick start), samples about 120 times a second with uneven timing and 0.3–0.8 px jitter, and a long stroke hesitates once on the way one time in sixteen.
+- **Hand.** `Hand` draws a speed (0.85–1.2×), a favoured bend side, a key hold and rhythm, a rollover share and a click hold once, and keeps them in `~/.apprentice/hand.json`, shared by every VM's daemon, so restarts and updates do not change the person. Delete the file for a new hand.
+- **Path.** Moves over 120 px run in two strokes: a reach that stops at 92–97% of the way, or (`overshoot`, a third of moves by default) passes the target by 1.5–5% of the distance, 3–40 px; then a 40–140 ms correction, which one time in four lands short first and nudges again. Each stroke draws its shape (a one-sided bow, an arc, an S-wave, a bow with a slow 1–3 cycle tremor of up to 2 px, or a nearly straight line) and its speed profile (skewed ease, minimum jerk, or a quick start), samples 100–135 times a second (drawn per stroke) with uneven timing and 0.3–0.8 px jitter, each sample carrying its movement delta as a mouse reports it, and a long stroke hesitates once on the way one time in sixteen.
 - **Landing.** `Mouse.landing` draws a Gaussian point around the centre, never within 8% of an edge.
 - **Settle.** `Mouse.settle` rests 40–120 ms over the target with small micro-moves before the press, so `mousedown` never lands on the frame of the last move.
-- **Click.** The button is held 60–140 ms; the double-click gap is 70–130 ms.
+- **Click.** The button is held log-normal around the hand's own median (70–120 ms); the double-click gap is 70–130 ms.
+- **Reaction.** Before the hand moves, a log-normal 0.1–0.9 s look at the screen (median about 220 ms), except in `mode = "fast"`.
 - **Drag.** The press is held 100–220 ms, then one nearly straight stroke with a drawn shape and speed profile, about 1.5× a move's time (from `move_ms` min up to 3× its max, at least 1 s), and an 80–200 ms rest before release.
 - **Idle drift.** `Mouse.linger` drifts the pointer 5–20 px every 2–5 s during a dwell.
 - **Scroll.** Up, down, left or right (the wheel's second axis). The pointer moves to the scroll point (exactly onto it with `--at`) and rests 150–400 ms, then scrolls in flicks (`Wheel.scroll`): 3–9 lines per flick in notches of 1–3, quick in the middle of a flick and slower at either end, 120–450 ms between flicks.
-- **Browse.** `browse` reads down a page or feed: each turn scrolls 4–15 lines, then reads for a log-normal pause around 3 s (at most 15) with the pointer drifting, and one turn in eight looks back up 2–6 lines. It clicks and types nothing. With `browse` set (a share of actions, at most 0.2), a profile also does this on its own: that share of commands on a web page ends with `browse_s` (10–40 s by default, at most 120) of reading down the feed from the middle of the window, then scrolls back up as far as it went, so the agent's screen ends about where its action left it. Off in every style; a site turns it on. Logged as `waits.browse`.
-- **Fidget.** With `fidget` set, that share of actions is followed by a gesture that changes nothing (`Fidget.swift`): the pointer glances across the window, traces a few lines as if reading, rests with a drift, or on a web page scrolls down a little and back. Never a click or a key. It runs once per command, after every step of it and before the re-read (`finish`), inside `Borrow.run`, so the person's own input stops it, no later step aims at a point it scrolled away, and the diff shows the screen as it was left. Never after `hover`, and nothing scrolls after `type`, `key` or `drag` (suggestions would close, a map would zoom): no peek and no `browse` there. Its time is logged as `waits.fidget`.
+- **Browse.** `browse` reads down a page or feed: each turn scrolls 4–15 lines, then reads for a log-normal pause around 3 s (at most 15) with the pointer drifting, and one turn in eight looks back up 2–6 lines. It clicks and types nothing. With `browse` set (a share of actions, at most 0.2), a profile also does this on its own: that share of commands on a web page ends with `browse_s` (10–40 s by default, at most 120) of reading down the feed from the middle of the window, then scrolls back up as far as it went, so the agent's screen ends about where its action left it. Off in every style but `careful`, which sets 0.08. Logged as `waits.browse`.
+- **Fidget.** With `fidget` set, that share of actions is followed by a gesture that changes nothing (`Fidget.swift`): the pointer glances across the window, traces a few lines as if reading, rests with a drift, on a web page scrolls down a little and back, or on this Mac switches to the last app with cmd+tab for a few seconds and back, so the page sees a blur now and then. Never a click, and no key but that switch. It runs once per command, after every step of it and before the re-read (`finish`), inside `Borrow.run`, so the person's own input stops it, no later step aims at a point it scrolled away, and the diff shows the screen as it was left. Never after `hover`, and nothing scrolls after `type`, `key` or `drag` (suggestions would close, a map would zoom): no peek and no `browse` there. Its time is logged as `waits.fidget`.
 
 ### Keyboard
 
-- **Gaps.** `Pace.keyGap` is log-normal with a 100 ms median and sigma 0.4, 1.6× after a space or punctuation, clamped to 40–900 ms. A 0.5–1.8 s thinking pause comes every 20–40 characters at a word end.
-- **Keys.** Real key codes from the current layout, Shift for capitals, each held 50–110 ms.
+- **Gaps.** `Pace.keyGap` is log-normal with a 100 ms median (times the hand's rhythm) and sigma 0.4, 1.6× after a space or punctuation, 0.85× when the two letters fall to different hands and 1.15× on the same hand, clamped to 35–900 ms. A 0.5–1.8 s thinking pause comes every 20–40 characters at a word end.
+- **Keys.** Real key codes from the current layout, each held log-normal around the hand's own hold (`Pace.keyHold`), shorter for the space bar and longer with Shift. Shift, cmd, option and ctrl are keys of their own: a `flagsChanged` press before the key and a release after it, with Shift held across a run of capitals. For a quick pair of letters on different hands the next key often goes down before the last one is up (the hand's `rollover` share), as fluent typing overlaps.
+- **Characters off the main layers.** Option-layer characters (ß, ©) use their option key; accents use the layout's dead key and then the letter (é is option+e, e on a US board), with the layout composing the text. A character no key on the layout types (an emoji, CJK without an input method) is pasted on its own, clipboard restored, rather than sent on a key that types something else.
 - **Corrections.** At `key_error_rate` (off by default, 1.5% in the social profiles, at most 0.1), a neighbouring QWERTY key is typed, then deleted and retyped. At most 3 per field, never in password or secure fields, never with `--pace fast`.
 - **Field entry.** `type` clicks the field and sends `cmd+a` only when the field already has text.
-- `--pace fast` shortens the gaps between keys; every key is still a real key. A 200-character post takes about 20–25 s at the normal pace.
+- `--pace fast` shortens the gaps between keys in native apps; on a web page it is ignored. Every key is still a real key. A 200-character post takes about 20–25 s at the normal pace.
 
 ### Cadence, bursts and dwell
 
-- **Between actions.** `Limits.beforeAction` waits `between_actions_ms` (0 by default; a few seconds in the social profiles) and holds each host to `actions_per_min`: at the cap it waits (under a minute) until the oldest action leaves the window, rather than refuse the step.
+- **Between actions.** `Limits.beforeAction` waits `between_actions_ms` (0 in native apps, 0.5–2.5 s on web pages, 3–12 s on the built-in social sites) and holds each host to `actions_per_min`: at the cap it waits (under a minute) until the oldest action leaves the window, rather than refuse the step.
 - **Bursts.** With `burst` set, after that many quick actions the session rests `rest_s` (capped at 120 s).
 - **Dwell.** With `dwell_s` set, an action that counts against a budget (like, follow, comment…) waits until the page has been open that long, drifting the pointer meanwhile. Acting on content before it could have been read is a strong tell.
+- **A person's day.** With `quiet_hours` set (`careful`: 2–6 local time), no actions on the site in those hours. With `session_max_min` (`careful`: 50), a sitting on one site that runs that long starts a break of `break_min` minutes (15–40), shared by every VM's daemon; a pause as long as the shortest break starts a new sitting. With `actions_per_day` (`careful`: 400), no more actions on the site that day. Each refuses with exit 4 and logs a `pace` event; reading still works.
 - **Navigation.** At least `nav_min_gap_s` (5 s) between page loads on the same domain, and at most 3 loads of the same URL in 120 s; the next fails with `refresh limit`. `wait-for` never polls by reloading.
 - **Run loop.** `run` stops at 40 steps, 15 minutes, or 3 identical actions in a row.
 
@@ -241,15 +244,15 @@ All randomness in pacing comes from `Rand` (`Rand.swift`): one xoshiro256** gene
 `style` sets every timing key at once, from fastest to least likely to be taken for a script. Keys listed next to it win.
 
 - **`fastest`:** 30–90 ms moves, 45 ms key median, short key gaps, rare overshoot, no fidgets.
-- **`fast`:** the built-in default: 50–200 ms moves, 100 ms key median, a third of moves overshoot.
-- **`steady`:** 120–500 ms moves, 0.5–2.5 s between actions, 1–3 s dwell, rare corrected slips, a fidget after one action in ten, at most 15 actions a minute.
-- **`careful`:** 250–1000 ms moves, 3–12 s between actions, 3–8 s dwell, a rest of 30–120 s after 3–6 quick actions, 1.5% corrected slips, a fidget after one action in four, at most 6 actions a minute.
+- **`fast`:** the built-in default for native apps: 50–200 ms moves, 100 ms key median, a third of moves overshoot.
+- **`steady`:** the built-in default for web pages: 120–500 ms moves, 0.5–2.5 s between actions, 1–3 s dwell, rare corrected slips, a fidget after one action in ten, at most 15 actions a minute.
+- **`careful`:** 250–1000 ms moves, 3–12 s between actions, 3–8 s dwell, a rest of 30–120 s after 3–6 quick actions, 1.5% corrected slips, a fidget after one action in four, at most 6 actions a minute, quiet from 2 to 6, a 15–40 min break after 50 min on one site, at most 400 actions a day. Built in for the social sites (`Config.socialSites`: Facebook, Instagram, Threads, TikTok, LinkedIn, X, Reddit, Pinterest, YouTube, Bluesky), and reads down the feed after one command in twelve (`browse = 0.08`).
 
-A style never loosens the navigation gap, the reload cap or a budget. `[pace.styles]` assigns styles to sites and apps in one place; `web` and `native` are every browser and every other app.
+A style never loosens the navigation gap, the reload cap or a budget. `[pace.styles]` assigns styles to sites and apps in one place and wins over the built-in ones (`fast = ["web"]` puts web pages back on `fast`); `web` and `native` are every browser and every other app.
 
 ### Config
 
-All ranges live in `~/.apprentice/config.toml`. Each `[pace."<domain>"]` profile starts from `[pace.default]`, lists only what differs, and also covers the domain's subdomains (`www.linkedin.com` uses `linkedin.com`) and its old name (`twitter.com` uses `x.com`). `agent/config.example.toml` puts linkedin.com, x.com and reddit.com on the `careful` style.
+All ranges live in `~/.apprentice/config.toml`. Each `[pace."<domain>"]` profile starts from its site's style (built in or from `[pace.styles]`), else `[pace.default]`, lists only what differs, and also covers the domain's subdomains (`www.linkedin.com` uses `linkedin.com`) and its old name (`twitter.com` uses `x.com`). `agent/config.example.toml` lists the social sites on the `careful` style and sets the newer keys (`quiet_hours`, `session_max_min`, `break_min`, `actions_per_day`). `[sites] soft_block_extra` and `challenge_extra` add phrases to the built-in lists, which cover the big sites' languages, and `[sites.kinds]` adds words per budgeted kind (`like = ["gostei"]`).
 
 ```toml
 [pace.default]
@@ -411,7 +414,7 @@ An audit, made on 2026-11-01 against `78ff6d6`, of what Instagram, Facebook, Tik
 | # | Signal | Weight | Status |
 | --- | --- | --- | --- |
 | 1 | Velocity with no budget: only a per-minute cap | High | Fixed: per-kind budgets, cooldown and challenge stop |
-| 2 | No gap between actions; cadence set by LLM latency | High | Fixed in the social profiles (`between_actions_ms`, `burst`, `rest_s`); the default stays fast |
+| 2 | No gap between actions; cadence set by LLM latency | High | Fixed: `steady` on every web page and `careful` on the social sites by default; native apps stay fast |
 | 3 | No time on content before acting | High | Fixed: `dwell_s` before any budgeted action |
 | 4 | Fast pointer: every move 50–200 ms | High | Fixed in the social profiles (200–900 ms) |
 | 5 | Same path shape: one symmetric Bézier, exact stop | Medium | Fixed: two strokes, overshoot or undershoot, five path shapes and three speed profiles drawn per stroke, a per-run hand, uneven samples |
@@ -419,19 +422,19 @@ An audit, made on 2026-11-01 against `78ff6d6`, of what Instagram, Facebook, Tik
 | 7 | Scroll as one large wheel event | Medium | Fixed: flicks of notches, quick in the middle; `browse` for reading a feed |
 | 8 | Steady typing rhythm, short holds, no corrections | Medium | Fixed: thinking pauses, longer holds, optional corrections |
 | 9 | `cmd+a` before every field, even empty ones | Medium | Fixed: only when the field has text |
-| 10 | Pointer still between actions | Low | Partly: drift during a dwell, and `fidget` after actions where a profile sets it; never while the person is using the cursor |
+| 10 | Pointer still between actions | Low | Fixed on the web: drift during a dwell, and `fidget` after actions in `steady` and `careful`; never while the person is using the cursor |
 | 11 | Focus event immediately followed by motion | Low | Fixed: a varied pause after raising the window |
-| 12 | Every page reached by typed URL | Low | Agent guidance only: prefer in-site links within a site |
+| 12 | Every page reached by typed URL | Low | Agent guidance, and `open` on the site the window is already on says to click links and go back with `key cmd+[` |
 | 13 | Click points spread evenly | Low | Fixed: Gaussian landing |
 
 ### What it does not leak
 
 - **No WebDriver or CDP.** `navigator.webdriver` is false, and the session is the user's real browser profile with its cookies, extensions and history.
 - **Trusted events.** Every event goes through `cghidEventTap`, so the page sees `isTrusted = true` and the full `pointerover → pointermove → pointerdown → mousedown → pointerup → click` sequence.
-- **Real keycodes.** Keys map from the current layout with Shift for capitals, so `code`, `key` and `shiftKey` match a real keyboard.
-- **Pasting stays out of pages.** Paste is used only in the address bar and system file dialogs.
+- **Real keycodes.** Keys map from the current layout, with Shift and cmd pressed as keys of their own and dead keys for accents, so `code`, `key`, `shiftKey` and the modifier keydowns match a real keyboard.
+- **Pasting stays out of pages.** Paste is used only in the address bar and system file dialogs, and for a character no key on the layout types.
 - **Accessibility reads.** Chrome and Safari build an accessibility tree when an assistive client connects. Pages have no standard API to detect that.
-- **Event tag.** `Keys.tag` stays in the OS event and isn't exposed to pages.
+- **Event tag.** `Keys.tag` stays in the OS event and isn't exposed to pages. It is drawn each time the daemon starts, so it is not one value shared by every install; a native app can still tell posted events from hardware ones (BOT_DETECTION A2).
 
 ### Per platform
 

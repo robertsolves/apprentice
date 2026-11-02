@@ -185,7 +185,7 @@ func locate(_ session: Session, scope wanted: String? = nil) throws -> Target {
     var found = find()
     if found == nil {
         // After a daemon restart Chrome lists no windows until web accessibility is back on and it is active.
-        enableWebAccessibility(app)
+        enableWebAccessibility(app, pid: session.pid)
         NSRunningApplication(processIdentifier: session.pid)?.activate()
         found = poll(timeout: 2, find)
     }

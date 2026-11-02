@@ -121,10 +121,21 @@ private func searchInfo(_ el: AXUIElement) -> Info {
 
 func appElement(_ pid: pid_t) -> AXUIElement { AXUIElementCreateApplication(pid) }
 
-/// Chrome and Electron build their web accessibility tree only when asked.
-func enableWebAccessibility(_ app: AXUIElement) {
+/// Chrome and Electron build their web accessibility tree only when asked. Asked only of apps that
+/// show web content: a browser, or an app built on Chromium or Electron. A native app reads without it,
+/// and forcing it on there is a flag the app can see for no gain (BOT_DETECTION A3).
+func enableWebAccessibility(_ app: AXUIElement, pid: pid_t) {
+    guard showsWeb(pid) else { return }
     app.set("AXManualAccessibility", kCFBooleanTrue)
     app.set("AXEnhancedUserInterface", kCFBooleanTrue)
+}
+
+/// A browser, or an app that bundles Chromium or Electron. Unknown apps count, so nothing goes unread.
+func showsWeb(_ pid: pid_t) -> Bool {
+    guard let running = NSRunningApplication(processIdentifier: pid), let url = running.bundleURL else { return true }
+    if let bundle = running.bundleIdentifier, Session.handlesWeb(bundle) { return true }
+    let frameworks = (try? FileManager.default.contentsOfDirectory(atPath: url.appendingPathComponent("Contents/Frameworks").path)) ?? []
+    return frameworks.contains { $0.contains("Electron") || $0.contains("Chromium") || $0.contains("Chrome") || $0.contains("CEF") }
 }
 
 func windows(of app: AXUIElement) -> [AXUIElement] {
