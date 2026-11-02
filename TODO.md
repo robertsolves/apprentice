@@ -17,6 +17,9 @@ It runs: Debian guests under Tart (2 GB disk, 2 GB memory each) or on a server (
 
 ## Updates
 
+- A VM's own layer covers `prefs.json` and `config.toml`. `routes.toml` and `budgets.json` stay on the Mac (budgets are shared on purpose, since a site sees one account); layer `routes.toml` if VMs need their own routes.
+- The VM's clone follows the Mac clone's current branch only when it is first made; if the Mac switches branch, `vm install` rebases the VM's checkout onto the new branch instead of switching to it.
+- `session` doesn't print matching prefs yet (only `route` does); add them beside the notes it prints.
 - Fixes stay in each Mac's clone. To share them, point another Mac's `upstream` at this clone (any git URL works). If that turns out to be common, add `apprentice share`.
 
 ## Tests

@@ -79,6 +79,8 @@ Verdicts: **keep** (used and pays off), **watch** (too new or too little data), 
 | Notes | `Notes.swift`, `notes/` | Notes printed by `session` / `open`, then used | Questions about the same page stop | keep |
 | Flows (`do`) | `Flows.swift` | Flows run, steps completed vs stopped (grow) | Most runs complete; they replace agent steps | keep |
 | `learn` | `Notes.swift` | Flows drafted that later ran | Drafts turn into used flows | watch |
+| Preferences (`remember`, `prefs`, `pref:` lines in `route`) | `Prefs.swift` | `remember` rows by `--from`; `ask` questions about the same thing before and after (grow) | Questions like "which gym?" stop coming back | watch |
+| Per-device layers (a VM's own `~/.apprentice` and clone, inheriting from the Mac) | `Layers.swift`, `VM.seedClone` | Not measured: add the layer a pref or setting came from to `route` rows | VMs actually carry their own prefs or settings | watch |
 | Routes (`route`) | `Routes.swift` | `route` calls that named a faster route | Agents take the route | cut? if never hit |
 | `run` loop | `AgentLoop.swift` | `run` sessions, steps, stops | Someone runs tasks without a coding agent | cut? if unused |
 | `replay` | `AgentLoop.swift` | `replay` runs, checks failed | Saved runs get replayed | cut? if unused |

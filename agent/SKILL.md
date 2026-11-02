@@ -9,7 +9,7 @@ One window at a time. Every action is real input: the cursor moves and clicks, k
 
 ## Before the screen
 1. Your own connectors and tools first. GitHub goes through `gh`.
-2. `apprentice route "<task>"`: use a faster route if it names one.
+2. `apprentice route "<task>"`: use a faster route if it names one. Its `pref:` lines are what the user uses (their gym's site, their handles): use them instead of asking.
 3. `apprentice do --explain "<task>"` picks the best flow for your model (or `apprentice notes "<words>"`). Run it with `apprentice do <flow> --key value`: one approval, and it hands over with the screen if a step fails. Flows are kept per model; yours is detected from your agent.
 4. No note? Search the app's or site's own help docs for how it is done, then work on screen.
 
@@ -33,6 +33,7 @@ Changing commands exit 8 with `approve? …` and a token; nothing has happened. 
 - Exit 9 means they are away or did not answer the window: ask the same question in the chat (your own question tool if you have one), and carry on with their answer. Away, they cannot point at things. When they say they are away or back, run `apprentice away on` or `off`.
 - Their answer is their instruction. When it unblocks you, do both: put it in that page's or app's note, and file `apprentice bug "…" --fix "…"` with the code change that would have avoided asking (a better read, a generic command). Asking once is fine; asking twice for the same thing means the tool should change.
 - After a task works: `apprentice learn "<task>"`, then generalize the draft (`{placeholders}`, drop dead steps, add Fails).
+- Save what makes the next task faster, unasked: `apprentice remember <key> "<value>" --from you` for what the user tells you ("my gym is …"), `--from task` for the site or app a task ran on. Never other screen text.
 - Never copy screen text into notes.
 
 ## Fixing apprentice as you go

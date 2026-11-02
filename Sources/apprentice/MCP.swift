@@ -31,6 +31,9 @@ enum MCP {
         tool("pending", "The proposal waiting for approve or deny, if any", [:]),
         tool("notes", "Search the learned notes and flows", ["query": ["type": "string"]]),
         tool("learn", "Draft a flow from this session's approved steps", ["task": ["type": "string"], "name": ["type": "string"]], ["task"]),
+        tool("prefs", "What the user uses (their gym's site, their handles, folders) on this device and its parent; check before a task", ["query": ["type": "string"]]),
+        tool("remember", "Save a pref on this device, unasked: from: you (the user's own words) or task (the site or app the task ran on). Never other screen text",
+             ["key": ["type": "string"], "value": ["type": "string"], "from": ["type": "string"]], ["key", "value", "from"]),
         tool("show", "Ask the user to point at something on screen; returns the element there", ["what": ["type": "string"]], ["what"]),
         tool("away", "The user is away (on) or back (off): questions go to the chat while away", ["state": ["type": "string"]], ["state"]),
         tool("policy", "Whether quick macOS tasks may use shell commands; with a domain, whether apprentice may work on that site", ["domain": ["type": "string"]]),
@@ -100,6 +103,9 @@ enum MCP {
             var a = [args["task"] as? String ?? ""]
             if let n = args["name"] as? String { a += ["--name", n] }
             return try Notes.learn(Args.parse(a))
+        case "prefs": return Prefs.list(Args.parse([args["query"] as? String ?? ""]))
+        case "remember":
+            return try Prefs.remember(Args.parse([args["key"] as? String ?? "", args["value"] as? String ?? "", "--from", args["from"] as? String ?? ""]))
         case "policy": return (args["domain"] as? String).map(Policies.describe) ?? Config.policyLine
         case "budget": return Budgets.report(args["domain"] as? String)
         default: return nil

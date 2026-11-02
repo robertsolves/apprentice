@@ -5,6 +5,10 @@ import Foundation
 enum Toml {
     static func load(_ path: URL) -> [String: [String: String]] {
         guard let text = try? String(contentsOf: path, encoding: .utf8) else { return [:] }
+        return parse(text)
+    }
+
+    static func parse(_ text: String) -> [String: [String: String]] {
         var out: [String: [String: String]] = [:]
         var section = ""
         for raw in text.components(separatedBy: .newlines) {
@@ -201,12 +205,16 @@ struct Config {
     static var current = Config.load()
     static var path: URL { Settings.dir.appendingPathComponent("config.toml") }
     private static var loadedAt: Date?
+    private static var loadedOverlay: String?
 
-    /// Re-reads config.toml only when it changed, and starts each command on the default pace.
+    /// Re-reads config.toml only when it, or the VM's own one over it (`Layers`), changed, and starts each
+    /// command on the default pace.
     static func reloadIfChanged() {
         let stamp = (try? path.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-        if stamp != loadedAt {
+        let overlay = Layers.local == .vm ? Layers.read("config.toml", .vm) : nil
+        if stamp != loadedAt || overlay != loadedOverlay {
             loadedAt = stamp
+            loadedOverlay = overlay
             current = load()
         }
         current.pace = current.defaultPace
@@ -251,7 +259,7 @@ struct Config {
 
     static func load() -> Config {
         var c = Config()
-        let toml = Toml.load(path)
+        let toml = Layers.config()
         if let d = toml["pace.default"] { c.pace = PaceConfig(d) }
         c.defaultPace = c.pace
         for (section, values) in toml where section.hasPrefix("pace.") && section != "pace.default" {
