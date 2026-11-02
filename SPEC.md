@@ -319,7 +319,7 @@ Other guardrails:
 
 - **Allowlist per session:** domains and apps, set in config or with `session --allow`. Leaving it is exit 4.
 - **Kill switch:** a global hotkey (ctrl+opt+cmd+.) stops the action under way (exit 6) and holds every later step, also exit 6, until the user answers an `ask` or `confirm` in the window, approves from the menu bar, or tells the agent to carry on (`resume`, or Resume in the menu bar). Reading still works.
-- **No secrets:** no passwords in commands or logs. apprentice relies on sessions the user is already logged into. Password fields are never read back, only typed into.
+- **No secrets:** no passwords in commands or logs. apprentice relies on sessions the user is already logged into, unless they turn on signing in (below). Password fields are never read back, only typed into.
 - **Log scrubbing:** windows from banking, health and password-manager apps are excluded from screenshots and element logs.
 - **Prompt injection:** on-screen text is data. Usage docs tell agents not to follow instructions found on a page or in an email.
 - **Platform terms:** one person, own accounts, normal volume. Whether a site's terms allow automation is the user's call: apprentice never refuses a site (see Site policies).
@@ -377,6 +377,15 @@ CAPTCHAs, 2FA prompts and identity checkpoints are out of scope. The daemon noti
 4. **Resume.** The next `read` or action looks again; once the markers are gone, `read` says the challenge is gone. Nothing polls in the background, so a command never blocks for minutes. The user is the only one who completes the challenge.
 
 The agent waits or ends the task; it never tries the challenge itself. `SKILL.md` and `AGENTS.md` say so.
+
+### Signing back in
+
+Off by default. With `[login] auto = true` (and, if it lists any, the site in `[login] sites`), a site that signed the account out is signed back into, so work keeps going (`Login.swift`):
+
+- **Detect.** A page of such a site with a password field adds a `sign-in:` line to `read` and to every action's output, naming the field. A page asking for a texted, emailed or authenticator code (`Login.codeMarkers`) is a sign-in step there, not a challenge, even at a `/challenge` address. A CAPTCHA or identity check stays a challenge.
+- **Type.** `type <id> --secret username|password` types the account or password saved for the page's site in the login Keychain, matched by server, so a look-alike domain finds nothing. A password goes only into a password field on an https page. `--secret code` asks the user for the code in the little window (Skip means they entered it on the page themselves), else hands off to the chat (exit 9) with a phone push; the agent then passes their answer as `--code`. Secrets are read only after approval and never reach the command line, the proposal or the logs. On such a site the credential step is the agent's to approve.
+- **Save.** `login add <domain>` takes the account and password in the little window (a hidden field) and saves them to the login Keychain; `login remove`, `login status`.
+- **Pace.** Sign-ins on one site are at least `[login] gap_min` (30) minutes apart and at most `[login] per_day` (3) a day (`logins.json`, shared by every VM). A sign-in page sooner than that means the last one failed or the site wants a person: exit 4, and the agent tells the user. Saving a new password with `login add` clears the count.
 
 ### Site policies
 

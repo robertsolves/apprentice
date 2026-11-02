@@ -424,6 +424,7 @@ enum Commands {
         case "awake": return try Awake.run(a)
         case "away": return try Away.command(a)
         case "schedule": return try Schedules.command(a)
+        case "login": return try Login.command(a)
         case "resume":
             let was = KillSwitch.halted
             KillSwitch.halted = false
@@ -668,6 +669,7 @@ enum Commands {
                 Challenge.clear(Site.domain(host))
                 return out + "\nchallenge gone: \(Site.domain(host)) can be used again"
             }
+            if let hint = Login.signedOut(snapshot) { return out + "\n" + hint }
         }
         return out
     }
@@ -844,19 +846,28 @@ enum Commands {
     }
 
     static func type(_ a: Args) throws -> String {
-        let usage = Fail(5, "type <id|focused> \"text\" [--enter] [--pace fast]")
-        guard let first = a.pos.first, a.pos.count >= 2 else { throw usage }
+        let usage = Fail(5, "type <id|focused> \"text\" [--enter] [--pace fast] | type <id> --secret username|password|code")
+        let secret = a.value("secret")
+        guard let first = a.pos.first, a.pos.count >= 2 || (secret != nil && a.pos.count == 1) else { throw usage }
         let focused = first == "focused"
         guard focused || Int(first) != nil else { throw usage }
         let id = Int(first) ?? 0
-        let text = a.pos.dropFirst().joined(separator: " ")
+        var text = a.pos.dropFirst().joined(separator: " ")
         let (session, target, old) = try prepare()
         let (el, e) = focused ? try focusedElement(target) : try resolve(id, target)
         let enter = a.has("enter")
-        try gate(session, target, e, "type into \(e.short)",
-                 details: (e.value.map { ["current text: \($0)"] } ?? []) + ["replaces it with: \(text)"]
-                    + (enter ? ["then presses return"] : []),
-                 warn: enter ? ["return may submit or send"] : [], force: a.has("gate"))
+        if let secret {
+            // A saved sign-in or the user's code: read only once approved, never shown or logged.
+            let summary = try Login.check(secret, url: target.url, field: e)
+            try gate(session, target, e, summary, details: enter ? ["then presses return"] : [],
+                     warn: ["signs in (login.auto)"] + (enter ? ["return may submit or send"] : []), force: a.has("gate"))
+            text = try Login.value(secret, url: target.url, a)
+        } else {
+            try gate(session, target, e, "type into \(e.short)",
+                     details: (e.value.map { ["current text: \($0)"] } ?? []) + ["replaces it with: \(text)"]
+                        + (enter ? ["then presses return"] : []),
+                     warn: enter ? ["return may submit or send"] : [], force: a.has("gate"))
+        }
         try beforeAction(session, url: target.url)
         // Never on a web page: typing at a third of a person's gaps is a keystroke-timing tell (BOT_DETECTION P1).
         let fast = (a.value("pace") == "fast" || Config.current.pace.mode == "fast") && target.url == nil
@@ -878,7 +889,7 @@ enum Commands {
             Pace.sleep(0.1)
         }
         return try finish("type", session, target, old, extra: note.map { [$0] } ?? [],
-                      log: ["id": id, "chars": text.count, "label": e.label, "name": e.name])
+                      log: ["id": id, "chars": secret == nil ? text.count : 0, "label": e.label, "name": e.name, "secret": secret ?? ""])
     }
 
     /// The element that has keyboard focus, such as an inline rename field that `read` cannot list.

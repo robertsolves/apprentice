@@ -404,6 +404,13 @@ struct Config {
     /// What a CAPTCHA or identity check does: "stop" refuses actions on the site while it is on screen,
     /// "warn" only says so, "off" does not look. apprentice never completes one in any mode.
     var onChallenge = "stop"
+    /// Signing in (`Login`): off by default. On, agents may type a saved account and password and ask the
+    /// user for sign-in codes, on every site or only those in `sites`.
+    var loginAuto = false
+    var loginSites: [String] = []
+    /// Sign-ins on one site: at least this many minutes apart, and at most this many a day.
+    var loginGapMinutes = 30.0
+    var loginPerDay = 3
     /// Words and phrases that make a step one only the user can approve, in the little window: the
     /// agent's `approve` is refused. Matched as whole words in the element's label and name.
     var userOnly = [
@@ -544,6 +551,10 @@ struct Config {
         if let v = toml["sites"]?["on_soft_block"].map(Toml.unquote), ["stop", "warn", "off"].contains(v) { c.onSoftBlock = v }
         if let v = toml["sites"]?["cooldown_hours"].flatMap(Toml.doubles), !v.isEmpty { c.cooldownHours = v }
         if let v = toml["sites"]?["on_challenge"].map(Toml.unquote), ["stop", "warn", "off"].contains(v) { c.onChallenge = v }
+        if let v = toml["login"]?["auto"] { c.loginAuto = Toml.unquote(v) == "true" }
+        if let v = toml["login"]?["gap_min"].flatMap({ Double(Toml.unquote($0)) }) { c.loginGapMinutes = v }
+        if let v = toml["login"]?["per_day"].flatMap({ Int(Toml.unquote($0)) }) { c.loginPerDay = v }
+        if let v = toml["login"]?["sites"].flatMap(Toml.array) { c.loginSites = v.map { $0.lowercased() }.filter { !$0.isEmpty } }
         if let v = toml["gate"]?["user_only"].flatMap(Toml.array) { c.userOnly = v.map { $0.lowercased() }.filter { !$0.isEmpty } }
         if let v = toml["agent"]?["ask_window_s"].flatMap({ Double(Toml.unquote($0)) }) { c.askWindowSeconds = v }
         if let v = toml["schedules"]?["enabled"] { c.schedulesOn = Toml.unquote(v) != "false" }

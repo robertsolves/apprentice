@@ -14,7 +14,9 @@ enum MCP {
         tool("read", "Numbered element list for the session window", ["max": ["type": "integer"], "filter": ["type": "string"]]),
         tool("click", "Click an element by number, visible text with 'on' (OCR when it is not listed), or a screen point with 'at' (\"x,y\", from show or an OCR match list)",
              ["id": ["type": "integer"], "on": ["type": "string"], "at": ["type": "string"], "right": ["type": "boolean"], "double": ["type": "boolean"]]),
-        tool("type", "Type text into an element", ["id": ["type": "integer"], "text": ["type": "string"], "enter": ["type": "boolean"], "pace": ["type": "string"]], ["id", "text"]),
+        tool("type", "Type text into an element; secret (username, password or code) signs in with the saved account or the user's code instead of text",
+             ["id": ["type": "integer"], "text": ["type": "string"], "enter": ["type": "boolean"], "pace": ["type": "string"],
+              "secret": ["type": "string"], "code": ["type": "string"]], ["id"]),
         tool("key", "Send a keyboard shortcut", ["combo": ["type": "string"]], ["combo"]),
         tool("menu", "Pick a menu-bar item, e.g. File > New Folder", ["path": ["type": "string"]], ["path"]),
         tool("scroll", "Scroll up, down, left or right in the window, an element, or at a screen point (at: \"x,y\"; a map zooms there)",
@@ -147,7 +149,9 @@ enum MCP {
             if b("double") { a.append("--double") }
             return Request(cmd: "click", args: a)
         case "type":
-            var a = [s("id") ?? "", s("text") ?? ""]
+            var a = [s("id") ?? ""] + (s("text").map { [$0] } ?? [])
+            if let secret = s("secret") { a += ["--secret", secret] }
+            if let code = s("code") { a += ["--code", code] }
             if b("enter") { a.append("--enter") }
             if let pace = s("pace") { a += ["--pace", pace] }
             return Request(cmd: "type", args: a)

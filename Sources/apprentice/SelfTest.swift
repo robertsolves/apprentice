@@ -32,6 +32,7 @@ enum SelfTest {
         policies()
         siteSettings()
         gate()
+        login()
         allowlist()
         flows()
         playbooks()
@@ -421,6 +422,34 @@ enum SelfTest {
               "account pages warn")
         check(Gate.warnings(el("link", "Home"), Page(url: nil, title: "", scope: "sheet")) == ["inside a dialog"], "dialogs warn")
         check(Gate.warnings(nil, page, force: true) == ["marked --gate"], "--gate adds a warning")
+    }
+
+    /// Signing in is off by default; on, a code prompt is a sign-in step, not a check, and sign-ins on a
+    /// site are spaced out and capped a day.
+    private static func login() {
+        let saved = Config.current
+        defer { Config.current = saved }
+        func el(_ label: String, _ name: String) -> Element {
+            Element(id: 3, path: [], label: label, name: name, value: nil, frame: [0, 0, 1, 1], offscreen: false, gated: false)
+        }
+        let code = Snapshot(snap: 1, scope: "web", url: "https://example.com/signin/challenge", title: "Sign in",
+                            total: 1, elements: [el("textbox", "Enter the code we sent")])
+        let form = Snapshot(snap: 1, scope: "web", url: "https://example.com/authwall", title: "Sign in",
+                            total: 1, elements: [el("password", "Password")])
+        let captcha = Snapshot(snap: 1, scope: "web", url: "https://example.com/login", title: "Sign in",
+                               total: 2, elements: [el("textbox", "Enter the code"), el("checkbox", "I'm not a robot")])
+        check(!Login.allowed("example.com") && Challenge.find(code) != nil, "login is off by default and a code prompt is a check")
+        Config.current.loginAuto = true
+        check(Login.allowed("www.example.com") && Login.isCodePrompt(Challenge.find(code) ?? ""), "with login on a code prompt is a sign-in step")
+        check(Challenge.find(form) == nil && Login.signedOut(form)?.contains("--secret password") == true, "a sign-in form is not a check")
+        check(Challenge.find(captcha) == "\"i'm not a robot\"", "a CAPTCHA stays a check")
+        Config.current.loginSites = ["other.org"]
+        check(!Login.allowed("example.com") && Login.allowed("a.other.org"), "[login] sites limits it")
+        let now = 1_000_000.0
+        check((try? Login.paced("x.com", now: now, tries: [])) != nil, "a first sign-in may run")
+        check((try? Login.paced("x.com", now: now, tries: [now - 600])) == nil, "a second one within gap_min stops")
+        check((try? Login.paced("x.com", now: now, tries: [now - 30_000, now - 20_000, now - 10_000])) == nil, "per_day caps them")
+        check((try? Login.paced("x.com", now: now, tries: [now - 90_000, now - 20_000, now - 10_000])) != nil, "yesterday's do not count")
     }
 
     /// An allowlist entry covers its subdomains, never a look-alike; the app's name covers pageless windows.

@@ -74,6 +74,16 @@ on_challenge = "stop"
 # soft_block_extra = ["something your site says"]
 # challenge_extra = []
 
+# Signing in, off by default. On, a site that signed the account out is signed back into: the account and
+# password saved for that site in the login Keychain (`apprentice login add <domain>` saves one through the
+# little window; the agent never sees it), and a texted, emailed or authenticator code asked of you in the
+# window, else in the chat with a phone push. Sign-ins are spaced out so they never look like a bot.
+[login]
+auto = false
+# sites = ["github.com"]   # only these; empty is every site with a saved sign-in
+gap_min = 30               # a sign-in page again sooner than this stops for you: the last one failed
+per_day = 3                # sign-ins per site a day
+
 # More words per budgeted kind, for a language or a site's own labels (whole words; CJK inside text).
 # [sites.kinds]
 # like = ["gostei"]

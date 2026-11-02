@@ -82,10 +82,10 @@ enum Ask {
     /// Runs on the main thread. Nil when skipped or timed out.
     static func show(_ question: String, choices: [String], multi: Bool, withText: Bool, timeout: Double,
                      sendTitle: String = "Send", checked: Set<String> = [], placeholder: String? = nil,
-                     initialText: String = "", caller: Int32? = nil) -> Reply? {
+                     initialText: String = "", caller: Int32? = nil, secure: Bool = false) -> Reply? {
         Notify.local(question)
         // A session in a VM asks on the VM's screen, where the work is; this Mac shows a notification.
-        if let answer = Remote.askInVM(question, choices: choices, multi: multi, withText: withText, timeout: timeout,
+        if !secure, let answer = Remote.askInVM(question, choices: choices, multi: multi, withText: withText, timeout: timeout,
                                        sendTitle: sendTitle, checked: checked, placeholder: placeholder, initialText: initialText) {
             return answer
         }
@@ -117,7 +117,8 @@ enum Ask {
         for box in boxes where checked.contains(box.title) { box.state = .on }
         rows += boxes
 
-        let field = NSTextField(string: initialText)
+        // A password is typed into a field that hides it.
+        let field = secure ? NSSecureTextField(string: initialText) : NSTextField(string: initialText)
         field.placeholderString = placeholder ?? (choices.isEmpty ? "Your reply" : "Anything to add (optional)")
         if withText { rows.append(field) }
 

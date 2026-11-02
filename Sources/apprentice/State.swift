@@ -517,8 +517,9 @@ enum Gate {
         if force { out.append("marked --gate") }
         if sensitivePage(t.url) || sensitivePage(t.title) { out.append("settings, account or billing page") }
         if let e = element, matches(e.name) || matches(e.label) { out.append("may be irreversible: \(e.label) \"\(e.name)\"") }
-        // Credentials always stop for a person (I3): `approve` takes them only from the user.
-        if let e = element {
+        // Credentials always stop for a person (I3): `approve` takes them only from the user. A saved
+        // secret or a code the user gives, on a site where they turned login on, is the agent's to approve.
+        if let e = element, !Login.secretStep(t.url) {
             let n = e.name.lowercased()
             if e.label == "password" || ["password", "passcode", "2fa", "one-time", "verification code"].contains(where: n.contains) {
                 out.append(credential)

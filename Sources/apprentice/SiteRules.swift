@@ -51,6 +51,7 @@ enum Site {
     static func inspect(_ command: String, _ old: Snapshot?, _ new: Snapshot, session: Session) -> Fail? {
         guard let host = hostOf(new.url) else { return nil }
         if Config.current.onChallenge != "off", let marker = Challenge.find(new) { return Challenge.start(host, marker, session: session) }
+        if let hint = Login.signedOut(new) { return Fail(0, hint) }
         guard Config.current.onSoftBlock != "off", let phrase = softBlock(command, old, new) else { return nil }
         return Cooldown.start(host, phrase, session: session)
     }
@@ -424,16 +425,24 @@ enum Challenge {
     /// The first challenge marker in the page's address, title or short texts.
     static func find(_ s: Snapshot) -> String? {
         let url = s.url?.lowercased() ?? ""
-        if let p = paths.first(where: { URL(string: url)?.path.contains($0) ?? false }) { return "address \(p)" }
         let texts = [s.title.lowercased()] + s.elements.map { $0.name.lowercased() }.filter { $0.count < 160 }
-        for marker in Config.current.challengeMarkers where !marker.isEmpty {
-            if texts.contains(where: { $0.contains(marker) }) { return "\"\(marker)\"" }
+        let other = Config.current.challengeMarkers.first { m in !m.isEmpty && !Login.isCodePrompt(m) && texts.contains { $0.contains(m) } }
+        // With login on, a sign-in page or code prompt is not a check, though its address may say /challenge.
+        if other == nil, Login.allowed(hostOf(s.url)) {
+            if let code = Login.codeMarkers.first(where: { m in texts.contains { $0.contains(m) } }) { return "\"\(code)\"" }
+            if s.elements.contains(where: { $0.label == "password" }) { return nil }
         }
-        return nil
+        if let p = paths.first(where: { URL(string: url)?.path.contains($0) ?? false }) { return "address \(p)" }
+        if let other { return "\"\(other)\"" }
+        return Config.current.challengeMarkers.first { m in !m.isEmpty && texts.contains { $0.contains(m) } }.map { "\"\($0)\"" }
     }
 
     static func start(_ host: String, _ marker: String, session: Session) -> Fail {
         let domain = Site.domain(host)
+        // With login on, a code prompt is a step of signing in, not a check to stop at.
+        if Login.allowed(host), Login.isCodePrompt(marker) {
+            return Fail(0, "sign-in code: \(domain) asks for a code (\(marker)). Run `type <id> --secret code` on its field; apprentice asks the user for it")
+        }
         let first = Limits.update { l -> Bool in
             let first = l.challenged?[domain] == nil
             var all = l.challenged ?? [:]
@@ -461,7 +470,7 @@ enum Challenge {
         guard Limits.stored.challenged?[domain] != nil else { return }
         let snap = read()
         if let marker = find(snap) {
-            guard Config.current.onChallenge == "stop" else { return }
+            guard Config.current.onChallenge == "stop", !(Login.allowed(host) && Login.isCodePrompt(marker)) else { return }
             throw Fail(4, "challenge: \(domain) still shows a check only the user may complete (\(marker)). Wait for them")
         }
         clear(domain)

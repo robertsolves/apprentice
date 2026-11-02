@@ -604,11 +604,12 @@ enum Remote {
     private static func focused() throws -> [String: Any] { try query(["op": "focus"].merging(target) { $1 }) }
 
     static func type(_ a: Args) throws -> String {
-        let usage = Fail(5, "type <id|focused> \"text\" [--enter] [--pace fast]")
-        guard let first = a.pos.first, a.pos.count >= 2 else { throw usage }
+        let usage = Fail(5, "type <id|focused> \"text\" [--enter] [--pace fast] | type <id> --secret username|password|code")
+        let secret = a.value("secret")
+        guard let first = a.pos.first, a.pos.count >= 2 || (secret != nil && a.pos.count == 1) else { throw usage }
         let isFocused = first == "focused"
         guard isFocused || Int(first) != nil else { throw usage }
-        let text = a.pos.dropFirst().joined(separator: " ")
+        var text = a.pos.dropFirst().joined(separator: " ")
         let (session, page, old) = try prepare()
         let e: Element
         if isFocused {
@@ -621,9 +622,16 @@ enum Remote {
             e = try resolve(Int(first) ?? 0)
         }
         let enter = a.has("enter")
-        try gate(session, page, e, "type into \(e.short)",
-                 details: (e.value.map { ["current text: \($0)"] } ?? []) + ["replaces it with: \(text)"] + (enter ? ["then presses return"] : []),
-                 warn: enter ? ["return may submit or send"] : [], force: a.has("gate"))
+        if let secret {
+            let summary = try Login.check(secret, url: page.url, field: e)
+            try gate(session, page, e, summary, details: enter ? ["then presses return"] : [],
+                     warn: ["signs in (login.auto)"] + (enter ? ["return may submit or send"] : []), force: a.has("gate"))
+            text = try Login.value(secret, url: page.url, a)
+        } else {
+            try gate(session, page, e, "type into \(e.short)",
+                     details: (e.value.map { ["current text: \($0)"] } ?? []) + ["replaces it with: \(text)"] + (enter ? ["then presses return"] : []),
+                     warn: enter ? ["return may submit or send"] : [], force: a.has("gate"))
+        }
         try beforeAction(session, url: page.url)
         // Never on a web page: typing at a third of a person's gaps is a keystroke-timing tell (BOT_DETECTION P1).
         let fast = (a.value("pace") == "fast" || Config.current.pace.mode == "fast") && page.url == nil
@@ -672,7 +680,7 @@ enum Remote {
             Pace.sleep(0.1)
         }
         return try done("type", session, page, old, navigates: enter, extra: note.map { [$0] } ?? [],
-                        log: ["id": e.id, "chars": text.count, "label": e.label, "name": e.name])
+                        log: ["id": e.id, "chars": secret == nil ? text.count : 0, "label": e.label, "name": e.name, "secret": secret ?? ""])
     }
 
     static func key(_ a: Args) throws -> String {

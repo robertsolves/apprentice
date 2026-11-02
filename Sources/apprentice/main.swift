@@ -31,6 +31,8 @@ func usage() {
       apprentice read [--max 80] [--filter text]
       apprentice click <id> | --on "text" | --at x,y [--double|--right]
       apprentice type <id|focused> "text" [--enter] [--pace fast] [--tier 3]
+      apprentice type <id> --secret username|password|code [--enter]   sign in ([login] auto): saved account, or the user's code
+      apprentice login add|remove|status <domain>   save a sign-in to the Keychain through the little window
       apprentice key <combo> [--tier 3]
       apprentice menu "File > New Folder" [--tier 3]
       apprentice scroll up|down|left|right [n] [--in id | --at x,y]
