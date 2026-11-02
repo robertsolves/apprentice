@@ -196,6 +196,19 @@ case "vm":
     attempt { print(try VM.command(Args.parse(rest))) }
 case "phone":
     attempt { print(try Notify.phone(Args.parse(rest), tty: isatty(STDOUT_FILENO) == 1)) }
+case "notify-test":
+    // Builds Apprentice.app if needed and posts one notification through it, whatever `[agent] notifications` says.
+    if let exe = Notify.appBundleExecutable() {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: exe)
+        p.arguments = ["notify-post", "apprentice needs you", "This is a test notification."]
+        try? p.run()
+        p.waitUntilExit()
+        print(p.terminationStatus == 0 ? "sent through \(exe)" : "the bundle could not post (exit \(p.terminationStatus)): allow apprentice in System Settings → Notifications")
+    } else {
+        print("could not build ~/.apprentice/Apprentice.app")
+    }
+    exit(0)
 case "notify-post":
     exit(Notify.post(title: rest.first ?? "apprentice", text: rest.dropFirst().first ?? ""))
 case "selftest":
