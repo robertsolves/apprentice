@@ -25,7 +25,7 @@ func usage() {
 
     usage:
       apprentice doctor [--fix]                 check permissions, signature, PATH, clone and settings; --fix opens the panes and runs a smoke test
-      apprentice session [--app Safari] [--on mac|linux] [--new-window] [--allow a.com,b.com] [--task "…"] [--no-options]
+      apprentice session [--app Safari] [--on mac|linux] [--new-window|--new-tab] [--allow a.com,b.com] [--task "…"] [--no-options]
       apprentice open <url>
       apprentice focus <app> [--on mac|linux]
       apprentice read [--max 80] [--filter text]

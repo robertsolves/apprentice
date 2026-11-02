@@ -11,6 +11,7 @@ One window at a time, by numbered element. Every action is real input with the w
 ### Loop
 ```
 apprentice session --app Safari --task "<task>"   # prints policy, playbooks, warnings to pass on
+# a browser: work in the window it has; --new-tab only for a page of your own (reuses a blank tab, never a new window)
 apprentice read --filter "Save" --max 40           # numbered list
 apprentice click 14                                # exit 8 + token
 apprentice approve <token>                         # acts, prints a + - ~ diff

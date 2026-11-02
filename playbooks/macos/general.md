@@ -16,7 +16,7 @@ status: verified
 
 ## Works
 - `menu "Menu > Item"` clicks the menu title, rests on submenus and clicks the item, in any app.
-- `session --new-window` opens a window with cmd+n when the app has none.
+- `session --new-window` opens a window with cmd+n when the app has none. In a browser it opens a tab instead (`--new-tab`), in the window apprentice used last, and reuses a tab already on the new-tab page.
 - `type` checks that its click gave the field focus before it selects or types anything.
 
 ## Fails

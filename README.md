@@ -112,7 +112,7 @@ With `[agent] ask_on_start = true`, the first `session` after the daemon starts 
 | Command | Does |
 | --- | --- |
 | `doctor [--fix]` | Check permissions, signature, PATH, clone and settings; `--fix` opens the panes and runs a smoke test |
-| `session --app <name> [--new-window] [--allow a.com,b.com] [--task "…"]` | Attach to one app window; prints the policy and playbooks for that app or site. `--task` records what you asked for in the log |
+| `session --app <name> [--new-window|--new-tab] [--allow a.com,b.com] [--task "…"]` | Attach to one app window (in a browser `--new-window` opens a tab, reusing a blank one); prints the policy and playbooks for that app or site. `--task` records what you asked for in the log |
 | `read [--max 80] [--filter text]` | The numbered list of what is on screen |
 | `click <id>` · `click --on "text"` · `click --at x,y` | Click an element, visible text (OCR if it is not listed) or a point |
 | `type <id\|focused> "text" [--enter]` | Click into a field, then type, key by key |

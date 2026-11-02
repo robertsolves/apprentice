@@ -10,7 +10,7 @@ struct Args {
     /// Flags that are only on or off, so they never take the next word as their value (B7):
     /// `click --right 5` keeps 5 as the id.
     static let switches: Set<String> = [
-        "right", "double", "enter", "new-window", "json", "gate", "approve", "screen-anyway", "no-options",
+        "right", "double", "enter", "new-window", "new-tab", "json", "gate", "approve", "screen-anyway", "no-options",
         "multi", "text", "force", "background", "all",
     ]
 
@@ -104,6 +104,33 @@ func makeNewWindow(_ app: NSRunningApplication) {
         try? Keys.press("cmd+n")
         if poll(timeout: 3, { pickWindow(ax).flatMap { $0.windowID.map { !before.contains($0) } == true ? $0 : nil } }) != nil { return }
     }
+}
+
+/// A browser gets a tab, as a person would, not another window: the window apprentice used last if it
+/// is still open (else the one in front), and no new tab at all when that window already shows a blank one.
+/// A browser with no window gets one.
+func makeNewTab(_ app: NSRunningApplication) {
+    let ax = appElement(app.processIdentifier)
+    app.activate()
+    _ = poll(timeout: 3) { NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier ? true : nil }
+    if let last = Session.stored, last.vm != true, last.pid == app.processIdentifier,
+       let window = windows(of: ax).first(where: { $0.windowID == last.wid }) {
+        window.set(kAXMainAttribute, kCFBooleanTrue)
+        window.perform(kAXRaiseAction)
+    }
+    Pace.sleep(0.4)
+    guard let window = pickWindow(ax) else { return makeNewWindow(app) }
+    if isBlankTab(windowURL(window)) { return }
+    let wid = window.windowID
+    try? Keys.press("cmd+t")
+    _ = poll(timeout: 3) { pickWindow(ax).flatMap { $0.windowID == wid && isBlankTab(windowURL($0)) ? true : nil } }
+}
+
+/// A browser's new-tab page, or a tab with no page yet.
+func isBlankTab(_ url: String?) -> Bool {
+    guard let url = url?.lowercased(), !url.isEmpty else { return true }
+    return url == "about:blank" || url.hasPrefix("about:newtab") || url.hasPrefix("about:home") || url.hasPrefix("favorites://")
+        || url.hasSuffix("://newtab/") || url.hasSuffix("://newtab") || url.contains("://new-tab-page")
 }
 
 func pickWindow(_ app: AXUIElement) -> AXUIElement? {
@@ -458,7 +485,9 @@ enum Commands {
         guard let app = requested ?? NSWorkspace.shared.frontmostApplication, let name = app.localizedName else {
             throw Fail(5, "no app found")
         }
-        if a.has("new-window") { makeNewWindow(app) }
+        if a.has("new-window") || a.has("new-tab") {
+            if Session.handlesWeb(app.bundleIdentifier ?? "") { makeNewTab(app) } else { makeNewWindow(app) }
+        }
         var s = try attach(app, name, a)
         let firstThisRun = !optionsAsked
         if !optionsAsked, Config.current.askOnStart, !a.has("no-options"), !Ask.away {

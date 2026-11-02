@@ -148,7 +148,7 @@ All output is compact plain text meant for an agent to read. `--json` gives the 
 
 | Command | Does | Returns |
 | --- | --- | --- |
-| `session [--app Safari] [--new-window] [--allow a.com]` | Open or attach a session to one app window; prints policy, playbooks and route hints | session id, window id |
+| `session [--app Safari] [--new-window|--new-tab] [--allow a.com]` | Open or attach a session to one app window (a browser gets a tab, reusing a blank one, never another window); prints policy, playbooks and route hints | session id, window id |
 | `open <url>` | Navigate the session window (rate-limited, policy-checked) | diff |
 | `focus <app>` | Switch the session to another app or window | window id |
 | `read [--max 80] [--filter text]` | Numbered element list; reports a challenge, or that one has cleared | snapshot |

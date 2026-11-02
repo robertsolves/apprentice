@@ -139,10 +139,36 @@ enum SelfTest {
         let long = (0..<200).map { _ in Mouse.duration(2, base) }
         check(long.allSatisfy { $0 > base.moveMax && $0 <= base.moveMax * 2.5 } && Set(long).count > 150 && Mouse.duration(0.001, base) == base.moveMin,
               "long moves pass the cap without piling up on it; short ones keep the floor")
-        let wild = Hand(speed: 9, side: -1, hold: .nan, holdSigma: 0, rhythm: 1, rollover: 2, click: 1).bounded
-        check(wild.speed <= 1.4 && wild.side >= 0.2 && wild.hold >= 0.05 && wild.rollover <= 0.6 && wild.click <= 0.16, "a hand from a bad file is bounded")
-        check((0..<500).allSatisfy { _ in (0.035...0.25).contains(Pace.keyHold("a")) && (0.035...0.9).contains(Pace.keyGap(after: "a", before: "k")) },
+        let wild = Hand(speed: 9, side: -1, hold: .nan, holdSigma: 0, rhythm: 1, click: 1).bounded
+        check(wild.speed <= 1.4 && wild.side >= 0.2 && wild.hold >= 0.05 && wild.click <= 0.16, "a hand from a bad file is bounded")
+        check((0..<500).allSatisfy { _ in (0.035...0.25).contains(Pace.keyHold("a")) && (0.03...1.2).contains(Typing.interval("a", 0, "k", 40)) },
               "key holds and gaps stay in range")
+        func median(_ a: Character, _ ca: CGKeyCode, _ b: Character, _ cb: CGKeyCode) -> Double {
+            let s = (0..<301).map { _ in Typing.interval(a, ca, b, cb) }.sorted()
+            return s[150]
+        }
+        // "ed" is one finger, "th" two hands: by the board alone the first is slower, and each pair keeps its lean.
+        check(Typing.kind(14, 2) == .finger && Typing.kind(17, 4) == .other && Typing.kind(0, 49) == .toSpace
+              && median("e", 14, "d", 2) > median("t", 17, "h", 4) * 1.2
+              && Typing.lean("th", 0.14) == Typing.lean("th", 0.14) && Typing.lean("th", 0.14) != Typing.lean("ht", 0.14),
+              "gaps follow the board: one finger slower than two hands, and each pair keeps its own lean")
+        var recorded = Typing.Profile(recorded: Date())
+        // The person types "th" at 60 ms and "ed" at 300 ms: the recording wins over the board.
+        var presses: [Typing.Press] = []
+        var t = 0.0
+        for _ in 0..<12 {
+            for (code, ch, gap) in [(CGKeyCode(17), Character("t"), 0.2), (4, "h", 0.06), (14, "e", 0.15), (2, "d", 0.3), (49, " ", 0.12)] as [(CGKeyCode, Character, Double)] {
+                t += gap
+                presses.append(Typing.Press(code: code, char: ch, down: t, up: t + 0.09, edit: false))
+            }
+        }
+        presses[5].edit = true
+        Typing.add(presses, to: &recorded)
+        Store.save(recorded, Typing.file)
+        check(abs(median("t", 17, "h", 4) - 0.06) < 0.02 && abs(median("e", 14, "d", 2) - 0.3) < 0.08
+              && recorded.pairs["th"]?.count == 11 && recorded.holds["t"]?.first == 90,
+              "a recording sets each pair's own rhythm and hold; a pair beside a correction is left out")
+        Store.remove(Typing.file)
         check(Keys.tag != 0x646B_6374 && Keys.tag > 0, "the event tag is drawn, not the old constant")
         check(Mouse.Speed.allCases.allSatisfy { abs(Mouse.progress($0, 1, skew: 0.8) - 1) < 1e-9 && abs(Mouse.progress($0, 0, skew: 0.8)) < 1e-9 },
               "every speed profile starts at the start and ends on the target")
@@ -188,6 +214,8 @@ enum SelfTest {
             check(!vm(cmd), "\(cmd) stays on this Mac")
         }
         check(VM.isBrowser("Safari") && VM.isBrowser("Brave Browser.app") && !VM.isBrowser("Finder"), "browser names")
+        check(isBlankTab("chrome://newtab/") && isBlankTab("chrome://new-tab-page/") && isBlankTab(nil) && isBlankTab("about:blank")
+              && !isBlankTab("https://example.com/newtab") && !isBlankTab("https://example.com/"), "blank browser tabs")
     }
 
     private static func notify() {
