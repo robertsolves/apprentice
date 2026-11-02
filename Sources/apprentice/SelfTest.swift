@@ -70,6 +70,12 @@ enum SelfTest {
         check(b.value("max") == "80" && b.value("filter") == "Sign in" && b.has("enter"), "--k=v, --k v and a trailing switch")
         check(b.int("max", 0) == 80 && b.int("missing", 7) == 7, "int with fallback")
         check((try? Args.parse(["--max", "x"]).count("max", 1)) == nil, "a bad count is an error, not a fallback")
+        check((try? Commands.scrollArgs(Args.parse(["left", "2"])))?.direction == "left"
+              && (try? Commands.scrollArgs(Args.parse(["sideways"]))) == nil, "scroll takes left and right, nothing else")
+        let by = Args.parse(["--by", "-200,40", "--in", "7"])
+        check(by.value("by") == "-200,40" && by.value("in") == "7", "a negative offset is a value, not a flag")
+        check((try? Commands.screenPoint("-200, 40", "")) == CGPoint(x: -200, y: 40)
+              && (try? Commands.screenPoint("3", "")) == nil && (try? Commands.screenPoint("nan,1", "")) == nil, "x,y points parse strictly")
     }
 
     private static func pace() {

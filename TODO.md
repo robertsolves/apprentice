@@ -17,6 +17,8 @@ It runs: Debian guests under Tart (2 GB disk, 2 GB memory each) or on a server (
 - Try `browse`, fidgets and the new path shapes live, on this Mac and in the VM, and tune the ranges in `Fidget.swift` and `Mouse.stroke` from what they look like (only `selftest` has run them so far).
 - Log the active pace style and profile on each row, so FEATURES.md can tell whether `careful` sites see fewer soft blocks.
 - `run`'s tiny grammar has no `browse` yet.
+- Try `scroll left|right`, `scroll --at` and `drag --by` live on a web map, on this Mac and in the VM (only `selftest` has run them): check the sideways direction is right, and that `Mouse.drag`'s straight 12 ms steps pan smoothly. It may need the curved `Mouse.stroke` path and a short hold before the move.
+- No pinch or trackpad zoom (gesture events). The wheel and `+`/`-` cover web maps, but some apps zoom only by pinch.
 
 ## Install
 

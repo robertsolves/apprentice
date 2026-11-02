@@ -295,6 +295,7 @@ enum Notes {
             case "scroll": line = "scroll \(r["direction"] as? String ?? "down") \(r["count"] ?? 3)"
             case "hover": line = "hover \(el())"
             case "browse": line = "browse \(r["seconds"] ?? 30)"
+            case "drag" where r["by"] != nil: line = "drag --by=\(r["by"] ?? "")" + (r["label"] != nil ? " --in \(el())" : "")
             case "drag": line = "drag \(el()) \(el("to_"))"
             case "upload": line = "upload \(el()) \"{file}\""
             case "choose": line = "choose \"{path}\""

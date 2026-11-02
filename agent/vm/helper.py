@@ -422,7 +422,11 @@ def play(req):
     elif op in ("down", "up"):
         fake(X.ButtonPress if op == "down" else X.ButtonRelease, int(req.get("b", 1)))
     elif op == "wheel":
-        button = 5 if req["n"] < 0 else 4
+        # Buttons 4/5 scroll up/down and 6/7 left/right; a negative n is down or right.
+        if req.get("sideways"):
+            button = 7 if req["n"] < 0 else 6
+        else:
+            button = 5 if req["n"] < 0 else 4
         for _ in range(abs(int(req["n"]))):
             fake(X.ButtonPress, button)
             fake(X.ButtonRelease, button)

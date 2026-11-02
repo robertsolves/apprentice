@@ -155,8 +155,9 @@ All output is compact plain text meant for an agent to read. `--json` gives the 
 | `click --on "text"` / `--at x,y` | Click visible text (listed, or found by OCR) or a screen point | diff |
 | `type <id> "text" [--enter] [--pace fast]` | Type into a field, paced by default | diff |
 | `key <combo>` / `menu "File > New"` | Send a shortcut or pick a menu item | diff |
-| `scroll <up\|down> [n] [--in id]` | Scroll the window or one element | diff |
+| `scroll <up\|down\|left\|right> [n] [--in id \| --at x,y]` | Scroll the window, one element or a screen point (a map zooms on the point under the wheel) | diff |
 | `hover <id>` / `drag <id> <id>` | Move onto an element, or drag one onto another | diff |
+| `drag --by dx,dy [--in id \| --at x,y]` | Press, move by an offset and let go, to pan a map, canvas or timeline; the path stays in the window; gated like any drag | diff |
 | `browse [seconds] [--in id]` | Read down a page or feed for 30 s (at most 120) at a reading pace; clicks nothing | diff |
 | `upload <id> <path>` / `download <id> <path>` / `choose <path>` | File dialogs | diff or saved path |
 | `wait-for "text" [--timeout 10]` | Wait for text, never by reloading | found or timeout |
@@ -213,7 +214,7 @@ All randomness in pacing comes from `Rand` (`Rand.swift`): one xoshiro256** gene
 - **Settle.** `Mouse.settle` rests 40–120 ms over the target with small micro-moves before the press, so `mousedown` never lands on the frame of the last move.
 - **Click.** The button is held 60–140 ms; the double-click gap is 70–130 ms.
 - **Idle drift.** `Mouse.linger` drifts the pointer 5–20 px every 2–5 s during a dwell.
-- **Scroll.** The pointer moves to the scroll point and rests 150–400 ms, then scrolls in flicks (`Wheel.scroll`): 3–9 lines per flick in notches of 1–3, quick in the middle of a flick and slower at either end, 120–450 ms between flicks.
+- **Scroll.** Up, down, left or right (the wheel's second axis). The pointer moves to the scroll point (exactly onto it with `--at`) and rests 150–400 ms, then scrolls in flicks (`Wheel.scroll`): 3–9 lines per flick in notches of 1–3, quick in the middle of a flick and slower at either end, 120–450 ms between flicks.
 - **Browse.** `browse` reads down a page or feed: each turn scrolls 4–15 lines, then reads for a log-normal pause around 3 s (at most 15) with the pointer drifting, and one turn in eight looks back up 2–6 lines. It clicks and types nothing. With `browse` set (a share of actions, at most 0.2), a profile also does this on its own: that share of commands on a web page ends with `browse_s` (10–40 s by default, at most 120) of reading down the feed from the middle of the window, then scrolls back up as far as it went, so the agent's screen ends about where its action left it. Off in every style; a site turns it on. Logged as `waits.browse`.
 - **Fidget.** With `fidget` set, that share of actions is followed by a gesture that changes nothing (`Fidget.swift`): the pointer glances across the window, traces a few lines as if reading, rests with a drift, or on a web page scrolls down a little and back. Never a click or a key. It runs once per command, after every step of it and before the re-read (`finish`), inside `Borrow.run`, so the person's own input stops it, no later step aims at a point it scrolled away, and the diff shows the screen as it was left. Never after `hover`. Its time is logged as `waits.fidget`.
 

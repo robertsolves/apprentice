@@ -255,7 +255,8 @@ extension Remote {
     }
 
     static func drag(_ a: Args) throws -> String {
-        guard a.pos.count >= 2, let from = Int(a.pos[0]), let to = Int(a.pos[1]) else { throw Fail(5, "drag <id> <id>") }
+        if let raw = a.value("by") { return try dragBy(raw, a) }
+        guard a.pos.count >= 2, let from = Int(a.pos[0]), let to = Int(a.pos[1]) else { throw Fail(5, Commands.dragUsage) }
         let (session, page, old) = try prepare()
         let src = try resolve(from), dst = try resolve(to)
         try gate(session, page, src, "drag \(src.short) onto \(dst.short)", warn: Gate.warnings(dst, page).filter { $0.hasPrefix("may") })
@@ -267,6 +268,29 @@ extension Remote {
             try Mouse.drag(from: start, to: Mouse.landing(in: dst.rect))
         }
         return try done("drag", session, page, old, log: ["from": from, "to": to])
+    }
+
+    /// `drag --by dx,dy [--in id | --at x,y]`, as `Commands.dragBy` does it on this Mac.
+    private static func dragBy(_ raw: String, _ a: Args) throws -> String {
+        let by = try Commands.screenPoint(raw, Commands.dragUsage)
+        let (session, page, old) = try prepare()
+        var rect = CGRect(x: bounds.midX - 40, y: bounds.midY - 40, width: 80, height: 80)
+        var e: Element?
+        if let r = a.value("in"), let id = Int(r) { e = try resolve(id); rect = e!.rect }
+        let start = try a.value("at").map { try Commands.screenPoint($0, Commands.dragUsage) } ?? Mouse.landing(in: rect)
+        let end = CGPoint(x: start.x + by.x, y: start.y + by.y)
+        guard bounds.contains(start), bounds.contains(end) else {
+            throw Fail(4, "a drag by \(raw) from \(Int(start.x)),\(Int(start.y)) leaves the session window: drag less, or in two steps")
+        }
+        let what = e.map { "drag in \($0.short) by \(raw)" } ?? "drag at \(Int(start.x)),\(Int(start.y)) by \(raw)"
+        try gate(session, page, e, what, force: a.has("gate"))
+        try beforeAction(session, url: page.url)
+        try act {
+            Mouse.move(to: start, size: e == nil ? CGSize(width: 20, height: 20) : rect.size)
+            Pace.sleep(Rand.uniform(0.1...0.25))
+            try Mouse.drag(from: start, to: end)
+        }
+        return try done("drag", session, page, old, extra: ["→ by \(raw)"], log: ["by": raw])
     }
 
     // MARK: - the user points

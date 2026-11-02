@@ -171,7 +171,7 @@ enum Remote {
 
     // MARK: - input, called by Keys and Mouse while active
 
-    private static var wheelCarry: Int64 = 0
+    private static var wheelCarry: Int64 = 0, sideCarry: Int64 = 0
 
     static func post(_ e: CGEvent) {
         let p = e.location
@@ -189,6 +189,10 @@ enum Remote {
             let ticks = wheelCarry / 2
             wheelCarry -= ticks * 2
             if ticks != 0 { send(["op": "wheel", "n": ticks]) }
+            sideCarry += e.getIntegerValueField(.scrollWheelEventDeltaAxis2)
+            let side = sideCarry / 2
+            sideCarry -= side * 2
+            if side != 0 { send(["op": "wheel", "n": side, "sideways": true]) }
         default:
             break
         }
@@ -633,25 +637,23 @@ enum Remote {
     }
 
     static func scroll(_ a: Args) throws -> String {
-        guard let direction = a.pos.first?.lowercased(), direction == "up" || direction == "down" else {
-            throw Fail(5, "scroll <up|down> [n] [--in id]")
-        }
-        var count = 3
-        if a.pos.count > 1 {
-            guard let n = Int(a.pos[1]), n >= 1 else { throw Fail(5, "scroll needs a whole number of steps, not \"\(a.pos[1])\"") }
-            count = min(n, 50)
-        }
+        let (direction, count) = try Commands.scrollArgs(a)
         let (session, page, old) = try prepare()
         try beforeAction(session, url: page.url)
         var rect = CGRect(x: bounds.midX - 20, y: bounds.midY - 20, width: 40, height: 40)
         if let raw = a.value("in"), let id = Int(raw) { rect = try resolve(id).rect }
+        let at = try a.value("at").map { try Commands.screenPoint($0, "scroll --at x,y") }
+        if let at, !bounds.insetBy(dx: -1, dy: -90).contains(at) { throw Fail(4, "\(a.value("at") ?? "") is outside the session window") }
         try act {
-            let point = Mouse.landing(in: rect)
-            Mouse.move(to: point, size: rect.size)
+            let point = at ?? Mouse.landing(in: rect)
+            Mouse.move(to: point, size: at == nil ? rect.size : CGSize(width: 20, height: 20))
             Pace.sleep(Rand.uniform(0.15...0.4))
-            Wheel.scroll(lines: count * 3, down: direction == "down")
+            Wheel.scroll(lines: count * 3, down: direction == "down" || direction == "right",
+                         sideways: direction == "left" || direction == "right")
         }
-        return try done("scroll", session, page, old, extra: ["→ \(direction) \(count)"], log: ["direction": direction, "count": count])
+        var log: [String: Any] = ["direction": direction, "count": count]
+        if let raw = a.value("at") { log["at"] = raw }
+        return try done("scroll", session, page, old, extra: ["→ \(direction) \(count)"], log: log)
     }
 
     static func browse(_ a: Args) throws -> String {

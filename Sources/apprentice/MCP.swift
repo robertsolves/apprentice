@@ -16,7 +16,8 @@ enum MCP {
         tool("type", "Type text into an element", ["id": ["type": "integer"], "text": ["type": "string"], "enter": ["type": "boolean"], "pace": ["type": "string"]], ["id", "text"]),
         tool("key", "Send a keyboard shortcut", ["combo": ["type": "string"]], ["combo"]),
         tool("menu", "Pick a menu-bar item, e.g. File > New Folder", ["path": ["type": "string"]], ["path"]),
-        tool("scroll", "Scroll the window or an element", ["direction": ["type": "string"], "count": ["type": "integer"], "in": ["type": "integer"]], ["direction"]),
+        tool("scroll", "Scroll up, down, left or right in the window, an element, or at a screen point (at: \"x,y\"; a map zooms there)",
+             ["direction": ["type": "string"], "count": ["type": "integer"], "in": ["type": "integer"], "at": ["type": "string"]], ["direction"]),
         tool("browse", "Read down the page or feed for a while, scrolling at a reading pace; clicks nothing", ["seconds": ["type": "integer"], "in": ["type": "integer"]], []),
         tool("hover", "Move the pointer over an element", ["id": ["type": "integer"]], ["id"]),
         tool("open", "Navigate the session browser window", ["url": ["type": "string"]], ["url"]),
@@ -25,7 +26,8 @@ enum MCP {
         tool("ocr", "OCR the window into numbered lines", ["crop": ["type": "string"]]),
         tool("route", "Check for a faster API, CLI or connector route", ["task": ["type": "string"]], ["task"]),
         tool("focus", "Switch the session to another running app; on: mac or linux", ["app": ["type": "string"], "on": ["type": "string"]], ["app"]),
-        tool("drag", "Drag one element onto another", ["from": ["type": "integer"], "to": ["type": "integer"]], ["from", "to"]),
+        tool("drag", "Drag one element onto another, or drag by an offset to pan a map or canvas (by: \"dx,dy\", inside `in` or from `at`: \"x,y\")",
+             ["from": ["type": "integer"], "to": ["type": "integer"], "by": ["type": "string"], "in": ["type": "integer"], "at": ["type": "string"]], []),
         tool("upload", "Click a file control and pick a file in the dialog", ["id": ["type": "integer"], "path": ["type": "string"]], ["id", "path"]),
         tool("download", "Save a linked file or image to a path", ["id": ["type": "integer"], "path": ["type": "string"]], ["id", "path"]),
         tool("log", "The last steps of this session", ["tail": ["type": "integer"]]),
@@ -146,6 +148,7 @@ enum MCP {
             var a = [s("direction") ?? "down"]
             if let count = s("count") { a.append(count) }
             if let inside = s("in") { a += ["--in", inside] }
+            if let at = s("at") { a += ["--at", at] }
             return Request(cmd: "scroll", args: a)
         case "hover":
             return Request(cmd: "hover", args: [s("id") ?? ""])
@@ -170,6 +173,12 @@ enum MCP {
         case "focus":
             return Request(cmd: "focus", args: [s("app") ?? ""] + (s("on").map { ["--on", $0] } ?? []))
         case "drag":
+            if let by = s("by") {
+                var a = ["--by=\(by)"]
+                if let inside = s("in") { a += ["--in", inside] }
+                if let at = s("at") { a += ["--at=\(at)"] }
+                return Request(cmd: "drag", args: a)
+            }
             return Request(cmd: "drag", args: [s("from") ?? "", s("to") ?? ""])
         case "upload", "download":
             return Request(cmd: name, args: [s("id") ?? "", s("path") ?? ""])

@@ -32,10 +32,10 @@ func usage() {
       apprentice type <id|focused> "text" [--enter] [--pace fast] [--tier 3]
       apprentice key <combo> [--tier 3]
       apprentice menu "File > New Folder" [--tier 3]
-      apprentice scroll up|down [n] [--in id]
+      apprentice scroll up|down|left|right [n] [--in id | --at x,y]
       apprentice hover <id>
       apprentice browse [seconds] [--in id]
-      apprentice drag <id> <id>
+      apprentice drag <id> <id> | --by dx,dy [--in id | --at x,y]   drag one onto another, or pan a map
       apprentice upload <id> <path> [--tier 3]
       apprentice choose <path>                  drive the open or save dialog on the window
       apprentice do <flow> [--key value ...]    run a flow from notes/flows with one approval

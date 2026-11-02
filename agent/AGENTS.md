@@ -18,7 +18,7 @@ apprentice type 16 "new bio" --enter
 
 - Terminal first: the `policy:` line says whether tasks may use shell commands (macOS: your own shell; Linux: the ssh command it prints) and when the screen is only for what no command does. Websites always go through the UI. Never change the policy.
 - Ids stay the same after an action; new elements in the diff get new ids. So act from the diff and don't `read` again after an action unless you get exit 2 (`stale`) or need something the diff doesn't show. Narrow with `--filter`, `--max 40`.
-- Also: `open`, `key`, `menu "File > New Folder"`, `wait-for`, `scroll`, `browse [s]` (read down a feed, clicks nothing), `hover`, `upload`, `download`, `choose "<path>"`, `type focused "text"`, `click --on "text"` (visible text, OCR when not listed), `click --at x,y`, `shot`, `ocr`. When the list can't name a target, `shot --marks` saves a PNG with each id drawn on it.
+- Also: `open`, `key`, `menu "File > New Folder"`, `wait-for`, `scroll up|down|left|right [n] [--at x,y]` (wheel zooms a map there), `drag --by dx,dy --in <id>` (pan), `browse [s]` (read down a feed, clicks nothing), `hover`, `upload`, `download`, `choose "<path>"`, `type focused "text"`, `click --on "text"` (visible text, OCR when not listed; several matches come back to pick by id), `click --at x,y`, `shot`, `ocr`. When the list can't name a target, `shot --marks` saves a PNG with each id drawn on it.
 
 Approval:
 - Changing commands exit 8 with `approve? …` and a token; nothing is done yet. `apprentice approve <token>` (`--text` edits a pending type) or `deny <token>`.

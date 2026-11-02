@@ -6,14 +6,16 @@ import AppKit
 enum Wheel {
     static var stopped: Bool { KillSwitch.tripped || Watch.stopped || (!Remote.active && Borrow.interrupted) }
 
-    static func notch(_ lines: Int32, at point: CGPoint) {
-        guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: lines, wheel2: 0, wheel3: 0) else { return }
+    /// One notch: `lines` up (positive) or down, or with `sideways` left (positive) or right.
+    static func notch(_ lines: Int32, at point: CGPoint, sideways: Bool = false) {
+        guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2,
+                                  wheel1: sideways ? 0 : lines, wheel2: sideways ? lines : 0, wheel3: 0) else { return }
         event.location = point
         Keys.post(event)
     }
 
-    /// Scrolls `lines` (down when `down`) under the cursor.
-    static func scroll(lines total: Int, down: Bool) {
+    /// Scrolls `lines` (down when `down`) under the cursor; with `sideways`, right when `down`.
+    static func scroll(lines total: Int, down: Bool, sideways: Bool = false) {
         let sign: Int32 = down ? -1 : 1
         var left = total
         while left > 0, !stopped {
@@ -27,7 +29,7 @@ enum Wheel {
             }
             for (i, n) in notches.enumerated() {
                 if stopped { return }
-                notch(sign * Int32(n), at: Mouse.location)
+                notch(sign * Int32(n), at: Mouse.location, sideways: sideways)
                 let x = Double(i + 1) / Double(notches.count)
                 Pace.sleep((0.025 + 0.06 * pow(2 * x - 1, 2)) * Rand.uniform(0.7...1.3))
             }

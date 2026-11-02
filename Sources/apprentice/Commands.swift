@@ -863,29 +863,27 @@ enum Commands {
     }
 
     static func scroll(_ a: Args) throws -> String {
-        guard let direction = a.pos.first?.lowercased(), direction == "up" || direction == "down" else {
-            throw Fail(5, "scroll <up|down> [n] [--in id]")
-        }
-        var count = 3
-        if a.pos.count > 1 {
-            guard let n = Int(a.pos[1]), n >= 1 else { throw Fail(5, "scroll needs a whole number of steps, not \"\(a.pos[1])\"") }
-            count = min(n, 50)
-        }
+        let (direction, count) = try scrollArgs(a)
         let (session, target, old) = try prepare()
         try beforeAction(session, url: target.url)
         var rect = CGRect(x: target.bounds.midX - 20, y: target.bounds.midY - 20, width: 40, height: 40)
         if let raw = a.value("in"), let id = Int(raw) { rect = try resolve(id, target).1.rect }
+        let at = try a.value("at").map { try screenPoint($0, "scroll --at x,y") }
+        if let at, !(target.window.frame?.contains(at) ?? false) { throw Fail(4, "\(a.value("at") ?? "") is outside the session window") }
         try Borrow.run(target) {
-            // The wheel scrolls whatever is under the cursor, so the cursor goes there first.
-            let point = Mouse.landing(in: rect)
-            Mouse.move(to: point, size: rect.size)
+            // The wheel scrolls whatever is under the cursor, so the cursor goes there first. A map
+            // zooms on the point under it, so `--at` lands exactly there.
+            let point = at ?? Mouse.landing(in: rect)
+            Mouse.move(to: point, size: at == nil ? rect.size : CGSize(width: 20, height: 20))
             try Borrow.checkpoint()
             Pace.sleep(Rand.uniform(0.15...0.4))
             // In flicks of a few notches, as a wheel turns, instead of one jump of every line at once.
-            Wheel.scroll(lines: count * 3, down: direction == "down")
+            Wheel.scroll(lines: count * 3, down: direction == "down" || direction == "right",
+                         sideways: direction == "left" || direction == "right")
         }
-        return try finish("scroll", session, target, old, extra: ["→ \(direction) \(count)"],
-                      log: ["direction": direction, "count": count])
+        var log: [String: Any] = ["direction": direction, "count": count]
+        if let raw = a.value("at") { log["at"] = raw }
+        return try finish("scroll", session, target, old, extra: ["→ \(direction) \(count)"], log: log)
     }
 
     /// `browse [seconds] [--in id]`: reads down the page or feed for a while (30 s, at most 120), flick by
@@ -907,6 +905,23 @@ enum Commands {
                       log: ["seconds": Int(seconds), "down": moved.down, "up": moved.up])
     }
 
+    /// `scroll up|down [n]`: the direction and the steps, 3 by default and at most 50.
+    static func scrollArgs(_ a: Args) throws -> (direction: String, count: Int) {
+        guard let direction = a.pos.first?.lowercased(), ["up", "down", "left", "right"].contains(direction) else {
+            throw Fail(5, "scroll <up|down|left|right> [n] [--in id | --at x,y]")
+        }
+        guard a.pos.count > 1 else { return (direction, 3) }
+        guard let n = Int(a.pos[1]), n >= 1 else { throw Fail(5, "scroll needs a whole number of steps, not \"\(a.pos[1])\"") }
+        return (direction, min(n, 50))
+    }
+
+    /// `x,y` in screen points, as `click --at`, `scroll --at` and `drag --at` take it (and `--by`'s offset).
+    static func screenPoint(_ raw: String, _ usage: String) throws -> CGPoint {
+        let parts = raw.split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+        guard parts.count == 2, parts.allSatisfy(\.isFinite) else { throw Fail(5, usage) }
+        return CGPoint(x: parts[0], y: parts[1])
+    }
+
     static func browseSeconds(_ a: Args) throws -> Double {
         guard let raw = a.pos.first else { return 30 }
         guard let s = Double(raw), s.isFinite, s >= 1 else { throw Fail(5, "browse [seconds] [--in id]: seconds is a number, 1–120") }
@@ -923,7 +938,8 @@ enum Commands {
     }
 
     static func drag(_ a: Args) throws -> String {
-        guard a.pos.count >= 2, let from = Int(a.pos[0]), let to = Int(a.pos[1]) else { throw Fail(5, "drag <id> <id>") }
+        if let raw = a.value("by") { return try dragBy(raw, a) }
+        guard a.pos.count >= 2, let from = Int(a.pos[0]), let to = Int(a.pos[1]) else { throw Fail(5, dragUsage) }
         let (session, target, old) = try prepare()
         let (_, src) = try resolve(from, target)
         let (_, dst) = try resolve(to, target)
@@ -939,6 +955,36 @@ enum Commands {
             try Mouse.drag(from: start, to: end)
         }
         return try finish("drag", session, target, old, extra: ["→ \(from) onto \(to)"], log: ["from": from, "to": to, "label": src.label, "name": src.name, "to_label": dst.label, "to_name": dst.name])
+    }
+
+    static let dragUsage = "drag <id> <id> | drag --by dx,dy [--in id | --at x,y]"
+
+    /// `drag --by dx,dy [--in id | --at x,y]`: presses inside the element (or the middle of the window, or
+    /// at a point), moves by the offset and lets go, as a hand pans a map, canvas or timeline. The whole
+    /// path stays in the window. Gated like any drag, since on a slider or a list it changes things.
+    private static func dragBy(_ raw: String, _ a: Args) throws -> String {
+        let by = try screenPoint(raw, dragUsage)
+        let (session, target, old) = try prepare()
+        var rect = CGRect(x: target.bounds.midX - 40, y: target.bounds.midY - 40, width: 80, height: 80)
+        var e: Element?
+        if let r = a.value("in"), let id = Int(r) { e = try resolve(id, target).1; rect = e!.rect }
+        let start = try a.value("at").map { try screenPoint($0, dragUsage) } ?? Mouse.landing(in: rect)
+        let end = CGPoint(x: start.x + by.x, y: start.y + by.y)
+        guard let frame = target.window.frame, frame.contains(start), frame.contains(end) else {
+            throw Fail(4, "a drag by \(raw) from \(Int(start.x)),\(Int(start.y)) leaves the session window: drag less, or in two steps")
+        }
+        let what = e.map { "drag in \($0.short) by \(raw)" } ?? "drag at \(Int(start.x)),\(Int(start.y)) by \(raw)"
+        try gate(session, target, e, what, force: a.has("gate"))
+        try beforeAction(session, url: target.url)
+        try Borrow.run(target) {
+            Mouse.move(to: start, size: e == nil ? CGSize(width: 20, height: 20) : rect.size)
+            try Borrow.checkpoint()
+            Pace.sleep(Rand.uniform(0.1...0.25))
+            try Mouse.drag(from: start, to: end)
+        }
+        var log: [String: Any] = ["by": raw]
+        if let e { log["label"] = e.label; log["name"] = e.name }
+        return try finish("drag", session, target, old, extra: ["→ by \(raw)"], log: log)
     }
 
     /// `choose <path>`: drives the open or save dialog on the session window. An existing file is
