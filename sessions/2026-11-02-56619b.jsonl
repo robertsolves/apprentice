@@ -1,0 +1,242 @@
+{"app":"Google Chrome","cmd":"session","host":"newtab","model":"claude-opus-5-5","ms":1133,"ts":"2026-11-02T13:08:19.712+10:00"}
+{"model":"claude-opus-5-5","task":"canary full feature test","ts":"2026-11-02T13:08:19.713+10:00"}
+{"cmd":"read","model":"claude-opus-5-5","ms":32,"ts":"2026-11-02T13:08:19.765+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:08:19.791+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:08:19.816+10:00"}
+{"cmd":"open","diff":"+0 -13 ~0","host":"new-tab-page","model":"claude-opus-5-5","ms":2579,"ts":"2026-11-02T13:08:22.395+10:00","waits":{"idle":0,"settle":259}}
+{"cmd":"read","model":"claude-opus-5-5","ms":21,"ts":"2026-11-02T13:08:23.482+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:08:33.016+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:08:33.039+10:00"}
+{"cmd":"type","diff":"+6 -2 ~1","host":"127.0.0.1","label":"textarea","model":"claude-opus-5-5","ms":18570,"ts":"2026-11-02T13:08:51.609+10:00","waits":{"idle":0,"move":762,"settle":302,"type":16663}}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:08:51.653+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:08:51.677+10:00"}
+{"cmd":"type","diff":"+2 -2 ~1","host":"127.0.0.1","label":"textbox","model":"claude-opus-5-5","ms":9510,"ts":"2026-11-02T13:09:01.186+10:00","waits":{"fidget":3516,"idle":0,"move":3569,"settle":314,"type":3659}}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:09:01.263+10:00"}
+{"approved":false,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:09:01.301+10:00"}
+{"cmd":"read","model":"claude-opus-5-5","ms":7,"ts":"2026-11-02T13:09:01.325+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:09:10.468+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:09:10.491+10:00"}
+{"cmd":"click","diff":"+7 -8 ~0","host":"127.0.0.1","label":"link","model":"claude-opus-5-5","ms":1687,"ts":"2026-11-02T13:09:12.178+10:00","waits":{"idle":0,"move":718,"settle":457}}
+{"cmd":"read","model":"claude-opus-5-5","ms":7,"ts":"2026-11-02T13:09:12.216+10:00"}
+{"cmd":"read","model":"claude-opus-5-5","ms":15,"ts":"2026-11-02T13:09:19.973+10:00"}
+{"cmd":"read","model":"claude-opus-5-5","ms":7,"ts":"2026-11-02T13:09:20.004+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:09:38.989+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:09:39.012+10:00"}
+{"cmd":"drag","diff":"+3 -3 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":2622,"ts":"2026-11-02T13:09:41.634+10:00","waits":{"idle":0,"move":616,"settle":300}}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:09:41.680+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:09:41.707+10:00"}
+{"cmd":"drag","diff":"+1 -1 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":2890,"ts":"2026-11-02T13:09:44.596+10:00","waits":{"idle":0,"move":716,"settle":313}}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:09:44.640+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:09:44.666+10:00"}
+{"cmd":"drag","diff":"+2 -1 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":2933,"ts":"2026-11-02T13:09:47.599+10:00","waits":{"idle":0,"move":681,"settle":308}}
+{"cmd":"read","model":"claude-opus-5-5","ms":5,"ts":"2026-11-02T13:09:47.639+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:09:53.872+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:09:53.895+10:00"}
+{"cmd":"click","diff":"+0 -0 ~0","host":"127.0.0.1","label":"button","model":"claude-opus-5-5","ms":1392,"ts":"2026-11-02T13:09:55.287+10:00","waits":{"idle":0,"move":708,"settle":307}}
+{"code":6,"error":"interrupted: you moved the mouse or pressed a key, so nothing was done","failed":"scroll","model":"claude-opus-5-5","ts":"2026-11-02T13:09:55.639+10:00"}
+{"cmd":"scroll","count":5,"diff":"+5 -5 ~0","direction":"down","host":"127.0.0.1","model":"claude-opus-5-5","ms":6448,"ts":"2026-11-02T13:10:02.138+10:00","waits":{"fidget":3196,"gap":173,"idle":0,"move":837,"settle":313}}
+{"cmd":"scroll","count":6,"diff":"+3 -3 ~0","direction":"right","host":"127.0.0.1","model":"claude-opus-5-5","ms":2635,"ts":"2026-11-02T13:10:04.820+10:00","waits":{"idle":0,"move":554,"settle":303}}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:10:04.888+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:10:04.911+10:00"}
+{"cmd":"click","diff":"+1 -1 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":1718,"ts":"2026-11-02T13:10:06.630+10:00","waits":{"idle":0,"move":674,"settle":317}}
+{"cmd":"read","model":"claude-opus-5-5","ms":5,"ts":"2026-11-02T13:10:06.674+10:00"}
+{"cmd":"read","model":"claude-opus-5-5","ms":15,"ts":"2026-11-02T13:10:20.808+10:00"}
+{"cmd":"scroll","count":3,"diff":"+1 -1 ~0","direction":"up","host":"127.0.0.1","model":"claude-opus-5-5","ms":1627,"ts":"2026-11-02T13:10:22.483+10:00","waits":{"idle":0,"move":528,"settle":289}}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:10:33.809+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:10:33.833+10:00"}
+{"cmd":"drag","diff":"+1 -1 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":2537,"ts":"2026-11-02T13:10:36.370+10:00","waits":{"idle":0,"move":453,"settle":296}}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:10:45.723+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:10:45.745+10:00"}
+{"cmd":"drag","diff":"+1 -1 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":2781,"ts":"2026-11-02T13:10:48.526+10:00","waits":{"idle":0,"move":556,"settle":311}}
+{"cmd":"read","model":"claude-opus-5-5","ms":8,"ts":"2026-11-02T13:10:48.605+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:10:56.446+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:10:56.469+10:00"}
+{"cmd":"click","diff":"+2 -2 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":1694,"ts":"2026-11-02T13:10:58.163+10:00","waits":{"idle":0,"move":814,"settle":311}}
+{"cmd":"read","model":"claude-opus-5-5","ms":6,"ts":"2026-11-02T13:10:58.208+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:11:04.658+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:11:04.682+10:00"}
+{"cmd":"click","diff":"+16 -8 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":1584,"ts":"2026-11-02T13:11:06.266+10:00","waits":{"idle":0,"move":647,"settle":468}}
+{"cmd":"read","model":"claude-opus-5-5","ms":7,"ts":"2026-11-02T13:11:06.315+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:11:12.501+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:11:12.524+10:00"}
+{"cmd":"click","diff":"+0 -0 ~0","host":"127.0.0.1","label":"popup","model":"claude-opus-5-5","ms":1371,"ts":"2026-11-02T13:11:13.895+10:00","waits":{"idle":0,"move":537,"settle":314}}
+{"cmd":"read","model":"claude-opus-5-5","ms":6,"ts":"2026-11-02T13:11:13.940+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:11:19.872+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:11:19.896+10:00"}
+{"cmd":"key","combo":"down","diff":"+0 -0 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":755,"ts":"2026-11-02T13:11:20.651+10:00","waits":{"idle":0,"settle":328}}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:11:20.715+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:11:20.738+10:00"}
+{"cmd":"key","combo":"return","diff":"+2 -2 ~1","host":"127.0.0.1","model":"claude-opus-5-5","ms":1304,"ts":"2026-11-02T13:11:22.042+10:00","waits":{"gap":502,"idle":0,"settle":298}}
+{"cmd":"read","model":"claude-opus-5-5","ms":6,"ts":"2026-11-02T13:11:22.086+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:11:29.368+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:11:29.391+10:00"}
+{"cmd":"click","diff":"+2 -2 ~1","host":"127.0.0.1","kind":"follow","label":"checkbox","model":"claude-opus-5-5","ms":1273,"ts":"2026-11-02T13:11:30.664+10:00","waits":{"idle":0,"move":556,"settle":317}}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:11:30.706+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:11:30.730+10:00"}
+{"cmd":"click","diff":"+2 -2 ~1","host":"127.0.0.1","label":"radio","model":"claude-opus-5-5","ms":5465,"ts":"2026-11-02T13:11:36.195+10:00","waits":{"idle":3865,"move":568,"settle":311}}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:11:36.273+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:11:36.299+10:00"}
+{"cmd":"drag","diff":"+0 -0 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":3649,"ts":"2026-11-02T13:11:39.948+10:00","waits":{"idle":1015,"move":680,"settle":318}}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:11:47.456+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:11:47.478+10:00"}
+{"cmd":"drag","diff":"+3 -3 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":2440,"ts":"2026-11-02T13:11:49.918+10:00","waits":{"idle":0,"move":642,"settle":308}}
+{"cmd":"read","model":"claude-opus-5-5","ms":4,"ts":"2026-11-02T13:11:49.952+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:11:56.852+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:11:56.874+10:00"}
+{"cmd":"click","diff":"+3 -3 ~2","host":"127.0.0.1","label":"tab","model":"claude-opus-5-5","ms":1287,"ts":"2026-11-02T13:11:58.161+10:00","waits":{"idle":0,"move":304,"settle":313}}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:11:58.216+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:11:58.239+10:00"}
+{"cmd":"click","diff":"+1 -0 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":4270,"ts":"2026-11-02T13:12:02.509+10:00","waits":{"fidget":1709,"gap":519,"idle":0,"move":459,"settle":296}}
+{"cmd":"wait-for","found":true,"model":"claude-opus-5-5","ms":668,"ts":"2026-11-02T13:12:03.210+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:12:03.258+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:12:03.284+10:00"}
+{"cmd":"click","diff":"+5 -22 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":1164,"ts":"2026-11-02T13:12:04.448+10:00","waits":{"idle":0,"move":496,"settle":291}}
+{"code":2,"error":"stale: the page changed to <url> without apprentice. The user or another tool may be using this window. Nothing was done: `read` the page and decide again","failed":"key","model":"claude-opus-5-5","ts":"2026-11-02T13:12:04.490+10:00"}
+{"code":2,"error":"stale: the page changed to <url> without apprentice. The user or another tool may be using this window. Nothing was done: `read` the page and decide again","failed":"click","model":"claude-opus-5-5","ts":"2026-11-02T13:12:04.526+10:00"}
+{"cmd":"wait-for","found":false,"model":"claude-opus-5-5","ms":5238,"ts":"2026-11-02T13:12:09.793+10:00"}
+{"code":5,"error":"timeout: \"…\" not found in 5 s","failed":"wait-for","model":"claude-opus-5-5","ts":"2026-11-02T13:12:09.794+10:00"}
+{"cmd":"read","model":"claude-opus-5-5","ms":16,"ts":"2026-11-02T13:12:09.836+10:00"}
+{"cmd":"read","model":"claude-opus-5-5","ms":7,"ts":"2026-11-02T13:12:09.865+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-opus-5-5","ms":150,"ts":"2026-11-02T13:13:49.616+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-opus-5-5","ms":777,"ts":"2026-11-02T13:13:50.405+10:00"}
+{"cmd":"stop","model":"claude-opus-5-5","ms":100643,"ts":"2026-11-02T13:13:50.501+10:00"}
+{"cmd":"read","model":"claude-opus-5-5","ms":74,"ts":"2026-11-02T13:13:51.114+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:13:51.151+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:13:51.175+10:00"}
+{"cmd":"click","diff":"+22 -5 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":1542,"ts":"2026-11-02T13:13:52.717+10:00","waits":{"idle":0,"move":709,"settle":291}}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:13:52.767+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:13:52.793+10:00"}
+{"cmd":"click","diff":"+3 -20 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":2329,"ts":"2026-11-02T13:13:55.122+10:00","waits":{"gap":739,"idle":0,"move":648,"settle":303}}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:13:55.170+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:13:55.197+10:00"}
+{"cmd":"key","combo":"cmd+[","diff":"+20 -3 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":884,"ts":"2026-11-02T13:13:56.081+10:00","waits":{"idle":0,"settle":308}}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:13:56.149+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:13:56.172+10:00"}
+{"cmd":"click","diff":"+3 -2 ~0","host":"127.0.0.1","kind":"default","model":"claude-opus-5-5","ms":3177,"ts":"2026-11-02T13:13:59.349+10:00","waits":{"gap":1914,"idle":0,"move":365,"settle":315}}
+{"cmd":"wait-for","found":true,"model":"claude-opus-5-5","ms":17,"ts":"2026-11-02T13:13:59.402+10:00"}
+{"cmd":"read","model":"claude-opus-5-5","ms":14,"ts":"2026-11-02T13:13:59.436+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:14:07.575+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:14:07.598+10:00"}
+{"cmd":"click","diff":"+7 -20 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":1786,"ts":"2026-11-02T13:14:09.384+10:00","waits":{"idle":0,"move":660,"settle":490}}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:14:09.442+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:14:09.467+10:00"}
+{"code":6,"error":"interrupted: you used the keyboard or mouse while apprentice acted in front, so it stopped. Check the screen with `read`, then retry","failed":"approve","model":"claude-opus-5-5","ts":"2026-11-02T13:14:09.647+10:00"}
+{"code":7,"error":"Screen Recording is not granted: System Settings → Privacy & Security → Screen & System Audio Recording → enable apprentice","failed":"click","model":"claude-opus-5-5","ts":"2026-11-02T13:14:09.735+10:00"}
+{"cmd":"read","model":"claude-opus-5-5","ms":15,"ts":"2026-11-02T13:14:09.781+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:14:20.450+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:14:20.473+10:00"}
+{"cmd":"click","diff":"+4 -0 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":1351,"ts":"2026-11-02T13:14:21.824+10:00","waits":{"move":567,"settle":312}}
+{"cmd":"read","model":"claude-opus-5-5","ms":5,"ts":"2026-11-02T13:14:21.869+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:14:21.906+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:14:21.928+10:00"}
+{"cmd":"click","diff":"+2 -6 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":1254,"ts":"2026-11-02T13:14:23.182+10:00","waits":{"idle":0,"move":465,"settle":310}}
+{"cmd":"read","model":"claude-opus-5-5","ms":5,"ts":"2026-11-02T13:14:23.221+10:00"}
+{"cmd":"read","model":"claude-opus-5-5","ms":15,"ts":"2026-11-02T13:14:32.834+10:00"}
+{"cmd":"hover","diff":"+3 -2 ~0","host":"127.0.0.1","label":"text","model":"claude-opus-5-5","ms":1045,"ts":"2026-11-02T13:14:33.899+10:00","waits":{"idle":0,"move":332,"settle":484}}
+{"cmd":"wait-for","found":true,"model":"claude-opus-5-5","ms":15,"ts":"2026-11-02T13:14:33.959+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:14:33.990+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:14:34.013+10:00"}
+{"cmd":"click","diff":"+3 -1 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":1211,"ts":"2026-11-02T13:14:35.224+10:00","waits":{"move":441,"settle":302}}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:14:35.268+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:14:35.293+10:00"}
+{"cmd":"click","diff":"+2 -5 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":1251,"ts":"2026-11-02T13:14:36.544+10:00","waits":{"move":477,"settle":297}}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:14:36.602+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:14:36.627+10:00"}
+{"cmd":"click","diff":"+1 -1 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":1730,"ts":"2026-11-02T13:14:38.357+10:00","waits":{"gap":66,"idle":0,"move":461,"settle":316}}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:14:38.408+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:14:38.433+10:00"}
+{"cmd":"type","diff":"+3 -3 ~0","host":"127.0.0.1","kind":"default","label":"focused AXTextField","model":"claude-opus-5-5","ms":4241,"ts":"2026-11-02T13:14:42.674+10:00","waits":{"gap":544,"idle":0,"settle":299,"type":2407}}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:14:42.735+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:14:42.759+10:00"}
+{"cmd":"click","diff":"+4 -52 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":1124,"ts":"2026-11-02T13:14:43.883+10:00","waits":{"idle":0,"move":296,"settle":263}}
+{"cmd":"read","model":"claude-opus-5-5","ms":8,"ts":"2026-11-02T13:14:43.928+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:14:43.958+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:14:43.981+10:00"}
+{"cmd":"type","diff":"+0 -0 ~1","host":"127.0.0.1","label":"textbox","model":"claude-opus-5-5","ms":2965,"ts":"2026-11-02T13:14:46.946+10:00","waits":{"idle":0,"move":622,"settle":265,"type":953}}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:14:47.006+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:14:47.031+10:00"}
+{"cmd":"click","diff":"+53 -4 ~0","host":"127.0.0.1","kind":"default","model":"claude-opus-5-5","ms":5335,"ts":"2026-11-02T13:14:52.366+10:00","waits":{"gap":4151,"idle":0,"move":395,"settle":313}}
+{"cmd":"read","model":"claude-opus-5-5","ms":5,"ts":"2026-11-02T13:14:52.410+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:14:58.893+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:14:58.916+10:00"}
+{"cmd":"click","diff":"+9 -8 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":1788,"ts":"2026-11-02T13:15:00.705+10:00","waits":{"idle":0,"move":945,"settle":466}}
+{"cmd":"read","model":"claude-opus-5-5","ms":5,"ts":"2026-11-02T13:15:00.741+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:15:06.069+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:15:06.096+10:00"}
+{"cmd":"drag","diff":"+2 -2 ~0","host":"127.0.0.1","label":"text","model":"claude-opus-5-5","ms":2751,"ts":"2026-11-02T13:15:08.847+10:00","waits":{"idle":0,"move":711,"settle":486}}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:15:08.893+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:15:08.919+10:00"}
+{"cmd":"drag","diff":"+3 -3 ~0","host":"127.0.0.1","label":"image","model":"claude-opus-5-5","ms":2429,"ts":"2026-11-02T13:15:11.348+10:00","waits":{"idle":0,"move":465,"settle":307}}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:15:11.397+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:15:11.422+10:00"}
+{"cmd":"drag","diff":"+1 -1 ~0","host":"127.0.0.1","label":"image","model":"claude-opus-5-5","ms":2524,"ts":"2026-11-02T13:15:13.947+10:00","waits":{"idle":0,"move":351,"settle":312}}
+{"cmd":"read","model":"claude-opus-5-5","ms":6,"ts":"2026-11-02T13:15:13.992+10:00"}
+{"cmd":"read","model":"claude-opus-5-5","ms":7,"ts":"2026-11-02T13:15:14.021+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:15:32.110+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:15:32.134+10:00"}
+{"cmd":"key","combo":"cmd+r","diff":"+0 -54 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":761,"ts":"2026-11-02T13:15:32.895+10:00","waits":{"idle":0,"settle":258}}
+{"cmd":"read","model":"claude-opus-5-5","ms":19,"ts":"2026-11-02T13:15:33.976+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:15:34.012+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:15:34.035+10:00"}
+{"cmd":"click","diff":"+5 -9 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":1568,"ts":"2026-11-02T13:15:35.603+10:00","waits":{"idle":0,"move":691,"settle":495}}
+{"cmd":"read","model":"claude-opus-5-5","ms":5,"ts":"2026-11-02T13:15:35.649+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:15:41.022+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:15:41.046+10:00"}
+{"code":6,"error":"interrupted: you used the keyboard or mouse while apprentice acted in front, so it stopped. Check the screen with `read`, then retry","failed":"approve","model":"claude-opus-5-5","ts":"2026-11-02T13:15:43.800+10:00"}
+{"cmd":"read","model":"claude-opus-5-5","ms":41,"ts":"2026-11-02T13:15:43.876+10:00"}
+{"code":5,"error":"download <id> <path>","failed":"download","model":"claude-opus-5-5","ts":"2026-11-02T13:15:43.896+10:00"}
+{"cmd":"read","model":"claude-opus-5-5","ms":1,"ts":"2026-11-02T13:15:43.933+10:00"}
+{"cmd":"read","model":"claude-opus-5-5","ms":32,"ts":"2026-11-02T13:16:04.971+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:16:04.994+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:16:05.019+10:00"}
+{"cmd":"upload","diff":"+0 -74 ~0","label":"text","model":"claude-opus-5-5","ms":8582,"ts":"2026-11-02T13:16:13.601+10:00","waits":{"idle":0,"move":1626,"settle":258}}
+{"cmd":"read","model":"claude-opus-5-5","ms":8,"ts":"2026-11-02T13:16:13.653+10:00"}
+{"cmd":"read","model":"claude-opus-5-5","ms":19,"ts":"2026-11-02T13:16:19.140+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:16:26.734+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:16:26.760+10:00"}
+{"cmd":"download","diff":"+2 -2 ~0","host":"127.0.0.1","label":"link","model":"claude-opus-5-5","ms":15688,"ts":"2026-11-02T13:16:42.448+10:00","waits":{"idle":0,"move":3556,"settle":288,"type":2642}}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:16:50.201+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:16:50.226+10:00"}
+{"cmd":"click","diff":"+2 -5 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":1557,"ts":"2026-11-02T13:16:51.783+10:00","waits":{"idle":0,"move":632,"settle":464}}
+{"cmd":"read","model":"claude-opus-5-5","ms":5,"ts":"2026-11-02T13:16:51.828+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:16:51.856+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:16:51.880+10:00"}
+{"cmd":"type","diff":"+3 -2 ~0","host":"127.0.0.1","kind":"message","label":"textarea","model":"claude-opus-5-5","ms":17481,"ts":"2026-11-02T13:17:09.360+10:00","waits":{"gap":2396,"idle":0,"move":536,"settle":316,"type":13011}}
+{"cmd":"read","model":"claude-opus-5-5","ms":6,"ts":"2026-11-02T13:17:09.409+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:17:17.663+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:17:17.687+10:00"}
+{"cmd":"click","diff":"+41 -3 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":1814,"ts":"2026-11-02T13:17:19.500+10:00","waits":{"idle":0,"move":647,"settle":502}}
+{"cmd":"read","model":"claude-opus-5-5","ms":5,"ts":"2026-11-02T13:17:19.541+10:00"}
+{"code":6,"error":"interrupted: you moved the mouse or pressed a key, so nothing was done","failed":"browse","model":"claude-opus-5-5","ts":"2026-11-02T13:17:19.759+10:00"}
+{"cmd":"scroll","count":40,"diff":"+123 -3 ~0","direction":"down","host":"127.0.0.1","model":"claude-opus-5-5","ms":11108,"ts":"2026-11-02T13:17:30.909+10:00","waits":{"gap":1657,"idle":0,"move":619,"settle":362}}
+{"cmd":"read","model":"claude-opus-5-5","ms":5,"ts":"2026-11-02T13:17:30.956+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:17:30.990+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:17:31.014+10:00"}
+{"cmd":"click","diff":"+3 -3 ~0","host":"127.0.0.1","kind":"like","label":"button","model":"claude-opus-5-5","ms":1746,"ts":"2026-11-02T13:17:32.760+10:00","waits":{"idle":0,"move":719,"settle":330}}
+{"cmd":"read","model":"claude-opus-5-5","ms":4,"ts":"2026-11-02T13:17:32.816+10:00"}
+{"client":true,"cmd":"budget","code":0,"model":"claude-opus-5-5","ms":11,"ts":"2026-11-02T13:17:43.342+10:00"}
+{"cmd":"read","model":"claude-opus-5-5","ms":34,"ts":"2026-11-02T13:17:43.400+10:00"}
+{"cmd":"browse","diff":"+1 -0 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":13524,"ts":"2026-11-02T13:17:56.949+10:00","waits":{"idle":0,"move":664,"settle":350}}
+{"cmd":"browse","diff":"+0 -0 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":13327,"ts":"2026-11-02T13:18:10.316+10:00","waits":{"idle":0,"move":578,"settle":371}}
+{"client":true,"cmd":"budget","code":0,"model":"claude-opus-5-5","ms":12,"ts":"2026-11-02T13:18:17.343+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:18:23.862+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:18:23.884+10:00"}
+{"cmd":"key","combo":"cmd+tab","diff":"+0 -0 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":3841,"ts":"2026-11-02T13:18:27.725+10:00","waits":{"fidget":2021,"idle":0,"settle":326}}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:18:30.321+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:18:30.355+10:00"}
+{"cmd":"click","diff":"+85 -161 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":5419,"ts":"2026-11-02T13:18:35.775+10:00","waits":{"fidget":3363,"idle":0,"move":3292,"settle":553}}
+{"cmd":"read","model":"claude-opus-5-5","ms":4,"ts":"2026-11-02T13:18:35.809+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:18:44.138+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:18:44.162+10:00"}
+{"cmd":"click","diff":"+4 -85 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":1720,"ts":"2026-11-02T13:18:45.882+10:00","waits":{"idle":0,"move":741,"settle":495}}
+{"code":5,"error":"no element 16 in snap 121","failed":"type","model":"claude-opus-5-5","ts":"2026-11-02T13:18:45.928+10:00"}
+{"code":5,"error":"confirm <token>","failed":"confirm","model":"claude-opus-5-5","ts":"2026-11-02T13:18:45.959+10:00"}
+{"cmd":"read","model":"claude-opus-5-5","ms":7,"ts":"2026-11-02T13:18:45.983+10:00"}
+{"cmd":"read","model":"claude-opus-5-5","ms":16,"ts":"2026-11-02T13:18:50.573+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:18:50.600+10:00"}
+{"code":9,"error":"ask the user in the chat (terminal): they are away from the Mac or did not answer the window.","failed":"confirm","model":"claude-opus-5-5","ts":"2026-11-02T13:18:55.914+10:00"}
+{"cmd":"read","model":"claude-opus-5-5","ms":15,"ts":"2026-11-02T13:18:55.946+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:19:04.291+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:19:04.314+10:00"}
+{"cmd":"click","diff":"+85 -4 ~0","host":"127.0.0.1","model":"claude-opus-5-5","ms":1879,"ts":"2026-11-02T13:19:06.193+10:00","waits":{"idle":0,"move":730,"settle":531}}
+{"cmd":"read","model":"claude-opus-5-5","ms":33,"ts":"2026-11-02T13:19:07.769+10:00"}
