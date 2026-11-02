@@ -1926,6 +1926,8 @@ private struct SettingRow: View {
 /// reaches the window, only the login it belongs to.
 struct AccountCard: View {
     @ObservedObject var model: AppModel
+    /// Settings and projects go to the user's own private repos (`Sync`), on by default once signed in.
+    @State private var syncOn = Sync.on
     @State private var code: String?
     @State private var url: URL?
     @State private var note = ""
@@ -1967,6 +1969,12 @@ struct AccountCard: View {
             if !note.isEmpty { Output(text: note) }
             HStack(spacing: Theme.s2) {
                 if model.account != nil {
+                    Toggle("Keep my settings and projects on GitHub", isOn: Binding(get: { syncOn }, set: { on in
+                        syncOn = on
+                        model.run("sync", [on ? "on" : "off"]) { _, out in note = out; syncOn = Sync.on }
+                    }))
+                    .toggleStyle(.switch)
+                    Button("Sync now") { note = "syncing…"; model.run("sync", ["now"]) { _, out in note = out } }
                     Button("Check") { model.run("account", ["status"]) { _, out in note = out } }
                     Button("Sign out", role: .destructive) {
                         model.run("account", ["logout"]) { _, out in note = out; model.refresh() }

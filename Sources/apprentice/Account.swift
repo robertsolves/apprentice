@@ -181,7 +181,8 @@ enum Account {
                     throw Fail(5, "GitHub gave a token but would not say whose it is; nothing was saved")
                 }
                 try keep(tokens, user: user)
-                return "signed in as @\(user.login)"
+                // The first sync: on a new Mac it brings the settings and projects back.
+                return "signed in as @\(user.login)" + Sync.afterLogin()
             }
         }
         Store.remove("account-pending.json")

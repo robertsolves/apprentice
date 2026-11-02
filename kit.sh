@@ -13,8 +13,10 @@ mkdir -p "$(dirname "$bin")"
 # its own copy, so `apprentice commit` and `update` can rebuild themselves.
 new="$bin.new"
 cp "$root/.build/release/apprentice" "$new"
-# The new build tests itself before it replaces the old one; a failure keeps the old binary.
-if ! "$new" selftest; then
+# The new build tests itself before it replaces the old one; a failure keeps the old binary. It runs
+# where it was built, the same bytes as "$new": from there it finds the repo's agent/ files even when
+# install.json names no clone (the DMG's app rewrote it).
+if ! "$root/.build/release/apprentice" selftest; then
   rm -f "$new"
   echo "self-test failed: kept the installed apprentice" >&2
   exit 1

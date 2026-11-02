@@ -81,11 +81,10 @@ The window (`apprentice app`), schedules and away are built; FEATURES.md lists w
 
 - **Install the `apprentice-cli` GitHub App on `robertsolves/apprentice`** before error reports ship: a user token reaches only repos the app is installed on. GitHub wants a private key generated before an app can be installed; the key is never used (device flow needs none), so delete it after installing. Settings sync would add Contents read and write, which every user then re-approves.
 - **Error reports to the project's issues** (planned 2026-11-02): apprentice's own failures (a crash, exit 1, a failed update; exit 2 or 5 only when one fingerprint repeats) become a scrubbed fingerprint; an open issue with that fingerprint gets a 👍, else a new one is opened, labelled `auto-report`. `[report] errors = "ask" | "auto" | "off"`, asked once through `confirm` and in `tour`; checked by `Playbooks.leaks` before sending, since issues are public. Upstream, `triage.yml` closes duplicates and keeps a pinned queue, and the Claude Code GitHub Action fixes issues past a threshold as PRs for the owner to merge.
-- **Everything syncs to the user's GitHub, so signing in on a new Mac brings back all settings, work and preferences** (decided 2026-11-02). `Sync.swift` sends `~/.apprentice` to the private `apprentice-home` (`sync on | off | now | status`, `[sync] on, every_min`). Still to do:
-  - **Projects:** the same loop commits and pushes each listed project folder (`limits.json` ignored); a project without a remote gets a private repo made with the account token, and `project save --push` stops needing `gh`. On a new Mac, each project in `projects.json` is cloned to its path (store paths as `~/…` first).
-  - **Turning it on:** offer it in `tour` and on the window's GitHub card, and run a first round right after `account login`, so a new Mac restores without a command.
-  - **Blocked on the GitHub App** (`apprentice-cli`): user tokens reach only repos the app is installed on, so users install it on all repositories and the app needs Administration (to make repos) and Contents read and write. Until then `sync on` says what to change.
-  - A file left out as a secret keeps the round's rebase on a stash; if the repo changed the same file, the stash may not pop cleanly. Test it once real users have it.
+- **Sync** (`Sync.swift`) still to do:
+  - The GitHub App (`apprentice-cli`) cannot make repos, so sync uses the GitHub CLI's sign-in for that. To need no `gh`, give the app Administration and Contents read and write and have users install it on all their repositories.
+  - Offer the switch in `tour` too (it is on by default, and on the window's GitHub card).
+  - A file left out as a secret keeps the round's rebase on a stash; if the repo changed the same file, the stash may not pop cleanly.
 - `account status` reads only the login; once reports exist, show what was reported from this Mac.
 
 ## Tests

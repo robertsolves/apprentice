@@ -220,11 +220,12 @@ vision_model = ""
 # memory_mb = 2048
 
 [sync]
-# Send your settings, preferences, voice, typing, skills and logs (as text) to your own private GitHub repo,
+# Keep your settings, preferences, voice, typing, skills and logs (as text) in your own private GitHub repo,
 # apprentice-home, so signing in on another Mac brings them back (`apprentice sync on`). Keys, the VM's
 # ssh key, session state and screenshots never leave this Mac, and a file that looks like it holds a key
-# is not sent. Needs `apprentice account login`.
-# on = false
+# is not sent. Each project folder goes to its own private repo too. On once you sign in
+# (`apprentice account login`); false turns it off.
+# on = true
 # every_min = 5
 
 [account]

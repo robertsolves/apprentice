@@ -1421,6 +1421,25 @@ enum SelfTest {
         check(refused?.refused["config.toml"] != nil && !tree.contains("config.toml"), "sync: a file that holds a key is never sent")
         check(Sync.secret(in: "[agent]\nnotify = \"https://ntfy.sh/abcd1234efgh\"") != nil && Sync.secret(in: "[agent]\nsounds = true") == nil,
               "sync: the phone's topic is a secret, a plain setting is not")
+
+        // A project folder goes to its own repo; its .env and site counts stay here. The selftest's own home
+        // (APPRENTICE_HOME) holds the project list, which is put back as it was.
+        let proj = root.appendingPathComponent("Demo")
+        try? fm.createDirectory(at: proj.appendingPathComponent(".apprentice"), withIntermediateDirectories: true)
+        put(proj, "notes.md", "plan\n")
+        put(proj, ".env", "KEY=1\n")
+        put(proj, ".apprentice/limits.json", "{}")
+        let projBare = root.appendingPathComponent("demo.git").path
+        Repo.run("git", ["init", "-q", "--bare", "-b", "main", projBare], in: root)
+        Sync.testProjectRemote = { _ in projBare }
+        let listBefore = try? Data(contentsOf: Projects.listFile)
+        defer { Sync.testProjectRemote = nil; try? (listBefore ?? Data("[]".utf8)).write(to: Projects.listFile, options: .atomic) }
+        Projects.remember(Projects.Info(name: "Demo", folder: proj, vm: nil, agent: "claude"))
+        let withProject = try? Sync.round()
+        let projTree = Repo.run("git", ["--git-dir", projBare, "ls-tree", "-r", "--name-only", "main"], in: root).out
+        check(withProject?.projects["Demo"]?.hasPrefix("sent") == true && projTree.contains("notes.md"), "sync: a project goes to its own repo")
+        check(!projTree.contains(".env") && !projTree.contains("limits.json"), "sync: a project's .env and site counts stay on the Mac")
+        check(Projects.entries().first { $0.name == "Demo" }?.remote == projBare, "sync: the project list remembers each project's repo, for a new Mac")
     }
 
     private static func prefs() {

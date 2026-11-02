@@ -14,7 +14,10 @@ import Foundation
 enum Projects {
     struct Entry: Codable, Equatable {
         var name: String
+        /// Saved as `~/…` under the home folder, so the list reads the same on another Mac.
         var path: String
+        /// The repo `Sync` sends it to (`https://github.com/<login>/<slug>.git`), so a new Mac can clone it.
+        var remote: String?
     }
 
     struct Info {
@@ -39,11 +42,26 @@ enum Projects {
     // MARK: - the list
 
     static func entries() -> [Entry] {
-        (try? Data(contentsOf: listFile)).flatMap { try? JSONDecoder().decode([Entry].self, from: $0) } ?? []
+        let list = (try? Data(contentsOf: listFile)).flatMap { try? JSONDecoder().decode([Entry].self, from: $0) } ?? []
+        return list.map { var e = $0; e.path = (e.path as NSString).expandingTildeInPath; return e }
     }
 
     private static func saveEntries(_ list: [Entry]) {
-        try? Wire.json(list).write(to: listFile, options: .atomic)
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let saved = list.map { e -> Entry in
+            var e = e
+            if e.path == home || e.path.hasPrefix(home + "/") { e.path = "~" + e.path.dropFirst(home.count) }
+            return e
+        }
+        try? Wire.json(saved).write(to: listFile, options: .atomic)
+    }
+
+    /// Records where a project's folder is sent, once it is.
+    static func setRemote(_ folder: URL, _ remote: String) {
+        var list = entries()
+        guard let i = list.firstIndex(where: { $0.path == folder.path }), list[i].remote != remote else { return }
+        list[i].remote = remote
+        saveEntries(list)
     }
 
     /// Every listed project whose folder is still there, read from its own settings.
@@ -80,8 +98,10 @@ enum Projects {
     }
 
     static func remember(_ p: Info) {
-        var list = entries().filter { $0.path != p.folder.path }
-        list.append(Entry(name: p.name, path: p.folder.path))
+        var list = entries()
+        let remote = list.first { $0.path == p.folder.path }?.remote
+        list.removeAll { $0.path == p.folder.path }
+        list.append(Entry(name: p.name, path: p.folder.path, remote: remote))
         saveEntries(list)
     }
 
