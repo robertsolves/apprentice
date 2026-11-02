@@ -85,7 +85,15 @@
       "name": "Where does my data go?",
       "acceptedAnswer": {
         "@type": "Answer",
-        "text": "It stays on your Mac, in ~/.apprentice, readable only by you. Logs never contain what you type, and password managers, banking and health apps are never logged."
+        "text": "On your Mac, in ~/.apprentice, readable only by you, and, if you sign in with GitHub, in your own private repositories so it follows you to another Mac. Nothing goes to us. Logs never contain what you type, password managers, banking and health apps are never logged, and keys, tokens and screenshots never leave your Mac. See the privacy page."
+      }
+    },
+    {
+      "@type": "Question",
+      "name": "What happens when I get a new Mac?",
+      "acceptedAnswer": {
+        "@type": "Answer",
+        "text": "Install apprentice and sign in with GitHub: one code and one click. Your settings, preferences, how you like things written, the skills it learned and your project folders come back from your own private repositories."
       }
     },
     {
@@ -336,7 +344,8 @@
       <details><summary>Which agents work with it?</summary><p>Any coding agent that can run shell commands or call MCP tools: Claude Code, Codex, Gemini CLI, opencode, Kilo, Cursor, Freebuff and others. The installer connects the ones it finds. It can also run its own loop against a hosted OpenAI-compatible API.</p></details>
       <details><summary>Will sites flag or ban my account?</summary><p>It acts at a pace one person could keep by hand, with per-site budgets, cooldowns after a rate limit, and a stop on any challenge. Bulk outreach, mass following, scraping and several accounts on one site are out of scope by design. Some sites forbid automation in their terms, so use it at your own risk.</p></details>
       <details><summary>What does it need?</summary><p>macOS 14 or later and Swift (Xcode or the command-line tools: xcode-select --install). You grant Accessibility and Screen Recording once; the installer opens both panes for you. Linux apps and browser sessions can run in a small Debian VM under Tart.</p></details>
-      <details><summary>Where does my data go?</summary><p>It stays on your Mac, in ~/.apprentice, readable only by you. Logs never contain what you type, and password managers, banking and health apps are never logged.</p></details>
+      <details><summary>Where does my data go?</summary><p>On your Mac, in ~/.apprentice, readable only by you, and, if you sign in with GitHub, in your own private repositories so it follows you to another Mac. Nothing goes to us. Logs never contain what you type, password managers, banking and health apps are never logged, and keys, tokens and screenshots never leave your Mac. See the <a href="privacy.html">privacy page</a>.</p></details>
+      <details><summary>What happens when I get a new Mac?</summary><p>Install apprentice and sign in with GitHub: one code and one click. Your settings, preferences, how you like things written, the skills it learned and your project folders come back from your own private repositories.</p></details>
       <details><summary>Is it free?</summary><p>Yes. It&#x27;s open source under the MIT licence.</p></details>
     </div>
   </section>

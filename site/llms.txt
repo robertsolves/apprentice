@@ -13,3 +13,4 @@ It needs macOS 14 or later and Swift (Xcode or the command-line tools). Then jus
 - [Website](https://robertsolves.github.io/apprentice/): overview and install
 - [GitHub](https://github.com/robertsolves/apprentice): source and install
 - [Issues](https://github.com/robertsolves/apprentice/issues)
+- [Privacy](https://robertsolves.github.io/apprentice/privacy.html): what it keeps and where it goes; sign in with GitHub and your settings and projects sync to your own private repos
