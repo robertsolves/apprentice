@@ -53,6 +53,11 @@ enum MCP {
             guard let id = msg["id"] else { continue }
             switch method {
             case "initialize":
+                // An app with no shell (Claude desktop, Cursor) names itself here when nothing else did.
+                if Request.callerModel == nil, let client = ((msg["params"] as? [String: Any])?["clientInfo"] as? [String: Any])?["name"] as? String {
+                    Request.callerModel = client
+                    Store.model = client
+                }
                 reply(id, "result", [
                     "protocolVersion": "2024-11-05",
                     "capabilities": ["tools": [:]],

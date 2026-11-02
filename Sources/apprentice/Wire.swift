@@ -7,9 +7,12 @@ struct Request: Codable {
     var args: [String] = []
     /// The model driving this command, for its log row; older clients leave it out.
     var model: String? = Request.callerModel
+    /// The caller's project `.apprentice/` folder, for project-scoped site counts.
+    var project: String? = Project.dir?.path
 
-    /// `APPRENTICE_MODEL` in the caller's shell; `run --model` sets it for its own requests.
-    static var callerModel: String? = ProcessInfo.processInfo.environment["APPRENTICE_MODEL"].flatMap { $0.isEmpty ? nil : $0 }
+    /// The calling agent's model (`Agent.detected`: `APPRENTICE_MODEL`, else found from the agent itself);
+    /// `run --model` and an MCP client's name set it for their own requests.
+    static var callerModel: String? = Agent.detected
 }
 
 struct Response: Codable {
