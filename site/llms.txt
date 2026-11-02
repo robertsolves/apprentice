@@ -4,7 +4,7 @@
 
 - Every change is a proposal first; risky steps (send, delete, buy, passwords, settings) go to the user in a small window or the chat.
 - `apprentice phone` sets up push notifications in one tap (a private ntfy topic), so questions reach the user on their phone while they're away.
-- Per-site budgets, cooldowns and allowlists; CAPTCHAs go to the user; sites whose terms forbid automation (Meta, TikTok) are refused.
+- Per-site budgets, cooldowns and allowlists; CAPTCHAs go to the user; any site can be marked read-only or off limits.
 - Linux apps and browser sessions can run in a small Debian VM under Tart.
 - Out of scope by design: bulk outreach, mass following, scraping at volume, several accounts on one site.
 

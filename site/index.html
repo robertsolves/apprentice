@@ -59,7 +59,7 @@
       { "@type": "Question", "name": "What does apprentice need to run?",
         "acceptedAnswer": { "@type": "Answer", "text": "macOS 14 or later and Swift (Xcode or the command-line tools). You grant Accessibility and Screen Recording to the installed binary. Linux work runs in a small Debian VM under Tart." } },
       { "@type": "Question", "name": "What is apprentice not for?",
-        "acceptedAnswer": { "@type": "Answer", "text": "Bulk outreach, mass following, scraping at volume and running several accounts on one site are out of scope by design. Per-site budgets, cooldowns and allowlists keep activity at a pace one person could keep by hand, and sites whose terms forbid automation, such as Meta and TikTok, are refused." } }
+        "acceptedAnswer": { "@type": "Answer", "text": "Bulk outreach, mass following, scraping at volume and running several accounts on one site are out of scope by design. Per-site budgets, cooldowns and allowlists keep activity at a pace one person could keep by hand, and you can mark any site read-only or off limits." } }
     ]
   }
   </script>
@@ -314,7 +314,7 @@
         <div class="card"><h3>Asks you</h3><p>For decisions that are yours, a little window opens at the top of the screen: free text, choices, or "point at it". When you're away, the question goes back to the chat.</p></div>
         <div class="card"><h3>Reach you on your phone</h3><p>Say “set up my phone”. You get one link to tap and a QR code to scan. After that, any question that goes to the chat makes your phone buzz, and your agent can send a screenshot of what it's asking about. Answer from the Claude app wherever you are. It uses ntfy, which is free, and needs no account or server.</p></div>
         <div class="card"><h3>Stops for you</h3><p>It waits until you've been idle. Touch a key or the mouse and it stops at once and leaves the cursor where you are. ctrl+opt+cmd+. is a kill switch.</p></div>
-        <div class="card"><h3>Site rules built in</h3><p>Per-site budgets, cooldowns and allowlists keep the account well inside what you could do by hand. A CAPTCHA or checkpoint goes to you, never around you. Sites whose terms forbid automation (Meta, TikTok) are refused.</p></div>
+        <div class="card"><h3>Site rules built in</h3><p>Per-site budgets, cooldowns and allowlists keep the account well inside what you could do by hand. A CAPTCHA or checkpoint goes to you, never around you. You can mark any site read-only or off limits.</p></div>
         <div class="card"><h3>Learns as it goes</h3><p>Notes about apps and sites live in the repo. A task that worked becomes a flow your agent can rerun next time, with one approval for the whole plan.</p></div>
         <div class="card"><h3>Fixes and updates itself</h3><p>It runs from your own clone. Fixes are small commits that rebuild, self-test and restart. Upstream updates are rebased in, and a failed build keeps the old binary.</p></div>
         <div class="card"><h3>A Linux VM on the side</h3><p>A small VM runs Chromium and any Linux app with its own screen, cursor and keyboard, so the agent works while you keep working. One VM per job, run side by side.</p></div>
@@ -343,7 +343,7 @@
       <details><summary>How does apprentice keep me in control?</summary><p>Every change is proposed before it happens and needs approval. Risky steps such as sending, deleting, buying, passwords and settings go to you in a small window on your screen, or to the chat when you are away. Touching the mouse or keyboard stops it at once, and ctrl+opt+cmd+. is a kill switch.</p></details>
       <details><summary>Can I answer apprentice from my phone?</summary><p>Yes. Ask your agent to set up your phone. It runs <code>apprentice phone</code>, which picks a private, random <a href="https://ntfy.sh">ntfy</a> topic and gives you a link to tap: on Android it subscribes the ntfy app in one tap, and on iPhone it opens the topic so you can subscribe. While you're away (for example, driving your Mac's Claude Code session from the Claude app), questions and approvals come to the chat and your phone buzzes. Only the question text is sent, never a screenshot, and questions about password and banking apps say only that a question is waiting.</p></details>
       <details><summary>What does apprentice need to run?</summary><p>macOS 14 or later and Swift (Xcode or the command-line tools). You grant Accessibility and Screen Recording to the installed binary. Linux work runs in a small Debian VM under Tart.</p></details>
-      <details><summary>What is apprentice not for?</summary><p>Bulk outreach, mass following, scraping at volume and running several accounts on one site are out of scope by design. Per-site budgets, cooldowns and allowlists keep activity at a pace one person could keep by hand, and sites whose terms forbid automation, such as Meta and TikTok, are refused.</p></details>
+      <details><summary>What is apprentice not for?</summary><p>Bulk outreach, mass following, scraping at volume and running several accounts on one site are out of scope by design. Per-site budgets, cooldowns and allowlists keep activity at a pace one person could keep by hand, and you can mark any site read-only or off limits.</p></details>
     </div>
   </section>
 

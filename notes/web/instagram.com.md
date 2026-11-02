@@ -8,7 +8,7 @@ status: partial
 ---
 # instagram.com
 
-SPEC.md keeps Instagram out of the allowlist (its terms forbid automated actions). Use it only when the user asks for a specific step, and never press Share for them.
+Instagram's terms forbid automated actions; apprentice does not refuse it, so keep to the budgets. Never press Share for the user.
 
 ## Key facts
 - New post: `click #link "New post"`, then `upload #button "Select from computer" "{image}"`. The picker opens only for a real click; `upload` handles that.

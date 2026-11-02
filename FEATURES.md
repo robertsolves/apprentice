@@ -86,7 +86,7 @@ Verdicts: **keep** (used and pays off), **watch** (too new or too little data), 
 | Project budgets and counts (`.apprentice/` on top of the account) | `Project.swift`, `SiteRules.swift` `projectTable` | `project status` use; project-limit refusals | Projects that need tighter caps use it | watch |
 | Cooldowns, soft-block detection | `SiteRules.swift` `Cooldown` | `events.jsonl` soft blocks; false alarms | Real blocks caught, few false ones | keep |
 | Challenge hand-off | `SiteRules.swift` `Challenge` | `events.jsonl` challenges | Part of the product | keep |
-| Site policies (Meta, TikTok refused) | `SiteRules.swift` `Policies` | Policy refusals | Part of the product | keep |
+| Site policies (user-set, none built in) | `SiteRules.swift` `Policies` | Policy refusals | Part of the product | keep |
 | Allowlist per session | `allowCheck` | Allowlist refusals | Used in the start-up window | keep |
 | Kill switch | `Daemon.swift` `KillSwitch` | Not logged: add a row when it trips | It gets used, or stays as insurance | keep |
 | Privacy scrubbing | `State.swift` `Privacy` | Not measured | Required | keep |

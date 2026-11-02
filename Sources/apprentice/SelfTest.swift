@@ -252,22 +252,23 @@ enum SelfTest {
         check(runs("example.com", "post") && !runs("example.com", "repost"), "a repost shares the post budget")
     }
 
-    /// Meta and TikTok are forbidden whatever the subdomain; routes.toml sets the rest.
+    /// No site is refused out of the box; routes.toml entries apply whatever the subdomain.
     private static func policies() {
         func allowed(_ host: String?, _ cmd: String) -> Bool { (try? Policies.check(host, cmd: cmd)) != nil }
-        check(!allowed("www.instagram.com", "read") && !allowed("m.facebook.com", "click"), "built-in forbidden sites refuse every command")
-        check(allowed("notinstagram.com", "click") && allowed(nil, "click"), "other sites and no page are not refused")
         let path = Routes.customPath
         defer { try? FileManager.default.removeItem(at: path) }
+        try? FileManager.default.removeItem(at: path)
+        check(allowed("www.instagram.com", "click") && allowed("tiktok.com", "click"), "no site is forbidden without an entry")
         try? """
         [policy."news.example"]
         automation = "read-only"
-        [policy."tiktok.com"]
-        automation = "allowed"
+        [policy."blocked.example"]
+        automation = "forbidden"
         """.write(to: path, atomically: true, encoding: .utf8)
+        check(!allowed("www.blocked.example", "read") && !allowed("m.blocked.example", "click"), "a forbidden site refuses every command")
+        check(allowed("notblocked.example", "click") && allowed(nil, "click"), "other sites and no page are not refused")
         check(allowed("www.news.example", "read") && allowed("news.example", "scroll"), "a read-only site can be read")
         check(!allowed("news.example", "click") && !allowed("news.example", "type"), "a read-only site refuses changes")
-        check(allowed("tiktok.com", "click"), "a routes.toml entry replaces a built-in one")
     }
 
     /// The ⚠ lines: what a step is, never what the agent says it is.

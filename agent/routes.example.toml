@@ -10,7 +10,7 @@ remaining = "image upload and preview only"
 
 # Site policies: whether a site's terms allow automated use. Fill one in only after reading the terms.
 # automation: "allowed", "read-only" (open, read, scroll only) or "forbidden" (apprentice refuses the site).
-# Built in as forbidden: instagram.com, facebook.com, messenger.com, tiktok.com. An entry here replaces one.
+# None are built in: no site is refused unless an entry here says so.
 # `apprentice policy <domain>` prints the entry in force.
 #
 # [policy."linkedin.com"]

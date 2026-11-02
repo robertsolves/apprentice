@@ -389,22 +389,9 @@ struct SitePolicy {
 }
 
 enum Policies {
-    /// Sites whose terms forbid automated access outside their APIs, checked 2026-11-01 (`SPEC.md`).
-    /// A routes.toml entry for the same domain replaces one of these.
-    static let builtIn: [SitePolicy] = [
-        SitePolicy(domain: "instagram.com", automation: "forbidden", terms: "https://help.instagram.com/581066165581870",
-                   checked: "2026-11-01", api: "Instagram Graph API for business and creator accounts"),
-        SitePolicy(domain: "facebook.com", automation: "forbidden", terms: "https://www.facebook.com/terms.php",
-                   checked: "2026-11-01", api: "Meta Graph API for Pages"),
-        SitePolicy(domain: "messenger.com", automation: "forbidden", terms: "https://www.facebook.com/terms.php",
-                   checked: "2026-11-01", api: "Messenger Platform API"),
-        SitePolicy(domain: "tiktok.com", automation: "forbidden", terms: "https://www.tiktok.com/legal/page/us/terms-of-service/en",
-                   checked: "2026-11-01", api: "TikTok Content Posting API"),
-    ]
-
+    /// Only the user's own entries: no site is refused out of the box (`SPEC.md`).
     static func all() -> [SitePolicy] {
         var out: [String: SitePolicy] = [:]
-        for p in builtIn { out[p.domain] = p }
         for (section, v) in Toml.load(Routes.customPath) where section.hasPrefix("policy.") {
             let domain = String(section.dropFirst("policy.".count)).lowercased()
             out[domain] = SitePolicy(domain: domain, automation: v["automation"].map(Toml.unquote) ?? "allowed",

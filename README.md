@@ -174,7 +174,7 @@ Settings are `config.toml` (see `agent/config.example.toml`), `routes.toml` and 
 Site rules ship as defaults and live in your own files:
 - `budgets.json` caps each kind of action per site, per hour and per day, with a minimum gap. It starts with conservative caps for LinkedIn, X, Reddit, Instagram, Facebook and TikTok.
 - `[pace.styles]` puts LinkedIn, X and Reddit on the `careful` style (dwell, bursts, rests, fidgets), with `[pace."<site>"]` sections for what differs.
-- `[policy."<site>"]` in `routes.toml` records whether a site's terms allow automation. Instagram, Facebook, Messenger and TikTok are built in as forbidden, so apprentice refuses them.
+- `[policy."<site>"]` in `routes.toml` records whether a site's terms allow automation. None are built in: apprentice refuses a site only when you mark it `forbidden` (or limits it with `read-only`).
 
 The counts behind budgets and cooldowns are kept in `~/.apprentice/limits.json`, shared by every session and VM. `apprentice budget` shows what is left.
 

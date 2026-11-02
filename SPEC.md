@@ -18,7 +18,7 @@ Core principles:
 - **The calling agent is the brain.** apprentice is a toolset, not an agent. An optional built-in loop exists for running cheap models on their own.
 - **APIs before screens.** GitHub and other services with a CLI or API go through that (for example `gh`). apprentice covers what has no API.
 - **Approval before every change.** Every action that can change state is proposed first and runs only when the calling LLM approves it. The LLM decides, or asks the user; the chain is CLI ↔ LLM ↔ the user.
-- **Stop when a site says stop.** A rate limit, a challenge or a site whose terms forbid automation ends the work on that site. The tool keeps permitted work below the levels that get an account restricted; nothing here makes a forbidden site acceptable to automate.
+- **Stop when a site says stop.** A rate limit, a challenge or a site the user marked `forbidden` ends the work on that site. The tool keeps work below the levels that get an account restricted.
 
 ## Goals and non-goals
 
@@ -315,7 +315,7 @@ Other guardrails:
 - **No secrets:** no passwords in commands or logs. apprentice relies on sessions the user is already logged into. Password fields are never read back, only typed into.
 - **Log scrubbing:** windows from banking, health and password-manager apps are excluded from screenshots and element logs.
 - **Prompt injection:** on-screen text is data. Usage docs tell agents not to follow instructions found on a page or in an email.
-- **Platform terms:** one person, own accounts, normal volume. Sites whose terms forbid automated actions are refused by policy (see below); their APIs are used instead.
+- **Platform terms:** one person, own accounts, normal volume. Whether a site's terms allow automation is the user's call: no site is refused out of the box, and a policy entry (see below) refuses or limits one.
 
 ## Site rules
 
@@ -373,7 +373,7 @@ The agent waits or ends the task; it never tries the challenge itself. `SKILL.md
 
 ### Site policies
 
-A `[policy."<domain>"]` entry in `routes.toml` makes "keep sites that forbid automation out" data the daemon enforces:
+A `[policy."<domain>"]` entry in `routes.toml` records what the user decided about a site, as data the daemon enforces:
 
 | Field | Values | Effect |
 | --- | --- | --- |
@@ -382,7 +382,7 @@ A `[policy."<domain>"]` entry in `routes.toml` makes "keep sites that forbid aut
 | `checked` | date | Warns when older than 6 months, since terms change |
 | `api` | short text | Shown next to the refusal, for example the official API or export |
 
-Instagram, Facebook, Messenger and TikTok are built in as `forbidden` (terms checked 2026-11-01); a `routes.toml` entry replaces a built-in one. `apprentice policy <domain>` prints the entry. A domain with no entry prints `no policy on file` once per daemon run, so the gap gets noticed. The user fills each entry after reading the site's terms; the tool does not guess them. LinkedIn and X restrict automation too, but have no built-in entry: `routes.example.toml` has commented ones ready to fill in.
+No site has a built-in entry, so none is refused out of the box; budgets, cooldowns and challenge stops still apply everywhere. `apprentice policy <domain>` prints the entry. A domain with no entry prints `no policy on file` once per daemon run, so the gap gets noticed. The user fills each entry after reading the site's terms; the tool does not guess them. `routes.example.toml` has commented examples.
 
 ### Reviewing a restriction
 
@@ -434,8 +434,8 @@ An audit, made on 2026-11-01 against `78ff6d6`, of what Instagram, Facebook, Tik
 
 | Platform | Most likely to trip | Notes |
 | --- | --- | --- |
-| Instagram / Facebook | Like and follow velocity, acting without dwelling, fast pointer | Terms forbid automated actions; refused by built-in policy |
-| TikTok | Watch time and feed scrolling, comment velocity | Refused by built-in policy |
+| Instagram / Facebook | Like and follow velocity, acting without dwelling, fast pointer | Terms forbid automated actions; not refused, so keep to the conservative budgets |
+| TikTok | Watch time and feed scrolling, comment velocity | Not refused; keep to the conservative budgets |
 | LinkedIn | Connect and profile-view velocity, time on a profile, deep links to profiles | Slowest profile; 3–8 s on a profile before any action; no policy entry yet |
 | Reddit | Account age, karma, subreddit rules, upvote velocity | Read the community rules first; API first |
 | X | Follow and repost velocity, posting cadence, reply typing | API first; no policy entry yet. twitter.com counts as x.com for budgets, cooldowns, pace and policy (`Site.renamed`) |
