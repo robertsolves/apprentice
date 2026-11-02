@@ -125,6 +125,7 @@ The first `session` after the daemon starts opens an options window:
 | `notes "words"` · `learn "task" [--model m]` · `do <flow> --key value` · `do --explain "task"` | Learned notes and flows; `--explain` shows which flow this model would pick, and why |
 | `route "task"` | Check for a faster route (an API, `gh`, a connector) before using the screen |
 | `shot` · `ocr` · `log [--tail n]` · `log --session [<id>]` · `sessions` | A screenshot, OCR of the window, recent steps, one whole session, recent sessions |
+| `project [init \| status]` | A project's own `.apprentice/` folder: its own site counts and tighter caps |
 | `policy` · `away on\|off` · `awake on\|off` | Settings for shell use, remote questions and keep-awake |
 | `grow` · `bug "summary" --fix "…"` | What to improve next, and field reports |
 | `settings [local]` | Where the settings are; `local` moves an older synced copy back to this Mac |
@@ -176,7 +177,11 @@ Site rules ship as defaults and live in your own files:
 
 The counts behind budgets and cooldowns are kept in `~/.apprentice/limits.json`, shared by every session and VM. `apprentice budget` shows what is left.
 
-`APPRENTICE_HOME` moves all state out of `~/.apprentice`. Set `APPRENTICE_MODEL` to the name of the model driving apprentice, so the log and learned flows know which model did what. `APPRENTICE_UI_ONLY`, `APPRENTICE_MODEL`, `APPRENTICE_BASE_URL` and `APPRENTICE_API_KEY` override the file for one shell.
+A project can keep its own numbers too. `apprentice project init` in a project's folder makes a `.apprentice/` there. Commands run from inside that project then also count in its `.apprentice/limits.json` (git-ignored) and check its own `budgets.json`, if it has one, which can set tighter caps for that project. Project caps only add limits: the account-wide caps in `~/.apprentice` always apply as well, because a site sees one account, whichever project drives it. `apprentice project status` shows which folder is in use, and `APPRENTICE_PROJECT=<path>` or `off` picks one by hand.
+
+`APPRENTICE_HOME` moves all state out of `~/.apprentice`.
+
+The model driving apprentice is detected from the agent that runs it, so the log and learned flows know which model did what. For Claude Code that is the exact model of the session, read from its transcript. For Codex, Gemini CLI, opencode and Qwen it is the model in their config. Other agents are recognised by name, and MCP apps by the name they give. Set `APPRENTICE_MODEL` to override it. `APPRENTICE_UI_ONLY`, `APPRENTICE_MODEL`, `APPRENTICE_BASE_URL` and `APPRENTICE_API_KEY` override the file for one shell.
 
 ## Security and privacy
 

@@ -10,7 +10,7 @@ One window at a time. Every action is real input: the cursor moves and clicks, k
 ## Before the screen
 1. Your own connectors and tools first. GitHub goes through `gh`.
 2. `apprentice route "<task>"`: use a faster route if it names one.
-3. `apprentice do --explain "<task>"` picks the best flow for your model (or `apprentice notes "<words>"`). Run it with `apprentice do <flow> --key value`: one approval, and it hands over with the screen if a step fails. Set `APPRENTICE_MODEL=<your model>` in your shell so flows you learn are kept for you.
+3. `apprentice do --explain "<task>"` picks the best flow for your model (or `apprentice notes "<words>"`). Run it with `apprentice do <flow> --key value`: one approval, and it hands over with the screen if a step fails. Flows are kept per model; yours is detected from your agent.
 4. No note? Search the app's or site's own help docs for how it is done, then work on screen.
 
 ## Loop
