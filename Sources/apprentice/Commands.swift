@@ -174,7 +174,8 @@ func allowCheck(_ s: Session, _ url: String?) throws {
 
 /// Pacing and per-host rate limits, charged to `url`: the page acted on, or the page `open` goes to.
 func beforeAction(_ session: Session, url: String?) throws {
-    let host = hostOf(url)
+    // Per site, as budgets are: www.x.com, mobile.twitter.com and x.com share one per-minute count.
+    let host = hostOf(url).map(Site.domain)
     try Limits.beforeAction(host: host, web: host != nil || session.isBrowser)
 }
 
@@ -182,6 +183,10 @@ func beforeAction(_ session: Session, url: String?) throws {
 /// with the diff, when the site answered with a challenge or a throttling message.
 func finish(_ command: String, _ session: Session, _ target: Target, _ old: Snapshot?,
             extra: [String] = [], log fields: [String: Any] = [:]) throws -> String {
+    // Once per command, after every step of it, so a fidget never moves the page between steps.
+    if let plan = Fidget.plan(after: command, web: target.url != nil) {
+        _ = try? Borrow.run(target) { Fidget.perform(plan, in: target.bounds, web: target.url != nil) }
+    }
     let new = Timing.measure("settle") { settle(target) }
     return try finish(command, session, url: target.url, old, new, extra: extra, log: fields)
 }
@@ -231,7 +236,7 @@ func gate(_ session: Session, _ target: Target, _ e: Element?, _ summary: String
         target.app.set(kAXFrontmostAttribute, kCFBooleanTrue)
         target.window.set(kAXMainAttribute, kCFBooleanTrue)
         target.window.perform(kAXRaiseAction)
-        Pace.sleep(Double.random(in: 0.25...0.6))
+        Pace.sleep(Rand.uniform(0.25...0.6))
     }
     if kind != nil { Site.dwell() }
 }
@@ -360,6 +365,7 @@ enum Commands {
         case "menu": return try menu(a)
         case "scroll": return try scroll(a)
         case "hover": return try hover(a)
+        case "browse": return try browse(a)
         case "drag": return try drag(a)
         case "upload": return try upload(a)
         case "choose": return try choose(a)
@@ -369,6 +375,7 @@ enum Commands {
         case "confirm": return try Ask.confirm(a)
         case "awake": return try Awake.run(a)
         case "away": return try Ask.awayCommand(a)
+        case "phone": return try Notify.phone(a, tty: false)
         case "download": return try download(a)
         case "wait-for": return try waitFor(a)
         case "ocr": return try ocr(a)
@@ -539,7 +546,7 @@ enum Commands {
             try Keys.press("cmd+l")
             try Keys.press("cmd+a")
             try Keys.paste(raw)
-            Pace.sleep(Double.random(in: 0.2...0.5))
+            Pace.sleep(Rand.uniform(0.2...0.5))
             // The address bar may still complete inline (a past address, selected): delete that first.
             try Keys.press("forwarddelete")
             try Borrow.checkpoint()
@@ -733,7 +740,7 @@ enum Commands {
         try Borrow.run(target) {
             Mouse.move(to: point)
             try Borrow.checkpoint()
-            Pace.sleep(Double.random(in: 0.04...0.12))
+            Pace.sleep(Rand.uniform(0.04...0.12))
             Mouse.click(at: point, right: right, double: double)
         }
         return try finish("click", session, target, old, extra: ["→ at \(raw)"], log: ["at": raw])
@@ -868,29 +875,42 @@ enum Commands {
         try beforeAction(session, url: target.url)
         var rect = CGRect(x: target.bounds.midX - 20, y: target.bounds.midY - 20, width: 40, height: 40)
         if let raw = a.value("in"), let id = Int(raw) { rect = try resolve(id, target).1.rect }
-        let sign: Int32 = direction == "down" ? -1 : 1
         try Borrow.run(target) {
             // The wheel scrolls whatever is under the cursor, so the cursor goes there first.
             let point = Mouse.landing(in: rect)
             Mouse.move(to: point, size: rect.size)
             try Borrow.checkpoint()
-            Pace.sleep(Double.random(in: 0.15...0.4))
-            // One wheel notch at a time, as a wheel turns: a few lines each, with short uneven gaps
-            // and a pause now and then, instead of one jump of every line at once.
-            var left = count * 3
-            while left > 0 {
-                if KillSwitch.tripped || Borrow.interrupted { break }
-                let lines = min(left, Int.random(in: 1...3))
-                left -= lines
-                if let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: sign * Int32(lines), wheel2: 0, wheel3: 0) {
-                    event.location = point
-                    Keys.post(event)
-                }
-                Pace.sleep(Double.random(in: 0.03...0.09) + (Int.random(in: 0..<6) == 0 ? Double.random(in: 0.15...0.4) : 0))
-            }
+            Pace.sleep(Rand.uniform(0.15...0.4))
+            // In flicks of a few notches, as a wheel turns, instead of one jump of every line at once.
+            Wheel.scroll(lines: count * 3, down: direction == "down")
         }
         return try finish("scroll", session, target, old, extra: ["→ \(direction) \(count)"],
                       log: ["direction": direction, "count": count])
+    }
+
+    /// `browse [seconds] [--in id]`: reads down the page or feed for a while (30 s, at most 120), flick by
+    /// flick with reading pauses and now and then a look back up. Clicks and types nothing, so like
+    /// `scroll` it needs no approval.
+    static func browse(_ a: Args) throws -> String {
+        let seconds = try browseSeconds(a)
+        let (session, target, old) = try prepare()
+        try beforeAction(session, url: target.url)
+        var rect = CGRect(x: target.bounds.midX - 40, y: target.bounds.midY - 40, width: 80, height: 80)
+        if let raw = a.value("in"), let id = Int(raw) { rect = try resolve(id, target).1.rect }
+        let moved = try Borrow.run(target) { () -> (down: Int, up: Int) in
+            Mouse.move(to: Mouse.landing(in: rect), size: rect.size)
+            try Borrow.checkpoint()
+            Pace.sleep(Rand.uniform(0.15...0.4))
+            return Wheel.browse(seconds)
+        }
+        return try finish("browse", session, target, old, extra: ["→ browsed \(Int(seconds)) s: \(moved.down) lines down, \(moved.up) back up"],
+                      log: ["seconds": Int(seconds), "down": moved.down, "up": moved.up])
+    }
+
+    static func browseSeconds(_ a: Args) throws -> Double {
+        guard let raw = a.pos.first else { return 30 }
+        guard let s = Double(raw), s.isFinite, s >= 1 else { throw Fail(5, "browse [seconds] [--in id]: seconds is a number, 1–120") }
+        return min(s, 120)
     }
 
     static func hover(_ a: Args) throws -> String {

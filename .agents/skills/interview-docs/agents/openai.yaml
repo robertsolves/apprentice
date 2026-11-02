@@ -1,0 +1,4 @@
+interface:
+  display_name: "interview-docs"
+  short_description: "Run the interview-docs command"
+  default_prompt: "Use $interview-docs to run the interview-docs command."

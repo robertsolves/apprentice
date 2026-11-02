@@ -1,0 +1,4 @@
+interface:
+  display_name: "interview-code"
+  short_description: "Run the interview-code command"
+  default_prompt: "Use $interview-code to run the interview-code command."

@@ -16,7 +16,7 @@ enum Remote {
     static var hears = false
 
     /// Commands that run in the VM once a session lives there.
-    static let commands: Set<String> = ["session", "focus", "read", "click", "type", "key", "scroll", "hover", "open", "menu",
+    static let commands: Set<String> = ["session", "focus", "read", "click", "type", "key", "scroll", "browse", "hover", "open", "menu",
                                         "drag", "upload", "download", "wait-for", "ocr", "shot", "show"]
     /// Commands for a Mac's own file panels, which the VM does not have (`upload` picks files there).
     static let unsupported: Set<String> = ["choose"]
@@ -65,6 +65,7 @@ enum Remote {
         case "key": return try key(a)
         case "scroll": return try scroll(a)
         case "hover": return try hover(a)
+        case "browse": return try browse(a)
         case "open": return try open(a)
         case "menu": return try menu(a)
         case "drag": return try drag(a)
@@ -213,7 +214,7 @@ enum Remote {
         }
         guard let key else { throw Fail(5, "no key in \"\(combo)\"") }
         send(["op": "key", "key": key, "mods": mods, "down": true])
-        Pace.sleep(Double.random(in: 0.03...0.07))
+        Pace.sleep(Rand.uniform(0.03...0.07))
         send(["op": "key", "key": key, "mods": mods, "down": false])
         Pace.sleep(0.02)
     }
@@ -221,7 +222,7 @@ enum Remote {
     static func typeChar(_ ch: Character) {
         let c = String(ch)
         send(["op": "char", "c": c, "down": true])
-        Pace.sleep(Double.random(in: 0.05...0.11))
+        Pace.sleep(Rand.uniform(0.05...0.11))
         send(["op": "char", "c": c, "down": false])
     }
 
@@ -230,7 +231,7 @@ enum Remote {
     static func act<T>(_ body: () throws -> T) throws -> T {
         try connect()
         if (try? query(["op": "raise"].merging(target) { $1 }))?["raised"] as? Bool == true {
-            Pace.sleep(Double.random(in: 0.25...0.5))
+            Pace.sleep(Rand.uniform(0.25...0.5))
         }
         // Events from before this action must not count as the screen still changing after it.
         if hears { send(["op": "mark"]) }
@@ -382,6 +383,8 @@ enum Remote {
     /// start seconds later.
     static func done(_ command: String, _ session: Session, _ page: Page, _ old: Snapshot?, navigates: Bool = false,
                              extra: [String] = [], log: [String: Any] = [:]) throws -> String {
+        let web = Session.stored?.isBrowser ?? true
+        if let plan = Fidget.plan(after: command, web: web) { _ = try? act { Fidget.perform(plan, in: bounds, web: web) } }
         let new = try Timing.measure("settle") { try settled(after: old, grace: navigates ? 3 : 0.6) }
         do {
             return try finish(command, session, url: page.url, old, new, extra: extra, log: log.merging(["vm": true]) { $1 })
@@ -522,7 +525,7 @@ enum Remote {
             try beforeAction(session, url: page.url)
             try act {
                 Mouse.move(to: point)
-                Pace.sleep(Double.random(in: 0.04...0.12))
+                Pace.sleep(Rand.uniform(0.04...0.12))
                 Mouse.click(at: point, right: right, double: double)
             }
             return try done("click", session, page, old, extra: ["→ at \(raw)"], log: ["at": raw])
@@ -642,24 +645,28 @@ enum Remote {
         try beforeAction(session, url: page.url)
         var rect = CGRect(x: bounds.midX - 20, y: bounds.midY - 20, width: 40, height: 40)
         if let raw = a.value("in"), let id = Int(raw) { rect = try resolve(id).rect }
-        let sign: Int32 = direction == "down" ? -1 : 1
         try act {
             let point = Mouse.landing(in: rect)
             Mouse.move(to: point, size: rect.size)
-            Pace.sleep(Double.random(in: 0.15...0.4))
-            var left = count * 3
-            while left > 0 {
-                if KillSwitch.tripped { break }
-                let lines = min(left, Int.random(in: 1...3))
-                left -= lines
-                if let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 1, wheel1: sign * Int32(lines), wheel2: 0, wheel3: 0) {
-                    event.location = point
-                    Keys.post(event)
-                }
-                Pace.sleep(Double.random(in: 0.03...0.09) + (Int.random(in: 0..<6) == 0 ? Double.random(in: 0.15...0.4) : 0))
-            }
+            Pace.sleep(Rand.uniform(0.15...0.4))
+            Wheel.scroll(lines: count * 3, down: direction == "down")
         }
         return try done("scroll", session, page, old, extra: ["→ \(direction) \(count)"], log: ["direction": direction, "count": count])
+    }
+
+    static func browse(_ a: Args) throws -> String {
+        let seconds = try Commands.browseSeconds(a)
+        let (session, page, old) = try prepare()
+        try beforeAction(session, url: page.url)
+        var rect = CGRect(x: bounds.midX - 40, y: bounds.midY - 40, width: 80, height: 80)
+        if let raw = a.value("in"), let id = Int(raw) { rect = try resolve(id).rect }
+        let moved = try act { () -> (down: Int, up: Int) in
+            Mouse.move(to: Mouse.landing(in: rect), size: rect.size)
+            Pace.sleep(Rand.uniform(0.15...0.4))
+            return Wheel.browse(seconds)
+        }
+        return try done("browse", session, page, old, extra: ["→ browsed \(Int(seconds)) s: \(moved.down) lines down, \(moved.up) back up"],
+                        log: ["seconds": Int(seconds), "down": moved.down, "up": moved.up])
     }
 
     static func hover(_ a: Args) throws -> String {
@@ -694,7 +701,7 @@ enum Remote {
             try Keys.press("cmd+l")
             try Keys.press("cmd+a")
             try Keys.paste(raw)
-            Pace.sleep(Double.random(in: 0.2...0.5))
+            Pace.sleep(Rand.uniform(0.2...0.5))
             try Keys.press("forwarddelete")
             try Keys.press("return")
         }
@@ -733,7 +740,7 @@ enum Remote {
                     throw Fail(5, "no menu item \"\(part)\" in \(session.app)" + (n > 0 ? " under \(parts[..<n].joined(separator: " > "))" : "") + ": check with `read`")
                 }
                 try Commands.realClick(hit.rect)
-                Pace.sleep(Double.random(in: 0.15...0.3))
+                Pace.sleep(Rand.uniform(0.15...0.3))
             }
         }
         return try done("menu", session, page, old, extra: ["→ \(path)"], log: ["path": path])

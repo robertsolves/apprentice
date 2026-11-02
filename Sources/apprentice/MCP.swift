@@ -17,6 +17,7 @@ enum MCP {
         tool("key", "Send a keyboard shortcut", ["combo": ["type": "string"]], ["combo"]),
         tool("menu", "Pick a menu-bar item, e.g. File > New Folder", ["path": ["type": "string"]], ["path"]),
         tool("scroll", "Scroll the window or an element", ["direction": ["type": "string"], "count": ["type": "integer"], "in": ["type": "integer"]], ["direction"]),
+        tool("browse", "Read down the page or feed for a while, scrolling at a reading pace; clicks nothing", ["seconds": ["type": "integer"], "in": ["type": "integer"]], []),
         tool("hover", "Move the pointer over an element", ["id": ["type": "integer"]], ["id"]),
         tool("open", "Navigate the session browser window", ["url": ["type": "string"]], ["url"]),
         tool("wait_for", "Wait for text to appear without reloading", ["text": ["type": "string"], "timeout": ["type": "number"]], ["text"]),
@@ -33,6 +34,7 @@ enum MCP {
         tool("learn", "Draft a flow from this session's approved steps", ["task": ["type": "string"], "name": ["type": "string"]], ["task"]),
         tool("show", "Ask the user to point at something on screen; returns the element there", ["what": ["type": "string"]], ["what"]),
         tool("away", "The user is away (on) or back (off): questions go to the chat while away", ["state": ["type": "string"]], ["state"]),
+        tool("phone", "Set up push notifications to the user's phone (on), stop them (off) or send a test; returns links to tap", ["state": ["type": "string"]]),
         tool("policy", "Whether quick macOS tasks may use shell commands; with a domain, whether apprentice may work on that site", ["domain": ["type": "string"]]),
         tool("budget", "What is left of today's and this hour's action caps per site and kind", ["domain": ["type": "string"]]),
         tool("choose", "In an open or save dialog, go to a path: picks a file or fills in a new name", ["path": ["type": "string"]], ["path"]),
@@ -147,6 +149,11 @@ enum MCP {
             return Request(cmd: "scroll", args: a)
         case "hover":
             return Request(cmd: "hover", args: [s("id") ?? ""])
+        case "browse":
+            var a: [String] = []
+            if let seconds = s("seconds") { a.append(seconds) }
+            if let inside = s("in") { a += ["--in", inside] }
+            return Request(cmd: "browse", args: a)
         case "open":
             return Request(cmd: "open", args: [s("url") ?? ""])
         case "wait_for":
@@ -174,6 +181,8 @@ enum MCP {
             return Request(cmd: "show", args: [s("what") ?? ""])
         case "away":
             return Request(cmd: "away", args: [s("state") ?? "status"])
+        case "phone":
+            return Request(cmd: "phone", args: [s("state") ?? "on"])
         case "choose":
             return Request(cmd: "choose", args: [s("path") ?? ""])
         case "do":

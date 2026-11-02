@@ -1,0 +1,4 @@
+interface:
+  display_name: "audit-product"
+  short_description: "Run the audit-product command"
+  default_prompt: "Use $audit-product to run the audit-product command."

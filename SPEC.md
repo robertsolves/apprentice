@@ -157,6 +157,7 @@ All output is compact plain text meant for an agent to read. `--json` gives the 
 | `key <combo>` / `menu "File > New"` | Send a shortcut or pick a menu item | diff |
 | `scroll <up\|down> [n] [--in id]` | Scroll the window or one element | diff |
 | `hover <id>` / `drag <id> <id>` | Move onto an element, or drag one onto another | diff |
+| `browse [seconds] [--in id]` | Read down a page or feed for 30 s (at most 120) at a reading pace; clicks nothing | diff |
 | `upload <id> <path>` / `download <id> <path>` / `choose <path>` | File dialogs | diff or saved path |
 | `wait-for "text" [--timeout 10]` | Wait for text, never by reloading | found or timeout |
 | `ocr` / `shot [--crop id\|x,y,w,h] [--marks]` | OCR list or screenshot, ids drawn with `--marks` | snapshot or PNG path |
@@ -194,7 +195,7 @@ Exit codes (kept in sync with `usage()` and `agent/*.md`):
 | 6 | interrupted by the user during borrow mode |
 | 7 | permission missing (Accessibility or Screen Recording) |
 | 8 | approval needed: the action was proposed, nothing was done |
-| 9 | ask the user in the chat: they are away (`away on`) or did not answer the little window in time |
+| 9 | ask the user in the chat: they are away (`away on`) or did not answer the little window in time. The output names a screenshot of the screen it is about, and `[agent] notify` pushes the question to the phone |
 
 ## Pacing
 
@@ -202,14 +203,19 @@ Pacing is built into the daemon. It keeps a session at the pace of the person do
 
 ### Pointer
 
-`Mouse.move` takes a Fitts' law duration clamped to `move_ms` (50–200 ms by default, 200–900 ms in the social profiles).
+All randomness in pacing comes from `Rand` (`Rand.swift`): one xoshiro256** generator seeded from the system at start-up, a few nanoseconds a draw, behind a lock. Secrets (VM passwords, tokens) keep the system generator.
 
-- **Path.** Moves over 120 px run in two strokes: a reach that stops at 92–97% of the way, or on one move in three overshoots by 2–8 px, then a 40–140 ms correction. Each stroke is a cubic Bézier with control points offset to one side, a speed peak before the middle, about 120 samples a second with uneven timing, and ±0.6 px jitter.
+`Mouse.move` takes a Fitts' law duration, scaled by this run's hand and a ±12% log-normal draw, clamped to `move_ms` (50–200 ms by default, 250–1000 ms in `careful`).
+
+- **Hand.** Each daemon start draws a speed (0.85–1.2×) and a favoured bend side, so moves vary around one person's habits rather than one mean shared by every install.
+- **Path.** Moves over 120 px run in two strokes: a reach that stops at 92–97% of the way, or (`overshoot`, a third of moves by default) passes the target by 1.5–5% of the distance, 3–40 px; then a 40–140 ms correction, which one time in four lands short first and nudges again. Each stroke draws its shape (a one-sided bow, an arc, an S-wave, a bow with a slow 1–3 cycle tremor of up to 2 px, or a nearly straight line) and its speed profile (skewed ease, minimum jerk, or a quick start), samples about 120 times a second with uneven timing and 0.3–0.8 px jitter, and a long stroke hesitates once on the way one time in sixteen.
 - **Landing.** `Mouse.landing` draws a Gaussian point around the centre, never within 8% of an edge.
 - **Settle.** `Mouse.settle` rests 40–120 ms over the target with small micro-moves before the press, so `mousedown` never lands on the frame of the last move.
 - **Click.** The button is held 60–140 ms; the double-click gap is 70–130 ms.
 - **Idle drift.** `Mouse.linger` drifts the pointer 5–20 px every 2–5 s during a dwell.
-- **Scroll.** The pointer moves to the scroll point and rests 150–400 ms, then scrolls one notch of 1–3 lines at a time, 30–90 ms apart with an occasional pause.
+- **Scroll.** The pointer moves to the scroll point and rests 150–400 ms, then scrolls in flicks (`Wheel.scroll`): 3–9 lines per flick in notches of 1–3, quick in the middle of a flick and slower at either end, 120–450 ms between flicks.
+- **Browse.** `browse` reads down a page or feed: each turn scrolls 4–15 lines, then reads for a log-normal pause around 3 s (at most 15) with the pointer drifting, and one turn in eight looks back up 2–6 lines. It clicks and types nothing. With `browse` set (a share of actions, at most 0.2), a profile also does this on its own: that share of commands on a web page ends with `browse_s` (10–40 s by default, at most 120) of reading down the feed from the middle of the window, then scrolls back up as far as it went, so the agent's screen ends about where its action left it. Off in every style; a site turns it on. Logged as `waits.browse`.
+- **Fidget.** With `fidget` set, that share of actions is followed by a gesture that changes nothing (`Fidget.swift`): the pointer glances across the window, traces a few lines as if reading, rests with a drift, or on a web page scrolls down a little and back. Never a click or a key. It runs once per command, after every step of it and before the re-read (`finish`), inside `Borrow.run`, so the person's own input stops it, no later step aims at a point it scrolled away, and the diff shows the screen as it was left. Never after `hover`. Its time is logged as `waits.fidget`.
 
 ### Keyboard
 
@@ -227,9 +233,20 @@ Pacing is built into the daemon. It keeps a session at the pace of the person do
 - **Navigation.** At least `nav_min_gap_s` (5 s) between page loads on the same domain, and at most 3 loads of the same URL in 120 s; the next fails with `refresh limit`. `wait-for` never polls by reloading.
 - **Run loop.** `run` stops at 40 steps, 15 minutes, or 3 identical actions in a row.
 
+### Styles
+
+`style` sets every timing key at once, from fastest to least likely to be taken for a script. Keys listed next to it win.
+
+- **`fastest`:** 30–90 ms moves, 45 ms key median, short key gaps, rare overshoot, no fidgets.
+- **`fast`:** the built-in default: 50–200 ms moves, 100 ms key median, a third of moves overshoot.
+- **`steady`:** 120–500 ms moves, 0.5–2.5 s between actions, 1–3 s dwell, rare corrected slips, a fidget after one action in ten, at most 15 actions a minute.
+- **`careful`:** 250–1000 ms moves, 3–12 s between actions, 3–8 s dwell, a rest of 30–120 s after 3–6 quick actions, 1.5% corrected slips, a fidget after one action in four, at most 6 actions a minute.
+
+A style never loosens the navigation gap, the reload cap or a budget. `[pace.styles]` assigns styles to sites and apps in one place; `web` and `native` are every browser and every other app.
+
 ### Config
 
-All ranges live in `~/.apprentice/config.toml`. Each `[pace."<domain>"]` profile starts from `[pace.default]`, lists only what differs, and also covers the domain's subdomains (`www.linkedin.com` uses `linkedin.com`). `agent/config.example.toml` ships slow profiles for linkedin.com, x.com and reddit.com.
+All ranges live in `~/.apprentice/config.toml`. Each `[pace."<domain>"]` profile starts from `[pace.default]`, lists only what differs, and also covers the domain's subdomains (`www.linkedin.com` uses `linkedin.com`) and its old name (`twitter.com` uses `x.com`). `agent/config.example.toml` puts linkedin.com, x.com and reddit.com on the `careful` style.
 
 ```toml
 [pace.default]
@@ -252,15 +269,29 @@ key_error_rate = 0.015    # corrected slips; 0 turns them off
 
 [pace.native]
 mode = "fast"
+
+[pace.styles]             # a style per site or app; a [pace."<site>"] section then lists what differs
+careful = ["linkedin.com", "x.com"]
+steady = ["reddit.com"]
+fastest = ["native"]
+
+[pace."github.com"]
+style = "fast"
+overshoot = 0.4           # share of long moves that pass the target first
+fidget = 0.1              # share of actions followed by a fidget; at most 0.5
+
+[pace."reddit.com"]
+browse = 0.1              # one command in ten ends with a spell of reading down the feed and back
+browse_s = [15, 45]
 ```
 
-The default profile is fast on purpose (`78ff6d6`); the slow settings apply where a profile sets them. An existing `config.toml` needs the social profiles copied in. The click settle, scroll notches and thinking pauses have fixed ranges in `Input.swift`.
+The default profile is fast on purpose (`78ff6d6`); the slow settings apply where a profile sets them. An existing `config.toml` needs the social profiles copied in. The click settle, path shapes, scroll flicks, browse turns, fidget kinds and thinking pauses have fixed ranges in `Input.swift` and `Fidget.swift`.
 
 ## Approval gate and safety
 
 apprentice is driven by an LLM, and the LLM talks to the user: CLI ↔ LLM ↔ the user. Every action that can change state is proposed first, and the LLM approves it, denies it, or asks the user. The one direct channel to the user is the little window in `Ask.swift`.
 
-What needs approval: `open`, `click`, `type`, `key`, `menu`, `drag`, `upload`, `download`, `choose` and `do`. Reading (`read`, `ocr`, `shot`, `wait-for`) and moving the view (`scroll`, `hover`) do not.
+What needs approval: `open`, `click`, `type`, `key`, `menu`, `drag`, `upload`, `download`, `choose` and `do`. Reading (`read`, `ocr`, `shot`, `wait-for`) and moving the view (`scroll`, `browse`, `hover`) do not.
 
 How it works:
 
@@ -324,7 +355,7 @@ Volume caps don't decide whether automation is allowed. Site policies do.
 
 When a site signals that it is throttling the account, work on that domain stops. Continuing past a rate limit can turn a temporary pause into a longer restriction.
 
-- **Detect.** After each action, phrases such as "try again later", "you're doing that too much", "temporarily restricted", "unusual activity", "we limit how often" and "rate limit" are matched only in elements new since the last snapshot. Text fields, URL changes and scroll, hover and open commands are skipped, so a page that merely mentions "rate limit" doesn't cool its site down. The list is `[sites] soft_block` in `config.toml`.
+- **Detect.** After each action, phrases such as "try again later", "you're doing that too much", "temporarily restricted", "temporarily limited", "over the daily limit", "unusual activity", "we limit how often" and "rate limit" are matched only in elements new since the last snapshot. Text fields, URL changes and scroll, browse, hover and open commands are skipped, so a page that merely mentions "rate limit" doesn't cool its site down. The list is `[sites] soft_block` in `config.toml`.
 - **Cool down.** The domain is marked cooling in `limits.json` and every action on it is refused with exit 4 `soft block: x.com, cooling until 15:40`. The hold is 1 hour the first time, 6 hours the second, then 24 hours; a week with no block resets the count.
 - **Record.** The trigger phrase, the last 5 steps and a screenshot are logged to `events.jsonl`, and a macOS notification names the site.
 - **Clear.** `apprentice cool --clear <domain>` asks the user in the little window. Agents cannot clear it.
@@ -333,7 +364,7 @@ When a site signals that it is throttling the account, work on that domain stops
 
 CAPTCHAs, 2FA prompts and identity checkpoints are out of scope. The daemon notices one rather than clicking around it.
 
-1. **Detect.** On every read and after every action, match challenge URL paths (`/challenge`, `/checkpoint`, `/captcha` and similar), then the title and short element names against `[sites] challenge` ("captcha", "verify you are human", "confirm it's you", "enter the code", "press and hold"…).
+1. **Detect.** On every read and after every action, match challenge URL paths (`/challenge`, `/checkpoint`, `/captcha` and similar), then the title and short element names against `[sites] challenge` ("captcha", "verify you are human", "confirm it's you", "enter the code", "press and hold", "your account has been locked"…).
 2. **Pause.** Exit 4 with `challenge:` and the marker seen (8 already means "approval needed"). Every action on that site is refused until it clears; reading still works.
 3. **Notify.** A macOS notification names the site, the first time.
 4. **Resume.** The next `read` or action looks again; once the markers are gone, `read` says the challenge is gone. Nothing polls in the background, so a command never blocks for minutes. The user is the only one who completes the challenge.
@@ -346,7 +377,7 @@ A `[policy."<domain>"]` entry in `routes.toml` makes "keep sites that forbid aut
 
 | Field | Values | Effect |
 | --- | --- | --- |
-| `automation` | `allowed`, `read-only`, `forbidden` | `forbidden` refuses everything, even if the domain is allowlisted. `read-only` allows reading plus `session`, `focus`, `open` and `scroll` |
+| `automation` | `allowed`, `read-only`, `forbidden` | `forbidden` refuses everything, even if the domain is allowlisted. `read-only` allows reading plus `session`, `focus`, `open`, `scroll` and `browse` |
 | `terms_url` | URL | Printed in the refusal so the reason can be checked |
 | `checked` | date | Warns when older than 6 months, since terms change |
 | `api` | short text | Shown next to the refusal, for example the official API or export |
@@ -380,12 +411,12 @@ An audit, made on 2026-11-01 against `78ff6d6`, of what Instagram, Facebook, Tik
 | 2 | No gap between actions; cadence set by LLM latency | High | Fixed in the social profiles (`between_actions_ms`, `burst`, `rest_s`); the default stays fast |
 | 3 | No time on content before acting | High | Fixed: `dwell_s` before any budgeted action |
 | 4 | Fast pointer: every move 50–200 ms | High | Fixed in the social profiles (200–900 ms) |
-| 5 | Same path shape: one symmetric Bézier, exact stop | Medium | Fixed: two strokes, overshoot or undershoot, skewed speed, uneven samples |
+| 5 | Same path shape: one symmetric Bézier, exact stop | Medium | Fixed: two strokes, overshoot or undershoot, five path shapes and three speed profiles drawn per stroke, a per-run hand, uneven samples |
 | 6 | Click on arrival, fixed hold and double-click gap | Medium | Fixed: settle, varied hold and gap |
-| 7 | Scroll as one large wheel event | Medium | Fixed: one notch at a time; momentum phases open |
+| 7 | Scroll as one large wheel event | Medium | Fixed: flicks of notches, quick in the middle; `browse` for reading a feed |
 | 8 | Steady typing rhythm, short holds, no corrections | Medium | Fixed: thinking pauses, longer holds, optional corrections |
 | 9 | `cmd+a` before every field, even empty ones | Medium | Fixed: only when the field has text |
-| 10 | Pointer still between actions | Low | Partly: drift during a dwell only, so the user's own cursor isn't moved while they work |
+| 10 | Pointer still between actions | Low | Partly: drift during a dwell, and `fidget` after actions where a profile sets it; never while the person is using the cursor |
 | 11 | Focus event immediately followed by motion | Low | Fixed: a varied pause after raising the window |
 | 12 | Every page reached by typed URL | Low | Agent guidance only: prefer in-site links within a site |
 | 13 | Click points spread evenly | Low | Fixed: Gaussian landing |
@@ -407,7 +438,7 @@ An audit, made on 2026-11-01 against `78ff6d6`, of what Instagram, Facebook, Tik
 | TikTok | Watch time and feed scrolling, comment velocity | Refused by built-in policy |
 | LinkedIn | Connect and profile-view velocity, time on a profile, deep links to profiles | Slowest profile; 3–8 s on a profile before any action; no policy entry yet |
 | Reddit | Account age, karma, subreddit rules, upvote velocity | Read the community rules first; API first |
-| X | Follow and repost velocity, posting cadence, reply typing | API first; no policy entry yet |
+| X | Follow and repost velocity, posting cadence, reply typing | API first; no policy entry yet. twitter.com counts as x.com for budgets, cooldowns, pace and policy (`Site.renamed`) |
 
 ### Page and environment
 
@@ -495,7 +526,7 @@ Pacing:
 - [ ] Re-pick the landing point when the last click was within 6 px; an occasional 1–3 px miss and retry on low-risk controls (never on a gated control).
 - [ ] Median drift over a long field; word-boundary gaps of 80–400 ms and post-punctuation gaps of 200–600 ms.
 - [ ] Modifier lead and overlap: press the modifier 20–60 ms before the key, hold 90–160 ms.
-- [ ] Scroll momentum phases, and a 1–3 s read before the next action after a scroll.
+- [ ] A 1–3 s read before the next action after a scroll.
 - [ ] Dwell by what changed: 0.3–0.8 s for a small diff, 0.8–2.5 s for a new page, also applied to `wait-for`.
 - [ ] Gap distributions per action kind on top of `min_gap_s`: read 1–4 s, like 8–25 s, comment 30–120 s, follow or connect 45–180 s.
 - [ ] Session shape: 20–45 minutes active, 10–30 away, no fixed start minute, quiet hours.
@@ -516,14 +547,13 @@ Site rules:
 
 Ideas (from `features.md`):
 
-- [ ] Ping the user remotely through Claude with a screenshot and the question, so apprentice can be steered from a phone.
 - [ ] "should save loca…" (the note was cut off).
 
 Other:
 
 - [ ] `AXObserver` subtree cache in place of the 300 ms cache.
 - [ ] Trim `agent/SKILL.md` and `agent/AGENTS.md` back toward 600 tokens.
-- [ ] Phone approval (push notification) as a second approval route.
+- [ ] Approve from the push itself (an action button), as a second approval route. Today the push only says a question is waiting; the answer still goes through the chat.
 
 ## Build plan (historical)
 

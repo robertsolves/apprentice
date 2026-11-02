@@ -18,7 +18,7 @@ apprentice type 16 "new bio" --enter
 
 - Terminal first: the `policy:` line says whether tasks may use shell commands (macOS: your own shell; Linux: the ssh command it prints) and when the screen is only for what no command does. Websites always go through the UI. Never change the policy.
 - Ids stay the same after an action; new elements in the diff get new ids. So act from the diff and don't `read` again after an action unless you get exit 2 (`stale`) or need something the diff doesn't show. Narrow with `--filter`, `--max 40`.
-- Also: `open`, `key`, `menu "File > New Folder"`, `wait-for`, `scroll`, `hover`, `upload`, `download`, `choose "<path>"`, `type focused "text"`, `click --on "text"` (visible text, OCR when not listed), `click --at x,y`, `shot`, `ocr`. When the list can't name a target, `shot --marks` saves a PNG with each id drawn on it.
+- Also: `open`, `key`, `menu "File > New Folder"`, `wait-for`, `scroll`, `browse [s]` (read down a feed, clicks nothing), `hover`, `upload`, `download`, `choose "<path>"`, `type focused "text"`, `click --on "text"` (visible text, OCR when not listed), `click --at x,y`, `shot`, `ocr`. When the list can't name a target, `shot --marks` saves a PNG with each id drawn on it.
 
 Approval:
 - Changing commands exit 8 with `approve? …` and a token; nothing is done yet. `apprentice approve <token>` (`--text` edits a pending type) or `deny <token>`.
@@ -26,7 +26,7 @@ Approval:
 
 Asking the user:
 - Use the little window for every decision that is their: options, risks, unclear instructions, and when stuck. It pings when it opens.
-- Exit 9: they are away or did not answer the window; ask the same question in the chat and carry on with their answer. `apprentice away on|off` when they say they are away or back.
+- Exit 9: they are away or did not answer the window; ask the same question in the chat (with the screenshot it names, if you can send files) and carry on with their answer. `apprentice away on|off` when they say they are away or back; `apprentice phone` (give them its link) when they want their phone to buzz.
 - `apprentice ask "question"` (`--choices "A|B"`, `--multi`, `--text`) or `apprentice show "what"` (they point at it). When their answer unblocks you, put it in the note and file `apprentice bug "…" --fix "…"` with the code change that would have avoided asking.
 - After a task works: `apprentice learn "<task>"`, then generalize the draft.
 - Never copy screen text into notes.

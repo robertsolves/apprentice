@@ -1,0 +1,4 @@
+interface:
+  display_name: "improve-prompts"
+  short_description: "Run the shared improve-prompts workflow"
+  default_prompt: "Use $improve-prompts to run the shared repository workflow."

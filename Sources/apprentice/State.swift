@@ -358,7 +358,7 @@ struct Limits: Codable {
             l.acts[host] = times
         }
         if web {
-            let gap = Double.random(in: cfg.betweenMin...cfg.betweenMax)
+            let gap = Rand.uniform(cfg.betweenMin...cfg.betweenMax)
             if l.lastAction > 0 {
                 let since = now - l.lastAction
                 if since < gap { gapWait = gap - since }
@@ -366,11 +366,11 @@ struct Limits: Codable {
             // A profile with `burst` rests after a run of quick actions, as a person pauses between bursts.
             if cfg.burstMax > 0 {
                 let count = l.lastAction > 0 && now - l.lastAction < 30 ? (l.burst ?? 0) + 1 : 1
-                let limit = l.burstAt ?? Int.random(in: Int(cfg.burstMin)...Int(cfg.burstMax))
+                let limit = l.burstAt ?? Rand.uniform(Int(cfg.burstMin)...Int(cfg.burstMax))
                 if count > limit {
-                    restWait = Double.random(in: cfg.restMin...cfg.restMax)
+                    restWait = Rand.uniform(cfg.restMin...cfg.restMax)
                     l.burst = 1
-                    l.burstAt = Int.random(in: Int(cfg.burstMin)...Int(cfg.burstMax))
+                    l.burstAt = Rand.uniform(Int(cfg.burstMin)...Int(cfg.burstMax))
                 } else {
                     l.burst = count
                     l.burstAt = limit

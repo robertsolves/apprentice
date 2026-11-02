@@ -1,0 +1,4 @@
+interface:
+  display_name: "improve-markdowns"
+  short_description: "Run the improve-markdowns command"
+  default_prompt: "Use $improve-markdowns to run the improve-markdowns command."

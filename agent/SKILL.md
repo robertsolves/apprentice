@@ -22,7 +22,7 @@ apprentice type 16 "new bio" --enter
 ```
 - Terminal first: the `policy:` line says whether tasks may use shell commands (macOS: your own shell; Linux: the ssh command it prints) and when the screen is only for what no command does. Websites always go through the UI. Never change the policy.
 - Ids stay the same after an action; new elements in the diff get new ids. So act from the diff and don't `read` again after an action unless you get exit 2 (`stale`) or need something the diff doesn't show. Narrow with `--filter`, `--max 40`.
-- Also: `open`, `key cmd+l`, `menu "File > New Folder"`, `wait-for`, `scroll`, `hover`, `upload`, `download`, `choose "<path>"` (in an open or save dialog), `type focused "text"`, `click --on "text"` (visible text, OCR when not listed), `click --at x,y`, `shot`, `ocr`. When the list can't name a target, `shot --marks` saves a PNG with each id drawn on it.
+- Also: `open`, `key cmd+l`, `menu "File > New Folder"`, `wait-for`, `scroll`, `browse [s]` (read down a feed, clicks nothing), `hover`, `upload`, `download`, `choose "<path>"` (in an open or save dialog), `type focused "text"`, `click --on "text"` (visible text, OCR when not listed), `click --at x,y`, `shot`, `ocr`. When the list can't name a target, `shot --marks` saves a PNG with each id drawn on it.
 
 ## Approval
 Changing commands exit 8 with `approve? …` and a token; nothing has happened. Approve ordinary steps the task needs with `apprentice approve <token>` (`--text "…"` edits a pending type), or `deny <token>`. For any `⚠` step the user did not ask for in those words, run `apprentice confirm <token> --why "…"`: they decide in the little window, and an approval runs at once (exit 3 if they deny). Tokens are single-use and expire in 5 minutes.
@@ -30,7 +30,7 @@ Changing commands exit 8 with `approve? …` and a token; nothing has happened. 
 ## Asking the user
 - Use the little window for every decision that is their, not only when stuck: choosing between options, anything risky or hard to undo, unclear instructions, and before giving up. It pings when it opens.
 - `apprentice ask "question"` (`--choices "A|B"`, `--multi`, `--text`); `apprentice show "what"` has them point at it and returns the element there. Keep questions short and give choices when you can.
-- Exit 9 means they are away or did not answer the window: ask the same question in the chat (your own question tool if you have one), and carry on with their answer. Away, they cannot point at things. When they say they are away or back, run `apprentice away on` or `off`.
+- Exit 9 means they are away or did not answer the window: ask the same question in the chat (your own question tool if you have one), attach the screenshot it names if you can send files, and carry on with their answer. Away, they cannot point at things. When they say they are away or back, run `apprentice away on` or `off`. When they ask to be reached on their phone, run `apprentice phone` and give them the link it prints.
 - Their answer is their instruction. When it unblocks you, do both: put it in that page's or app's note, and file `apprentice bug "…" --fix "…"` with the code change that would have avoided asking (a better read, a generic command). Asking once is fine; asking twice for the same thing means the tool should change.
 - After a task works: `apprentice learn "<task>"`, then generalize the draft (`{placeholders}`, drop dead steps, add Fails).
 - Never copy screen text into notes.

@@ -10,40 +10,37 @@ between_actions_ms = [0, 0]
 nav_min_gap_s = 5
 reload_max = { count = 3, window_s = 120 }
 actions_per_min = 30
+overshoot = 0.33   # share of long cursor moves that pass the target, then correct back
+fidget = 0         # share of actions followed by a gesture that changes nothing (glance, trace, rest, scroll and back); at most 0.5
+browse = 0         # share of commands on a web page that end with browse_s of reading down the feed, then back up; at most 0.2
+browse_s = [10, 40]
+# style = "fast"   # sets every timing key at once: "fastest", "fast" (default), "steady", or "careful" (slowest, least scripted)
 
-# Every profile starts from pace.default; list only the keys that differ.
+# Styles per site or app in one place. "web" is every browser, "native" every other app.
+# A [pace."<site>"] section below then starts from that site's style and lists only what differs.
+[pace.styles]
+careful = ["linkedin.com", "x.com", "reddit.com"]
+# steady = ["news.ycombinator.com"]
+# fastest = ["native"]
+
+# Every profile starts from pace.default (or its style); list only the keys that differ.
 [pace."github.com"]
 # actions_per_min = 20
 
 # Social sites: a person's pace. Reads a page before acting on it (dwell_s), rests after a few quick
 # actions (burst, rest_s), and moves and types at hand speed. Budgets per action kind are in budgets.json.
 # A profile covers its subdomains too (www.linkedin.com).
-[pace."linkedin.com"]
-move_ms = [200, 900]
-between_actions_ms = [3000, 12000]
-dwell_s = [3, 8]
-burst = [4, 6]
-rest_s = [20, 90]
-actions_per_min = 6
-key_error_rate = 0.015
-
+# They use the careful style above; these keys differ from it.
 [pace."x.com"]
-move_ms = [200, 900]
 between_actions_ms = [2000, 8000]
 dwell_s = [2, 6]
-burst = [4, 6]
-rest_s = [20, 90]
 actions_per_min = 8
-key_error_rate = 0.015
 
 [pace."reddit.com"]
-move_ms = [200, 900]
 between_actions_ms = [2000, 8000]
 dwell_s = [2, 6]
-burst = [4, 6]
-rest_s = [20, 90]
 actions_per_min = 8
-key_error_rate = 0.015
+# browse = 0.1      # now and then read down the feed for a while, then scroll back
 
 [pace.native]
 mode = "fast"   # shorter key gaps in native apps
@@ -77,6 +74,10 @@ menu_bar = true
 # `apprentice away on` switches to the terminal until `apprentice away off`.
 ask_in = "both"
 ask_window_s = 60
+# A push to your phone when a question goes to the chat: an ntfy topic URL (install the ntfy app and
+# subscribe to the same topic). Pick a long random topic name: anyone who knows it can read the pushes.
+# Only the question text is sent, never a screenshot; a scrubbed app's question is sent as "a question is waiting".
+# notify = "https://ntfy.sh/apprentice-<long random string>"
 # Apps that open https links count as browsers. Add bundle ids here for any that do not register.
 # browsers = ["com.example.Browser"]
 # Context-menu items `download` uses, matched lower case. Add your language's if the Mac is not in English.

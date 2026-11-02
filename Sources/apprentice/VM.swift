@@ -80,7 +80,7 @@ enum VM {
             if reply.code == 9 {
                 return Response(code: 9, out: Ask.handOff([
                     "question: the user has to do this in the Linux VM: \(what). When they are at the Mac, `apprentice vm look` opens it.",
-                ]).message)
+                ], push: nil).message)
             }
             return reply
         }

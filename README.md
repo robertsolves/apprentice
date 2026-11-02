@@ -56,7 +56,7 @@ ok · snap 4 · +2 -0 ~0
 ## How it works
 
 - **It reads text, not pixels.** The macOS accessibility tree becomes a numbered list of what is on screen. A step costs tens of tokens, not a screenshot. `shot` and `ocr` exist for the rare page that hides from accessibility.
-- **It uses real input only.** Every click, scroll and keystroke goes through the system's own input stream with the window in front, and the cursor moves along a curved path at a human pace. Nothing is injected into pages, and nothing is pressed through accessibility. Addresses and file-dialog paths are pasted, because no website can see those boxes. Text inside pages is typed key by key.
+- **It uses real input only.** Every click, scroll and keystroke goes through the system's own input stream with the window in front, and the cursor moves at a human pace along paths that vary every time: different curves and speeds, overshoot and correction, all drawn from one fast random generator. Nothing is injected into pages, and nothing is pressed through accessibility. Addresses and file-dialog paths are pasted, because no website can see those boxes. Text inside pages is typed key by key.
 - **It stops for you.** It waits until you have been idle for a moment. If you press a key or click while it is acting, it stops with exit 6 and leaves the cursor where you are. ctrl+opt+cmd+. is a kill switch.
 - **It proposes, then acts.** Every command that changes something (`open`, `click`, `type`, `key`, `menu`, `drag`, `upload`, `download`, `choose`, `do`) returns `approve? …` and a token, with exit 8. Nothing happens until `apprentice approve <token>`. Steps that look risky carry a `⚠` line: send, post, delete, buy, a password field, a settings page.
 - **It asks you.** For any decision that is yours, it opens a little window at the top of the screen and pings:
@@ -64,7 +64,7 @@ ok · snap 4 · +2 -0 ~0
   - `show` has you point the cursor at something;
   - `confirm` puts a risky step in front of you to approve or deny.
 
-  When you are away from the Mac (`apprentice away on`, or nobody answers within a minute), the question comes back with exit 9 and the agent asks you in the chat instead.
+  When you are away from the Mac (`apprentice away on`, or nobody answers within a minute), the question comes back with exit 9 and the agent asks you in the chat instead, with a screenshot of what it is about. Say "set up my phone" once: `apprentice phone` gives you one link to tap (an ntfy topic), and from then on those questions also buzz your phone.
 - **It fixes itself.** apprentice runs from your own local clone. When it gets something wrong, the agent fixes the note or the code and commits each small change with `apprentice commit`, which rebuilds, self-tests and restarts apprentice with the fix. Your commits stay in your clone.
 - **It updates itself.** Every few hours it checks its upstream. When there's something new, it rebases your commits onto it, rebuilds, runs its self-test and restarts once nothing is waiting on you (no pending approval, no open question, no command in the last minute). The next `session` tells you. If the build or test fails, it stays on the old version. Set `[update] auto = false` to only be told, then run `apprentice update`.
 - **It shares fixes in one command.** `apprentice pr` takes your local commits, checks the tree is clean and the self-test passes, pushes a `fix/…` branch to your fork and opens a pull request with `gh`. `apprentice pr --local` writes the description and prints a compare URL instead.
@@ -118,6 +118,7 @@ The first `session` after the daemon starts opens an options window:
 | `type <id\|focused> "text" [--enter]` | Click into a field, then type, key by key |
 | `key <combo>` · `menu "File > Save…"` | A shortcut, or a menu item clicked like a person |
 | `scroll`, `hover`, `drag`, `wait-for "text"` | The rest of what a hand does |
+| `browse [seconds]` | Read down a page or feed at a reading pace, clicking nothing |
 | `open <url>` | Navigate the browser window, at a polite pace |
 | `upload <id> <file>` · `download <id> <path>` · `choose <path>` | Files, through the system's own dialogs |
 | `approve <token>` · `deny <token>` · `confirm <token>` · `pending` | Approvals |
@@ -126,7 +127,7 @@ The first `session` after the daemon starts opens an options window:
 | `route "task"` | Check for a faster route (an API, `gh`, a connector) before using the screen |
 | `shot` · `ocr` · `log [--tail n]` · `log --session [<id>]` · `sessions` | A screenshot, OCR of the window, recent steps, one whole session, recent sessions |
 | `project [init \| status]` | A project's own `.apprentice/` folder: its own site counts and tighter caps |
-| `policy` · `away on\|off` · `awake on\|off` | Settings for shell use, remote questions and keep-awake |
+| `policy` · `away on\|off` · `phone [on\|off\|test]` · `awake on\|off` | Settings for shell use, remote questions and keep-awake |
 | `grow` · `bug "summary" --fix "…"` | What to improve next, and field reports |
 | `settings [local]` | Where the settings are; `local` moves an older synced copy back to this Mac |
 | `commit "what and why"` · `update [--check]` · `selftest` · `repo` · `version` | A small commit (rebuilds on a source change), upstream fixes in by hand (it also updates itself), the built-in tests, where the clone is, and the installed commit |
@@ -157,7 +158,7 @@ Settings are `config.toml` (see `agent/config.example.toml`), `routes.toml` and 
 
 `config.toml` has:
 
-- **`[pace.*]`:** mouse, typing and navigation timing, with optional profiles per site or app.
+- **`[pace.*]`:** mouse, typing and navigation timing, with profiles per site or app. `style` sets them all at once: `fastest`, `fast` (the default), `steady`, or `careful`, the slowest and least scripted. `[pace.styles]` assigns a style to each site or app, e.g. `careful = ["linkedin.com", "x.com"]`. `overshoot` and `fidget` tune how often the cursor passes its target and how often a harmless gesture (a glance, reading a few lines, a scroll and back) follows an action; `browse` and `browse_s` make a site now and then read down its feed for a while and scroll back. All are off until a site or style turns them on.
 - **`[session] allow`:** the sites a session may act on.
 - **`[agent]`:**
   - `ui_only` turns off shell commands for macOS tasks;
@@ -172,7 +173,7 @@ Settings are `config.toml` (see `agent/config.example.toml`), `routes.toml` and 
 
 Site rules ship as defaults and live in your own files:
 - `budgets.json` caps each kind of action per site, per hour and per day, with a minimum gap. It starts with conservative caps for LinkedIn, X, Reddit, Instagram, Facebook and TikTok.
-- `[pace."<site>"]` profiles set a person's pace (dwell, bursts, rests) for LinkedIn, X and Reddit.
+- `[pace.styles]` puts LinkedIn, X and Reddit on the `careful` style (dwell, bursts, rests, fidgets), with `[pace."<site>"]` sections for what differs.
 - `[policy."<site>"]` in `routes.toml` records whether a site's terms allow automation. Instagram, Facebook, Messenger and TikTok are built in as forbidden, so apprentice refuses them.
 
 The counts behind budgets and cooldowns are kept in `~/.apprentice/limits.json`, shared by every session and VM. `apprentice budget` shows what is left.

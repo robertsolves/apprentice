@@ -1,0 +1,4 @@
+interface:
+  display_name: "interview-risky-spot"
+  short_description: "Run the interview-risky-spot command"
+  default_prompt: "Use $interview-risky-spot to run the interview-risky-spot command."

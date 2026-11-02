@@ -21,9 +21,14 @@ enum Ask {
     static func windowTime(_ requested: Double) -> Double {
         Config.current.askIn == "window" ? requested : min(requested, Config.current.askWindowSeconds)
     }
-    static func handOff(_ lines: [String]) -> Fail {
-        Fail(9, (["ask the user in the chat (terminal): they are away from the Mac or did not answer the window."] + lines
-                 + ["Carry on with their answer as if they had answered the window."]).joined(separator: "\n"))
+    /// `push` is what the phone notification says (`[agent] notify`); the screenshot is for the agent to
+    /// attach to its question, since the user cannot see the Mac. A nil `push` re-words a question the daemon
+    /// already handed off, which has already pushed.
+    static func handOff(_ lines: [String], push: String?) -> Fail {
+        if let push { Notify.send(push) }
+        let shot = push == nil ? [] : Notify.shot().map { ["screenshot of the screen it is about: \($0) (attach it to your question if you can send files)"] } ?? []
+        return Fail(9, (["ask the user in the chat (terminal): they are away from the Mac or did not answer the window."] + lines + shot
+                        + ["Carry on with their answer as if they had answered the window."]).joined(separator: "\n"))
     }
 
     /// `away on|off|status`: questions go to the chat while the user is away. The LLM may set this when they
@@ -63,7 +68,7 @@ enum Ask {
         let remote = ["question: \(question)"]
             + (choices.isEmpty ? [] : ["choices (\(multi ? "any number" : "one")): " + choices.joined(separator: " | ")])
         Store.log(["ask": question])
-        if away { throw handOff(remote) }
+        if away { throw handOff(remote, push: question) }
         let timeout = windowTime(a.value("timeout").flatMap(Double.init) ?? 600)
         let previous = NSWorkspace.shared.frontmostApplication
         let caller = caller
@@ -72,7 +77,7 @@ enum Ask {
         }
         if let previous, previous.processIdentifier != getpid() { previous.activate() }
         guard let reply else {
-            if Config.current.askIn != "window" { throw handOff(remote) }
+            if Config.current.askIn != "window" { throw handOff(remote, push: question) }
             throw Fail(5, "no answer: the question timed out")
         }
         guard !reply.skipped, !reply.chosen.isEmpty || !reply.text.isEmpty else {
@@ -139,6 +144,8 @@ enum Ask {
         stack.alignment = .leading
         stack.spacing = 8
         stack.edgeInsets = NSEdgeInsets(top: 14, left: 16, bottom: 14, right: 16)
+        // A leading-aligned stack fits to its widest row and drops the right inset; hold it to the panel's width.
+        stack.widthAnchor.constraint(equalToConstant: width).isActive = true
         for view in [field, buttons] where rows.contains(view) {
             view.widthAnchor.constraint(equalToConstant: width - 32).isActive = true
         }
@@ -257,11 +264,11 @@ extension Ask {
         guard !what.isEmpty else { throw Fail(5, "show \"what to point at\" [--timeout 600]") }
         let remote = ["they cannot point from afar: ask them to describe where \"\(what)\" is on the screen,",
                       "or look for it yourself with `apprentice shot` and `apprentice ocr`."]
-        if away { throw handOff(remote) }
+        if away { throw handOff(remote, push: "Where is \"\(what)\"?") }
         let timeout = windowTime(a.value("timeout").flatMap(Double.init) ?? 600)
         let (found, skipped): (CGPoint?, Bool) = DispatchQueue.main.sync { watchPointer(what, timeout: timeout) }
         guard let point = found else {
-            if !skipped, Config.current.askIn != "window" { throw handOff(remote) }
+            if !skipped, Config.current.askIn != "window" { throw handOff(remote, push: "Where is \"\(what)\"?") }
             throw Fail(5, skipped ? "no answer: The user skipped" : "no answer: it timed out")
         }
         Store.log(["show": what, "x": Int(point.x), "y": Int(point.y)])
@@ -319,6 +326,8 @@ extension Ask {
         stack.alignment = .leading
         stack.spacing = 10
         stack.edgeInsets = NSEdgeInsets(top: 12, left: 16, bottom: 12, right: 16)
+        // A leading-aligned stack fits to its widest row and drops the right inset; hold it to the panel's width.
+        stack.widthAnchor.constraint(equalToConstant: width).isActive = true
         buttons.widthAnchor.constraint(equalToConstant: width - 32).isActive = true
         panel.contentView = stack
         panel.setContentSize(stack.fittingSize)
@@ -385,7 +394,7 @@ extension Ask {
         let why = a.value("why").map { "\n\nWhy: \($0)" } ?? ""
         let remote = ["question: approve this step? \(p.summary)\(why.replacingOccurrences(of: "\n\n", with: " "))",
                       "if they say yes in the chat: `apprentice approve \(token)`; if no: `apprentice deny \(token)`. Nothing is done until then."]
-        if away { throw handOff(remote) }
+        if away { throw handOff(remote, push: "Approve this step? \(p.summary)") }
         let caller = caller
         let reply = DispatchQueue.main.sync {
             show("Approve this step?\n\n\(p.summary)\(why)", choices: [approve, deny], multi: false, withText: true,
@@ -397,7 +406,7 @@ extension Ask {
             Store.log(["confirm": p.summary, "by": "user", "dropped": "caller gone"])
             throw Fail(3, "no answer: the caller stopped waiting, nothing was done")
         }
-        if reply == nil, Config.current.askIn != "window" { throw handOff(remote) }
+        if reply == nil, Config.current.askIn != "window" { throw handOff(remote, push: "Approve this step? \(p.summary)") }
         let note = reply.map { $0.text.isEmpty ? "" : "\nuser: \($0.text)" } ?? ""
         guard let reply, !reply.skipped, reply.chosen.contains(approve) else {
             if reply != nil { _ = try Daemon.command(Request(cmd: "deny", args: [token])) }

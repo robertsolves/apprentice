@@ -55,11 +55,11 @@ extension Remote {
         guard poll(timeout: 5, { (try? query(["op": "dialog"]))?["active"] as? Bool == true ? true : nil }) != nil else {
             throw Fail(5, "the file dialog opened but did not take the keyboard; nothing was typed")
         }
-        Pace.sleep(Double.random(in: 0.5...0.9))
+        Pace.sleep(Rand.uniform(0.5...0.9))
         try Keys.press("cmd+l")
         Pace.sleep(0.2)
         try Keys.type(guestPath, fast: true)
-        Pace.sleep(Double.random(in: 0.4...0.7))
+        Pace.sleep(Rand.uniform(0.4...0.7))
         try confirmDialog(["open", "select", "upload", "choose"])
         guard poll(timeout: 5, { dialogOpen() ? nil : true }) != nil else {
             try? Keys.press("esc")
@@ -132,7 +132,7 @@ extension Remote {
                 }
                 if !answered, (try? query(["op": "dialog"]))?["active"] as? Bool == true {
                     answered = true
-                    Pace.sleep(Double.random(in: 0.5...0.9))
+                    Pace.sleep(Rand.uniform(0.5...0.9))
                     try? confirmDialog(["save"])
                 }
                 return nil
@@ -263,7 +263,7 @@ extension Remote {
         try act {
             let start = Mouse.landing(in: src.rect)
             Mouse.move(to: start, size: src.rect.size)
-            Pace.sleep(Double.random(in: 0.1...0.25))
+            Pace.sleep(Rand.uniform(0.1...0.25))
             try Mouse.drag(from: start, to: Mouse.landing(in: dst.rect))
         }
         return try done("drag", session, page, old, log: ["from": from, "to": to])
@@ -278,7 +278,8 @@ extension Remote {
         guard !what.isEmpty else { throw Fail(5, "show \"what to point at\" [--timeout 600]") }
         if Ask.away {
             throw Ask.handOff(["they cannot point from afar: ask them to describe where \"\(what)\" is,",
-                               "or look for it yourself with `apprentice shot` and `apprentice ocr`."])
+                               "or look for it yourself with `apprentice shot` and `apprentice ocr`."],
+                               push: "Where is \"\(what)\"?")
         }
         let open = "Open the VM", later = "Later"
         let reply = DispatchQueue.main.sync {

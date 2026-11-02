@@ -86,11 +86,55 @@ struct PaceConfig {
     var restMax = 90.0
     /// Share of letters typed wrong, then backspaced and retyped; 0 is off. Never in password fields.
     var keyErrorRate = 0.0
+    /// Share of long cursor moves that go past the target before correcting back onto it.
+    var overshoot = 0.33
+    /// Share of actions followed by a fidget that changes nothing (`Fidget`); 0 is off.
+    var fidget = 0.0
+    /// Share of actions on a web page followed by `browse_s` of reading down the feed and back; 0 is off.
+    var browseShare = 0.0
+    var browseMin = 10.0
+    var browseMax = 40.0
+
+    /// The `style` presets, fastest first. Each sets every timing key; keys listed beside it win.
+    static let styles = ["fastest", "fast", "steady", "careful"]
 
     init() {}
 
+    /// `style = "fastest" | "fast" | "steady" | "careful"`: the timing keys at once. `fast` is the
+    /// built-in default; `careful` is the least likely to be taken for a script and the slowest.
+    /// Limits that guard the account (navigation gap, reload cap) are never loosened by a style.
+    static func preset(_ name: String, on base: PaceConfig) -> PaceConfig? {
+        var p = base
+        switch name {
+        case "fastest":
+            (p.moveMin, p.moveMax, p.keyMedian, p.keySigma) = (0.03, 0.09, 0.045, 0.3)
+            (p.betweenMin, p.betweenMax, p.dwellMin, p.dwellMax, p.burstMin, p.burstMax) = (0, 0, 0, 0, 0, 0)
+            (p.keyErrorRate, p.overshoot, p.fidget, p.mode) = (0, 0.1, 0, "fast")
+        case "fast":
+            let d = PaceConfig()
+            (p.moveMin, p.moveMax, p.keyMedian, p.keySigma) = (d.moveMin, d.moveMax, d.keyMedian, d.keySigma)
+            (p.betweenMin, p.betweenMax, p.dwellMin, p.dwellMax, p.burstMin, p.burstMax) = (0, 0, 0, 0, 0, 0)
+            (p.keyErrorRate, p.overshoot, p.fidget, p.mode) = (0, d.overshoot, 0, "human")
+        case "steady":
+            (p.moveMin, p.moveMax, p.keyMedian, p.keySigma) = (0.12, 0.5, 0.12, 0.4)
+            (p.betweenMin, p.betweenMax, p.dwellMin, p.dwellMax, p.burstMin, p.burstMax) = (0.5, 2.5, 1, 3, 0, 0)
+            (p.keyErrorRate, p.overshoot, p.fidget, p.mode) = (0.008, 0.4, 0.1, "human")
+            p.actionsPerMin = min(p.actionsPerMin, 15)
+        case "careful":
+            (p.moveMin, p.moveMax, p.keyMedian, p.keySigma) = (0.25, 1.0, 0.14, 0.45)
+            (p.betweenMin, p.betweenMax, p.dwellMin, p.dwellMax, p.burstMin, p.burstMax) = (3, 12, 3, 8, 3, 6)
+            (p.restMin, p.restMax) = (30, 120)
+            (p.keyErrorRate, p.overshoot, p.fidget, p.mode) = (0.015, 0.45, 0.25, "human")
+            p.actionsPerMin = min(p.actionsPerMin, 6)
+        default:
+            return nil
+        }
+        return p
+    }
+
     init(_ values: [String: String], base: PaceConfig = PaceConfig()) {
         var p = base
+        if let style = values["style"].map(Toml.unquote), let preset = PaceConfig.preset(style.lowercased(), on: base) { p = preset }
         if let a = values["move_ms"].flatMap(Toml.doubles), a.count >= 2 {
             p.moveMin = a[0] / 1000
             p.moveMax = a[1] / 1000
@@ -122,6 +166,13 @@ struct PaceConfig {
             p.restMax = a[1]
         }
         if let v = values["key_error_rate"].flatMap(Double.init) { p.keyErrorRate = v }
+        if let v = values["overshoot"].flatMap(Double.init) { p.overshoot = v }
+        if let v = values["fidget"].flatMap(Double.init) { p.fidget = v }
+        if let v = values["browse"].flatMap(Double.init) { p.browseShare = v }
+        if let a = values["browse_s"].flatMap(Toml.doubles), a.count >= 2 {
+            p.browseMin = a[0]
+            p.browseMax = a[1]
+        }
         self = p.sanitized()
     }
 
@@ -157,6 +208,14 @@ struct PaceConfig {
         p.restMax = ok(restMax, 0, 120, d.restMax)
         if p.restMin > p.restMax { swap(&p.restMin, &p.restMax) }
         p.keyErrorRate = ok(keyErrorRate, 0, 0.1, d.keyErrorRate)
+        p.overshoot = ok(overshoot, 0, 1, d.overshoot)
+        // At most one action in two: a fidget costs seconds every time it runs.
+        p.fidget = ok(fidget, 0, 0.5, d.fidget)
+        // A browse costs tens of seconds, so at most one action in five, each at most 2 min.
+        p.browseShare = ok(browseShare, 0, 0.2, d.browseShare)
+        p.browseMin = ok(browseMin, 1, 120, d.browseMin)
+        p.browseMax = ok(browseMax, 1, 120, d.browseMax)
+        if p.browseMin > p.browseMax { swap(&p.browseMin, &p.browseMax) }
         return p
     }
 }
@@ -177,6 +236,8 @@ struct Config {
     /// Where questions go: "both" (the window, then the chat if unanswered), "window", or "terminal".
     var askIn = "both"
     var askWindowSeconds = 60.0
+    /// An ntfy topic URL that gets a push when a question goes to the chat; empty sends nothing.
+    var notify = ""
     /// Context-menu items `download` looks for, matched lower case; add your system language's.
     var downloadMenu = ["save image as", "download linked file", "save link as", "download image"]
     /// Bundle ids treated as browsers on top of every app registered to open https links.
@@ -189,13 +250,13 @@ struct Config {
     var softBlockPhrases = [
         "try again later", "you're doing that too much", "you are doing that too much", "temporarily restricted",
         "temporarily blocked", "unusual activity", "we limit how often", "rate limit", "too many requests",
-        "action blocked", "suspicious activity",
+        "action blocked", "suspicious activity", "temporarily limited", "over the daily limit",
     ]
     /// Signs of a CAPTCHA or identity check, which only the user may complete.
     var challengeMarkers = [
         "captcha", "verify you are human", "verify you're human", "i'm not a robot", "i am not a robot",
         "are you a robot", "confirm it's you", "confirm it is you", "enter the code", "security check",
-        "press and hold", "help us confirm",
+        "press and hold", "help us confirm", "your account has been locked", "your account is locked",
     ]
 
     static var current = Config.load()
@@ -254,9 +315,17 @@ struct Config {
         let toml = Toml.load(path)
         if let d = toml["pace.default"] { c.pace = PaceConfig(d) }
         c.defaultPace = c.pace
-        for (section, values) in toml where section.hasPrefix("pace.") && section != "pace.default" {
+        // `[pace.styles] careful = ["linkedin.com", "x.com"]`: a style for each listed site or app.
+        // A `[pace."<site>"]` section for the same site starts from that style and lists what differs.
+        var styled: [String: PaceConfig] = [:]
+        for (style, raw) in toml["pace.styles"] ?? [:] {
+            guard let preset = PaceConfig.preset(style.lowercased(), on: c.pace) else { continue }
+            for site in Toml.array(raw) ?? [] where !site.isEmpty { styled[site.lowercased()] = preset }
+        }
+        c.profiles = styled
+        for (section, values) in toml where section.hasPrefix("pace.") && !["pace.default", "pace.styles"].contains(section) {
             let key = String(section.dropFirst("pace.".count))
-            c.profiles[key] = PaceConfig(values, base: c.pace)
+            c.profiles[key] = PaceConfig(values, base: styled[key.lowercased()] ?? c.pace)
         }
         if let s = toml["session"] {
             if let a = s["allow"].flatMap(Toml.array) { c.allow = a }
@@ -268,6 +337,7 @@ struct Config {
         if let v = toml["agent"]?["keep_awake"] { c.keepAwake = Toml.unquote(v) == "true" }
         if let v = toml["agent"]?["menu_bar"] { c.menuBar = Toml.unquote(v) != "false" }
         if let v = toml["agent"]?["ask_in"] { c.askIn = Toml.unquote(v) }
+        if let v = toml["agent"]?["notify"] { c.notify = Toml.unquote(v) }
         if let v = toml["agent"]?["download_menu"].flatMap(Toml.array) { c.downloadMenu = v.map { $0.lowercased() } }
         if let v = toml["agent"]?["browsers"].flatMap(Toml.array) { c.browsers = v }
         if let v = toml["sites"]?["soft_block"].flatMap(Toml.array) { c.softBlockPhrases = v.map { $0.lowercased() } }
@@ -301,7 +371,7 @@ struct Config {
 
     static func profileKey(session: Session, url: String?) -> String {
         // `[pace."linkedin.com"]` also covers www.linkedin.com and any other subdomain.
-        if var host = hostOf(url)?.lowercased() {
+        if var host = hostOf(url).map(Site.domain) {
             while true {
                 if current.profiles[host] != nil { return host }
                 guard let dot = host.firstIndex(of: "."), host[host.index(after: dot)...].contains(".") else { break }

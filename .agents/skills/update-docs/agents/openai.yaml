@@ -1,0 +1,4 @@
+interface:
+  display_name: "update-docs"
+  short_description: "Run the update-docs command"
+  default_prompt: "Use $update-docs to run the update-docs command."

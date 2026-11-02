@@ -65,7 +65,7 @@ enum Grow {
     /// proposal), approves (proposal → approved; 0 when both are in one shell call), the tool acts
     /// (`ms` and its `waits`), and often the agent reads again before the next step.
     struct Pace {
-        static let actions: Set<String> = ["click", "type", "key", "menu", "scroll", "open", "upload", "choose", "drag", "hover", "do"]
+        static let actions: Set<String> = ["click", "type", "key", "menu", "scroll", "browse", "open", "upload", "choose", "drag", "hover", "do"]
         var previous: (ts: Date, cmd: String?)?
         var proposedAt: Date?
         var think: [Double] = []

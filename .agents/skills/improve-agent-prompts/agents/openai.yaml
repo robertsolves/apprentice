@@ -1,0 +1,4 @@
+interface:
+  display_name: "improve-agent-prompts"
+  short_description: "Run the shared improve-agent-prompts workflow"
+  default_prompt: "Use $improve-agent-prompts to run the shared repository workflow."

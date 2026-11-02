@@ -20,6 +20,7 @@ enum SelfTest {
         routing()
         diffs()
         approvals()
+        notify()
         limits()
         sites()
         budgets()
@@ -77,6 +78,34 @@ enum SelfTest {
         check(p.keySigma.isFinite, "a non-finite value falls back")
         check(p.actionsPerMin >= 1, "actions per minute stays positive")
         check(p.burstMin <= p.burstMax, "pairs are ordered")
+
+        let careful = PaceConfig(["style": "\"careful\"", "move_ms": "[100, 300]"])
+        check(careful.fidget > 0 && careful.dwellMax > 0 && careful.actionsPerMin <= 6, "a style sets its timing keys")
+        check(careful.moveMin == 0.1 && careful.moveMax == 0.3, "a key beside a style wins")
+        check(PaceConfig(["style": "\"nonsense\""]).fidget == PaceConfig().fidget, "an unknown style changes nothing")
+        let feed = PaceConfig(["browse": "0.9", "browse_s": "[500, 5]"])
+        check(feed.browseShare <= 0.2 && feed.browseMin <= feed.browseMax && feed.browseMax <= 120, "browse share and length are clamped and ordered")
+        check(PaceConfig().browseShare == 0 && PaceConfig(["style": "\"careful\""]).browseShare == 0, "auto-browse is off unless a site turns it on")
+        check(PaceConfig(["fidget": "0.9", "overshoot": "2"]).fidget <= 0.5 && PaceConfig(["overshoot": "2"]).overshoot <= 1, "fidget and overshoot are clamped")
+        let fastest = PaceConfig(["style": "\"fastest\""])
+        check(fastest.moveMax < PaceConfig().moveMax && fastest.navGap == PaceConfig().navGap, "a fast style never loosens the navigation gap")
+
+        Rand.seed(7)
+        let first = (0..<4).map { _ in Rand.next() }
+        Rand.seed(7)
+        check((0..<4).map { _ in Rand.next() } == first, "a seed repeats its sequence")
+        var inRange = true, sawBoth = (false, false)
+        for _ in 0..<5000 {
+            let d = Rand.uniform(0.25...0.5), i = Rand.uniform(3...5), r = Rand.uniform(0..<3)
+            inRange = inRange && d >= 0.25 && d <= 0.5 && (3...5).contains(i) && (0..<3).contains(r)
+            if i == 3 { sawBoth.0 = true }
+            if i == 5 { sawBoth.1 = true }
+        }
+        check(inRange && sawBoth.0 && sawBoth.1, "draws stay in range and reach both ends")
+        check((0..<200).allSatisfy { _ in Rand.weighted([("a", 1.0), ("b", 0)]) == "a" }, "a zero weight is never picked")
+        check(Mouse.Speed.allCases.allSatisfy { abs(Mouse.progress($0, 1, skew: 0.8) - 1) < 1e-9 && abs(Mouse.progress($0, 0, skew: 0.8)) < 1e-9 },
+              "every speed profile starts at the start and ends on the target")
+        Rand.seed(UInt64.random(in: .min ... .max))
     }
 
     private static func wire() {
@@ -112,6 +141,19 @@ enum SelfTest {
             check(!vm(cmd), "\(cmd) stays on this Mac")
         }
         check(VM.isBrowser("Safari") && VM.isBrowser("Brave Browser.app") && !VM.isBrowser("Finder"), "browser names")
+    }
+
+    private static func notify() {
+        let app = Session(app: "Safari", bundle: "com.apple.Safari", pid: 1, wid: 1, allow: [])
+        check(Notify.body("Post\nthis?", session: app) == "Post this?", "a push is one line")
+        check(Notify.body(String(repeating: "a", count: 400), session: app).count == 300, "a long question is cut")
+        let vault = Session(app: "1Password", bundle: "com.1password.1password", pid: 1, wid: 1, allow: [])
+        check(Notify.body("Approve this step? click 4 Reveal", session: vault) == "A question is waiting in the chat.",
+              "a scrubbed app's question never leaves the Mac")
+        let t = Notify.topic()
+        check(t.hasPrefix("apprentice-") && t.count == 35 && t != Notify.topic(), "phone topics are long and random")
+        check((Notify.qrText("https://ntfy.sh/\(t)")?.split(separator: "\n").count ?? 0) > 10, "the phone QR code renders")
+        check(Notify.links("https://ntfy.sh/\(t)", tty: false).contains("ntfy://ntfy.sh/\(t)?display=apprentice"), "the Android one-tap link")
     }
 
     private static func diffs() {
@@ -178,6 +220,7 @@ enum SelfTest {
     private static func sites() {
         check(Site.domain("WWW.LinkedIn.com") == "linkedin.com" && Site.domain("m.example.org") == "example.org", "www. and m. count with the site")
         check(Site.domain("www.co") == "www.co", "a prefix that is the whole name stays")
+        check(Site.domain("mobile.twitter.com") == "x.com" && Site.domain("twitter.com") == "x.com", "twitter.com counts as x.com")
         check(Site.matches("api.example.com", "example.com") && Site.matches("Example.com", "example.com"), "subdomains and case match")
         check(!Site.matches("badexample.com", "example.com") && !Site.matches("example.com.evil.io", "example.com"), "look-alike hosts do not match")
         check(Budgets.kind("button \"Unfollow\"", gated: true) == "unfollow", "unfollow is not a follow")

@@ -34,6 +34,7 @@ func usage() {
       apprentice menu "File > New Folder" [--tier 3]
       apprentice scroll up|down [n] [--in id]
       apprentice hover <id>
+      apprentice browse [seconds] [--in id]
       apprentice drag <id> <id>
       apprentice upload <id> <path> [--tier 3]
       apprentice choose <path>                  drive the open or save dialog on the window
@@ -61,6 +62,7 @@ func usage() {
       apprentice flag <domain> "what you saw"   record when the user saw a warning or restriction
       apprentice awake on|off|status            keep the Mac from idle sleep and locking while tasks run
       apprentice away on|off|status             the user is away: questions come back as exit 9 for the chat
+      apprentice phone [on|off|test]            one-tap phone setup: questions that go to the chat buzz the phone
       apprentice grow [--days 14]               improvement digest: repeated errors, questions asked, open bug reports
       apprentice log [--tail n] | --session [<id>]   recent steps, or one whole session
       apprentice sessions [--limit 10]          recent sessions: app, sites, steps, errors, model, task
@@ -95,7 +97,7 @@ let rest = Array(argv.dropFirst())
 /// Commands answered in this process log their own row, so `log --session` and `grow` see `learn`, `bug`,
 /// `route` and the rest beside the daemon's commands.
 let loggedHere: Set<String> = ["route", "notes", "learn", "bug", "commit", "update", "settings", "repo", "policy", "budget",
-                               "activity", "flag", "grow", "sessions", "project", "doctor", "pr", "vm", "replay"]
+                               "activity", "flag", "grow", "sessions", "project", "doctor", "pr", "vm", "replay", "phone"]
 if loggedHere.contains(command) { Timing.begin() }
 
 func done(_ code: Int32) -> Never {
@@ -189,6 +191,8 @@ case "mcp":
     exit(0)
 case "vm":
     attempt { print(try VM.command(Args.parse(rest))) }
+case "phone":
+    attempt { print(try Notify.phone(Args.parse(rest), tty: isatty(STDOUT_FILENO) == 1)) }
 case "selftest":
     SelfTest.run()
 default:

@@ -245,7 +245,7 @@ enum Notes {
 
     // MARK: - learn
 
-    static let actions: Set<String> = ["open", "click", "type", "key", "menu", "scroll", "hover", "drag", "upload", "download", "choose"]
+    static let actions: Set<String> = ["open", "click", "type", "key", "menu", "scroll", "browse", "hover", "drag", "upload", "download", "choose"]
 
     /// Drafts a flow from the approved steps of the current session. The caller generalizes it.
     static func learn(_ a: Args) throws -> String {
@@ -294,6 +294,7 @@ enum Notes {
             case "menu": line = "menu \"\(r["menu"] as? String ?? "")\""
             case "scroll": line = "scroll \(r["direction"] as? String ?? "down") \(r["count"] ?? 3)"
             case "hover": line = "hover \(el())"
+            case "browse": line = "browse \(r["seconds"] ?? 30)"
             case "drag": line = "drag \(el()) \(el("to_"))"
             case "upload": line = "upload \(el()) \"{file}\""
             case "choose": line = "choose \"{path}\""

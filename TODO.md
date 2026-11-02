@@ -9,6 +9,14 @@ It runs: Debian guests under Tart (2 GB disk, 2 GB memory each) or on a server (
 - A budgeted step is counted when it is approved, so an upload that then fails still uses up the site's budget (seen in testing: three failed tries reached the hourly cap). Count it once the step went through.
 - Characters with no key on the guest's US layout get a spare keycode, so their `code` is unusual. The Mac does the same for characters its layout lacks (code 0).
 - Several VMs share one ssh key. Per-VM keys would let one be revoked alone.
+- The VM's question window (`agent/vm/ask.py`) has no apprentice icon and does not notice when the caller stops waiting, unlike the Mac's (`Ask.waiting`).
+- Only `ask` and `confirm` watch their caller. The other windows (start-up options, challenge and cooldown checks in `SiteRules`, the VM's "show me") stay open after the agent gives up; pass `caller:` to `Ask.show` there too.
+
+## Pacing
+
+- Try `browse`, fidgets and the new path shapes live, on this Mac and in the VM, and tune the ranges in `Fidget.swift` and `Mouse.stroke` from what they look like (only `selftest` has run them so far).
+- Log the active pace style and profile on each row, so FEATURES.md can tell whether `careful` sites see fewer soft blocks.
+- `run`'s tiny grammar has no `browse` yet.
 
 ## Install
 
@@ -36,6 +44,11 @@ It runs: Debian guests under Tart (2 GB disk, 2 GB memory each) or on a server (
 - `bug --fixed` was not added: fixed reports are deleted from `BUGS.md` and the commit is the record, so `pr` cites the `F<n>` the commit subjects name.
 - MCP does not expose `sessions`, `do --explain` or `log --session` yet.
 - Flows gained `sh:` steps; `learn` still drafts only screen steps, so a shell flow is written by hand.
+
+## Agent commands
+
+- The weak-agent trial harness (`.agents/skills/improve-prompts/scripts/agent_runs/`) has no planted tasks: the three that came over from compledo were Dart-specific and were dropped. Add a few for apprentice (for example a stale exit code in `agent/SKILL.md` for `/update-docs`) before `/improve-prompts` can measure anything.
+- `/improve-prompts` has no tool for the app's own prompt (the `run` loop's system prompt in `AgentLoop.swift`); a replay set and a scorer would let it tune that too.
 
 ## Site
 

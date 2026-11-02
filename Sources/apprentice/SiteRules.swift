@@ -5,14 +5,18 @@ import Foundation
 /// throttles the account, a stop when it shows a challenge, site policies, and a long record of all
 /// three. The daemon enforces these; agents cannot lift them.
 enum Site {
-    /// The site a host belongs to for budgets and cooldowns: www.linkedin.com and linkedin.com count together.
+    /// The site a host belongs to for budgets, cooldowns, policies and pace: www.linkedin.com and
+    /// linkedin.com count together, and so do a site's old and new names (twitter.com is x.com).
     static func domain(_ host: String) -> String {
         var h = host.lowercased()
         for prefix in ["www.", "m.", "mobile.", "web."] where h.hasPrefix(prefix) && h.dropFirst(prefix.count).contains(".") {
             h = String(h.dropFirst(prefix.count))
         }
-        return h
+        return renamed[h] ?? h
     }
+
+    /// One account, two names: the same login and limits whichever one the browser lands on.
+    static let renamed = ["twitter.com": "x.com"]
 
     static func matches(_ host: String, _ domain: String) -> Bool {
         let h = host.lowercased(), d = domain.lowercased()
@@ -46,7 +50,7 @@ enum Site {
     static func inspect(_ command: String, _ old: Snapshot?, _ new: Snapshot, session: Session) -> Fail? {
         guard let host = hostOf(new.url) else { return nil }
         if let marker = Challenge.find(new) { return Challenge.start(host, marker, session: session) }
-        guard let old, old.url == new.url, !["scroll", "hover", "open"].contains(command) else { return nil }
+        guard let old, old.url == new.url, !["scroll", "browse", "hover", "open"].contains(command) else { return nil }
         let fields: Set<String> = ["textbox", "textarea", "searchbox", "combobox", "password"]
         let before = Set(old.elements.map(\.key))
         let fresh = new.elements.filter { !before.contains($0.key) && !fields.contains($0.label) }
@@ -73,7 +77,7 @@ enum Site {
     static func dwell() {
         let p = Config.current.pace
         guard p.dwellMax > 0 else { return }
-        let want = Double.random(in: p.dwellMin...p.dwellMax)
+        let want = Rand.uniform(p.dwellMin...p.dwellMax)
         let since = Date().timeIntervalSince1970 - (Limits.stored.pageAt ?? 0)
         if since < want { Timing.measure("gap") { Mouse.linger(want - since) } }
     }
@@ -416,7 +420,7 @@ enum Policies {
     }
 
     /// While a site is read-only, reaching and reading its pages is still allowed.
-    static let readOnly: Set<String> = Site.looking.union(["session", "focus", "open", "scroll"])
+    static let readOnly: Set<String> = Site.looking.union(["session", "focus", "open", "scroll", "browse"])
 
     static func check(_ host: String?, cmd: String) throws {
         guard let p = find(host) else { return }
