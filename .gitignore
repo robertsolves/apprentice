@@ -4,3 +4,6 @@
 .DS_Store
 agent/__pycache__/
 *.pyc
+# Session copies in the clone never carry screenshots.
+sessions/**/*.png
+sessions/**/shots/

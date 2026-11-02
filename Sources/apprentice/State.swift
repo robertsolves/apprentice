@@ -19,6 +19,8 @@ enum Store {
         let custom = ProcessInfo.processInfo.environment["APPRENTICE_HOME"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0) }
         let url = custom ?? home.appendingPathComponent(".apprentice")
         try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        // It holds URLs, page titles, screenshots and maybe an API key: this user only.
+        chmod(url.path, 0o700)
         return url
     }()
 
@@ -90,17 +92,26 @@ enum Store {
         return dir.appendingPathComponent("runs/\(name)")
     }
 
+    /// The model driving the current command: the caller's `APPRENTICE_MODEL` or `run --model`, which the
+    /// daemon takes from each `Request`. Every row carries it, so `grow` and flows can tell models apart.
+    static var model: String? = Request.callerModel
+    private static let logLock = NSLock()
+
     static func log(_ entry: [String: Any]) {
         let session = Session.stored
         if let session, Privacy.blocked(session, url: entry["url"] as? String) { return }
         var e = entry
         e["ts"] = stamp.string(from: Date())
+        if let model, e["model"] == nil { e["model"] = model }
         // A command's row carries how long it took and where the time went.
         if entry["cmd"] != nil {
             for (k, v) in Timing.fields where e[k] == nil { e[k] = v }
         }
         guard var line = try? JSONSerialization.data(withJSONObject: e, options: [.sortedKeys]) else { return }
         line.append(0x0A)
+        // Questions are answered off the command queue, so two rows can arrive at once.
+        logLock.lock()
+        defer { logLock.unlock() }
         let file = runFolder(session).appendingPathComponent("steps.jsonl")
         if let h = try? FileHandle(forWritingTo: file) {
             h.seekToEndOfFile()

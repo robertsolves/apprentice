@@ -40,6 +40,17 @@ enum Ask {
                     : "away: off · questions open the little window (\(Config.current.askIn == "window" ? "only" : "then the chat after \(Int(Config.current.askWindowSeconds)) s"))"
     }
 
+    static let callerKey = "apprentice.caller"
+    /// The socket of the request being served on this thread; read it before hopping to main.
+    static var caller: Int32? { Thread.current.threadDictionary[callerKey] as? Int32 }
+    /// False once the caller has closed its end: the agent's command timed out or was cancelled.
+    /// The probe is a space, which the reply can carry, since JSON allows leading whitespace.
+    static func waiting(_ fd: Int32?) -> Bool {
+        guard let fd else { return true }
+        var space: UInt8 = 0x20
+        return write(fd, &space, 1) == 1
+    }
+
     static func run(_ a: Args) throws -> String {
         let question = a.pos.joined(separator: " ")
         guard !question.isEmpty else {
@@ -55,8 +66,9 @@ enum Ask {
         if away { throw handOff(remote) }
         let timeout = windowTime(a.value("timeout").flatMap(Double.init) ?? 600)
         let previous = NSWorkspace.shared.frontmostApplication
+        let caller = caller
         let reply: Reply? = DispatchQueue.main.sync {
-            show(question, choices: choices, multi: multi, withText: withText, timeout: timeout)
+            show(question, choices: choices, multi: multi, withText: withText, timeout: timeout, caller: caller)
         }
         if let previous, previous.processIdentifier != getpid() { previous.activate() }
         guard let reply else {
@@ -75,23 +87,30 @@ enum Ask {
     /// Runs on the main thread. Nil when skipped or timed out.
     static func show(_ question: String, choices: [String], multi: Bool, withText: Bool, timeout: Double,
                      sendTitle: String = "Send", checked: Set<String> = [], placeholder: String? = nil,
-                     initialText: String = "") -> Reply? {
+                     initialText: String = "", caller: Int32? = nil) -> Reply? {
         // A session in a VM asks on the VM's screen, where the work is; this Mac shows a notification.
         if let answer = Remote.askInVM(question, choices: choices, multi: multi, withText: withText, timeout: timeout,
                                        sendTitle: sendTitle, checked: checked, placeholder: placeholder, initialText: initialText) {
             return answer
         }
-        let width: CGFloat = 380
+        // Wider for a long question or long choices, so neither is cut short.
+        let longest = max(question.count / 3, choices.map(\.count).max() ?? 0)
+        let width: CGFloat = min(max(380, CGFloat(longest) * 7), 620)
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: width, height: 160),
                             styleMask: [.titled, .closable], backing: .buffered, defer: false)
         panel.title = "apprentice needs you"
         panel.level = .floating
+        // On every Space and above a full-screen app, so the question is never behind the work.
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
+        StatusItem.asking(true)
+        defer { StatusItem.asking(false) }
 
         let handler = Handler()
         let label = NSTextField(wrappingLabelWithString: question)
-        label.preferredMaxLayoutWidth = width - 32
-        var rows: [NSView] = [label]
+        label.preferredMaxLayoutWidth = width - 32 - 52
+        label.setAccessibilityLabel("Question from apprentice: \(question)")
+        var rows: [NSView] = [header(label)]
 
         // Radio buttons that share an action are grouped by AppKit, so one choice stays selected.
         let boxes: [NSButton] = choices.map { choice in
@@ -105,10 +124,13 @@ enum Ask {
         field.placeholderString = placeholder ?? (choices.isEmpty ? "Your reply" : "Anything to add (optional)")
         if withText { rows.append(field) }
 
-        let send = NSButton(title: sendTitle, target: handler, action: #selector(Handler.send))
+        // The titles say which key does what: Return sends, Escape skips.
+        let send = NSButton(title: "\(sendTitle) ↩", target: handler, action: #selector(Handler.send))
         send.keyEquivalent = "\r"
-        let skip = NSButton(title: "Skip", target: handler, action: #selector(Handler.skip))
+        send.setAccessibilityLabel("\(sendTitle), Return")
+        let skip = NSButton(title: "Skip ⎋", target: handler, action: #selector(Handler.skip))
         skip.keyEquivalent = "\u{1b}"
+        skip.setAccessibilityLabel("Skip, Escape")
         let buttons = NSStackView(views: [NSView(), skip, send])
         rows.append(buttons)
 
@@ -123,30 +145,99 @@ enum Ask {
         panel.contentView = stack
         panel.setContentSize(stack.fittingSize)
 
-        // Top centre of the screen the person is looking at.
-        if let screen = NSScreen.main?.visibleFrame {
-            panel.setFrameTopLeftPoint(NSPoint(x: screen.midX - panel.frame.width / 2, y: screen.maxY - 12))
-        }
+        place(panel)
         NSApplication.shared.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
-        let sound = Config.current.askSound
-        if sound.lowercased() != "none", !sound.isEmpty {
-            // Held in a static: a sound released right after play() stops before it is heard.
-            playing = NSSound(named: NSSound.Name(sound)) ?? NSSound(named: "Ping")
-            playing?.play()
-        }
+        ping()
         panel.makeFirstResponder(withText ? field : boxes.first ?? send)
 
         let timer = Timer(timeInterval: timeout, repeats: false) { _ in NSApplication.shared.stopModal(withCode: .abort) }
         RunLoop.main.add(timer, forMode: .modalPanel)
-        let response = NSApplication.shared.runModal(for: panel)
+        // Once more after 30 s, for someone at the Mac who missed the first one.
+        let again = Timer(timeInterval: 30, repeats: false) { _ in ping() }
+        RunLoop.main.add(again, forMode: .modalPanel)
+        // The agent may stop waiting (its command timed out or was cancelled); an answer then would reach no one.
+        let watch = Timer(timeInterval: 1, repeats: true) { _ in
+            if !waiting(caller) { NSApplication.shared.stopModal(withCode: .stop) }
+        }
+        if caller != nil { RunLoop.main.add(watch, forMode: .modalPanel) }
+        var response = NSApplication.shared.runModal(for: panel)
         timer.invalidate()
+        again.invalidate()
+        watch.invalidate()
+        if response == .stop {
+            // Say so in the window rather than leave a question nobody will read the answer to.
+            Store.log(["ask_abandoned": clip(question, 120)])
+            label.stringValue = "The agent stopped waiting for this, so nothing was done. Ask it to try again.\n\n\(question)"
+            for view in boxes + [field, skip] { view.isHidden = true }
+            send.title = "OK ↩"
+            send.setAccessibilityLabel("OK, Return")
+            panel.setContentSize(stack.fittingSize)
+            let close = Timer(timeInterval: 20, repeats: false) { _ in NSApplication.shared.stopModal(withCode: .abort) }
+            RunLoop.main.add(close, forMode: .modalPanel)
+            response = NSApplication.shared.runModal(for: panel)
+            close.invalidate()
+            panel.orderOut(nil)
+            return nil
+        }
         panel.orderOut(nil)
         if response == .abort { return nil }
         guard response == .OK else { return Reply(chosen: [], text: "", skipped: true) }
         // Show-me replies carry nothing but the moment Return was pressed.
         return Reply(chosen: boxes.filter { $0.state == .on }.map(\.title),
                      text: field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    /// Top centre of the screen the cursor is on, where the person is looking.
+    static func place(_ panel: NSPanel) {
+        let mouse = NSEvent.mouseLocation
+        let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
+        if let frame = screen?.visibleFrame {
+            panel.setFrameTopLeftPoint(NSPoint(x: frame.midX - panel.frame.width / 2, y: frame.maxY - 12))
+        }
+    }
+
+    /// The apprentice mark beside the text, so it is plain who is asking.
+    static func header(_ label: NSTextField) -> NSView {
+        let mark = NSImageView(image: icon)
+        mark.setAccessibilityLabel("apprentice")
+        mark.widthAnchor.constraint(equalToConstant: 40).isActive = true
+        mark.heightAnchor.constraint(equalToConstant: 40).isActive = true
+        let row = NSStackView(views: [mark, label])
+        row.alignment = .top
+        row.spacing = 12
+        return row
+    }
+
+    /// `assets/icon.svg`, drawn in code: the binary has no bundle to carry an image.
+    static let icon = NSImage(size: NSSize(width: 64, height: 64), flipped: true) { _ in
+        let tile = NSBezierPath(roundedRect: NSRect(x: 0, y: 0, width: 64, height: 64), xRadius: 14, yRadius: 14)
+        NSGradient(starting: NSColor(srgbRed: 0x2F / 255, green: 0x8C / 255, blue: 1, alpha: 1),
+                   ending: NSColor(srgbRed: 0x0A / 255, green: 0x5C / 255, blue: 0xE6 / 255, alpha: 1))?.draw(in: tile, angle: 90)
+        let rim = NSBezierPath(roundedRect: NSRect(x: 0.5, y: 0.5, width: 63, height: 63), xRadius: 13.5, yRadius: 13.5)
+        NSColor.white.withAlphaComponent(0.18).setStroke()
+        rim.stroke()
+        let alpha = NSBezierPath()
+        alpha.move(to: NSPoint(x: 45.5, y: 20))
+        alpha.curve(to: NSPoint(x: 27, y: 44), controlPoint1: NSPoint(x: 42, y: 32), controlPoint2: NSPoint(x: 37.5, y: 44))
+        alpha.curve(to: NSPoint(x: 16.5, y: 33), controlPoint1: NSPoint(x: 20.5, y: 44), controlPoint2: NSPoint(x: 16.5, y: 39))
+        alpha.curve(to: NSPoint(x: 27, y: 22), controlPoint1: NSPoint(x: 16.5, y: 27), controlPoint2: NSPoint(x: 20.5, y: 22))
+        alpha.curve(to: NSPoint(x: 45.5, y: 44), controlPoint1: NSPoint(x: 37.5, y: 22), controlPoint2: NSPoint(x: 42, y: 34))
+        alpha.lineWidth = 6.5
+        alpha.lineCapStyle = .round
+        alpha.lineJoinStyle = .round
+        NSColor.white.setStroke()
+        alpha.stroke()
+        return true
+    }
+
+    /// `[agent] ask_sound`, unless it is "none".
+    static func ping() {
+        let sound = Config.current.askSound
+        guard sound.lowercased() != "none", !sound.isEmpty else { return }
+        // Held in a static: a sound released right after play() stops before it is heard.
+        playing = NSSound(named: NSSound.Name(sound)) ?? NSSound(named: "Ping")
+        playing?.play()
     }
 
     private final class Handler: NSObject {
@@ -183,7 +274,9 @@ extension Ask {
                 ?? hit.string(kAXValueAttribute) ?? ""
             out.append("under the cursor: \(role) \"\(clip(name, 80))\"")
         }
-        // The smallest listed element there, in a fresh snapshot so its id is current.
+        // The smallest listed element there, in a fresh snapshot so its id is current; on the command
+        // queue, since the window itself waited off it.
+        Daemon.serial {
         if let (session, target, _) = try? prepare() {
             let snap = readSnapshot(target)
             SnapStore.save(snap)
@@ -193,6 +286,7 @@ extension Ask {
             } else {
                 out.append("not in the list: `click --at \(Int(point.x)),\(Int(point.y))` clicks there")
             }
+        }
         }
         out.append("then add where it is to the note for this page or app, by name")
         return out.joined(separator: "\n")
@@ -205,19 +299,22 @@ extension Ask {
                             styleMask: [.titled, .nonactivatingPanel, .utilityWindow], backing: .buffered, defer: false)
         panel.title = "apprentice: show me"
         panel.level = .floating
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        StatusItem.asking(true)
+        defer { StatusItem.asking(false) }
         panel.becomesKeyOnlyIfNeeded = true
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
 
         let label = NSTextField(wrappingLabelWithString: "Show me: \(what)\n\nPress Start, move the cursor onto it, and hold still.")
-        label.preferredMaxLayoutWidth = width - 32
+        label.preferredMaxLayoutWidth = width - 32 - 52
         let status = NSTextField(labelWithString: "")
         status.textColor = .secondaryLabelColor
         let handler = PointHandler()
         let start = NSButton(title: "Start", target: handler, action: #selector(PointHandler.start))
         let skip = NSButton(title: "Skip", target: handler, action: #selector(PointHandler.skip))
         let buttons = NSStackView(views: [status, NSView(), skip, start])
-        let stack = NSStackView(views: [label, buttons])
+        let stack = NSStackView(views: [header(label), buttons])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 10
@@ -225,15 +322,9 @@ extension Ask {
         buttons.widthAnchor.constraint(equalToConstant: width - 32).isActive = true
         panel.contentView = stack
         panel.setContentSize(stack.fittingSize)
-        if let screen = NSScreen.main?.visibleFrame {
-            panel.setFrameTopLeftPoint(NSPoint(x: screen.midX - panel.frame.width / 2, y: screen.maxY - 12))
-        }
+        place(panel)
         panel.orderFrontRegardless()
-        let sound = Config.current.askSound
-        if sound.lowercased() != "none", !sound.isEmpty {
-            playing = NSSound(named: NSSound.Name(sound)) ?? NSSound(named: "Ping")
-            playing?.play()
-        }
+        ping()
         defer { panel.orderOut(nil) }
 
         // Watch only after Start; capture once the cursor has rested for 5 s (a debounce on movement).
@@ -295,17 +386,24 @@ extension Ask {
         let remote = ["question: approve this step? \(p.summary)\(why.replacingOccurrences(of: "\n\n", with: " "))",
                       "if they say yes in the chat: `apprentice approve \(token)`; if no: `apprentice deny \(token)`. Nothing is done until then."]
         if away { throw handOff(remote) }
+        let caller = caller
         let reply = DispatchQueue.main.sync {
             show("Approve this step?\n\n\(p.summary)\(why)", choices: [approve, deny], multi: false, withText: true,
-                 timeout: windowTime(a.value("timeout").flatMap(Double.init) ?? 600), placeholder: "Anything to add (optional)")
+                 timeout: windowTime(a.value("timeout").flatMap(Double.init) ?? 600), placeholder: "Anything to add (optional)",
+                 caller: caller)
+        }
+        // An approval in the second after the agent gave up would run a step nobody is watching.
+        if reply?.chosen.contains(approve) == true, !waiting(caller) {
+            Store.log(["confirm": p.summary, "by": "user", "dropped": "caller gone"])
+            throw Fail(3, "no answer: the caller stopped waiting, nothing was done")
         }
         if reply == nil, Config.current.askIn != "window" { throw handOff(remote) }
         let note = reply.map { $0.text.isEmpty ? "" : "\nuser: \($0.text)" } ?? ""
         guard let reply, !reply.skipped, reply.chosen.contains(approve) else {
-            if reply != nil { _ = try Commands.dispatch(Request(cmd: "deny", args: [token])) }
+            if reply != nil { _ = try Daemon.command(Request(cmd: "deny", args: [token])) }
             throw Fail(3, (reply == nil ? "no answer: nothing was done" : "The user denied: \(p.summary)") + note)
         }
         Store.log(["confirm": p.summary, "by": "user"])
-        return try Commands.dispatch(Request(cmd: "approve", args: [token])) + note
+        return try Daemon.command(Request(cmd: "approve", args: [token])) + note
     }
 }

@@ -5,6 +5,7 @@ instructions (AGENTS.md) in their global rules file, in a section between <!-- a
 markers that is replaced on each run so updates reach them. Apps without a shell get the MCP
 server (`apprentice mcp`) instead. Only assistants that are installed are touched, except the
 shared ~/.agents folder, which any agent that follows that convention reads.
+`connect.py <binary> --remove` (run by `apprentice uninstall`) takes all of it out again.
 """
 import json
 import os
@@ -14,6 +15,7 @@ import sys
 home = os.path.expanduser("~")
 root = os.path.dirname(os.path.abspath(__file__))
 binary = sys.argv[1]
+remove = "--remove" in sys.argv[2:]
 section = open(os.path.join(root, "AGENTS.md")).read().strip()
 skill_text = open(os.path.join(root, "SKILL.md")).read()
 start, end = "<!-- apprentice -->", "<!-- /apprentice -->"
@@ -30,6 +32,11 @@ def skill(name, commands, folder):
     if commands is not None and not installed(commands, folder):
         return
     path = os.path.join(folder, "apprentice", "SKILL.md")
+    if remove:
+        if os.path.exists(path):
+            shutil.rmtree(os.path.dirname(path))
+            print(f"{name}: removed {os.path.dirname(path)}")
+        return
     if os.path.exists(path) and open(path).read() == skill_text:
         return
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -41,8 +48,16 @@ def rules(name, commands, folder, filename):
     """Puts the section in <folder>/<filename>; commands=None means always."""
     if commands is not None and not installed(commands, folder):
         return
-    os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, filename)
+    if remove:
+        text = open(path).read() if os.path.exists(path) else ""
+        if start in text:
+            before, rest = text.split(start, 1)
+            after = rest.split(end, 1)[1] if end in rest else ""
+            open(path, "w").write((before.rstrip() + "\n" + after.lstrip()).strip() + "\n")
+            print(f"{name}: removed the apprentice section from {path}")
+        return
+    os.makedirs(folder, exist_ok=True)
     text = open(path).read() if os.path.exists(path) else ""
     block = f"{start}\n{section}\n{end}"
     if start in text:
@@ -68,6 +83,13 @@ def mcp(name, command, folder, filename):
         return
     entry = {"command": binary, "args": ["mcp"]}
     servers = config.setdefault("mcpServers", {})
+    if remove:
+        if servers.pop("apprentice", None) is not None:
+            with open(path, "w") as f:
+                json.dump(config, f, indent=2)
+                f.write("\n")
+            print(f"{name}: removed the MCP server from {path}")
+        return
     if servers.get("apprentice") != entry:
         servers["apprentice"] = entry
         os.makedirs(folder, exist_ok=True)

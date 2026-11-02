@@ -28,6 +28,7 @@ enum SelfTest {
         allowlist()
         flows()
         notes()
+        learning()
         updates()
         try? FileManager.default.removeItem(at: Store.dir)
         if failures.isEmpty {
@@ -84,6 +85,10 @@ enum SelfTest {
         let resp = Response(code: 8, out: "approve with token", data: ["token": "ab12"])
         let r = try? JSONDecoder().decode(Response.self, from: Wire.json(resp))
         check(r?.code == 8 && r?.out == resp.out && r?.data?["token"] == "ab12", "a response survives the wire")
+        let old = try? JSONDecoder().decode(Request.self, from: Data(#"{"cmd":"read","args":[]}"#.utf8))
+        check(old?.cmd == "read" && old?.model == nil, "a request from an older client, with no model, still decodes")
+        let m = try? JSONDecoder().decode(Request.self, from: Wire.json(Request(cmd: "read", model: "m1")))
+        check(m?.model == "m1", "the model travels with the request")
     }
 
     private static func routing() {
@@ -306,6 +311,44 @@ enum SelfTest {
         }
         check(seen("www.example.com", "linux") == ["linux", "site"], "the VM sees its own notes and the site's, not the Mac's")
         check(seen("badexample.com", "macos") == ["mac"], "a look-alike host gets no site note, and flows never show")
+    }
+
+    /// What makes the next run faster: flows ranked per model, `do --explain`, the scrubbed session copy,
+    /// learned routes and the PR helpers.
+    private static func learning() {
+        let root = Store.dir.appendingPathComponent("learning-test")
+        defer { try? FileManager.default.removeItem(at: root); unsetenv("APPRENTICE_NOTES") }
+        func write(_ name: String, _ meta: String) {
+            try? FileManager.default.createDirectory(at: root.appendingPathComponent("flows"), withIntermediateDirectories: true)
+            try? "---\nscope: flow\n\(meta)\n---\n# \(name)\n## Steps\n1. `key cmd+n`\n".write(to: root.appendingPathComponent("flows/\(name).md"), atomically: true, encoding: .utf8)
+        }
+        write("draft-m1", "match: example.com\ntags: post, draft\nmodel: m1")
+        write("draft-any", "match: example.com\ntags: post, draft")
+        write("unrelated", "match: example.com\ntags: invoice")
+        setenv("APPRENTICE_NOTES", root.path, 1)
+        let m1 = Notes.rank(task: "post a draft", model: "m1", session: nil).map { $0.note.url.deletingPathExtension().lastPathComponent }
+        check(m1 == ["draft-m1", "draft-any"], "a flow learned by this model ranks first, unrelated flows are left out")
+        let m2 = Notes.rank(task: "post a draft", model: "m2", session: nil).map { $0.note.url.deletingPathExtension().lastPathComponent }
+        check(m2 == ["draft-any"], "another model's flow is left out unless it says any")
+        check(Notes.explain("post a draft", model: "m1", session: nil).contains("→ "), "do --explain names the pick and its score")
+        check(Notes.context(task: "post a draft", session: nil, model: "m1", budget: 50).count < 120, "the run loop's notes stay under their budget")
+
+        let row: [String: Any] = ["cmd": "click", "label": "button", "name": "Send to Sam", "url": "https://mail.example.com/inbox?q=sam",
+                                  "error": "no button \"Send to Sam\" at https://x.example/a", "api_key": "sk-1", "ms": 10]
+        let scrubbed = Sessions.scrub(row, mode: "scrubbed") ?? [:]
+        check(scrubbed["host"] as? String == "mail.example.com" && scrubbed["url"] == nil && scrubbed["name"] == nil,
+              "a scrubbed row keeps the host, not the URL or the element's name")
+        check((scrubbed["error"] as? String).map { !$0.contains("Sam") && !$0.contains("https") } == true, "a scrubbed error loses quoted text and URLs")
+        check(Sessions.scrub(row, mode: "full")?["api_key"] == nil && scrubbed["api_key"] == nil, "no mode keeps a secret")
+
+        let flow = Notes.parse("---\nscope: flow\nmatch: example.com\ntags: post, draft\n---\n# Draft\n", url: root.appendingPathComponent("flows/draft-any.md"), path: "flows/draft-any.md")
+        check(Routes.learn(from: flow, model: "m1") != nil && Routes.learn(from: flow, model: "m1") == nil, "a route is learned once per flow and model")
+        check(Routes.all(model: "m1").first?.faster == "apprentice do draft-any", "this model's learned route comes first")
+        check(!Routes.all(model: "m2").contains { $0.label == "draft-any" }, "another model does not see it")
+
+        check(PR.github("git@github.com:you/apprentice.git") == "you/apprentice" && PR.github("https://github.com/a/b") == "a/b", "GitHub owner/name from either URL")
+        let body = PR.body(["Fix F3: stale ids", "notes: finder"], files: ["Sources/a.swift"])
+        check(body.contains("- Fix F3: stale ids") && body.contains("## Field reports\n- F3"), "a PR body lists the commits and the reports they name")
     }
 
     /// The automatic update against throwaway git repos: a clean update, a dirty tree, a conflict and a

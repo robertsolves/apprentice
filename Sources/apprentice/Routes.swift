@@ -6,6 +6,8 @@ struct RouteEntry {
     var keywords: [String]
     var faster: String
     var remaining: String?
+    /// For a learned route: the model that ran it; "any" or nil fits every model.
+    var model: String? = nil
 }
 
 enum Routes {
@@ -32,8 +34,16 @@ enum Routes {
 
     static var customPath: URL { Settings.dir.appendingPathComponent("routes.toml") }
 
-    static func custom() -> [RouteEntry] {
-        guard let text = try? String(contentsOf: customPath, encoding: .utf8) else { return [] }
+    static func custom() -> [RouteEntry] { parse(customPath) }
+
+    /// Flows that ran to the end, per model, in the clone's notes: `do` adds one the first time a model
+    /// gets through a flow, so `route` can point that model straight at it next time.
+    static var learnedPath: URL { Notes.dir.appendingPathComponent("routes-learned.toml") }
+
+    static func learned() -> [RouteEntry] { parse(learnedPath) }
+
+    static func parse(_ path: URL) -> [RouteEntry] {
+        guard let text = try? String(contentsOf: path, encoding: .utf8) else { return [] }
         var out: [RouteEntry] = []
         var current: [String: String] = [:]
         func flush() {
@@ -41,7 +51,7 @@ enum Routes {
             let words = current["keywords"].map(Toml.array)?.flatMap { $0 } ?? []
             out.append(RouteEntry(domain: Toml.unquote(domain), label: Toml.unquote(label), keywords: words,
                                   faster: Toml.unquote(current["faster"] ?? ""),
-                                  remaining: current["remaining"].map(Toml.unquote)))
+                                  remaining: current["remaining"].map(Toml.unquote), model: current["model"].map(Toml.unquote)))
             current = [:]
         }
         for raw in text.components(separatedBy: .newlines) {
@@ -57,7 +67,35 @@ enum Routes {
         return out
     }
 
-    static func all() -> [RouteEntry] { defaults + custom() }
+    /// Learned routes for this model first, then the static seed; a route another model learned is left out.
+    static func all(model: String? = Store.model) -> [RouteEntry] {
+        let fits = learned().filter { ($0.model ?? "any") == "any" || $0.model?.lowercased() == model?.lowercased() }
+        return fits.sorted { ($0.model ?? "any") != "any" && ($1.model ?? "any") == "any" } + defaults + custom()
+    }
+
+    /// Records that `flow` ran to the end for `model`, once per flow and model, and commits it.
+    static func learn(from flow: Notes.Note, model: String?) -> String? {
+        let name = flow.url.deletingPathExtension().lastPathComponent
+        let m = model ?? "any"
+        guard !learned().contains(where: { $0.label == name && ($0.model ?? "any") == m }) else { return nil }
+        let domain = flow.match.first ?? "*"
+        let words = (flow.meta["tags"] ?? "").split(separator: ",").map { "\"\($0.trimmingCharacters(in: .whitespaces))\"" }.filter { $0 != "\"\"" }
+        var text = (try? String(contentsOf: learnedPath, encoding: .utf8)) ?? "# Written by `apprentice do` when a flow runs to the end; `route` reads it. Edit or delete freely.\n"
+        text += """
+
+        [[route]]
+        domain = "\(domain)"
+        label = "\(name)"
+        keywords = [\(words.joined(separator: ", "))]
+        faster = "apprentice do \(name)"
+        model = "\(m)"
+        learned = "\(Store.day())"
+
+        """
+        guard (try? text.write(to: learnedPath, atomically: true, encoding: .utf8)) != nil else { return nil }
+        Repo.commit("Learned route: \(name) works for \(m)", paths: [learnedPath.resolvingSymlinksInPath().path])
+        return "learned: `route` now points \(m) at this flow for its tasks"
+    }
 
     /// Keywords match whole words (or whole phrases), so "pr" does not match "improve" (B10).
     static func match(_ task: String) -> [RouteEntry] {

@@ -3,8 +3,14 @@ import Foundation
 /// `do <flow>`: runs a flow from notes/flows with one approval, so the LLM only steps in when a step fails.
 /// A step is a line under "## Steps" that starts with a backticked command. `#label "name"` in it is
 /// resolved to an element id on the screen at that moment, and `{key}` comes from `--key value`.
+/// A step of the form `sh: <command>` runs a shell command (a `tool:` flow: `gh`, `git`, `ssh`), under the
+/// same one approval, unless the policy is UI only.
 extension Commands {
     static func runFlow(_ a: Args) throws -> String {
+        if a.has("explain") {
+            let task = a.value("explain") ?? a.pos.joined(separator: " ")
+            return Notes.explain(task, model: Store.model, session: Session.stored)
+        }
         guard let name = a.pos.first else { throw Fail(5, "do <flow> [--key value ...]: list flows with `apprentice notes flow`") }
         guard let note = Notes.flow(named: name) else { throw Fail(5, "no flow \"\(name)\": find one with `apprentice notes \"<words>\"`") }
         var missing = Set<String>()
@@ -17,7 +23,12 @@ extension Commands {
         var warn: [String] = []
         let status = note.meta["status"] ?? "draft"
         if status != "verified" { warn.append("the flow is \(status): some steps are unconfirmed") }
-        for (i, step) in steps.enumerated() where Gate.matches(step) || step.hasPrefix("upload") || step.hasPrefix("choose") {
+        let shell = steps.indices.filter { shellCommand(steps[$0]) != nil }
+        if !shell.isEmpty, Session.stored?.uiOnly ?? Config.current.uiOnly {
+            throw Fail(4, "blocked: \(note.path) runs shell commands and the policy is UI only")
+        }
+        for i in shell { warn.append("step \(i + 1) runs a shell command on this Mac: \(shellCommand(steps[i]) ?? "")") }
+        for (i, step) in steps.enumerated() where !shell.contains(i) && (Gate.matches(step) || step.hasPrefix("upload") || step.hasPrefix("choose")) {
             warn.append("step \(i + 1) may be irreversible: \(step)")
         }
         try Approvals.check("run flow \(note.path) (\(steps.count) steps)",
@@ -27,12 +38,27 @@ extension Commands {
         defer { Approvals.planActive = false }
         var out = ["flow \(note.path) · \(steps.count) steps"]
         var lastResult: String?
+        // A flow of shell steps alone needs no window, so a failure hands back without reading one.
+        let screenless = shell.count == steps.count
+        func handBack() -> String { screenless ? "" : ((try? screen()) ?? "") }
         for (i, step) in steps.enumerated() {
             let n = i + 1
-            if let lastResult { look(after: lastResult) }
+            if let lastResult, !shell.contains(i) { look(after: lastResult) }
             guard step.hasPrefix("`") else {
                 out.append("\(n) · needs you: \(step)")
-                throw Fail(5, (out + [try screen()]).joined(separator: "\n"))
+                throw Fail(5, (out + [handBack()]).joined(separator: "\n"))
+            }
+            if let command = shellCommand(step) {
+                let r = runShell(command)
+                guard r.code == 0 else {
+                    out.append("\(n) ✗ \(step) → exit \(r.code): \(r.out.split(separator: "\n").last ?? "")")
+                    out.append("stopped: steps \(n)…\(steps.count) were not run. Take over from here:")
+                    throw Fail(5, (out + [handBack()]).joined(separator: "\n"))
+                }
+                Store.log(["cmd": "sh", "flow": note.path, "code": 0])
+                lastResult = r.out
+                out.append("\(n) ✓ \(step)" + (r.out.isEmpty ? "" : "\n" + r.out.split(separator: "\n").prefix(8).map { "    \($0)" }.joined(separator: "\n")))
+                continue
             }
             do {
                 // Split first, fill after, so a value with a space stays one argument (D4).
@@ -47,11 +73,37 @@ extension Commands {
             } catch let f as Fail {
                 out.append("\(n) ✗ \(step) → \(f.message.split(separator: "\n").first ?? "")")
                 out.append("stopped: steps \(n)…\(steps.count) were not run. Take over from here:")
-                throw Fail(f.code == 8 ? 5 : f.code, (out + [(try? screen()) ?? ""]).joined(separator: "\n"))
+                throw Fail(f.code == 8 ? 5 : f.code, (out + [handBack()]).joined(separator: "\n"))
             }
         }
+        if let learned = Routes.learn(from: note, model: Store.model) { out.append(learned) }
         out.append("done · if anything needed fixing, update \(note.path)")
         return out.joined(separator: "\n")
+    }
+
+    /// The command of a `sh: …` step, or nil for a screen step.
+    static func shellCommand(_ step: String) -> String? {
+        guard step.hasPrefix("`sh:") else { return nil }
+        return String(step.dropFirst(4).prefix { $0 != "`" }).trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Runs one step in the user's login shell, in their home folder, for at most two minutes.
+    static func runShell(_ command: String) -> (code: Int32, out: String) {
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        proc.arguments = ["-lc", command]
+        proc.currentDirectoryURL = FileManager.default.homeDirectoryForCurrentUser
+        proc.standardInput = FileHandle.nullDevice
+        let pipe = Pipe()
+        proc.standardOutput = pipe
+        proc.standardError = pipe
+        do { try proc.run() } catch { return (127, "\(error)") }
+        let timer = DispatchWorkItem { if proc.isRunning { proc.terminate() } }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 120, execute: timer)
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        proc.waitUntilExit()
+        timer.cancel()
+        return (proc.terminationStatus, String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
     /// A person's pause between steps, longer when the last one brought more onto the screen. Long

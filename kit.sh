@@ -64,6 +64,14 @@ fi
 
 mv -f "$new" "$bin"
 
+# What was installed, from where: `apprentice version` prints the commit, and apprentice finds its clone here.
+commit="$(git -C "$root" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+[ -n "$(git -C "$root" status --porcelain --untracked-files=no 2>/dev/null)" ] && commit="$commit-dirty"
+printf '{"clone":"%s","commit":"%s","built":"%s","bin":"%s"}\n' "$root" "$commit" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$bin" \
+  >"$HOME/.apprentice/install.json"
+# State holds URLs, page titles, screenshots and perhaps an API key: this user only.
+chmod 700 "$HOME/.apprentice"
+
 # The browser VM runs a copy of this binary; a running one gets the new build too.
 if [[ "$("$bin" vm status 2>/dev/null || true)" == *' · running · '* ]]; then
   "$bin" vm install || echo "warning: could not update the VM; run \`apprentice vm install\` once it is up"
@@ -109,5 +117,4 @@ if ! grep -qs '\.local/bin' "$profile"; then
   printf '\n# apprentice\nexport PATH="$HOME/.local/bin:$PATH"\n' >>"$profile"
   echo "put ~/.local/bin on PATH in $profile (open a new terminal)"
 fi
-echo "grant Accessibility and Screen Recording to $bin in System Settings, then run:"
-echo "  apprentice serve"
+echo "next: \`apprentice doctor --fix\` checks the install, opens the two Privacy panes and runs a smoke test"

@@ -16,14 +16,15 @@ if argvRaw.count > 2, argvRaw[1] == "--vm" {
     argvRaw.removeSubrange(1...2)
 }
 
-let version = "0.1.0"
+let version = Build.version
 
 func usage() {
     print("""
     apprentice \(version) · text-first control of one Mac app or browser window
 
     usage:
-      apprentice session [--app Safari] [--on mac|linux] [--new-window] [--allow a.com,b.com] [--no-options]
+      apprentice doctor [--fix]                 check permissions, signature, PATH, clone and settings; --fix opens the panes and runs a smoke test
+      apprentice session [--app Safari] [--on mac|linux] [--new-window] [--allow a.com,b.com] [--task "…"] [--no-options]
       apprentice open <url>
       apprentice focus <app> [--on mac|linux]
       apprentice read [--max 80] [--filter text]
@@ -49,6 +50,7 @@ func usage() {
       apprentice commit "what and why"          one small commit in the repo; a source change rebuilds and restarts
       apprentice update [--check] [--build]     rebase onto upstream and rebuild (it also does this on its own unless [update] auto = false)
       apprentice selftest                       the built-in tests; kit.sh runs them before installing a build
+      apprentice pr [--title t] [--draft] [--fork remote] [--local]   offer the clone's local commits upstream as a pull request
       apprentice settings [local]               where the settings are; local moves an old synced copy back
       apprentice repo                           the clone apprentice runs from
       apprentice policy [domain]                may the LLM use shell commands for macOS tasks? With a domain: may apprentice work there?
@@ -59,19 +61,22 @@ func usage() {
       apprentice awake on|off|status            keep the Mac from idle sleep and locking while tasks run
       apprentice away on|off|status             the user is away: questions come back as exit 9 for the chat
       apprentice grow [--days 14]               improvement digest: repeated errors, questions asked, open bug reports
-      apprentice log [--tail n]
+      apprentice log [--tail n] | --session [<id>]   recent steps, or one whole session
+      apprentice sessions [--limit 10]          recent sessions: app, sites, steps, errors, model, task
       apprentice route "task"
       apprentice notes ["words"]                      learned app, site and flow notes
-      apprentice learn "task" [--name slug] [--force]  draft a flow from this session's steps
+      apprentice learn "task" [--name slug] [--model m] [--force]  draft a flow from this session's steps
+      apprentice do --explain "task"            which flow a task would pick for this model, and why
       apprentice run "task" --model <name> [--base-url url] [--screen-anyway] [--save name]
       apprentice replay <name> [--from n] [--approve]
       apprentice mcp
       apprentice vm setup | install | up | down | on | off | look | call "what" | shell | status   a small Linux VM with its own screen, cursor and keyboard: its browser and Linux apps (--on linux); shell prints the ssh command for its terminal
       apprentice serve [--background] | stop
+      apprentice uninstall [--all] [--yes]      list, then remove, everything apprentice installed (--all: the clone too)
 
     output is compact text for an agent. add --json for the raw reply.
     open, click, type, key, menu, drag, upload, download, choose and do only propose: they exit 8 with a token,
-    and act once you run `apprentice approve <token>`.
+    and act once you run `apprentice approve <token>`. ctrl+opt+cmd+. is the kill switch: it stops whatever runs.
     exit codes: 0 ok · 2 stale, re-read · 3 the user denied · 4 blocked, rate limited, over budget, cooling or a challenge ·
                 5 not found or timeout · 6 interrupted · 7 permission missing · 8 approval needed, nothing done yet ·
                 9 ask the user in the chat (they are away or did not answer the window)
@@ -86,18 +91,29 @@ guard let command = argv.first else {
 }
 let rest = Array(argv.dropFirst())
 
+/// Commands answered in this process log their own row, so `log --session` and `grow` see `learn`, `bug`,
+/// `route` and the rest beside the daemon's commands.
+let loggedHere: Set<String> = ["route", "notes", "learn", "bug", "commit", "update", "settings", "repo", "policy", "budget",
+                               "activity", "flag", "grow", "sessions", "doctor", "pr", "vm", "replay"]
+if loggedHere.contains(command) { Timing.begin() }
+
+func done(_ code: Int32) -> Never {
+    if loggedHere.contains(command) { Store.log(["cmd": command, "client": true, "code": Int(code)]) }
+    exit(code)
+}
+
 func fail(_ error: Error) -> Never {
     if let f = error as? Fail {
         FileHandle.standardError.write(Data((f.message + "\n").utf8))
-        exit(f.code)
+        done(f.code)
     }
     FileHandle.standardError.write(Data(("\(error)\n").utf8))
-    exit(5)
+    done(5)
 }
 
 func attempt(_ body: () throws -> Void) -> Never {
     do { try body() } catch { fail(error) }
-    exit(0)
+    done(0)
 }
 
 switch command {
@@ -123,7 +139,7 @@ case "route", "notes":
     } else {
         print(out)
     }
-    exit(0)
+    done(0)
 case "learn":
     attempt { print(try Notes.learn(Args.parse(rest))) }
 case "bug":
@@ -136,21 +152,30 @@ case "settings":
     attempt { print(try Settings.run(Args.parse(rest))) }
 case "repo":
     print(Repo.root.path)
-    exit(0)
+    done(0)
 case "policy":
     let a = Args.parse(rest)
     print(a.pos.first.map { Policies.describe($0.contains("://") ? (hostOf($0) ?? $0) : $0) } ?? Config.policyLine)
-    exit(0)
+    done(0)
 case "budget":
     print(Budgets.report(Args.parse(rest).pos.first))
-    exit(0)
+    done(0)
 case "activity":
     attempt { print(try Events.activity(Args.parse(rest))) }
 case "flag":
     attempt { print(try Events.flag(Args.parse(rest))) }
 case "grow":
     print(Grow.digest(days: Args.parse(rest).int("days", 14)))
-    exit(0)
+    done(0)
+case "sessions":
+    print(Sessions.list(Args.parse(rest)))
+    done(0)
+case "doctor":
+    attempt { print(try Doctor.run(Args.parse(rest))) }
+case "uninstall":
+    attempt { print(try Doctor.uninstall(Args.parse(rest))) }
+case "pr":
+    attempt { print(try PR.run(Args.parse(rest))) }
 case "run":
     attempt { try AgentLoop.run(Args.parse(rest)) }
 case "replay":

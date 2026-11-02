@@ -33,14 +33,25 @@ enum Notes {
         return Store.dir.appendingPathComponent("notes")
     }
 
+    /// Parsed notes by path, kept while the file's modification date stays the same: `session` reads the
+    /// notes three times, and parsing a few hundred files each time adds up.
+    private static var cache: [String: (Date, Note)] = [:]
+    private static let cacheLock = NSLock()
+
     static func all() -> [Note] {
         let root = dir.resolvingSymlinksInPath()
-        guard let walk = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil) else { return [] }
+        guard let walk = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else { return [] }
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
         var out: [Note] = []
         for case let url as URL in walk where url.pathExtension == "md" && url.lastPathComponent != "README.md" {
+            let stamp = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+            if let (seen, note) = cache[url.path], seen == stamp { out.append(note); continue }
             guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
             let path = String(url.resolvingSymlinksInPath().path.dropFirst(root.path.count + 1))
-            out.append(parse(text, url: url, path: path))
+            let note = parse(text, url: url, path: path)
+            cache[url.path] = (stamp, note)
+            out.append(note)
         }
         return out.sorted { $0.path < $1.path }
     }
@@ -112,16 +123,60 @@ enum Notes {
         return out.joined(separator: "\n")
     }
 
-    /// Note text for the `run` loop: the window's notes plus the best-matching flow.
-    static func context(task: String, session: Session?) -> String {
+    /// Note text for the `run` loop: the window's notes plus the best flow for this task and model, kept
+    /// under a budget so a long note cannot crowd out the screen.
+    static func context(task: String, session: Session?, model: String? = Store.model, budget: Int = 3000) -> String {
         var parts = hintLines(app: session?.app, bundle: session?.bundle, host: hostOf(session?.url))
-        let words = task.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init).filter { $0.count > 2 }
-        let flows = all().filter { $0.meta["scope"] == "flow" }.map { note -> (Note, Int) in
-            let text = (note.title + " " + (note.meta["tags"] ?? "") + " " + (note.meta["match"] ?? "")).lowercased()
-            return (note, words.filter { text.contains($0) }.count)
-        }.filter { $0.1 > 0 }.sorted { $0.1 > $1.1 }
-        if let (flow, _) = flows.first { parts.append("flow · \(flow.path)\n\(flow.body.trimmingCharacters(in: .whitespacesAndNewlines))") }
-        return parts.joined(separator: "\n")
+        if let best = rank(task: task, model: model, session: session).first {
+            parts.append("flow · \(best.note.path) (\(best.why))\n\(best.note.body.trimmingCharacters(in: .whitespacesAndNewlines))")
+        }
+        let text = parts.joined(separator: "\n")
+        return text.count > budget ? String(text.prefix(budget)) + "\n… (cut; full notes: apprentice notes \"<words>\")" : text
+    }
+
+    struct Ranked {
+        var note: Note
+        var score: Int
+        var why: String
+    }
+
+    /// Flows for a task, best first. A flow learned by another model is left out unless it says `model: any`
+    /// (or names none); one learned by this model ranks first. Then tag words, title words, the window's app
+    /// or host, and `status: verified`. A flow needs at least one task word in its tags or title.
+    static func rank(task: String, model: String?, session: Session?) -> [Ranked] {
+        let words = Set(task.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init).filter { $0.count > 2 })
+        let model = model?.lowercased()
+        let host = hostOf(session?.url)?.lowercased()
+        let app = session?.app.lowercased()
+        return all().filter { $0.meta["scope"] == "flow" }.compactMap { note -> Ranked? in
+            let flowModel = (note.meta["model"] ?? "any").lowercased()
+            if flowModel != "any", flowModel != model { return nil }
+            let tags = Set((note.meta["tags"] ?? "").lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init))
+            let title = Set(note.title.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init))
+            let tagHits = words.intersection(tags).count, titleHits = words.subtracting(tags).intersection(title).count
+            guard tagHits + titleHits > 0 else { return nil }
+            var score = tagHits * 3 + titleHits * 2
+            var why = ["\(tagHits) tag + \(titleHits) title words"]
+            if flowModel != "any" { score += 6; why.append("learned by \(flowModel)") }
+            if note.match.contains(where: { m in m == app || (host.map { $0 == m || $0.hasSuffix("." + m) } ?? false) }) {
+                score += 3
+                why.append("matches this window")
+            }
+            if note.meta["status"] == "verified" { score += 2; why.append("verified") }
+            return Ranked(note: note, score: score, why: why.joined(separator: ", "))
+        }.sorted { $0.score != $1.score ? $0.score > $1.score : $0.note.path < $1.note.path }
+    }
+
+    /// `do --explain "task"`: which flow the task would pick, and why.
+    static func explain(_ task: String, model: String?, session: Session?) -> String {
+        let ranked = rank(task: task, model: model, session: session)
+        guard !ranked.isEmpty else { return "no flow fits \"\(task)\" for model \(model ?? "any"): work it out on screen, then `apprentice learn`" }
+        var out = ["flows for \"\(task)\" · model \(model ?? "any")"]
+        for (i, r) in ranked.prefix(5).enumerated() {
+            out.append("\(i == 0 ? "→" : " ") \(r.score) · \(r.note.url.deletingPathExtension().lastPathComponent) · \(r.why)")
+        }
+        out.append("run it: apprentice do \(ranked[0].note.url.deletingPathExtension().lastPathComponent) --key value")
+        return out.joined(separator: "\n")
     }
 
     static func flow(named name: String) -> Note? {
@@ -206,7 +261,8 @@ enum Notes {
         if FileManager.default.fileExists(atPath: url.path), !a.has("force") {
             throw Fail(5, "\(url.path) exists: edit it, or pass --force to replace it")
         }
-        let text = draft(task, session, steps)
+        let model = a.value("model") ?? Store.model ?? loggedModel(session) ?? "any"
+        let text = draft(task, session, steps, model: model)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try text.write(to: url, atomically: true, encoding: .utf8)
         let path = url.resolvingSymlinksInPath().path
@@ -251,7 +307,13 @@ enum Notes {
         return out
     }
 
-    static func draft(_ task: String, _ session: Session, _ steps: [String]) -> String {
+    /// The model most of this session's rows name, when the caller did not say.
+    static func loggedModel(_ session: Session) -> String? {
+        let models = Sessions.rows(Store.runFolder(session)).compactMap { $0["model"] as? String }
+        return Dictionary(grouping: models, by: { $0 }).max { $0.value.count < $1.value.count }?.key
+    }
+
+    static func draft(_ task: String, _ session: Session, _ steps: [String], model: String = "any") -> String {
         let os = ProcessInfo.processInfo.operatingSystemVersion
         let lang = Locale.preferredLanguages.first ?? "en"
         let match = hostOf(session.url) ?? session.app
@@ -261,6 +323,7 @@ enum Notes {
         scope: flow
         match: \(match)
         tags: \(tags.joined(separator: ", "))
+        model: \(model)
         lang: \(lang)
         verified: \(Store.day()), macOS \(os.majorVersion).\(os.minorVersion)
         status: draft

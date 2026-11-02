@@ -74,3 +74,11 @@ if [ "${APPRENTICE_SKIP_VM:-0}" != 1 ]; then
   bash "$dir/agent/vm/get-tart.sh" && env -u APPRENTICE_VM "$HOME/.local/bin/apprentice" vm setup ||
     echo "warning: the browser VM is not set up; run \`apprentice vm setup\` later"
 fi
+
+# Checks the permissions, signature, PATH and clone. In a terminal it opens the two Privacy panes, waits for
+# the grants and runs a smoke test on Finder; piped, it only reports.
+if [ -t 0 ] && [ -t 1 ]; then
+  "$HOME/.local/bin/apprentice" doctor --fix || echo "run \`apprentice doctor --fix\` once you are ready to grant the permissions"
+else
+  "$HOME/.local/bin/apprentice" doctor || true
+fi

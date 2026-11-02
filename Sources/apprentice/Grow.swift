@@ -11,6 +11,8 @@ enum Grow {
         var errors: [String: (count: Int, example: String)] = [:]
         var asked: [String] = []
         var flows: [String: Int] = [:]
+        var learning: [String: Int] = [:]
+        var models: [String: Int] = [:]
         var pace = Pace()
         for folder in folders {
             let date = (try? folder.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
@@ -20,6 +22,8 @@ enum Grow {
                 guard let data = row.data(using: .utf8),
                       let r = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
                 pace.take(r)
+                if let cmd = r["cmd"] as? String, ["learn", "bug", "commit", "pr", "do"].contains(cmd) { learning[cmd, default: 0] += 1 }
+                if r["cmd"] != nil, let m = r["model"] as? String { models[m, default: 0] += 1 }
                 if let e = r["error"] as? String {
                     let first = String(e.split(separator: "\n").first ?? "")
                     // Group by the message with numbers taken out, so "window 144" and "window 7101" count together.
@@ -38,6 +42,12 @@ enum Grow {
         out += top.prefix(10).map { "  \($0.value.count)× \($0.key)" }
         out.append(asked.isEmpty ? "questions to the user: none" : "questions to the user (each is a gap in the notes or the tool):")
         out += asked.suffix(10).map { "  \($0)" }
+        if !learning.isEmpty {
+            out.append("learning: " + learning.sorted { $0.key < $1.key }.map { "\($0.value)× \($0.key)" }.joined(separator: " · "))
+        }
+        if !models.isEmpty {
+            out.append("models: " + models.sorted { $0.value > $1.value }.map { "\($0.key) \($0.value) commands" }.joined(separator: " · "))
+        }
         if !flows.isEmpty {
             out.append("flows run:")
             out += flows.sorted { $0.value > $1.value }.map { "  \($0.value)× \($0.key.dropFirst("run flow ".count))" }

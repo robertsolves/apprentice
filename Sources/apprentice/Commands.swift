@@ -291,6 +291,8 @@ enum Commands {
     static var notice: String?
     /// The budgeted kind the current action was counted as, for its log row.
     static var charged: String?
+    /// When the last command finished, so an update never restarts the daemon in the middle of a task.
+    static var lastAt = Date.distantPast
 
     static func run(_ req: Request) throws -> String {
         // A press stops the action under way; it is then cleared, so the tool does not stay locked (B5).
@@ -302,7 +304,15 @@ enum Commands {
         Borrow.interrupted = false
         charged = nil
         Timing.begin()
+        StatusItem.busy(true)
+        defer { StatusItem.busy(false); lastAt = Date() }
+        // A new session ends the last one: its scrubbed copy goes into the clone (`[storage] sessions`).
+        if req.cmd == "session" { Sessions.archiveCurrent() }
         let result = Result { try Awake.busy { try dispatch(req) } }
+        // `session --task "…"` records what the user asked for, so the log reads as a task, not just steps.
+        if req.cmd == "session", (try? result.get()) != nil, let task = Args.parse(req.args).value("task") ?? Args.parse(req.args).value("goal") {
+            Store.log(["task": task])
+        }
         if Watch.end() {
             throw Fail(6, "interrupted: you used the keyboard or mouse while apprentice acted in front, so it stopped. Check the screen with `read`, then retry")
         }
@@ -313,6 +323,21 @@ enum Commands {
         let out = try result.get()
         defer { notice = nil }
         return notice.map { out + "\n" + $0 } ?? out
+    }
+
+    /// Commands that wait on the person or only read files. They run off the command queue
+    /// (`Daemon.queue(for:)`), touch no per-command state, and hop onto the queue for anything on screen.
+    static let asides: Set<String> = ["ask", "confirm", "show", "log", "pending"]
+
+    static func aside(_ req: Request) throws -> String {
+        let a = Args.parse(req.args)
+        switch req.cmd {
+        case "ask": return try Ask.run(a)
+        case "confirm": return try Ask.confirm(a)
+        case "show": return try Ask.pointAt(a)
+        case "log": return try log(a)
+        default: return Approvals.pending.map { "pending \($0.token) · \($0.summary)" } ?? "nothing pending"
+        }
     }
 
     static func dispatch(_ req: Request) throws -> String {
@@ -1128,11 +1153,13 @@ enum Commands {
         formatter.dateFormat = "HHmmss"
         let url = Store.runFolder().appendingPathComponent("shots/shot-\(formatter.string(from: Date())).png")
         try Capture.save(image, to: url)
+        Sessions.capShots(Store.runFolder())
         Store.log(["cmd": "shot", "path": url.path, "marks": marked != nil])
         return url.path + (marked.map { " · snap \($0.snap) · \($0.elements.filter { !$0.offscreen }.count) ids marked" } ?? "")
     }
 
     static func log(_ a: Args) throws -> String {
+        if a.has("session") { return try Sessions.story(a.value("session")) }
         let tail = try a.count("tail", 20)
         let file = Store.runFolder().appendingPathComponent("steps.jsonl")
         guard let text = try? String(contentsOf: file, encoding: .utf8) else { return "no steps yet" }

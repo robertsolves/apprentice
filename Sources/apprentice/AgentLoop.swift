@@ -30,6 +30,9 @@ enum AgentLoop {
         var cfg = Config.load()
         if let v = a.value("base-url") { cfg.runURL = v }
         if let v = a.value("model") { cfg.runModel = v }
+        // Every request and log row of this run names the model, so its flows are kept apart from other models'.
+        Request.callerModel = cfg.runModel
+        Store.model = cfg.runModel
         if let v = a.value("api-key") { cfg.runKey = v }
         let task = a.pos.joined(separator: " ")
         guard !task.isEmpty else { throw Fail(5, "run \"task\" --model <name>") }
@@ -51,6 +54,7 @@ enum AgentLoop {
             try call(Request(cmd: "session"))
         }
 
+        Store.log(["task": task, "via": "run"])
         let notes = Notes.context(task: task, session: Session.stored)
         var transcript: [[String: Any]] = []
         var used: [[String: Any]] = []

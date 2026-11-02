@@ -5,6 +5,11 @@ import AppKit
 struct Request: Codable {
     var cmd: String
     var args: [String] = []
+    /// The model driving this command, for its log row; older clients leave it out.
+    var model: String? = Request.callerModel
+
+    /// `APPRENTICE_MODEL` in the caller's shell; `run --model` sets it for its own requests.
+    static var callerModel: String? = ProcessInfo.processInfo.environment["APPRENTICE_MODEL"].flatMap { $0.isEmpty ? nil : $0 }
 }
 
 struct Response: Codable {
@@ -278,7 +283,12 @@ final class UnixServer {
                 stop = true
             } else {
                 // Not the main queue: the kill switch and Borrow's monitors run there and must fire mid-command.
-                let result = Daemon.queue.sync { handler(req) }
+                let result = Daemon.queue(for: req).sync { () -> (Response, Bool) in
+                    // A question window watches this socket, so it can tell when the caller stops waiting.
+                    Thread.current.threadDictionary[Ask.callerKey] = cfd
+                    defer { Thread.current.threadDictionary.removeObject(forKey: Ask.callerKey) }
+                    return handler(req)
+                }
                 response = result.0
                 stop = result.1
             }

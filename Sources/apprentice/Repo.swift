@@ -5,7 +5,15 @@ import Foundation
 /// only fetched. apprentice checks it every few hours and, unless `[update] auto = false`, rebases the
 /// local commits onto it, rebuilds, self-tests and restarts on its own.
 enum Repo {
-    static var root: URL { testRoot ?? Notes.repo }
+    /// The clone kit.sh last installed from (`install.json`), else the one the notes link into.
+    static var root: URL {
+        if let testRoot { return testRoot }
+        if ProcessInfo.processInfo.environment["APPRENTICE_NOTES"] == nil, let clone = Build.install?.clone,
+           FileManager.default.fileExists(atPath: clone + "/.git") {
+            return URL(fileURLWithPath: clone)
+        }
+        return Notes.repo
+    }
     /// For `selftest`: a throwaway clone, and a build that stands in for kit.sh.
     static var testRoot: URL?
     static var testBuild: (() -> (code: Int32, out: String))?
@@ -23,6 +31,14 @@ enum Repo {
     static var settings: [String: String] { Toml.load(Config.path)["update"] ?? [:] }
     /// On unless the user sets `[update] auto = false`; then `session` only says an update is waiting.
     static var auto: Bool { settings["auto"].map(Toml.unquote) != "false" }
+
+    /// The daemon runs what it pulls, so it updates itself only from an https or ssh remote; a folder,
+    /// `file://`, `git://` or `http://` upstream is brought in by hand with `update`.
+    static var trusted: Bool {
+        if testRoot != nil { return true }
+        let url = git("remote", "get-url", upstream).out
+        return url.hasPrefix("https://") || url.hasPrefix("ssh://") || (url.hasPrefix("git@") && url.contains(":"))
+    }
     static var checkSeconds: Double { max(settings["check_hours"].flatMap { Double(Toml.unquote($0)) } ?? 6, 1) * 3600 }
 
     @discardableResult
@@ -128,9 +144,11 @@ enum Repo {
         let n = behind(remote)
         if n > 0, !updating {
             let commits = "\(n) new upstream commit\(n == 1 ? "" : "s")"
-            if auto {
+            if auto, trusted {
                 if start { startUpdate() }
                 lines.append("apprentice: updating itself in the background (\(commits))")
+            } else if auto {
+                lines.append("apprentice: \(commits); upstream (\(git("remote", "get-url", remote).out)) is not https or ssh, so apprentice does not update itself from it: tell the user, who runs `apprentice update`")
             } else {
                 lines.append("apprentice: \(commits); auto-update is off, so tell the user, who runs `apprentice update`")
             }
@@ -174,7 +192,7 @@ enum Repo {
             git("fetch", "-q", remote)
             let waiting = behind(remote) > 0
             release()
-            if waiting, auto { startUpdate() }
+            if waiting, auto, trusted { startUpdate() }
         }
     }
 
@@ -183,9 +201,21 @@ enum Repo {
         DispatchQueue.global(qos: .utility).async {
             let restart = applyUpdate()
             release()
-            // Restarts between commands, never in the middle of one; the next command starts the new binary.
-            if restart { Daemon.queue.async { Wire.stopVMDaemons(); _ = Wire.stopDaemon() } }
+            if restart { restartWhenIdle() }
         }
+    }
+
+    /// Restarts into the new build between tasks, never in one: not while a proposal waits for approval
+    /// or a question is open, nor within a minute of the last command. Otherwise it looks again in a minute.
+    /// The next command starts the new binary.
+    static func restartWhenIdle() {
+        let idle = Approvals.pending == nil && StatusItem.state != .waiting
+            && Date().timeIntervalSince(Commands.lastAt) > 60
+        guard idle else {
+            DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 60) { restartWhenIdle() }
+            return
+        }
+        Daemon.queue.async { Wire.stopVMDaemons(); _ = Wire.stopDaemon() }
     }
 
     /// The automatic update: only on a clean tree on the base branch, and back to where it was if the
@@ -193,7 +223,12 @@ enum Repo {
     static func applyUpdate() -> Bool {
         let remote = upstream
         let base = branch(remote)
-        guard installedHere || testRoot != nil else { return false }
+        guard installedHere || testRoot != nil else {
+            notice("apprentice: updating is off: \(Store.dir.path)/notes no longer links into \(root.path). Run kit.sh in the clone you use")
+            return false
+        }
+        // The session so far goes into the clone first, so its own copy never holds the update back.
+        if testRoot == nil { Sessions.archiveCurrent() }
         guard git("status", "--porcelain").out.isEmpty else {
             notice("apprentice: an update is waiting, but \(root.path) has uncommitted changes; once they are committed (`apprentice commit \"…\"`) it updates itself")
             return false
