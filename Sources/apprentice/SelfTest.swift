@@ -1110,8 +1110,36 @@ enum SelfTest {
         check(AgentCLIs.argv("A", "do it", in: list) == ["mine", "do it"] && AgentCLIs.argv("zz", "x", in: list) == ["zz", "x"],
               "agents: a prompt goes where {prompt} is; an unknown agent gets it as its argument")
         if FileManager.default.fileExists(atPath: AgentCLIs.files[0].path) {
-            check(AgentCLIs.all([AgentCLIs.files[0]]).allSatisfy { !$0.run.isEmpty && !$0.label.isEmpty }, "agents: every shipped agent has a label and a run line")
+            check(AgentCLIs.all([AgentCLIs.files[0]]).allSatisfy { !$0.label.isEmpty && ($0.isEditor || !$0.run.isEmpty) },
+                  "agents: every shipped agent has a label and a run line, every editor an editor line")
         }
+        let tools = AgentCLIs.parse("""
+        [agent.cli]
+        open = "cli --flag"
+        [agent.sh]
+        open = ""
+        shell = true
+        [agent.ed]
+        editor = ["open", "-a", "Ed", "{folder}"]
+        detect = ["/nowhere/Ed.app", "/bin"]
+        [agent.gone]
+        detect = ["apprentice-no-such-command"]
+        [agent.here]
+        detect = ["ls"]
+        """)
+        check(tools[0].detect == ["cli"] && tools[1].detect.isEmpty && tools[2].isEditor && tools[2].open == nil,
+              "agents: an agent is detected by its command, a shell always is, an editor opens no tab")
+        check(AgentCLIs.agents(tools).map(\.id) == ["cli", "sh", "gone", "here"] && AgentCLIs.editors(tools).map(\.id) == ["ed"],
+              "agents: editors are kept out of the terminal pickers")
+        check(AgentCLIs.editorArgv(tools[2], folder: URL(fileURLWithPath: "/tmp/p q")) == ["open", "-a", "Ed", "/tmp/p q"],
+              "agents: an editor gets the project folder where {folder} is")
+        let found = AgentCLIs.installed(Array(tools[1...]))
+        check(found == ["sh", "ed", "here"], "agents: installed means on the login shell's PATH or an app that exists (got \(found.sorted()))")
+        let folder = Store.dir.appendingPathComponent("project-test")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try? Projects.scaffold(folder, name: "Test", vm: nil, agent: "claude", about: "")
+        check(["CLAUDE.md", "GEMINI.md"].allSatisfy { (try? String(contentsOf: folder.appendingPathComponent($0), encoding: .utf8)) == "@AGENTS.md\n" },
+              "projects: Claude Code and Gemini CLI are pointed at AGENTS.md")
     }
 
     /// Skills come in three kinds by folder; learned facts stay small, dated and deduplicated.
@@ -1133,6 +1161,15 @@ enum SelfTest {
         check(Playbooks.all(includeShadowed: true).filter { $0.path == "web/example.com.md" }.count == 2, "skills: the shadowed one is still there")
         put(Skills.yoursDir, "web/example.com.md", "mine")
         check(Playbooks.all().first { $0.path == "web/example.com.md" }?.origin == .yours, "skills: yours come before learned ones")
+        let savedProject = Project.dir
+        let projectDir = Store.dir.appendingPathComponent("skills-test-project/.apprentice")
+        Project.dir = projectDir
+        put(projectDir.appendingPathComponent("skills"), "web/example.com.md", "the project's")
+        check(Playbooks.all().first { $0.path == "web/example.com.md" }?.origin == .project, "skills: a project's own come first, in that project")
+        Project.dir = nil
+        check(Playbooks.all().first { $0.path == "web/example.com.md" }?.origin == .yours, "skills: a project's own stay out of other work")
+        Project.dir = savedProject
+        try? fm.removeItem(at: projectDir.deletingLastPathComponent())
         check(Playbooks.hintLines(app: nil, bundle: nil, host: "example.com").contains { $0.contains("yours: the user's own words") },
               "skills: session says which kind each skill is")
 

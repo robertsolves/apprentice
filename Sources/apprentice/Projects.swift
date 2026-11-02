@@ -2,13 +2,14 @@ import Foundation
 
 /// A project is one piece of work the user starts in the window or with `project new`: a folder on this
 /// Mac with its own notes for agents, its pipelines and, if it has one, its VM. The folder is the project:
-/// open it in any agent and it knows (its `AGENTS.md` and `CLAUDE.md` say so), save it with git, put it on
+/// open it in any agent and it knows (its `AGENTS.md`, and `CLAUDE.md` and `GEMINI.md`, say so), save it with git, put it on
 /// GitHub, clone it back on another Mac. apprentice only keeps a list of where the folders are
 /// (`projects.json`); forgetting one never deletes it.
 ///
 /// Inside a project folder:
 ///   .apprentice/project.toml   name, VM and agent (the site counts and caps of `Project` live beside it)
-///   AGENTS.md                  what an agent needs to know; CLAUDE.md points Claude Code at it
+///   .apprentice/skills/        skills for this project only, shown before anyone else's (`Skills`)
+///   AGENTS.md                  what an agent needs to know; CLAUDE.md and GEMINI.md point at it
 ///   pipelines/                 the project's pipelines (`Pipelines`)
 enum Projects {
     struct Entry: Codable, Equatable {
@@ -103,8 +104,11 @@ enum Projects {
         if !fm.fileExists(atPath: agents.path) {
             try notes(name: name, vm: vm, about: about).write(to: agents, atomically: true, encoding: .utf8)
         }
-        let claude = folder.appendingPathComponent("CLAUDE.md")
-        if !fm.fileExists(atPath: claude.path) { try "@AGENTS.md\n".write(to: claude, atomically: true, encoding: .utf8) }
+        // Codex, opencode and Kilo read AGENTS.md; Claude Code and Gemini CLI read their own file, which imports it.
+        for own in ["CLAUDE.md", "GEMINI.md"] {
+            let file = folder.appendingPathComponent(own)
+            if !fm.fileExists(atPath: file.path) { try "@AGENTS.md\n".write(to: file, atomically: true, encoding: .utf8) }
+        }
     }
 
     /// What any agent opened in the folder reads first.
@@ -122,6 +126,8 @@ enum Projects {
         - Pipelines (lists of prompts that run one after another) are in `pipelines/`: `apprentice pipeline list`, \
         `apprentice pipeline run <name>`.
         - Keep files for this work in this folder. `apprentice project save` commits them.
+        - Skills for this project only go in `.apprentice/skills/` (Markdown, same format as apprentice's \
+        playbooks); `apprentice session` shows the ones that match, before anyone else's.
 
         ## About this project
 

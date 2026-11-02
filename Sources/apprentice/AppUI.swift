@@ -551,6 +551,10 @@ final class AppModel: ObservableObject {
     /// reloads the editor when another one is chosen.
     @Published var pipelineDraft: Pipelines.Pipeline?
     @Published var pipelineEdits = 0
+    /// The agent CLIs and editors installed on this Mac (`AgentCLIs.installed`), read off the main thread
+    /// since it starts a login shell; nil until the first read, when everything counts as installed.
+    @Published var installedAgents: Set<String>?
+    private var refreshes = 0
 
     let home = FileManager.default.homeDirectoryForCurrentUser
 
@@ -559,6 +563,7 @@ final class AppModel: ObservableObject {
         checkRelease()
         newTab(preset: "Shell", command: nil)
         refreshMachines()
+        refreshAgents()
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.refresh() }
     }
 
@@ -592,6 +597,9 @@ final class AppModel: ObservableObject {
         pipelines = Pipelines.all()
         busy = pending.count > 0 || StatusItem.state == .working
         revision += 1
+        // An agent installed while the window is open shows up within a minute.
+        refreshes += 1
+        if refreshes % 30 == 0 { refreshAgents() }
         for tab in tabs { tab.hasApproval = pending.contains { $0.tab == tab.id } }
         // The socket check runs off the main thread: a busy daemon must not freeze the window.
         DispatchQueue.global(qos: .utility).async {
@@ -619,10 +627,36 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Opens the project's agent in a tab in its folder, working in its VM; `setUpVM` makes that VM first,
-    /// in the same tab, so the user watches it being made.
-    func openProject(_ p: Projects.Info, setUpVM: String? = nil) {
-        var command = AgentChoice.command(p.agent)
+    func refreshAgents() {
+        DispatchQueue.global(qos: .utility).async {
+            let found = AgentCLIs.installed()
+            DispatchQueue.main.async { if self.installedAgents != found { self.installedAgents = found } }
+        }
+    }
+
+    func isInstalled(_ cli: AgentCLIs.CLI) -> Bool { installedAgents?.contains(cli.id) ?? true }
+
+    /// The terminal agents a picker offers: the installed ones, plus `keeping` (the current choice) even when
+    /// it is not, so a saved choice still shows.
+    func agentChoices(keeping: String? = nil) -> [AgentCLIs.CLI] {
+        AgentCLIs.agents().filter { isInstalled($0) || $0.id == keeping }
+    }
+
+    /// Opens a project's folder in an editor app (`editor` in agents.toml).
+    func openInEditor(_ cli: AgentCLIs.CLI, _ p: Projects.Info) {
+        let argv = AgentCLIs.editorArgv(cli, folder: p.folder)
+        guard let first = argv.first else { return }
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: first.hasPrefix("/") ? first : "/usr/bin/env")
+        proc.arguments = first.hasPrefix("/") ? Array(argv.dropFirst()) : argv
+        proc.currentDirectoryURL = p.folder
+        do { try proc.run() } catch { output = "could not open \(cli.label): \(error.localizedDescription)" }
+    }
+
+    /// Opens the project's agent (or `agent`, for this tab only) in a tab in its folder, working in its VM;
+    /// `setUpVM` makes that VM first, in the same tab, so the user watches it being made.
+    func openProject(_ p: Projects.Info, agent: String? = nil, setUpVM: String? = nil) {
+        var command = AgentChoice.command(agent ?? p.agent)
         if let vm = setUpVM {
             command = "apprentice --vm \(vm) vm setup && " + (command ?? "exec \"$SHELL\" -l")
         }
@@ -1070,14 +1104,39 @@ struct TerminalWorkspace: View {
                 .padding(.vertical, Theme.s2)
             }
             Menu {
-                Button("New project…") { model.newProject = .empty }
+                // A project opens with its own agent in one click; another agent is one level down.
                 if !model.projects.isEmpty {
-                    Menu("Open a project") {
-                        ForEach(model.projects) { p in Button(p.name) { model.openProject(p) } }
+                    SwiftUI.Section("Projects") {
+                        ForEach(model.projects) { p in
+                            Button("\(p.name) · \(AgentChoice.label(p.agent))") { model.openProject(p) }
+                        }
+                    }
+                    let agents = model.agentChoices().filter { !$0.shell }
+                    if agents.count > 1 {
+                        Menu("Open a project with another agent") {
+                            ForEach(model.projects) { p in
+                                Menu(p.name) {
+                                    ForEach(agents.filter { $0.id != p.agent }) { cli in
+                                        Button(cli.label) { model.openProject(p, agent: cli.id) }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
+                Button("New project…") { model.newProject = .empty }
                 Divider()
-                ForEach(AgentCLIs.all()) { cli in Button(cli.label) { model.newTab(preset: cli.label, command: cli.open) } }
+                SwiftUI.Section("Without a project") {
+                    ForEach(model.agentChoices()) { cli in Button(cli.label) { model.newTab(preset: cli.label, command: cli.open) } }
+                }
+                let missing = AgentCLIs.all().filter { !model.isInstalled($0) && $0.install != nil }
+                if !missing.isEmpty {
+                    Menu("Not installed") {
+                        ForEach(missing) { cli in
+                            Button("Get \(cli.label)…") { if let u = cli.install.flatMap(URL.init(string:)) { NSWorkspace.shared.open(u) } }
+                        }
+                    }
+                }
                 Divider()
                 Button("Help: ask about apprentice") { model.openHelpTab() }
                 Button("Log (following)") { model.openLogTab() }
@@ -1455,7 +1514,7 @@ struct ScheduleEditor: View {
                 if kind == "prompt" {
                     LabeledField("Agent") {
                         Picker("", selection: $agent) {
-                            ForEach(AgentCLIs.all().filter { !$0.shell }) { Text($0.label).tag($0.id) }
+                            ForEach(model.agentChoices(keeping: agent).filter { !$0.shell }) { Text($0.label).tag($0.id) }
                         }
                         .labelsHidden().pickerStyle(.segmented).frame(maxWidth: 320)
                     }

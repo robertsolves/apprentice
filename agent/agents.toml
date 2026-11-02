@@ -7,6 +7,11 @@
 #   run     one prompt run to its end without a terminal, {prompt} where the prompt goes
 #   aliases other names it answers to in --agent
 #   shell   true when the "prompt" is a shell command, run as one (refused under [agent] ui_only)
+#   detect  what says it is installed: command names looked up in the login shell, or app paths; the
+#           first word of `open` when left out. Pickers grey out the ones not installed.
+#   install where to get it, offered for one that is not installed
+#   editor  an editor app, not a terminal agent: the command that opens a project's folder in it, {folder}
+#           where the folder goes. It shows as "Open in …" on a project, not in the terminal pickers.
 
 [agent.claude]
 label = "Claude Code"
@@ -14,24 +19,41 @@ open = "claude"
 # `claude -p` refuses every tool not allowed beforehand, so apprentice's own commands are; each still goes through the gate.
 run = ["claude", "-p", "{prompt}", "--allowedTools", "Bash(apprentice:*)"]
 aliases = ["claude-code"]
+install = "https://docs.claude.com/en/docs/claude-code/setup"
 
 [agent.codex]
 label = "Codex"
 open = "codex"
 run = ["codex", "exec", "{prompt}"]
+install = "https://github.com/openai/codex"
+
+[agent.gemini]
+label = "Gemini CLI"
+open = "gemini"
+run = ["gemini", "-p", "{prompt}"]
+aliases = ["gemini-cli"]
+install = "https://github.com/google-gemini/gemini-cli"
 
 [agent.opencode]
 label = "opencode"
 open = "opencode"
 run = ["opencode", "run", "{prompt}"]
+install = "https://opencode.ai"
 
 [agent.kilo]
 label = "Kilo"
 open = "kilo"
 run = ["kilo", "run", "{prompt}"]
+install = "https://kilo.ai"
 
 [agent.shell]
 label = "Shell"
 open = ""
 run = ["/bin/zsh", "-lc", "{prompt}"]
 shell = true
+
+[agent.antigravity]
+label = "Antigravity"
+editor = ["open", "-a", "Antigravity", "{folder}"]
+detect = ["/Applications/Antigravity.app", "~/Applications/Antigravity.app"]
+install = "https://antigravity.google"

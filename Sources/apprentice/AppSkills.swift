@@ -42,6 +42,7 @@ struct SkillItem: Identifiable, Equatable {
 
     var icon: String {
         switch origin {
+        case .project: return "folder.fill"
         case .yours: return "person.fill"
         case .learned: return "sparkles"
         case .builtIn: return "shippingbox.fill"
@@ -121,6 +122,7 @@ struct SkillsView: View {
 
     private func groupTitle(_ origin: Skills.Origin) -> String {
         switch origin {
+        case .project: return "This project's"
         case .yours: return "Yours"
         case .learned: return "Learned by apprentice"
         case .builtIn: return "Built in"
@@ -180,7 +182,7 @@ struct SkillEditor: View {
                     IconButton("Forget it", "trash") { forget() }
                     IconButton("Save", "checkmark", prominent: true) { save() }
                         .keyboardShortcut("s", modifiers: .command).disabled(text == saved)
-                case .yours:
+                case .yours, .project:
                     IconButton("Move to Trash", "trash") { forget() }
                     IconButton("Save", "checkmark", prominent: true) { save() }
                         .keyboardShortcut("s", modifiers: .command).disabled(text == saved)
@@ -201,6 +203,7 @@ struct SkillEditor: View {
         case .builtIn: return "Comes with apprentice and is read-only here. Make my own copy to change it: your copy is used instead of this one."
         case .learned: return "apprentice wrote this while working, from what it did and saw. Agents use it as a hint. Tidy it, or forget it if it is wrong."
         case .yours: return "Written by you. Agents follow it. Keep names, handles and anything personal out."
+        case .project: return "Kept in the project's folder and used only for that project's work. Agents follow it."
         }
     }
 

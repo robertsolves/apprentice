@@ -119,7 +119,6 @@ struct ListColumn<Rows: View>: View {
 
 /// The agent CLI a project or pipeline names, as a tab's start command (nil: a plain shell).
 enum AgentChoice {
-    static var all: [AgentCLIs.CLI] { AgentCLIs.all() }
 
     static func command(_ agent: String) -> String? { AgentCLIs.find(agent).map(\.open) ?? agent }
     static func label(_ agent: String) -> String { AgentCLIs.label(agent) }
@@ -188,6 +187,9 @@ struct ProjectDetail: View {
         ScreenPage(title: project.name, subtitle: (project.folder.path as NSString).abbreviatingWithTildeInPath) {
             AnyView(HStack(spacing: Theme.s2) {
                 IconButton("Show in Finder", "folder") { NSWorkspace.shared.open(project.folder) }
+                ForEach(AgentCLIs.editors().filter { model.isInstalled($0) }) { cli in
+                    IconButton("Open in \(cli.label)", "chevron.left.forwardslash.chevron.right") { model.openInEditor(cli, project) }
+                }
                 IconButton("Open", "play.fill", prominent: true) { model.openProject(project) }
             })
         } content: {
@@ -303,7 +305,7 @@ struct NewProjectSheet: View {
             Panel(title: "How it runs") {
                 LabeledField("Agent") {
                     Picker("", selection: $agent) {
-                        ForEach(AgentChoice.all, id: \.id) { Text($0.label).tag($0.id) }
+                        ForEach(model.agentChoices(keeping: agent), id: \.id) { Text($0.label).tag($0.id) }
                     }
                     .labelsHidden().pickerStyle(.segmented)
                 }
@@ -457,7 +459,7 @@ struct PipelineEditor: View {
                 }
                 LabeledField("Agent") {
                     Picker("", selection: $agent) {
-                        ForEach(AgentChoice.all, id: \.id) { Text($0.label).tag($0.id) }
+                        ForEach(model.agentChoices(keeping: agent), id: \.id) { Text($0.label).tag($0.id) }
                     }
                     .labelsHidden().pickerStyle(.segmented)
                 }
