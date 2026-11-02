@@ -90,7 +90,7 @@ struct SkillsView: View {
             if let id = selected, let item = items.first(where: { $0.id == id }) {
                 SkillEditor(model: model, item: item) { reload(select: $0) }.id(item.id)
             } else {
-                ScreenPage(title: "Skills", subtitle: "") {
+                ScreenPage(title: Section.skills.label, subtitle: "") {
                     AnyView(HStack(spacing: Theme.s2) {
                         IconButton("Show the folders", "folder") { NSWorkspace.shared.open(Skills.root) }
                         IconButton("New skill", "plus", prominent: true) { adding = true }

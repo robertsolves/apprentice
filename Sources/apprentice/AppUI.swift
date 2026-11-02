@@ -869,31 +869,19 @@ final class AppModel: ObservableObject {
 
 // MARK: - Navigation
 
+/// The sidebar's sections. Each case picks a screen; its name, icon, order and explainer come from
+/// `[section.<case>]` in agent/app-text.toml (`AppText`).
 enum Section: String, CaseIterable, Identifiable {
-    case projects = "Projects"
-    case terminal = "Terminal"
-    case pipelines = "Pipelines"
-    case schedules = "Schedules"
-    case skills = "Skills"
-    case sites = "Sites"
-    case vms = "VMs"
-    case settings = "Settings"
-    case updates = "Updates"
+    case projects, terminal, pipelines, schedules, skills, sites, vms, settings, updates
 
     var id: String { rawValue }
+    var label: String { AppText.screen(rawValue).label }
+    var icon: String { AppText.screen(rawValue).icon }
 
-    var icon: String {
-        switch self {
-        case .projects: return "folder.fill"
-        case .terminal: return "terminal.fill"
-        case .pipelines: return "list.number"
-        case .schedules: return "calendar"
-        case .skills: return "book.closed.fill"
-        case .sites: return "globe"
-        case .vms: return "server.rack"
-        case .settings: return "gearshape.fill"
-        case .updates: return "arrow.down.circle.fill"
-        }
+    /// The sections in the order app-text.toml lists them; one it leaves out goes last.
+    static var ordered: [Section] {
+        let order = AppText.screens.map(\.id)
+        return allCases.sorted { (order.firstIndex(of: $0.rawValue) ?? .max) < (order.firstIndex(of: $1.rawValue) ?? .max) }
     }
 }
 
@@ -924,7 +912,7 @@ struct RootView: View {
     }
 
     private var sidebar: some View {
-        List(Section.allCases, selection: Binding(
+        List(Section.ordered, selection: Binding(
             get: { model.section },
             set: { if let s = $0 { model.section = s } })) { section in
             HStack(spacing: Theme.s3) {
@@ -932,7 +920,7 @@ struct RootView: View {
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(Theme.accent)
                     .frame(width: 22)
-                Text(section.rawValue)
+                Text(section.label)
                     .font(.system(size: 13, weight: section == model.section ? .semibold : .regular))
                 Spacer(minLength: 0)
             }
@@ -1032,8 +1020,8 @@ struct RootView: View {
     /// ⌘1…9 choose the sidebar sections; keyboard first, as the design asks.
     private var shortcuts: some View {
         ZStack {
-            ForEach(Array(Section.allCases.enumerated()), id: \.offset) { index, section in
-                Button(section.rawValue) { model.section = section }
+            ForEach(Array(Section.ordered.enumerated()), id: \.offset) { index, section in
+                Button(section.label) { model.section = section }
                     .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
                     .frame(width: 0, height: 0)
                     .opacity(0.01)
@@ -1073,11 +1061,7 @@ struct TerminalWorkspace: View {
                 footer(session)
             } else {
                 ScrollView {
-                    Explainer(icon: Section.terminal.icon, title: "What is the terminal?",
-                              text: "A terminal is where an agent works. Each tab runs one: Claude Code, Codex, or a plain shell. Type to it like a chat, and answer its questions with the arrow keys and Return.",
-                              points: ["The blue + opens a tab: a new project, one of your projects, an agent, or Help.",
-                                       "Help answers questions about apprentice in plain words.",
-                                       "⌘T opens a shell."])
+                    Explainer(.terminal)
                         .frame(maxWidth: Theme.column)
                         .padding(Theme.page)
                         .frame(maxWidth: .infinity)
@@ -1344,7 +1328,7 @@ struct SchedulesView: View {
                 if let id = selected, let schedule = model.schedules.first(where: { $0.id == id }) {
                     ScheduleDetail(model: model, schedule: schedule)
                 } else {
-                    ScreenPage(title: "Schedules", subtitle: "") {
+                    ScreenPage(title: Section.schedules.label, subtitle: "") {
                         AnyView(IconButton("New schedule", "plus", prominent: true) { adding = true })
                     } content: {
                         Explainer.schedules
@@ -1804,7 +1788,7 @@ struct SettingsView: View {
     private var file: URL { Layers.file("config.toml", scope) }
 
     var body: some View {
-        ScreenPage(title: "Settings", subtitle: "") {
+        ScreenPage(title: Section.settings.label, subtitle: "") {
             AnyView(
                 HStack(spacing: Theme.s2) {
                     if !status.isEmpty { Text(status).font(Theme.caption).foregroundStyle(.secondary) }
@@ -1812,10 +1796,7 @@ struct SettingsView: View {
                 }
             )
         } content: {
-            Explainer(icon: Section.settings.icon, title: "What are settings?",
-                      text: "How apprentice behaves while it works: sounds, notifications, keeping the Mac awake, how this window looks. Each change is saved the moment you make it.",
-                      points: ["A project or a VM can have its own. Whatever it leaves alone comes from the level above: a project from its VM, a VM from this Mac.",
-                               "Everything else is in the settings file, for when someone technical needs it."])
+            Explainer(.settings)
             if scopes.count > 1 {
                 Panel(title: "Settings for") {
                     Picker("", selection: $scope) {
@@ -2051,11 +2032,10 @@ struct UpdatesView: View {
     @State private var checks = ""
 
     var body: some View {
-        ScreenPage(title: "Updates", subtitle: "") {
+        ScreenPage(title: Section.updates.label, subtitle: "") {
             AnyView(IconButton("Check again", "arrow.clockwise") { load() })
         } content: {
-            Explainer(icon: Section.updates.icon, title: "What is here?",
-                      text: "The version you have, whether a newer one is out, the permissions apprentice needs from macOS, and the agents it is connected to.")
+            Explainer(.updates)
             Panel(title: "Installed") {
                 FieldRow(label: "version", value: Build.version, mono: true)
                 if Release.isRelease, !Release.cloneInstalled {

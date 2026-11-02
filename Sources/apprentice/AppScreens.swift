@@ -153,7 +153,7 @@ struct ProjectsView: View {
                 if let id = selected, let project = model.projects.first(where: { $0.id == id }) {
                     ProjectDetail(model: model, project: project).id(project.id)
                 } else {
-                    ScreenPage(title: "Projects", subtitle: "") {
+                    ScreenPage(title: Section.projects.label, subtitle: "") {
                         AnyView(HStack(spacing: Theme.s2) {
                             IconButton("Open from GitHub", "icloud.and.arrow.down") { model.newProject = .github }
                             IconButton("New project", "plus", prominent: true) { model.newProject = .empty }
@@ -396,7 +396,7 @@ struct PipelinesView: View {
                 if let draft = model.pipelineDraft {
                     PipelineEditor(model: model, original: draft).id(draft.id + "\(model.pipelineEdits)")
                 } else {
-                    ScreenPage(title: "Pipelines", subtitle: "") {
+                    ScreenPage(title: Section.pipelines.label, subtitle: "") {
                         AnyView(IconButton("New pipeline", "plus", prominent: true) { model.editPipeline(Pipelines.Pipeline(name: "")) })
                     } content: {
                         Explainer.pipelines
@@ -648,7 +648,7 @@ struct VMsView: View {
 
     /// Nothing chosen: what a VM is, and where websites open outside a project.
     private var intro: some View {
-        ScreenPage(title: "VMs", subtitle: "") {
+        ScreenPage(title: Section.vms.label, subtitle: "") {
             AnyView(IconButton("New VM", "plus", prominent: true) { newName = ""; adding = true })
         } content: {
             Explainer.vms

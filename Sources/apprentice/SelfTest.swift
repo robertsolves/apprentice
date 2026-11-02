@@ -42,6 +42,7 @@ enum SelfTest {
         sitesScreen()
         agentList()
         siteLists()
+        appText()
         prefs()
         allowlist()
         flows()
@@ -1133,6 +1134,24 @@ enum SelfTest {
             let real = SiteLists.load([SiteLists.files[0]])
             check(SiteLists.problems(real).isEmpty && real.social.contains("instagram.com") && real.kinds.first?.id == "unfollow",
                   "site lists: the shipped file reads cleanly (\(SiteLists.problems(real).joined(separator: ", ")))")
+        }
+    }
+
+    private static func appText() {
+        let shipped = Store.dir.appendingPathComponent("text-shipped.toml"), mine = Store.dir.appendingPathComponent("text-mine.toml")
+        defer { try? FileManager.default.removeItem(at: shipped); try? FileManager.default.removeItem(at: mine) }
+        try? "[section.b]\nlabel = \"B\"\nicon = \"star\"\n[section.a]\nlabel = \"A\"\nabout = \"What A is.\"\npoints = [\n  \"one\",\n  \"two\",\n]\n"
+            .write(to: shipped, atomically: true, encoding: .utf8)
+        try? "[section.a]\nlabel = \"Mine\"\n[section.c]\nlabel = \"C\"\n".write(to: mine, atomically: true, encoding: .utf8)
+        let screens = AppText.load([shipped, mine])
+        check(screens.map(\.id) == ["b", "a", "c"] && screens[1].screen.label == "Mine" && screens[1].screen.about == "What A is."
+              && screens[1].screen.points == ["one", "two"], "window words: in the order written, the user's file replaces a key and keeps the rest")
+        if FileManager.default.fileExists(atPath: AppText.files[0].path) {
+            // The Sites screen's explainer lives in site-settings.toml.
+            let ids = Section.allCases.map(\.rawValue)
+            let problems = AppText.problems(AppText.load([AppText.files[0]]), ids: ids.filter { $0 != "sites" })
+                + AppText.problems(AppText.load([AppText.files[0]]), ids: ["sites"]).filter { !$0.contains("explainer_title") && !$0.contains("about") }
+            check(problems.isEmpty, "window words: every section has its name, icon and explainer (\(problems.prefix(3).joined(separator: "; ")))")
         }
     }
 
