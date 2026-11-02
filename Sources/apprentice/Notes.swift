@@ -164,7 +164,9 @@ enum Notes {
         if !text.components(separatedBy: "\n").contains("## Field reports") {
             text += "\n## Field reports\n\nFiled by `apprentice bug` while working. Each has a suggested fix to review; none is applied.\n"
         }
-        let count = text.components(separatedBy: "\n### F").count
+        // Fixed reports are deleted, so number past the highest one left rather than counting them.
+        let count = (text.components(separatedBy: "\n### F").dropFirst()
+            .compactMap { Int($0.prefix { $0.isNumber }) }.max() ?? 0) + 1
         var entry = "\n### F\(count) · \(summary) — \(Store.day())\n"
         if let r = a.value("repro") { entry += "- Repro: \(r)\n" }
         if let error = lastError() { entry += "- Last error: `\(error)`\n" }

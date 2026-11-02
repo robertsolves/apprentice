@@ -88,15 +88,23 @@ Exit codes are part of the agent contract. They're listed in `SPEC.md` and `usag
 
 apprentice improves from use. When you start work in this repo:
 
-1. Run `apprentice grow`. It shows where recent runs spent their time (agent thinking, approvals, re-reads, the tool's own waits), then lists repeated errors, questions the user had to answer (`ask`, `show`), flows that ran, and open field reports in `bugs.md`. Each command's log row carries `ms` and a `waits` breakdown (`idle`, `gap`, `move`, `type`, `settle`); `apprentice log` prints them.
+1. Run `apprentice grow`. It shows where recent runs spent their time (agent thinking, approvals, re-reads, the tool's own waits), then lists repeated errors, questions the user had to answer (`ask`, `show`), flows that ran, and open field reports in `BUGS.md`. Each command's log row carries `ms` and a `waits` breakdown (`idle`, `gap`, `move`, `type`, `settle`); `apprentice log` prints them.
 2. Propose code changes for the top items before anything else: a repeated error is a bug, a question that keeps coming up is a missing note or a missing generic feature, and a workaround that several notes repeat belongs in the code. Every time asking the user solved a problem, make (or propose) the code change that means the next run will not need to ask.
 3. Keep fixes generic. App and site knowledge goes in `notes/`, never in code paths for one app.
-4. After a fix lands, mark its field report fixed in `bugs.md` and update any note that described the workaround.
+4. After a fix lands, delete its field report from `BUGS.md` and update any note that described the workaround.
 5. Commit each small change on its own with `apprentice commit "what and why"` (it rebuilds and restarts apprentice when the source changed). `bug` and `learn` commit themselves.
 
 Each install is a local clone made by `install.sh`, with `upstream` as a fetch-only remote (any git URL; an older clone uses `origin`). Local commits stay local. The daemon fetches every `[update] check_hours` (6) and, unless `[update] auto = false`, rebases the local commits onto upstream on a clean tree, runs `kit.sh` (build, `selftest`, sign, swap) and restarts between commands. A failed build or self-test resets to the old commit and keeps the old binary. `session` prints the result once (`Repo.updateLine`). `apprentice update` does the same by hand. There's no GitHub step: no forks, `gh` or pull requests.
 
 `apprentice selftest` (`SelfTest.swift`) checks the pure parts: TOML, args, pace limits, the wire format, VM routing and `diff`. Add a check there when you fix a bug in one of them. `kit.sh` runs it on the new binary before installing it.
+
+## BUGS.md and TODO.md
+
+Write to these as you go, without being asked. Note what you run into; don't go hunting for it. A summary in the chat is not a record.
+
+- **`BUGS.md`** holds every open bug, suspected or confirmed (each entry says which). Add an entry only when you ran into it and aren't fixing it now, because it's unrelated to the task or needs a decision from the user. If it's in scope and fixable, fix it. File only concrete failures, such as wrong output, a crash, lost data, or a guard that can't fire; never style. Use the field-report format: `### F<n> · summary — date`, then `Cause:` and `Suggested fix:` lines. `apprentice bug` writes one for you.
+- **`TODO.md`** is the non-bug counterpart: deferred work, polish, improvements and open questions, with no failure mode. File each item under the matching heading. When a task deliberately leaves something undone, record it here before you finish.
+- **Grep first**: don't file a duplicate. When you fix a bug, delete its entry in the same commit (the commit message is the record). When you finish a TODO item, delete it. Anything left broken when a task ends gets logged.
 
 <!-- BEGIN robertsolves/agent-commands -->
 ## Agent commands from robertsolves/agent-commands
