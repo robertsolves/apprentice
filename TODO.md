@@ -32,7 +32,7 @@ From a `/simplify` pass on 2026-11-02; the small shared helpers landed, these we
 
 ## Pacing
 
-- Run `agent/canary.html` in a Mac session and a VM session and record the numbers in BOT_DETECTION.md: the new modifier keydowns, rollover, dead keys, movement deltas (P19), wheel `deltaMode` (P20) and the cmd+tab fidget have only run in `selftest`. Tick the boxes the run clears.
+- Read the canary's Metrics section in a VM session (`apprentice do canary-full-test` there) and add the VM column to BOT_DETECTION.md; the Mac numbers are in.
 - Tab between form fields where the next field is the obvious one, instead of a click per field (BOT_DETECTION P11).
 - A real IME composition path for CJK locales: today a character no key types is pasted (P12).
 - `open` to a new site could open a new tab now and then (cmd+t), so the tab set changes as a person's does (P17). Needs a cap so tabs do not pile up.
