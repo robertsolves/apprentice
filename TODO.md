@@ -96,7 +96,7 @@ The window (`apprentice app`), schedules and away are built; FEATURES.md lists w
 
 - The site and README name Devin and Grok, which work through their shells, but `agent/connect.py` doesn't install the apprentice rules for them yet. Add them once their global rules locations are confirmed.
 - `release.yml` ships the binary and the DMG unsigned until the `MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`, `APPLE_ID`, `APPLE_APP_PASSWORD` and `APPLE_TEAM_ID` secrets are set (a Developer ID account).
-- Clone installs update from `main`; the DMG app updates from tagged releases. Decide whether clones should follow the latest release tag too, so users only get versions that passed the release run.
+- `install.sh` starts a clone on the latest release tag (or `--version`, which turns auto-update off), but the daemon's auto-update (`Repo.rebase`) then moves it to `main` at its next check. Make `Repo` follow the newest stable tag for clones that were installed on one (record the choice in `install.json`), so users only get versions that passed the release run; `--main` keeps following `main`.
 
 ## Production readiness follow-ups
 
