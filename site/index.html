@@ -203,18 +203,29 @@
 
       <figure class="term" aria-label="Example: asking your agent to do something on screen">
         <div class="bar"><i></i><i></i><i></i></div>
-<pre><span class="u">you</span>   <span class="c">Set my GitHub bio to "Software engineer on the Gold Coast".</span>
+<pre><span class="u">you</span>    <span class="c">Book the 7am spin class on my gym's website for Thursday.</span>
 
-<span class="a">agent</span> Opening github.com/settings/profile in Safari and reading the page.
-      <span class="d">· apprentice session · read: 41 items, 6 that matter</span>
-      I'll type it into the Bio field and press Update profile.
-      <span class="w">⚠ This is an account settings page.</span> Go ahead?
+<span class="a">agent</span>  <span class="d">$ apprentice read --filter spin</span>
+       14 link "Spin · Thu 7:00 AM · 3 spots"
+       <span class="d">$ apprentice click 14</span>
+       approve? click 14 link "Spin · Thu 7:00 AM · 3 spots"
+       <span class="d">$ apprentice approve 2c7e</span>
+       ok · snap 3 · +1 -0 ~0
+       + 22 button "Book"
+       <span class="d">$ apprentice click 22</span>
+       approve? click 22 button "Book"
+       <span class="w">⚠ may be irreversible: button "Book"</span>
+       <span class="d">$ apprentice approve 9f1b</span>          <span class="d"># you asked to book it</span>
+       ok · snap 4 · +2 -0 ~0
+       + 23 text "This uses 1 credit from your class pack."
+       + 24 button "Confirm"
+       <span class="d">$ apprentice click 24</span>  →  ⚠ inside a dialog
+       <span class="d">$ apprentice confirm 4d0a --why "uses a class credit"</span>
 
-<span class="u">you</span>   <span class="c">yes</span>
+<span class="u">you</span>    <span class="k">Approve</span>  <span class="d">(in apprentice's window on your screen)</span>
 
-<span class="a">agent</span> <span class="d">· apprentice type · click (curved path, typing rhythm, then a pause)</span>
-      <span class="k">Done.</span> Your bio is updated. Nothing else on the page changed.</pre>
-        <figcaption>You talk to your agent as usual. It runs apprentice for you and checks with you before anything changes.</figcaption>
+<span class="a">agent</span>  Booked: Spin, Thursday 7:00 AM.</pre>
+        <figcaption>The <code>$ apprentice</code> lines are the commands your agent runs and their real output format. Its own words will vary. You asked to book, so it approves that step itself; spending a credit you didn't mention goes to you.</figcaption>
       </figure>
     </div>
   </div>
@@ -252,33 +263,6 @@
         <div class="card"><h3>Learns as it goes</h3><p>Notes about apps and sites live in the repo. A task that worked becomes a flow your agent can rerun next time, with one approval for the whole plan.</p></div>
         <div class="card"><h3>Fixes and updates itself</h3><p>It runs from your own clone. Fixes are small commits that rebuild, self-test and restart. Upstream updates are rebased in, and a failed build keeps the old binary.</p></div>
         <div class="card"><h3>A Linux VM on the side</h3><p>A small VM runs Chromium and any Linux app with its own screen, cursor and keyboard, so the agent works while you keep working. One VM per job, run side by side.</p></div>
-      </div>
-    </div>
-  </section>
-
-  <section>
-    <div class="wrap">
-      <h2>Works with your agent</h2>
-      <p class="sub">You keep using the agent you already use. The installer finds the ones on your Mac and teaches each one apprentice: a skill, a rules file, or the MCP server. Anything else that can run a shell command can use it too, and there's a built-in loop for any OpenAI-compatible API.</p>
-      <div class="tags">
-        <span>Claude Code</span>
-        <span>Claude desktop</span>
-        <span>Codex</span>
-        <span>Gemini CLI</span>
-        <span>Freebuff</span>
-        <span>Devin</span>
-        <span>Grok</span>
-        <span>Cursor</span>
-        <span>GitHub Copilot CLI</span>
-        <span>opencode</span>
-        <span>Kilo</span>
-        <span>Amp</span>
-        <span>Qwen Code</span>
-        <span>Crush</span>
-        <span>Cline</span>
-        <span>goose</span>
-        <span>Continue</span>
-        <span>and more</span>
       </div>
     </div>
   </section>

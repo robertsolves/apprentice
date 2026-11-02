@@ -7,16 +7,17 @@ apprentice lets a coding agent or a hosted model use macOS, Linux and the web fo
 You don't type its commands. You ask your coding agent (Claude Code, Codex, Gemini CLI, Freebuff, Cursor and the rest) as you normally would, and it runs apprentice for you:
 
 ```
-you    Set my GitHub bio to "Software engineer on the Gold Coast".
+you    Book the 7am spin class on my gym's website for Thursday.
 
-agent  Opening github.com/settings/profile in Safari and reading the page.
-       I'll type it into the Bio field and press Update profile.
-       ⚠ This is an account settings page. Go ahead?
+agent  (reads the page, opens Thursday's class, presses Book: you asked for that, so it approves it)
+       Booking uses a credit from your class pack. I've asked you in the apprentice window.
 
-you    yes
+you    (clicks Approve in the little window on your screen)
 
-agent  Done. Your bio is updated. Nothing else on the page changed.
+agent  Booked: Spin, Thursday 7:00 AM.
 ```
+
+The agent's words vary by model. What doesn't: every change is proposed first, the agent approves the steps you asked for, and anything risky you didn't mention (spending a credit, sending, deleting) comes to you in apprentice's window, or in the chat when you're away.
 
 ## What you can ask
 
@@ -35,23 +36,21 @@ Anything you'd do yourself with the mouse and keyboard, one task at a time:
 
 It reads the screen as text, proposes each change, and asks you before anything risky: sending, posting, deleting, buying, passwords and settings. It won't do bulk outreach, mass following, scraping at volume or run several accounts on one site.
 
-Under the hood, the agent calls the CLI. The same exchange from its side:
+Under the hood, the agent calls the CLI. Part of the same task from its side:
 
 ```
-$ apprentice session --app Safari
-session 3f9a1c · Safari · window 4120 · https://github.com/settings/profile
+$ apprentice read --filter spin
+14 link "Spin · Thu 7:00 AM · 3 spots"
 
-$ apprentice read --max 6
-snap 1 · Safari · github.com/settings/profile · 6 of 41 shown
-1 link "Your profile"
-2 textbox "Name" value="Sam Lee"
-3 textarea "Bio" value=""
-4 button "Update profile" [gated]
+$ apprentice click 22
+approve? click 22 button "Book"
+⚠ may be irreversible: button "Book"
+nothing was done. approve: apprentice approve 9f1b · deny: apprentice deny 9f1b
 
-$ apprentice type 3 "Software engineer on the Gold Coast"
-approve? type into 3 textarea "Bio"
-⚠ settings, account or billing page
-nothing was done. approve: apprentice approve 7c2e · deny: apprentice deny 7c2e
+$ apprentice approve 9f1b
+ok · snap 4 · +2 -0 ~0
++ 23 text "This uses 1 credit from your class pack."
++ 24 button "Confirm"
 ```
 
 ## How it works
