@@ -70,6 +70,13 @@ The window (`apprentice app`), schedules and away are built; FEATURES.md lists w
 
 - **Scan more of what `pr` shares for personal details.** `Playbooks.leaks` guards only `playbooks/`. Field reports in `BUGS.md` (filed by `bug` with the last error) and commit messages outside playbook commits also reach upstream through `pr`; run them through the same check there. Name parts of the user's identity that are common words (Will, Mark) can trip the check; consider an allowlist in config if that happens.
 
+## GitHub account
+
+- **Register the GitHub App** and put its client ID in `Account.defaultClientID`, so sign-in works without `[account] client_id`. Device flow on, "Expire user authorization tokens" on (refresh works without a secret for device-flow tokens), no webhook. Permissions: Issues read and write on the upstream repo only, for the error reports; settings sync would add Contents read and write on the user's own private repo.
+- **Error reports to the project's issues** (planned 2026-11-02): apprentice's own failures (a crash, exit 1, a failed update; exit 2 or 5 only when one fingerprint repeats) become a scrubbed fingerprint; an open issue with that fingerprint gets a 👍, else a new one is opened, labelled `auto-report`. `[report] errors = "ask" | "auto" | "off"`, asked once through `confirm` and in `tour`; checked by `Playbooks.leaks` before sending, since issues are public. Upstream, `triage.yml` closes duplicates and keeps a pinned queue, and the Claude Code GitHub Action fixes issues past a threshold as PRs for the owner to merge.
+- **Settings in the user's own private repo** (planned): `prefs.json`, `voice.md`, `setups/`, typing timings, encrypted with a Keychain key; never secrets, budgets, logs or session state, and never the fork or a PR.
+- `account status` reads only the login; once reports exist, show what was reported from this Mac.
+
 ## Tests
 
 `apprentice selftest` covers TOML, args, pace limits, the wire format, VM routing, `diff`, the approval gate, shared site limits and the automatic update (against throwaway git repos), in a temporary home of its own. Still to add:

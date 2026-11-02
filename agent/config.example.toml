@@ -203,6 +203,13 @@ vision_model = ""
 # [vm.linkedin]
 # memory_mb = 2048
 
+[account]
+# Your GitHub account, for what apprentice will send to the project in your name (`apprentice account
+# login`, or Settings ▸ GitHub account in the window). Signing in is a code you enter at
+# github.com/login/device; the token stays in the login Keychain on this Mac and never reaches an agent.
+# client_id is the GitHub App apprentice signs in through (device flow on). Empty uses the built-in one.
+client_id = ""
+
 [update]
 # apprentice checks its upstream every check_hours and updates itself: it rebases your local commits,
 # rebuilds, runs its self-test and restarts between commands. A failed build or test keeps the old

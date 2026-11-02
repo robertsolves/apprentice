@@ -173,6 +173,7 @@ All output is compact plain text meant for an agent to read. `--json` gives the 
 | `log [--tail n]` / `grow` | Recent steps; improvement digest | step lines |
 | `route "task"` / `playbooks ["words"]` / `learn "task"` / `do <flow>` | Faster routes, playbooks, flows | lines |
 | `run "task" --model <name>` / `replay <name>` / `mcp` | Built-in loop, replays, MCP server | summary |
+| `account login [--start\|--wait\|--cancel]` / `status` / `logout` | Sign in to GitHub with a code entered at github.com/login/device | the login |
 | `serve` / `stop` | Start or stop the daemon | status |
 
 Example diff after `click 18`:
@@ -540,6 +541,17 @@ Platform notes:
 - macOS 14 or later.
 - AX frames are in points, the same as CGEvent coordinates. Only OCR and screenshot crops convert from pixels.
 - 16 GB RAM: the daemon targets under 100 MB. Each VM takes 2 GB of memory and about 2 GB of disk, so a 16 GB Mac runs two or three beside the user's own work.
+
+## GitHub account
+
+`account login` signs the user in to GitHub through a GitHub App's device flow (`Account.swift`): apprentice asks GitHub for a short code, the user enters it at github.com/login/device, and apprentice polls until GitHub hands over a user token. There is no redirect server and no client secret, and the app's own permissions bound what the token can do, whatever the account could. `[account] client_id` (or `APPRENTICE_GITHUB_CLIENT_ID`) names the app; until one is registered, sign-in says so and does nothing.
+
+- **Where it is kept.** The access and refresh tokens are generic passwords in the login Keychain, this device only. `account.json` keeps the login, the user id and the two expiry times, never a token. No command prints a token, so an agent never sees one.
+- **Refresh.** A user token lasts 8 hours and its refresh token 6 months. `Account.token()` refreshes the token when it has less than 5 minutes left, and saves the new refresh token at once, since GitHub retires the old one. When the refresh token runs out, the user signs in again.
+- **In two steps.** `login --start` prints the code and URL and saves the waiting sign-in (`account-pending.json`, 0600); `login --wait` polls it; `login --cancel` removes it, which ends the poll. Plain `login` does all three in the terminal, opening the browser and copying the code. The window's Settings ▸ GitHub account card runs the same commands, and the sidebar shows the login.
+- **Checking.** `account status` asks GitHub whether the token still works (`--offline` does not); `doctor` prints the offline line. `logout` deletes the tokens and the profile; revoking the app on GitHub ends it everywhere.
+
+What the account is for comes next: error reports sent to the project's issues, and the user's settings kept in a private repository of their own (`TODO.md`).
 
 ## Open work
 

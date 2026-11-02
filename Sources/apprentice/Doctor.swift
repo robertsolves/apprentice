@@ -58,6 +58,8 @@ enum Doctor {
         out.append(Check(ok: !open, line: open ? "state: readable by other users" : "state: this user only",
                          fix: open ? "chmod 700 \(Store.dir.path); chmod 600 \(Config.path.path)" : nil))
         out.append(Check(ok: true, line: "sessions in the clone: \(Sessions.mode) ([storage] sessions)"))
+        // Offline: doctor never waits on GitHub. `account status` checks the token itself.
+        out.append(Check(ok: true, line: "github: " + Account.status(live: false)))
         out.append(Check(ok: true, line: "vm: " + (VM.tartPath == nil ? "not installed (optional; `apprentice vm setup`)" : (VM.state.on ? "browser sessions go to the VM" : "installed, off"))))
         // To a site the VM is another device, Linux with its own fingerprint (BOT_DETECTION S6, S12).
         if VM.state.on || VM.host != nil {

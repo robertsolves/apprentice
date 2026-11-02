@@ -419,6 +419,8 @@ final class AppModel: ObservableObject {
     /// A newer release for the DMG's app (`Release.available`), and how far its install has got.
     @Published var update: Release.Latest?
     @Published var updateStep = ""
+    /// The GitHub account signed in on this Mac (`account.json`; the token stays in the Keychain).
+    @Published var account: Account.Profile?
 
     let home = FileManager.default.homeDirectoryForCurrentUser
 
@@ -453,6 +455,7 @@ final class AppModel: ObservableObject {
         awayOn = Away.mode
         session = Session.stored
         update = Release.available
+        account = Account.profile
         busy = pending.count > 0 || StatusItem.state == .working
         revision += 1
         for tab in tabs { tab.hasApproval = pending.contains { $0.tab == tab.id } }
@@ -489,7 +492,7 @@ final class AppModel: ObservableObject {
     static let inClient: Set<String> = ["route", "playbooks", "notes", "prefs", "remember", "forget", "learn", "bug",
                                         "commit", "update", "settings", "repo", "policy", "budget", "activity", "flag",
                                         "grow", "sessions", "project", "doctor", "tour", "pr", "run", "replay", "vm",
-                                        "phone", "selftest", "version"]
+                                        "phone", "selftest", "version", "account"]
 
     /// Every button: the same request the CLI sends, marked as the user's own. It blocks, so it never runs
     /// on the main thread: `run(_:_:then:)` and `act` call it from a background queue.
@@ -766,6 +769,15 @@ struct RootView: View {
                     StatusPill(text: model.status, tint: model.statusTint)
                     if model.awayOn { StatusPill(text: "away", tint: Theme.teal) }
                     if Pause.on { StatusPill(text: "paused", tint: Theme.orange) }
+                }
+                if let account = model.account {
+                    Button { model.section = .settings } label: {
+                        Label("@\(account.login)", systemImage: "person.crop.circle.badge.checkmark")
+                            .font(.system(size: 10.5, weight: .medium, design: .rounded))
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Signed in to GitHub · Settings ▸ GitHub account")
                 }
                 Text("kill switch  ⌃⌥⌘.")
                     .font(.system(size: 9.5, design: .monospaced))
@@ -1989,6 +2001,7 @@ struct SettingsView: View {
                 }
             )
         } content: {
+            AccountCard(model: model)
             if raw {
                 CardSection(title: "config.toml", symbol: "doc.plaintext", tint: Theme.slate) {
                     TextEditor(text: $text)
@@ -2075,6 +2088,98 @@ struct SettingsView: View {
         edits.removeAll()
         load()
         status = "saved · a .bak is beside it"
+    }
+}
+
+/// The GitHub account on this Mac. Every button runs `account`, as a script would: `login --start` for the
+/// code, `login --wait` until it is entered on GitHub, `--cancel`, `status` and `logout`. The token never
+/// reaches the window, only the login it belongs to.
+struct AccountCard: View {
+    @ObservedObject var model: AppModel
+    @State private var code: String?
+    @State private var url: URL?
+    @State private var note = ""
+
+    var body: some View {
+        CardSection(title: "GitHub account", symbol: "person.crop.circle.badge.checkmark", tint: Theme.indigo) {
+            if let account = model.account {
+                FieldRow(label: "signed in as", value: "@\(account.login)" + (account.name.map { " · \($0)" } ?? ""), mono: true)
+                FieldRow(label: "since", value: Date(timeIntervalSince1970: account.since).formatted(date: .abbreviated, time: .omitted),
+                         tint: .secondary)
+            } else if let code {
+                VStack(alignment: .leading, spacing: Theme.s2) {
+                    Text("Enter this code on GitHub, then come back here.")
+                        .font(.callout)
+                    HStack(spacing: Theme.s3) {
+                        Text(code)
+                            .font(.system(size: 22, weight: .semibold, design: .monospaced))
+                            .textSelection(.enabled)
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(code, forType: .string)
+                        } label: { Label("Copy", systemImage: "doc.on.doc") }
+                        if let url {
+                            Button { NSWorkspace.shared.open(url) } label: { Label("Open GitHub", systemImage: "arrow.up.forward.app") }
+                        }
+                    }
+                    .controlSize(.small)
+                    HStack(spacing: Theme.s2) {
+                        ProgressView().controlSize(.small)
+                        Text("Waiting for GitHub…").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            } else {
+                Text("Sign in with GitHub. The token stays in your Keychain on this Mac, and agents never see it.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if !note.isEmpty {
+                Text(note)
+                    .font(Theme.mono)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            HStack(spacing: Theme.s2) {
+                if model.account != nil {
+                    Button { model.run("account", ["status"]) { _, out in note = out } } label: {
+                        Label("Check", systemImage: "checkmark.shield")
+                    }
+                    Button(role: .destructive) {
+                        model.run("account", ["logout"]) { _, out in note = out; model.refresh() }
+                    } label: { Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right") }
+                } else if code != nil {
+                    Button { model.run("account", ["login", "--cancel"]) { _, _ in } } label: {
+                        Label("Cancel", systemImage: "xmark")
+                    }
+                } else {
+                    Button { signIn() } label: { Label("Sign in with GitHub", systemImage: "person.badge.key") }
+                        .buttonStyle(.borderedProminent)
+                }
+                Spacer()
+            }
+            .controlSize(.small)
+        }
+    }
+
+    private func signIn() {
+        note = ""
+        model.run("account", ["login", "--start"]) { status, out in
+            guard status == 0, let start = Account.parseStart(out) else {
+                note = out
+                return
+            }
+            code = start.code
+            url = URL(string: start.url)
+            if let url { NSWorkspace.shared.open(url) }
+            model.run("account", ["login", "--wait"]) { _, out in
+                code = nil
+                url = nil
+                note = out
+                model.refresh()
+            }
+        }
     }
 }
 

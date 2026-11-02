@@ -34,6 +34,7 @@ enum SelfTest {
         siteSettings()
         gate()
         login()
+        account()
         prefs()
         allowlist()
         flows()
@@ -494,6 +495,26 @@ enum SelfTest {
 
     /// Signing in is off by default; on, a code prompt is a sign-in step, not a check, and sign-ins on a
     /// site are spaced out and capped a day.
+    /// The device flow's answers, read without the network or the Keychain (both are the user's, never the test's).
+    private static func account() {
+        let d = Account.parseDevice(["device_code": "dc", "user_code": "WDJB-MJHT", "verification_uri": "https://github.com/login/device",
+                                     "expires_in": 900, "interval": 5], now: 1000)
+        check(d?.userCode == "WDJB-MJHT" && d?.expires == 1900 && d?.interval == 5, "a device code is read with its expiry")
+        check(Account.parseDevice(["error": "unauthorized_client"]) == nil, "a refused device code is not a sign-in")
+        check(d.map { Account.parseStart(Account.describe($0))?.code == "WDJB-MJHT" } == true || d == nil,
+              "the window reads the code back from login --start")
+        check(Account.parseStart("code: AB-12\nurl: https://github.com/login/device\nexpires_s: 10")?.url == "https://github.com/login/device",
+              "the url keeps its colon")
+        check(Account.poll(["error": "authorization_pending"]) == .pending, "pending keeps polling")
+        check(Account.poll(["error": "slow_down", "interval": 10]) == .slowDown(10), "slow_down waits longer")
+        if case .failed = Account.poll(["error": "access_denied"]) {} else { check(false, "a cancelled sign-in stops") }
+        if case .failed = Account.poll(["error": "expired_token"]) {} else { check(false, "an expired code stops") }
+        let done = Account.poll(["access_token": "ghu_x", "refresh_token": "ghr_y", "expires_in": 28800, "refresh_token_expires_in": "15897600"])
+        check(done == .done(Account.Tokens(access: "ghu_x", refresh: "ghr_y", expiresIn: 28800, refreshExpiresIn: 15897600)),
+              "a token is read with both expiries, numbers or strings")
+        check(Account.poll(["access_token": ""]) != .pending && Account.poll([:]) != .pending, "an empty answer is not a token")
+    }
+
     private static func login() {
         let saved = Config.current
         defer { Config.current = saved }
