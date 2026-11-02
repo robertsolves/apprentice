@@ -125,7 +125,7 @@ enum Sessions {
     /// Keys never written to the clone, in any mode.
     static let secret = ["api_key", "apikey", "token", "password", "secret", "path"]
     /// What a scrubbed row may keep. Not `menu`: a menu item's title is screen text (a recent file, a bookmark).
-    static let kept: Set<String> = ["ts", "cmd", "code", "failed", "error", "diff", "ms", "waits", "app", "model", "task", "kind",
+    static let kept: Set<String> = ["ts", "cmd", "code", "failed", "error", "diff", "ms", "waits", "pace", "app", "model", "task", "kind",
                                     "vm", "label", "approved", "client", "found", "direction", "count", "combo"]
 
     static func scrub(_ row: [String: Any], mode: String) -> [String: Any]? {

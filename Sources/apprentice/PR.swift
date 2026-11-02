@@ -36,6 +36,16 @@ enum PR {
                 + found.prefix(20).map { "  - \($0)" }.joined(separator: "\n")
                 + "\nreplace each with a {placeholder} or a generic name, commit, then fold the commits into one so the old lines leave the history: git -C \(Repo.root.path) reset --soft \(remote)/\(base) && apprentice commit \"…\"")
         }
+        // Field reports and commit messages are public too, and `bug` copies the last error into a report.
+        let reports = Repo.git("log", "-p", "-U0", "--no-ext-diff", "--format=", range, "--", "BUGS.md").out
+        let messages = "+++ b/commit message\n" + Repo.git("log", "--format=%B", range).out
+            .components(separatedBy: "\n").map { "+" + $0 }.joined(separator: "\n")
+        let foundText = Playbooks.leaks(inPatch: reports) + Playbooks.leaks(inPatch: messages)
+        guard foundText.isEmpty else {
+            throw Fail(5, "nothing was offered: the field reports or commit messages look personal, and a PR is public:\n"
+                + foundText.prefix(20).map { "  - \($0)" }.joined(separator: "\n")
+                + "\nedit them out, then fold the commits into one so the old text leaves the history: git -C \(Repo.root.path) reset --soft \(remote)/\(base) && apprentice commit \"…\"")
+        }
         let test = Repo.run(Wire.binaryPath(), ["selftest"], in: Store.dir)
         guard test.code == 0 else {
             throw Fail(5, "selftest fails, so nothing was offered:\n\(test.out.split(separator: "\n").suffix(10).joined(separator: "\n"))")

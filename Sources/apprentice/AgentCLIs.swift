@@ -67,6 +67,13 @@ enum AgentCLIs {
     /// The editor apps a project's folder can be opened in.
     static func editors(_ list: [CLI] = all()) -> [CLI] { list.filter(\.isEditor) }
 
+    /// A line saying an agent is not installed and where to get it, nil when it is (or is unknown).
+    static func missingNote(_ id: String) -> String? {
+        let list = all()
+        guard let cli = find(id, in: list), !cli.detect.isEmpty, !installed(list).contains(cli.id) else { return nil }
+        return "\(cli.id) is not installed on this Mac" + (cli.install.map { " · get it: \($0)" } ?? "")
+    }
+
     /// The ids of the ones installed on this Mac. Commands are looked up in the user's login shell, since an
     /// app opened from Finder has a bare PATH without ~/.local/bin, npm's folder or Homebrew; this blocks for
     /// as long as that shell takes to start, so callers run it off the main thread.

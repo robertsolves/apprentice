@@ -40,7 +40,8 @@ enum MCP {
              ["from": ["type": "integer"], "to": ["type": "integer"], "by": ["type": "string"], "in": ["type": "integer"], "at": ["type": "string"]], []),
         tool("upload", "Click a file control and pick a file in the dialog", ["id": ["type": "integer"], "path": ["type": "string"]], ["id", "path"]),
         tool("download", "Save a linked file or image to a path", ["id": ["type": "integer"], "path": ["type": "string"]], ["id", "path"]),
-        tool("log", "The last steps of this session", ["tail": ["type": "integer"]]),
+        tool("log", "The last steps of this session; session: a past session's name (from sessions) to read that one instead", ["tail": ["type": "integer"], "session": ["type": "string"]]),
+        tool("sessions", "Past sessions on this Mac: when, app or site, task, steps and errors; read one with log's session", ["limit": ["type": "integer"]]),
         tool("prefs", "What the user uses (their gym's site, their handles, folders) on this device and its parent; check before a task", ["query": ["type": "string"]]),
         tool("remember", "Save a pref on this device, unasked: from: you (the user's own words) or task (the site or app the task ran on). Never other screen text",
              ["key": ["type": "string"], "value": ["type": "string"], "from": ["type": "string"]], ["key", "value", "from"]),
@@ -56,7 +57,7 @@ enum MCP {
         tool("pace", "How fast a site or app goes; with a style, sets it (only when the user said so, e.g. fastest for a logged-out site they scout)",
              ["site": ["type": "string"], "style": ["type": "string", "enum": ["fastest", "fast", "steady", "careful", "default"]]]),
         tool("choose", "In an open or save dialog, go to a path: picks a file or fills in a new name", ["path": ["type": "string"]], ["path"]),
-        tool("do", "Run a flow from playbooks/flows with one approval. vars: {\"name\": \"value\"} fills {name}", ["flow": ["type": "string"], "vars": ["type": "object"]], ["flow"]),
+        tool("do", "Run a flow from playbooks/flows with one approval. vars: {\"name\": \"value\"} fills {name}. explain: a task in words, to see which flow would be picked and its score, without running anything", ["flow": ["type": "string"], "vars": ["type": "object"], "explain": ["type": "string"]]),
         tool("ask", "When stuck or deciding, show the user a little window: free text, or choices (multi for checkboxes, text to add a reply field). Returns their reply. optional: a question they may leave (choices only); after a minute it returns 'carry on assuming <assume>'. Prefer choices, and optional for preferences",
              ["question": ["type": "string"], "choices": ["type": "array", "items": ["type": "string"]], "multi": ["type": "boolean"], "text": ["type": "boolean"],
               "optional": ["type": "boolean"], "assume": ["type": "string"]], ["question"]),
@@ -127,6 +128,7 @@ enum MCP {
             var a = [args["task"] as? String ?? ""]
             if let n = args["name"] as? String { a += ["--name", n] }
             return try Playbooks.learn(Args.parse(a))
+        case "sessions": return Sessions.list(Args.parse((args["limit"] as? Int).map { ["--limit", "\($0)"] } ?? []))
         case "prefs": return Prefs.list(Args.parse([args["query"] as? String ?? ""]))
         case "remember":
             return try Prefs.remember(Args.parse([args["key"] as? String ?? "", args["value"] as? String ?? "", "--from", args["from"] as? String ?? ""]))
@@ -220,7 +222,7 @@ enum MCP {
         case "upload", "download":
             return Request(cmd: name, args: [s("id") ?? "", s("path") ?? ""])
         case "log":
-            return Request(cmd: "log", args: s("tail").map { ["--tail", $0] } ?? [])
+            return Request(cmd: "log", args: (s("tail").map { ["--tail", $0] } ?? []) + (s("session").map { ["--session", $0] } ?? []))
         case "pending":
             return Request(cmd: "pending")
         case "resume":
@@ -234,6 +236,7 @@ enum MCP {
         case "choose":
             return Request(cmd: "choose", args: [s("path") ?? ""])
         case "do":
+            if let task = s("explain") { return Request(cmd: "do", args: ["--explain", task]) }
             var a = [s("flow") ?? ""]
             for (k, v) in (args["vars"] as? [String: Any] ?? [:]).sorted(by: { $0.key < $1.key }) { a += ["--\(k)", "\(v)"] }
             return Request(cmd: "do", args: a)

@@ -783,6 +783,7 @@ enum Schedules {
         var out = "added \(describe(s))"
         if !agentInstalled {
             out += "\nschedules fire while the daemon runs. `apprentice schedule agent on` starts it at login, so they run without anything else open"
+        if let id = s.agent, let note = AgentCLIs.missingNote(id) { out += "\n" + note }
         }
         return out
     }

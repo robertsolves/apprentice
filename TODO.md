@@ -36,7 +36,6 @@ From a `/simplify` pass on 2026-11-02; the small shared helpers landed, these we
 - A consent-wall step with its own dwell and a remembered choice per site (BOT_DETECTION S10); a playbook may do for the big sites.
 - A smaller re-read after an action whose diff is small, instead of a full walk (BOT_DETECTION A5).
 - Try `browse`, fidgets and the new path shapes live, on this Mac and in the VM, and tune the ranges in `Fidget.swift` and `Mouse.stroke` from what they look like (only `selftest` has run them so far).
-- Log the active pace style and profile on each row, so FEATURES.md can tell whether `careful` sites see fewer soft blocks.
 - Try `scroll left|right`, `scroll --at` and `drag --by` live on a web map, on this Mac and in the VM (only `selftest` has run them): check the sideways direction is right, and that `Mouse.drag`'s curved stroke pans smoothly.
 - No pinch or trackpad zoom (gesture events). The wheel and `+`/`-` cover web maps, but some apps zoom only by pinch.
 
@@ -75,7 +74,7 @@ The window (`apprentice app`), schedules and away are built; FEATURES.md lists w
 - The VM's clone follows the Mac clone's current branch only when it is first made; if the Mac switches branch, `vm install` rebases the VM's checkout onto the new branch instead of switching to it.
 - Fixes stay in each Mac's clone. To share them, point another Mac's `upstream` at this clone (any git URL works). If that turns out to be common, add `apprentice share`.
 
-- **Scan more of what `pr` shares for personal details.** `Playbooks.leaks` guards only `playbooks/`. Field reports in `BUGS.md` (filed by `bug` with the last error) and commit messages outside playbook commits also reach upstream through `pr`; run them through the same check there. Name parts of the user's identity that are common words (Will, Mark) can trip the check; consider an allowlist in config if that happens.
+- **Scan more of what `pr` shares for personal details.** Field reports and commit messages now go through `Playbooks.leaks` too. A name part of the user's identity that is a common word (Will, Mark) can trip the check; consider an allowlist in config if that happens.
 
 ## GitHub account
 
@@ -104,7 +103,6 @@ The window (`apprentice app`), schedules and away are built; FEATURES.md lists w
 - The start-up options window still runs on the command queue, inside the first `session`; only `ask`, `confirm`, `show`, `log` and `pending` moved off it.
 - `restartWhenIdle` sees a VM daemon's pending approval and recent activity, but not one long VM command still running after its one-minute quiet window.
 - `bug --fixed` was not added: fixed reports are deleted from `BUGS.md` and the commit is the record, so `pr` cites the `F<n>` the commit subjects name.
-- MCP does not expose `sessions`, `do --explain` or `log --session` yet.
 - Flows gained `sh:` steps; `learn` still drafts only screen steps, so a shell flow is written by hand.
 
 ## Agent commands
@@ -113,11 +111,9 @@ The window (`apprentice app`), schedules and away are built; FEATURES.md lists w
 - The MCP apps (Claude desktop, Cursor) don't get skills as skills: they rely on `session`'s `skills ·` line and the `playbooks` tool with the skill's name. Check in `grow` whether they actually load them, and if not, expose the skills as MCP prompts or resources, or have `session` print a site skill's first section on the first visit.
 
 - Antigravity is offered as an editor ("Open in Antigravity" on a project) but `connect.py` doesn't install apprentice's skills where it looks for them, and whether it reads a project's `AGENTS.md` or `GEMINI.md` is unchecked. Find its skills and rules folders, add it to `connect.py`, and note it in `agent/agents.toml`.
-- The agent pickers hide CLIs that aren't installed, but `project new --agent <id>` and `schedule add --agent` on the command line accept one that isn't; they could warn with its `install` link.
 
 ## Site
 
 - `robots.txt` is not served: Pages publishes `site/` under `/apprentice/`, and crawlers read only the domain root (`robertsolves.github.io/robots.txt`). Submit `https://robertsolves.github.io/apprentice/sitemap.xml` in Google Search Console and Bing Webmaster Tools instead, or move the site to its own domain and add one there.
-- `sitemap.xml` has a hand-written `lastmod`; bump it when the page changes, or have the Pages workflow write it from the last commit date.
 - No per-feature pages yet (approvals, Linux VM, site rules, supported agents): each would give search and answer engines a page that answers one question.
 - Demo videos (decided 2026-11-02: the page shows only essentials, and video shows what it does). Short screen recordings, about 20–40 s each, muted and captioned so they play inline: one hero video (ask in the agent → the list it reads → the approval window → the cursor doing it) in the hero below the buttons (the "Demo video goes here" comment in `site/index.html`), then one per step of "How it works". Use `<video autoplay muted loop playsinline poster=…>` with a still poster for reduced motion, keep each file small (H.264/WebM under a few MB, in `site/assets/`), and record in a clean account with no personal data on screen.

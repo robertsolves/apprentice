@@ -230,6 +230,7 @@ enum Projects {
         remember(p)
         out.append("project \(name) · \(folder.path) · " + (vm.map { "VM \($0)" } ?? "this Mac"))
         if let vm, !VM.exists(vm) { out.append("the VM \(vm) is not set up yet: apprentice --vm \(vm) vm setup") }
+        if let note = AgentCLIs.missingNote(agent) { out.append(note) }
         out.append("open it: cd \(VM.shellQuoted(folder.path))" + (vm.map { " && export APPRENTICE_VM=\($0)" } ?? ""))
         return out.joined(separator: "\n")
     }

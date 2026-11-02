@@ -28,8 +28,24 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Check the page's search basics
         run: python3 .github/scripts/check_site.py site
+      - name: Set each page's lastmod from its last commit
+        run: |
+          for f in $(grep -o '<loc>[^<]*' site/sitemap.xml | sed 's|.*/apprentice/||'); do
+            page=site/${f:-index.html}
+            d=$(git log -1 --format=%cs -- "$page")
+            [ -n "$d" ] && python3 - "$f" "$d" <<'PY'
+          import re, sys
+          f, d = sys.argv[1:3]
+          s = open("site/sitemap.xml").read()
+          loc = "https://robertsolves.github.io/apprentice/" + f
+          s = re.sub(r"(<loc>" + re.escape(loc) + r"</loc>\s*<lastmod>)[^<]*", r"\g<1>" + d, s)
+          open("site/sitemap.xml", "w").write(s)
+          PY
+          done
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -688,9 +688,15 @@ struct Config {
             }
         }
         if current.profiles[session.app.lowercased()] != nil { return session.app.lowercased() }
+        activeProfile = "default"
         return session.isBrowser ? "web" : "native"
     }
+        activeProfile = key.lowercased()
 }
+
+    /// The profile the last `activate` chose, written on each log row (`pace`, with the mode) so `grow` can
+    /// tell whether `careful` sites see fewer soft blocks.
+    static var activeProfile = "default"
 
 /// `pace [site [style | default]]`: which style a site or app runs at, kept as `[pace.styles]` lists in
 /// config.toml. `fastest` suits a logged-out site the user only reads (scouting): real input still, but

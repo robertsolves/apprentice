@@ -272,6 +272,7 @@ enum Timing {
         guard let started else { return [:] }
         var f: [String: Any] = ["ms": Int(Date().timeIntervalSince(started) * 1000)]
         if !waits.isEmpty { f["waits"] = waits.mapValues { Int($0 * 1000) } }
+        f["pace"] = "\(Config.activeProfile) \(Config.current.pace.mode)"
         return f
     }
 }
