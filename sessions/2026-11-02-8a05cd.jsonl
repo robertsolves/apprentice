@@ -1,0 +1,11 @@
+{"app":"Google Chrome","cmd":"session","host":"newtab","model":"claude-opus-5-5","ms":1119,"ts":"2026-11-02T13:40:50.181+10:00"}
+{"model":"claude-opus-5-5","task":"canary flow timing run","ts":"2026-11-02T13:40:50.181+10:00"}
+{"cmd":"read","model":"claude-opus-5-5","ms":33,"ts":"2026-11-02T13:40:50.237+10:00"}
+{"model":"claude-opus-5-5","proposed":true,"ts":"2026-11-02T13:40:50.258+10:00"}
+{"approved":true,"gate":true,"model":"claude-opus-5-5","ts":"2026-11-02T13:40:50.286+10:00"}
+{"cmd":"open","diff":"+0 -28 ~0","host":"new-tab-page","model":"claude-opus-5-5","ms":2768,"ts":"2026-11-02T13:40:53.055+10:00","waits":{"idle":0,"settle":262}}
+{"cmd":"type","diff":"+6 -2 ~1","host":"127.0.0.1","label":"textarea","model":"claude-opus-5-5","ms":17902,"ts":"2026-11-02T13:41:08.189+10:00","waits":{"gap":841,"idle":0,"move":584,"settle":547,"type":12298}}
+{"cmd":"type","diff":"+2 -2 ~1","host":"127.0.0.1","label":"textbox","model":"claude-opus-5-5","ms":30504,"ts":"2026-11-02T13:41:20.791+10:00","waits":{"fidget":5070,"gap":2188,"idle":0,"move":5478,"settle":846,"type":16145}}
+{"cmd":"click","diff":"+7 -8 ~0","host":"127.0.0.1","label":"link","model":"claude-opus-5-5","ms":34038,"ts":"2026-11-02T13:41:24.324+10:00","waits":{"fidget":5070,"gap":3838,"idle":0,"move":6202,"settle":1331,"type":16145}}
+{"code":5,"error":"flow flows\/canary-full-test.md · 39 steps","failed":"approve","model":"claude-opus-5-5","ts":"2026-11-02T13:41:26.107+10:00"}
+{"cmd":"read","model":"claude-opus-5-5","ms":17,"ts":"2026-11-02T13:41:31.006+10:00"}
