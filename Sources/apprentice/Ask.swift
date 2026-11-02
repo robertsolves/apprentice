@@ -185,6 +185,7 @@ enum Ask {
             send.title = "OK ↩"
             send.setAccessibilityLabel("OK, Return")
             panel.setContentSize(stack.fittingSize)
+            keepOnScreen(panel)
             let close = Timer(timeInterval: 20, repeats: false) { _ in NSApplication.shared.stopModal(withCode: .abort) }
             RunLoop.main.add(close, forMode: .modalPanel)
             response = NSApplication.shared.runModal(for: panel)
@@ -207,6 +208,15 @@ enum Ask {
         if let frame = screen?.visibleFrame {
             panel.setFrameTopLeftPoint(NSPoint(x: frame.midX - panel.frame.width / 2, y: frame.maxY - 12))
         }
+    }
+
+    /// Slides a panel back inside the visible screen, so a window that grew never runs off an edge.
+    static func keepOnScreen(_ panel: NSWindow) {
+        guard let v = (panel.screen ?? NSScreen.main)?.visibleFrame else { return }
+        var f = panel.frame
+        f.origin.x = min(max(f.origin.x, v.minX + 8), max(v.maxX - f.width - 8, v.minX + 8))
+        f.origin.y = min(max(f.origin.y, v.minY + 8), max(v.maxY - f.height - 8, v.minY + 8))
+        if f != panel.frame { panel.setFrame(f, display: true) }
     }
 
     /// Dialogs are blue, so they stand out from the work behind them: white text on apprentice's blue.

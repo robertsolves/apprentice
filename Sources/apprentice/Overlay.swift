@@ -70,8 +70,18 @@ enum Overlay {
         pauseButton.target = handler
         pauseButton.action = #selector(Handler.togglePause)
         pauseButton.bezelStyle = .rounded
-        pauseButton.controlSize = .small
+        pauseButton.controlSize = .regular
         pauseButton.setContentHuggingPriority(.required, for: .horizontal)
+        pauseButton.widthAnchor.constraint(equalToConstant: 84).isActive = true
+        pauseButton.bezelColor = .systemOrange
+        pauseButton.contentTintColor = .white
+        pauseButton.font = .boldSystemFont(ofSize: 12)
+        // The text column takes the slack and clips, so a long line never widens the box.
+        title.lineBreakMode = .byTruncatingTail
+        for label in [title, detail] {
+            label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+            label.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        }
 
         let text = NSStackView(views: [title, detail])
         text.orientation = .vertical
@@ -88,7 +98,10 @@ enum Overlay {
         row.edgeInsets = NSEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
         p.contentView = row
         row.layoutSubtreeIfNeeded()
-        p.setContentSize(NSSize(width: max(row.fittingSize.width, 300), height: max(row.fittingSize.height, 52)))
+        // A fixed width: the box sits at the top right, so it must never grow sideways off the screen.
+        row.widthAnchor.constraint(equalToConstant: 340).isActive = true
+        row.layoutSubtreeIfNeeded()
+        p.setContentSize(NSSize(width: 340, height: max(row.fittingSize.height, 56)))
         place(p)
         p.orderFrontRegardless()
         panel = p
@@ -126,9 +139,12 @@ enum Overlay {
         title.stringValue = head
         detail.stringValue = sub
         pauseButton.title = label
+        // Orange to hold, green to go on: the one control worth finding at a glance.
+        pauseButton.bezelColor = Pause.on ? .systemGreen : .systemOrange
         if let p = panel {
             // Back on screen if a display went away or the window was dragged off.
             if !NSScreen.screens.contains(where: { $0.visibleFrame.intersects(p.frame) }) { place(p) }
+            Ask.keepOnScreen(p)
             p.orderFrontRegardless()
         }
     }
