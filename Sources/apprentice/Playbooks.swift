@@ -88,8 +88,9 @@ enum Playbooks {
 
     static func hintLines(app: String?, bundle: String?, host: String?, system: String = "macos") -> [String] {
         let notes = matching(app: app, bundle: bundle, host: host, system: system)
-        guard !notes.isEmpty else { return [] }
-        var out: [String] = []
+        let guides = skills(host: host, system: system).map(\.name)
+        var out: [String] = guides.isEmpty ? [] : ["skills · \(guides.joined(separator: ", ")): load them before acting (no skills in your agent: apprentice playbooks <name>)"]
+        guard !notes.isEmpty else { return out }
         for note in notes {
             out.append("playbook · \(note.path)")
             out += note.keyFacts.prefix(6).map { "  - \($0)" }
@@ -98,8 +99,46 @@ enum Playbooks {
         return out
     }
 
-    /// Ranks playbooks by how many query words they contain and shows the matching lines.
+    // MARK: - skills
+
+    /// The repo's `skills/<name>/SKILL.md`: hand-written judgement (how a person uses a site or system) that
+    /// kit.sh installs where agents look for skills. Playbooks hold the mechanics; skills say how to behave.
+    struct Skill {
+        var name: String
+        var url: URL
+        var note: Playbook
+        /// `metadata: hosts:` in the front matter; "*" is every website.
+        var hosts: [String] {
+            (note.meta["hosts"] ?? "").replacingOccurrences(of: "\"", with: "").split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }.filter { !$0.isEmpty }
+        }
+    }
+
+    static var skillsDir: URL { repo.appendingPathComponent("skills") }
+
+    static func skills() -> [Skill] {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: skillsDir.path)) ?? []
+        return names.sorted().compactMap { name in
+            let url = skillsDir.appendingPathComponent(name).appendingPathComponent("SKILL.md")
+            guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+            return Skill(name: name, url: url, note: parse(text, url: url, path: "skills/\(name)/SKILL.md"))
+        }
+    }
+
+    /// Skills for this window, general first: on a page, the web skill and the site's; elsewhere, the system's.
+    static func skills(host: String?, system: String) -> [Skill] {
+        let all = skills()
+        guard let h = host?.lowercased(), !h.isEmpty else { return all.filter { $0.hosts.isEmpty && $0.note.meta["system"] == system } }
+        return all.filter { $0.hosts.contains("*") } + all.filter { s in s.hosts.contains { h == $0 || h.hasSuffix("." + $0) } }
+    }
+
+    /// Ranks playbooks by how many query words they contain and shows the matching lines. A query that
+    /// names a skill prints the skill, so agents without skill support (MCP apps, the `run` loop) can read it.
     static func search(_ query: String) -> String {
+        let named = query.trimmingCharacters(in: .whitespaces).lowercased()
+        if let skill = skills().first(where: { $0.name == named }) {
+            return "\(skill.note.path)\n\(skill.note.body.trimmingCharacters(in: .whitespacesAndNewlines))"
+        }
         let root = dir.resolvingSymlinksInPath()
         guard FileManager.default.fileExists(atPath: root.path) else {
             return "no playbooks at \(dir.path): run ./kit.sh to link the repo's playbooks/, or set APPRENTICE_PLAYBOOKS"
@@ -128,9 +167,13 @@ enum Playbooks {
 
     /// Playbook text for the `run` loop: the window's playbooks plus the best flow for this task and model, kept
     /// under a budget so a long playbook cannot crowd out the screen.
-    static func context(task: String, session: Session?, model: String? = Store.model, budget: Int = 3000) -> String {
-        var parts = hintLines(app: session?.app, bundle: session?.bundle, host: hostOf(session?.url),
-                              system: session?.vm == true ? "linux" : "macos")
+    static func context(task: String, session: Session?, model: String? = Store.model, budget: Int = 6000) -> String {
+        let system = session?.vm == true ? "linux" : "macos"
+        var parts = hintLines(app: session?.app, bundle: session?.bundle, host: hostOf(session?.url), system: system)
+        // The loop's model has no skills of its own: the site's skill comes in whole, the general ones are named.
+        for skill in skills(host: hostOf(session?.url), system: system) where !skill.hosts.contains("*") && !skill.hosts.isEmpty {
+            parts.append("skill · \(skill.name)\n\(skill.note.body.trimmingCharacters(in: .whitespacesAndNewlines))")
+        }
         if let best = rank(task: task, model: model, session: session).first {
             parts.append("flow · \(best.note.path) (\(best.why))\n\(best.note.body.trimmingCharacters(in: .whitespacesAndNewlines))")
         }
@@ -323,8 +366,9 @@ enum Playbooks {
     /// `playbooks --check`: every playbook, whole, through `leaks`, so a personal detail is found before a
     /// commit or a PR refuses it.
     static func checkAll() throws -> String {
-        let found = all().flatMap { p in leaks(p.body + "\n" + p.title + "\n" + p.meta.values.joined(separator: "\n")).map { "\(p.path): \($0)" } }
-        guard !found.isEmpty else { return "\(all().count) playbooks checked: nothing personal found" }
+        let checked = all() + skills().map(\.note)
+        let found = checked.flatMap { p in leaks(p.body + "\n" + p.title + "\n" + p.meta.values.joined(separator: "\n")).map { "\(p.path): \($0)" } }
+        guard !found.isEmpty else { return "\(checked.count) playbooks and skills checked: nothing personal found" }
         throw Fail(5, "these look personal, and playbooks are shared:\n" + found.map { "  - \($0)" }.joined(separator: "\n"))
     }
 

@@ -44,6 +44,7 @@ Every decision that is theirs (options, risk, unclear task, stuck) goes to the l
 - Go only where the task needs. On social sites read before you like, follow or reply. Stay in the session window. No secrets in commands.
 - Never change `policy`, `awake` or `settings` yourself; never run `update`. Pass on `apprentice:` update lines and the first session's risk line.
 
+- `session` names the skills for the window (`apprentice-web`, `apprentice-macos`, `apprentice-linux`, `apprentice-<site>`): load them before acting. Without skill support, `apprentice playbooks <skill>` prints one.
 ## Improving apprentice
 After a task works: `learn "<task>"`, then generalize the draft with `{placeholders}`. Playbooks are shared: no screen text or personal details (names, emails, numbers, ids, paths, tokens); `playbooks --check` finds them. Wrong playbook: edit `<repo>/playbooks/` (`apprentice repo`), then `commit "why"`. apprentice misbehaves: smallest generic fix per `<repo>/CLAUDE.md`, `commit "…"` (rebuilds); too big: `bug "summary" --cause … --fix …`.
 

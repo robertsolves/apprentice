@@ -18,6 +18,12 @@ binary = sys.argv[1]
 remove = "--remove" in sys.argv[2:]
 section = open(os.path.join(root, "AGENTS.md")).read().strip()
 skill_text = open(os.path.join(root, "SKILL.md")).read()
+# The repo's skills/ (apprentice-web, apprentice-macos, apprentice-<site>, …) go beside the core skill.
+skills_root = os.path.join(os.path.dirname(root), "skills")
+extra_skills = {
+    name: open(os.path.join(skills_root, name, "SKILL.md")).read()
+    for name in sorted(os.listdir(skills_root)) if os.path.isfile(os.path.join(skills_root, name, "SKILL.md"))
+} if os.path.isdir(skills_root) else {}
 start, end = "<!-- apprentice -->", "<!-- /apprentice -->"
 
 
@@ -28,20 +34,30 @@ def installed(commands, folder):
 
 
 def skill(name, commands, folder):
-    """Writes SKILL.md to <folder>/apprentice/SKILL.md; commands=None means always."""
+    """Writes the core SKILL.md to <folder>/apprentice/ and each of skills/ to <folder>/<its name>/;
+    commands=None means always. An apprentice-* skill that left the repo is taken out."""
     if commands is not None and not installed(commands, folder):
         return
-    path = os.path.join(folder, "apprentice", "SKILL.md")
+    wanted = {"apprentice": skill_text, **({} if remove else extra_skills)}
+    present = [d for d in (os.listdir(folder) if os.path.isdir(folder) else [])
+               if d == "apprentice" or d.startswith("apprentice-")]
+    for gone in present:
+        path = os.path.join(folder, gone, "SKILL.md")
+        if (remove or gone not in wanted) and os.path.exists(path):
+            shutil.rmtree(os.path.join(folder, gone))
+            print(f"{name}: removed {os.path.join(folder, gone)}")
     if remove:
-        if os.path.exists(path):
-            shutil.rmtree(os.path.dirname(path))
-            print(f"{name}: removed {os.path.dirname(path)}")
         return
-    if os.path.exists(path) and open(path).read() == skill_text:
-        return
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    open(path, "w").write(skill_text)
-    print(f"{name}: skill in {path}")
+    written = []
+    for skill_name, text in wanted.items():
+        path = os.path.join(folder, skill_name, "SKILL.md")
+        if os.path.exists(path) and open(path).read() == text:
+            continue
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        open(path, "w").write(text)
+        written.append(skill_name)
+    if written:
+        print(f"{name}: skills in {folder}: {', '.join(written)}")
 
 
 def rules(name, commands, folder, filename):

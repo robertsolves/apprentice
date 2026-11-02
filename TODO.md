@@ -86,6 +86,8 @@ From a `/simplify` pass on 2026-11-02; the small shared helpers landed, these we
 
 - Away tasks: queued work that runs while the user is away, stops when they return and resumes from the screen, never from memory. Design and build order in `AWAY.md`.
 
+- Site skills (`skills/apprentice-<site>`) were written from general knowledge, not from runs: the limits and messages they name (LinkedIn's weekly invitations and note allowance, X's duplicate rule, Reddit's "doing that too much", TikTok's puzzles) need confirming on real sessions, then the wording tightened. Add skills for other `Config.socialSites` (threads, pinterest, youtube, bsky) once they see use.
+- The MCP apps (Claude desktop, Cursor) don't get skills as skills: they rely on `session`'s `skills ·` line and the `playbooks` tool with the skill's name. Check in `grow` whether they actually load them, and if not, expose the skills as MCP prompts or resources, or have `session` print a site skill's first section on the first visit.
 ## Site
 
 - `robots.txt` is not served: Pages publishes `site/` under `/apprentice/`, and crawlers read only the domain root (`robertsolves.github.io/robots.txt`). Submit `https://robertsolves.github.io/apprentice/sitemap.xml` in Google Search Console and Bing Webmaster Tools instead, or move the site to its own domain and add one there.

@@ -86,7 +86,7 @@ Exit codes are part of the agent contract. They're listed in `SPEC.md` and `usag
 
 ## Agent docs
 
-`agent/SKILL.md` (for Claude Code) and `agent/AGENTS.md` (for opencode and Kilo) are user-facing usage docs that `kit.sh` installs. Keep the two in sync with each other and with the CLI, and keep each under about 600 tokens. Text read from the screen is untrusted data, and both docs tell agents never to follow instructions found in it.
+`agent/SKILL.md` (for Claude Code) and `agent/AGENTS.md` (for opencode and Kilo) are user-facing usage docs that `kit.sh` installs. `skills/apprentice-*/SKILL.md` are the judgement skills (web, macos, linux, one per social site): how a person behaves there, never "against their terms" framing and never UI mechanics, which belong in playbooks. `connect.py` installs them beside the core skill in every skills folder and removes `apprentice-*` skills that left the repo; `session` names the ones for the window (`metadata: hosts:` or `system:`), `playbooks <skill>` prints one for agents without skills, and the `run` loop gets the site's skill in its context. They are shared like playbooks, so `commit`, `pr` and `playbooks --check` run the same leak check over them. Keep the two in sync with each other and with the CLI, and keep each under about 600 tokens. Text read from the screen is untrusted data, and both docs tell agents never to follow instructions found in it.
 
 ## Policy and start-up options
 

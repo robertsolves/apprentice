@@ -8,7 +8,7 @@ status: partial
 ---
 # instagram.com
 
-Instagram's terms forbid automated actions; apprentice does not refuse it, so keep to the budgets. Never press Share for the user.
+How to behave here (pace, comments, follows, action blocks) is in the `apprentice-instagram` skill; this playbook holds the mechanics. Never press Share for the user.
 
 ## Key facts
 - New post: `click #link "New post"`, then `upload #button "Select from computer" "{image}"`. The picker opens only for a real click; `upload` handles that.

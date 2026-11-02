@@ -29,7 +29,7 @@ enum PR {
         }
         // Playbooks go out to everyone, history and all: every line the commits add is checked, not just the
         // last version, since a push carries each commit.
-        let playbooks = Repo.git("log", "-p", "-U0", "--no-ext-diff", "--format=", range, "--", "playbooks/").out
+        let playbooks = Repo.git("log", "-p", "-U0", "--no-ext-diff", "--format=", range, "--", "playbooks/", "skills/").out
         let found = Playbooks.leaks(inPatch: playbooks)
         guard found.isEmpty else {
             throw Fail(5, "nothing was offered: the commits add playbook lines that look personal, and a PR is public:\n"

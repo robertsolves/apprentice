@@ -9,6 +9,8 @@ What an LLM learned driving apps and sites, kept so the next run does not have t
 - `apprentice do --explain "task"` shows which flow a task would pick for the current model (`APPRENTICE_MODEL`), and why.
 - `routes-learned.toml` is written by `do` the first time a model runs a flow to the end, so `route` points that model straight at it next time.
 
+Playbooks are the mechanics: labels, steps and flows, learned on screen. Judgement (how a person behaves on a site or system) lives in the repo's `skills/apprentice-*`, which `kit.sh` installs as agent skills; `session` names the ones that fit.
+
 ## Layout
 
 - `macos/` playbooks for one app, or for system parts every app shares (save panels).
