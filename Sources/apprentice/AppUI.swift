@@ -30,19 +30,19 @@ enum AppBundle {
         return (try? p.run()) != nil
     }
 
+    /// `apprentice app --install`, from kit.sh: builds the bundle and signs it, without opening a window.
+    static func install() -> Int32 {
+        guard Notify.appBundleExecutable() != nil else { return 1 }
+        sign()
+        return 0
+    }
+
     /// Signs the bundle with the local identity where there is one, so its grants survive a rebuild.
     static func sign() {
         let identities = Repo.run("security", ["find-identity", "-p", "codesigning"]).out
         let identity = ProcessInfo.processInfo.environment["APPRENTICE_SIGN_IDENTITY"]
             ?? (identities.contains("\"apprentice\"") ? "apprentice" : "-")
         _ = Repo.run("codesign", ["--force", "--deep", "-s", identity, path.path])
-    }
-
-    /// `apprentice app --install`, from kit.sh: builds the bundle and signs it, without opening a window.
-    static func install() -> Int32 {
-        guard Notify.appBundleExecutable() != nil else { return 1 }
-        sign()
-        return 0
     }
 
     /// `apprentice app` from a terminal: the CLI builds the bundle and opens it, so the window is its own process.
@@ -65,6 +65,7 @@ enum AppMain {
         app.delegate = delegate
         app.setActivationPolicy(.regular)
         app.applicationIconImage = Ask.icon
+        app.appearance = nil
         if let icon = NSImage(contentsOfFile: Bundle.main.bundlePath + "/Contents/Resources/AppIcon.icns") {
             app.applicationIconImage = icon
         }
@@ -77,16 +78,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var window: NSWindow?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Files and folders dropped on the Dock icon open a tab there.
         NSApp.activate(ignoringOtherApps: true)
         let model = AppModel()
         let root = RootView(model: model)
         let hosting = NSHostingView(rootView: root)
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1180, height: 760),
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 780),
                               styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                               backing: .buffered, defer: false)
         window.title = "apprentice"
+        window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
+        window.styleMask.insert(.fullSizeContentView)
+        window.toolbarStyle = .unified
         window.contentView = hosting
         window.setFrameAutosaveName("apprentice.window")
         window.center()
@@ -130,6 +133,213 @@ enum MainMenu {
         return main
     }
 }
+
+// MARK: - Design system
+
+/// One visual language for the window: the spacing scale, the corner radius, the card surface and the
+/// section tints. Everything on screen uses these, so the nine screens read as one app rather than nine.
+enum Theme {
+    static let accent = Color(red: 0.32, green: 0.56, blue: 0.98)
+    static let green = Color(red: 0.22, green: 0.66, blue: 0.42)
+    static let orange = Color(red: 0.93, green: 0.55, blue: 0.16)
+    static let red = Color(red: 0.86, green: 0.30, blue: 0.30)
+    static let teal = Color(red: 0.17, green: 0.63, blue: 0.64)
+    static let indigo = Color(red: 0.40, green: 0.42, blue: 0.86)
+    static let plum = Color(red: 0.63, green: 0.36, blue: 0.74)
+    static let slate = Color(red: 0.42, green: 0.47, blue: 0.56)
+
+    /// 4-pt scale: 4, 8, 12, 16, 20, 24.
+    static let s1: CGFloat = 4
+    static let s2: CGFloat = 8
+    static let s3: CGFloat = 12
+    static let s4: CGFloat = 16
+    static let s5: CGFloat = 20
+    static let s6: CGFloat = 24
+
+    static let radius: CGFloat = 12
+    static let radiusSmall: CGFloat = 8
+    static let page = EdgeInsets(top: 20, leading: 24, bottom: 20, trailing: 24)
+
+    static var canvas: Color { Color(nsColor: .windowBackgroundColor) }
+    static var surface: Color { Color(nsColor: .controlBackgroundColor) }
+    static var hairline: Color { Color.primary.opacity(0.08) }
+
+    static func title(_ size: CGFloat = 20) -> Font { .system(size: size, weight: .semibold, design: .rounded) }
+    static var sectionTitle: Font { .system(size: 11, weight: .semibold, design: .rounded) }
+    static var mono: Font { .system(size: 11.5, design: .monospaced) }
+}
+
+extension View {
+    /// A raised surface: a material card with a hairline and a soft shadow, used for every group on screen.
+    func card(_ padding: CGFloat = Theme.s3) -> some View {
+        self
+            .padding(padding)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: Theme.radius, style: .continuous)
+                    .strokeBorder(Theme.hairline)
+            )
+            .shadow(color: .black.opacity(0.06), radius: 8, y: 2)
+    }
+
+    func sectionLabel() -> some View {
+        self.font(Theme.sectionTitle)
+            .textCase(.uppercase)
+            .tracking(0.6)
+            .foregroundStyle(.secondary)
+    }
+}
+
+/// A rounded tile behind an SF Symbol, the app's one icon treatment.
+struct IconTile: View {
+    let symbol: String
+    var tint: Color = Theme.accent
+    var size: CGFloat = 30
+    var solid = false
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: size * 0.46, weight: .semibold))
+            .foregroundStyle(solid ? AnyShapeStyle(.white) : AnyShapeStyle(tint))
+            .frame(width: size, height: size)
+            .background(
+                RoundedRectangle(cornerRadius: size * 0.30, style: .continuous)
+                    .fill(solid
+                          ? AnyShapeStyle(LinearGradient(colors: [tint.opacity(0.92), tint], startPoint: .top, endPoint: .bottom))
+                          : AnyShapeStyle(tint.opacity(0.13)))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: size * 0.30, style: .continuous)
+                    .strokeBorder(tint.opacity(solid ? 0 : 0.18))
+            )
+            .accessibilityHidden(true)
+    }
+}
+
+/// A small state chip: `on`, `paused`, `needs you`, a run result.
+struct StatusPill: View {
+    let text: String
+    var tint: Color = Theme.slate
+    var dot = true
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if dot {
+                Circle().fill(tint).frame(width: 5, height: 5)
+            }
+            Text(text)
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 7)
+        .padding(.vertical, 2.5)
+        .foregroundStyle(tint)
+        .background(Capsule().fill(tint.opacity(0.13)))
+    }
+}
+
+/// A labelled value in a card: the small key above, its value below.
+struct FieldRow: View {
+    let label: String
+    let value: String
+    var mono = false
+    var tint: Color?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(label).sectionLabel()
+            Text(value)
+                .font(mono ? Theme.mono : .callout)
+                .foregroundStyle(tint ?? .primary)
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+/// A titled group of rows inside a card, with the icon and tint of what it belongs to.
+struct CardSection<Content: View>: View {
+    let title: String
+    let symbol: String
+    var tint: Color = Theme.accent
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.s3) {
+            HStack(spacing: Theme.s2) {
+                IconTile(symbol: symbol, tint: tint, size: 22)
+                Text(title).font(.system(size: 13, weight: .semibold, design: .rounded))
+                Spacer(minLength: 0)
+            }
+            content()
+        }
+        .card(Theme.s4)
+    }
+}
+
+/// The header every screen starts with: an icon, a title, one line of context, and the screen's actions.
+struct ScreenHeader<Actions: View>: View {
+    let title: String
+    let subtitle: String
+    let icon: String
+    var tint: Color = Theme.accent
+    @ViewBuilder var actions: () -> Actions
+
+    var body: some View {
+        HStack(alignment: .center, spacing: Theme.s3) {
+            IconTile(symbol: icon, tint: tint, size: 38, solid: true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(Theme.title(21))
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: Theme.s3)
+            actions()
+        }
+    }
+}
+
+extension ScreenHeader where Actions == EmptyView {
+    init(title: String, subtitle: String = "", icon: String, tint: Color = Theme.accent) {
+        self.init(title: title, subtitle: subtitle, icon: icon, tint: tint, actions: { EmptyView() })
+    }
+}
+
+/// A page: the header, then its cards, on a soft wash of the section's tint at the top.
+struct ScreenPage<Content: View>: View {
+    let title: String
+    let subtitle: String
+    let icon: String
+    var tint: Color = Theme.accent
+    @ViewBuilder var actions: () -> AnyView
+    @ViewBuilder var content: () -> Content
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            LinearGradient(colors: [tint.opacity(0.10), tint.opacity(0.0)],
+                           startPoint: .top, endPoint: .bottom)
+                .frame(height: 150)
+                .allowsHitTesting(false)
+            ScrollView {
+                VStack(alignment: .leading, spacing: Theme.s4) {
+                    ScreenHeader(title: title, subtitle: subtitle, icon: icon, tint: tint, actions: actions)
+                    content()
+                }
+                .padding(Theme.page)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .background(Theme.canvas)
+    }
+}
+
+// MARK: - Model
 
 /// What the window shows and the one place it acts: every button goes through a command (`Wire.send`) or a
 /// file the commands own, so nothing works here that a script could not do.
@@ -188,8 +398,14 @@ final class AppModel: ObservableObject {
 
     var status: String {
         if !pending.isEmpty { return "needs approval" }
-        if !daemonUp { return "idle" }
+        if !daemonUp { return "daemon stopped" }
         return busy ? "working" : "idle"
+    }
+
+    var statusTint: Color {
+        if !pending.isEmpty { return Theme.orange }
+        if !daemonUp { return Theme.slate }
+        return busy ? Theme.accent : Theme.green
     }
 
     // MARK: - acts
@@ -247,10 +463,10 @@ final class AppModel: ObservableObject {
         newTab(preset: "Log", command: "apprentice log --tail 50 && exec tail -f \(Sessions.runs.path)/$(ls -t \(Sessions.runs.path) | head -1)/steps.jsonl | sed 's/^{//;s/}$//'")
     }
 
-    // MARK: - settings
-
     static var exampleConfig: URL { Repo.root.appendingPathComponent("agent/config.example.toml") }
 }
+
+// MARK: - Navigation
 
 enum Section: String, CaseIterable, Identifiable {
     case terminal = "Terminal"
@@ -268,14 +484,42 @@ enum Section: String, CaseIterable, Identifiable {
     var symbol: String {
         switch self {
         case .terminal: return "apple.terminal"
-        case .schedules: return "clock"
+        case .schedules: return "clock.badge.checkmark"
         case .approvals: return "hand.raised"
-        case .activity: return "chart.bar"
+        case .activity: return "waveform.path.ecg"
         case .sites: return "globe"
         case .settings: return "slider.horizontal.3"
-        case .playbooks: return "book"
+        case .playbooks: return "book.closed"
         case .vms: return "desktopcomputer"
-        case .health: return "heart"
+        case .health: return "heart.text.square"
+        }
+    }
+
+    var tint: Color {
+        switch self {
+        case .terminal: return Theme.accent
+        case .schedules: return Theme.indigo
+        case .approvals: return Theme.orange
+        case .activity: return Theme.teal
+        case .sites: return Theme.green
+        case .settings: return Theme.slate
+        case .playbooks: return Theme.plum
+        case .vms: return Theme.teal
+        case .health: return Theme.red
+        }
+    }
+
+    var subtitle: String {
+        switch self {
+        case .terminal: return "Run agents and shells in tabs, with apprentice already wired in"
+        case .schedules: return "Prompts, runs and flows later or again"
+        case .approvals: return "Everything waiting on you, from every daemon"
+        case .activity: return "What is happening now, and what was learned"
+        case .sites: return "Pace, quiet hours, budgets and policy notes per site"
+        case .settings: return "config.toml, projects, routes and the phone"
+        case .playbooks: return "What was learned about apps, sites and flows"
+        case .vms: return "The browser VMs and their screens"
+        case .health: return "Updates, permissions and the clone"
         }
     }
 }
@@ -285,38 +529,78 @@ struct RootView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(Section.allCases, selection: Binding(
-                get: { model.section },
-                set: { if let s = $0 { model.section = s } })) { section in
-                Label {
-                    HStack {
-                        Text(section.rawValue)
-                        if section == .approvals, !model.pending.isEmpty {
-                            Spacer()
-                            Text("\(model.pending.count)")
-                                .font(.caption.bold())
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 1)
-                                .background(Capsule().fill(Color.orange))
-                                .foregroundColor(.white)
-                        }
-                    }
-                } icon: {
-                    Image(systemName: section.symbol)
-                }
-                .tag(section)
-            }
-            .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 240)
+            sidebar
+                .navigationSplitViewColumnWidth(min: 188, ideal: 206, max: 250)
         } detail: {
             detail
-                .frame(minWidth: 640, minHeight: 420)
+                .frame(minWidth: 660, minHeight: 460)
                 .toolbar { toolbar }
         }
+        .navigationSplitViewStyle(.balanced)
+        .tint(Theme.accent)
         .sheet(isPresented: $model.paletteOpen) {
             CommandPalette(model: model)
         }
         .background(shortcuts)
         .onAppear { model.refresh() }
+    }
+
+    private var sidebar: some View {
+        List(Section.allCases, selection: Binding(
+            get: { model.section },
+            set: { if let s = $0 { model.section = s } })) { section in
+            HStack(spacing: Theme.s2 + 2) {
+                IconTile(symbol: section.symbol, tint: section.tint, size: 24,
+                         solid: section == model.section)
+                Text(section.rawValue)
+                    .font(.system(size: 12.5, weight: section == model.section ? .semibold : .regular))
+                Spacer(minLength: 0)
+                if section == .approvals, !model.pending.isEmpty {
+                    Text("\(model.pending.count)")
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 1.5)
+                        .background(Capsule().fill(Theme.orange))
+                }
+            }
+            .padding(.vertical, 1)
+            .tag(section)
+        }
+        .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .safeAreaInset(edge: .top) {
+            VStack(alignment: .leading, spacing: Theme.s3) {
+                HStack(spacing: Theme.s2) {
+                    IconTile(symbol: "hand.point.up.left", tint: Theme.accent, size: 26, solid: true)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text("apprentice").font(.system(size: 13, weight: .bold, design: .rounded))
+                        Text("v\(Build.version)").font(.system(size: 9.5)).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+                Divider()
+            }
+            .padding(.horizontal, Theme.s3)
+            .padding(.top, Theme.s2)
+            .background(.thinMaterial)
+        }
+        .safeAreaInset(edge: .bottom) {
+            VStack(alignment: .leading, spacing: Theme.s2) {
+                Divider()
+                HStack(spacing: Theme.s2) {
+                    StatusPill(text: model.status, tint: model.statusTint)
+                    if model.awayOn { StatusPill(text: "away", tint: Theme.teal) }
+                    if Pause.on { StatusPill(text: "paused", tint: Theme.orange) }
+                }
+                Text("kill switch  ⌃⌥⌘.")
+                    .font(.system(size: 9.5, design: .monospaced))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, Theme.s3)
+            .padding(.bottom, Theme.s2)
+            .background(.thinMaterial)
+        }
     }
 
     @ViewBuilder private var detail: some View {
@@ -335,17 +619,14 @@ struct RootView: View {
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .status) {
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(model.pending.isEmpty ? (model.busy ? Color.orange : Color.green) : Color.red)
-                    .frame(width: 8, height: 8)
-                Text(model.status)
-                if let session = model.session, let url = session.url {
-                    Text("· \(session.app) · \(URL(string: url)?.host ?? url)")
+            HStack(spacing: Theme.s2) {
+                StatusPill(text: model.status, tint: model.statusTint)
+                if let session = model.session, let url = session.url, let host = URL(string: url)?.host {
+                    Text(host)
+                        .font(.system(size: 10.5, weight: .medium, design: .rounded))
                         .foregroundStyle(.secondary)
                 }
             }
-            .font(.caption)
         }
         ToolbarItem(placement: .primaryAction) {
             Button {
@@ -392,21 +673,38 @@ struct TerminalWorkspace: View {
     var body: some View {
         VStack(spacing: 0) {
             tabBar
-            Divider()
+            Divider().opacity(0.6)
             if let session = model.selectedSession {
                 ZStack(alignment: .bottom) {
                     TerminalPane(term: session, font: font, locked: pendingForSelected != nil)
                         .id(session.id)
+                        .padding(Theme.s3)
+                        .background(
+                            RoundedRectangle(cornerRadius: Theme.radius, style: .continuous)
+                                .fill(Theme.surface)
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Theme.radius, style: .continuous)
+                                .strokeBorder(Theme.hairline)
+                        )
+                        .padding(.horizontal, Theme.s4)
+                        .padding(.bottom, Theme.s2)
                     if let pending = pendingForSelected {
                         ApprovalBanner(model: model, pending: pending)
-                            .padding(10)
+                            .padding(.horizontal, Theme.s4)
+                            .padding(.bottom, Theme.s4)
                     }
                 }
                 footer(session)
             } else {
-                ContentUnavailableView("No tab", systemImage: "terminal", description: Text("⌘T opens a shell"))
+                ContentUnavailableView {
+                    Label("No tab", systemImage: "apple.terminal")
+                } description: {
+                    Text("⌘T opens a shell; the + menu has Claude Code, Codex and your presets")
+                }
             }
         }
+        .background(Theme.canvas)
     }
 
     private var font: NSFont {
@@ -415,23 +713,37 @@ struct TerminalWorkspace: View {
     }
 
     private var tabBar: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: Theme.s2) {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
+                HStack(spacing: 6) {
                     ForEach(model.tabs) { tab in
-                        tabButton(tab)
+                        TabChip(tab: tab, selected: tab.id == model.selectedTab,
+                                close: { model.closeTab(tab.id) },
+                                select: { model.selectedTab = tab.id })
                     }
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
+                .padding(.horizontal, Theme.s4)
+                .padding(.vertical, Theme.s2 + 2)
             }
             Menu {
-                Button("Shell") { model.newTab(preset: "Shell", command: nil) }
-                Button("Claude Code") { model.newTab(preset: "Claude Code", command: "claude") }
-                Button("Codex") { model.newTab(preset: "Codex", command: "codex") }
-                Button("opencode") { model.newTab(preset: "opencode", command: "opencode") }
-                Button("Kilo") { model.newTab(preset: "Kilo", command: "kilo") }
-                Button("Log (apprentice log, following)") { model.openLogTab() }
+                Button { model.newTab(preset: "Shell", command: nil) } label: {
+                    Label("Shell", systemImage: "apple.terminal")
+                }
+                Button { model.newTab(preset: "Claude Code", command: "claude") } label: {
+                    Label("Claude Code", systemImage: "sparkles")
+                }
+                Button { model.newTab(preset: "Codex", command: "codex") } label: {
+                    Label("Codex", systemImage: "chevron.left.forwardslash.chevron.right")
+                }
+                Button { model.newTab(preset: "opencode", command: "opencode") } label: {
+                    Label("opencode", systemImage: "curlybraces")
+                }
+                Button { model.newTab(preset: "Kilo", command: "kilo") } label: {
+                    Label("Kilo", systemImage: "k.circle")
+                }
+                Button { model.openLogTab() } label: {
+                    Label("Log (following)", systemImage: "list.bullet.rectangle")
+                }
                 if !Config.current.tabPresets.isEmpty {
                     Divider()
                     ForEach(Config.current.tabPresets.keys.sorted(), id: \.self) { name in
@@ -440,57 +752,108 @@ struct TerminalWorkspace: View {
                 }
             } label: {
                 Image(systemName: "plus")
+                    .font(.system(size: 11, weight: .bold))
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(Theme.accent.opacity(0.12)))
+                    .foregroundStyle(Theme.accent)
             }
             .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
             .fixedSize()
             .help("New tab (⌘T)")
+            .padding(.trailing, Theme.s4)
         }
         .background(.bar)
-    }
-
-    private func tabButton(_ tab: TermSession) -> some View {
-        let selected = tab.id == model.selectedTab
-        return HStack(spacing: 6) {
-            Text(tab.title).lineLimit(1)
-            if tab.hasApproval {
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-            } else if let code = tab.exited {
-                Text("· \(code)").foregroundStyle(code == 0 ? Color.secondary : Color.red)
-            }
-            Button {
-                model.closeTab(tab.id)
-            } label: {
-                Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
-            }
-            .buttonStyle(.plain)
-            .opacity(selected ? 1 : 0.5)
-        }
-        .font(.caption)
-        .padding(.horizontal, 9)
-        .padding(.vertical, 5)
-        .background(RoundedRectangle(cornerRadius: 6).fill(selected ? Color.accentColor.opacity(0.22) : Color.clear))
-        .contentShape(Rectangle())
-        .onTapGesture { model.selectedTab = tab.id }
-        .help(tab.subtitle.isEmpty ? tab.title : tab.subtitle)
     }
 
     private func footer(_ session: TermSession) -> some View {
-        HStack(spacing: 10) {
-            Text(session.title).bold()
-            if !session.subtitle.isEmpty { Text(session.subtitle) }
-            Spacer()
-            if let session = model.session {
-                Text("\(session.app) · project \(Project.find(from: FileManager.default.currentDirectoryPath)?.deletingLastPathComponent().lastPathComponent ?? "—") · model \(Config.current.runModel)")
-            } else {
-                Text("no bound app session")
+        HStack(spacing: Theme.s3) {
+            Label(session.title, systemImage: "terminal")
+                .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                .foregroundStyle(.secondary)
+            if !session.subtitle.isEmpty {
+                Text(session.subtitle).font(.system(size: 10.5)).foregroundStyle(.tertiary)
             }
-            Text("kill switch ctrl+opt+cmd+.")
+            Spacer()
+            if let bound = model.session {
+                StatusPill(text: bound.app, tint: Theme.slate)
+                if let dir = Project.dir?.deletingLastPathComponent().lastPathComponent {
+                    StatusPill(text: "project \(dir)", tint: Theme.plum)
+                }
+                StatusPill(text: "model \(Config.current.runModel)", tint: Theme.indigo)
+            } else {
+                StatusPill(text: "no bound app session", tint: Theme.slate)
+            }
         }
-        .font(.caption2)
-        .foregroundStyle(.secondary)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 4)
+        .padding(.horizontal, Theme.s4)
+        .padding(.vertical, Theme.s2)
         .background(.bar)
+    }
+}
+
+private struct TabChip: View {
+    @ObservedObject var tab: TermSession
+    let selected: Bool
+    let close: () -> Void
+    let select: () -> Void
+    @State private var hovering = false
+
+    private var symbol: String {
+        switch tab.title.lowercased() {
+        case let t where t.contains("claude"): return "sparkles"
+        case let t where t.contains("codex"): return "chevron.left.forwardslash.chevron.right"
+        case let t where t.contains("log"): return "list.bullet.rectangle"
+        case let t where t.contains("vm"): return "desktopcomputer"
+        default: return "apple.terminal"
+        }
+    }
+
+    private var tint: Color {
+        tab.hasApproval ? Theme.orange : (tab.exited == nil ? (selected ? Theme.accent : Theme.slate) : Theme.red)
+    }
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: symbol)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(tint)
+            Text(tab.title)
+                .font(.system(size: 11, weight: selected ? .semibold : .medium, design: .rounded))
+                .lineLimit(1)
+            if tab.hasApproval {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(Theme.orange)
+            } else if let code = tab.exited {
+                Text("\(code)")
+                    .font(.system(size: 9, weight: .bold, design: .monospaced))
+                    .foregroundStyle(code == 0 ? .secondary : Theme.red)
+            }
+            if hovering || selected {
+                Button(action: close) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 8, weight: .bold))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 14, height: 14)
+                }
+                .buttonStyle(.plain)
+                .help("Close tab (⌘W)")
+            }
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
+        .background(
+            RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)
+                .fill(selected ? Theme.accent.opacity(0.14) : (hovering ? Color.primary.opacity(0.06) : Color.clear))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.radiusSmall, style: .continuous)
+                .strokeBorder(selected ? Theme.accent.opacity(0.35) : Color.clear)
+        )
+        .contentShape(Rectangle())
+        .onTapGesture(perform: select)
+        .onHover { hovering = $0 }
+        .help(tab.subtitle.isEmpty ? tab.title : tab.subtitle)
     }
 }
 
@@ -500,31 +863,76 @@ struct ApprovalBanner: View {
     @State private var answer = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
-                Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                Text(pending.summary).font(.callout.weight(.semibold)).lineLimit(2)
+        VStack(alignment: .leading, spacing: Theme.s3) {
+            HStack(alignment: .top, spacing: Theme.s2) {
+                IconTile(symbol: "exclamationmark.triangle.fill", tint: Theme.orange, size: 26, solid: true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Needs your approval")
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Theme.orange)
+                        .textCase(.uppercase)
+                    Text(pending.summary)
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .lineLimit(2)
+                }
+                Spacer(minLength: 0)
             }
-            ForEach(pending.warnings ?? [], id: \.self) { warning in
-                Text("⚠ \(warning)").font(.caption).foregroundStyle(.orange)
+            if let warnings = pending.warnings, !warnings.isEmpty {
+                FlowChips(items: warnings.map { "⚠ \($0)" }, tint: Theme.orange)
             }
-            HStack {
-                TextField("Your answer, if it asks one", text: $answer)
+            HStack(spacing: Theme.s2) {
+                TextField("Anything to add (optional)", text: $answer)
                     .textFieldStyle(.roundedBorder)
-                Button("Deny") { model.deny(pending.token); answer = "" }
-                Button("Allow") {
+                    .controlSize(.small)
+                Button("Deny", role: .destructive) { model.deny(pending.token); answer = "" }
+                    .controlSize(.small)
+                Button {
                     model.approve(pending.token)
                     answer = ""
+                } label: {
+                    Label("Allow", systemImage: "checkmark")
                 }
+                .buttonStyle(.borderedProminent)
+                .tint(Theme.orange)
+                .controlSize(.small)
                 .keyboardShortcut(.defaultAction)
             }
             Text("Same as `apprentice approve \(pending.token)` · tab \(pending.tab ?? "—") · expires \(Date(timeIntervalSince1970: pending.expires).formatted(date: .omitted, time: .shortened))")
-                .font(.caption2).foregroundStyle(.secondary)
+                .font(.system(size: 9.5, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
         }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 8).fill(Color(nsColor: .windowBackgroundColor)))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.orange.opacity(0.6)))
-        .shadow(radius: 8)
+        .padding(Theme.s3 + 2)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.radius, style: .continuous)
+                .strokeBorder(Theme.orange.opacity(0.45), lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.16), radius: 14, y: 4)
+    }
+}
+
+/// Chips that wrap onto more than one line, for warnings and tags.
+struct FlowChips: View {
+    let items: [String]
+    var tint: Color = Theme.slate
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(Array(stride(from: 0, to: items.count, by: 2)), id: \.self) { index in
+                HStack(spacing: 4) {
+                    ForEach(items[index..<min(index + 2, items.count)], id: \.self) { item in
+                        Text(item)
+                            .font(.system(size: 9.5, weight: .medium, design: .rounded))
+                            .lineLimit(1)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .foregroundStyle(tint)
+                            .background(Capsule().fill(tint.opacity(0.12)))
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -539,52 +947,146 @@ struct SchedulesView: View {
 
     var body: some View {
         HSplitView {
-            List(selection: $selected) {
-                ForEach(model.schedules) { schedule in
-                    VStack(alignment: .leading, spacing: 2) {
-                        HStack {
-                            Text(schedule.name).bold()
-                            if !schedule.enabled { Text("paused").font(.caption2).foregroundStyle(.secondary) }
-                        }
-                        Text(schedule.when_ + (schedule.jitter > 0 ? " ±\(schedule.jitter) min" : ""))
-                            .font(.caption).foregroundStyle(.secondary)
-                        if let next = schedule.next, schedule.enabled {
-                            Text("next \(next.formatted(date: .abbreviated, time: .shortened))")
-                                .font(.caption2).foregroundStyle(.secondary)
-                        }
-                        if let result = schedule.lastResult {
-                            Text("last: \(result)").font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                    }
-                    .tag(schedule.id)
-                }
-            }
-            .frame(minWidth: 240, idealWidth: 280)
-            VStack(alignment: .leading, spacing: 0) {
+            VStack(spacing: 0) {
                 HStack {
-                    Text("Schedules").font(.title2.bold())
+                    Text("\(model.schedules.count) schedule\(model.schedules.count == 1 ? "" : "s")")
+                        .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.secondary)
                     Spacer()
                     Button {
                         adding = true
-                    } label: { Label("Add", systemImage: "plus") }
-                    Button {
-                        model.act("schedule", ["agent", "on"])
-                    } label: { Label("Start at login", systemImage: "power") }
-                        .help("A LaunchAgent runs `apprentice serve` at login, so schedules fire without anything open")
+                    } label: {
+                        Label("Add", systemImage: "plus")
+                    }
+                    .controlSize(.small)
+                    .buttonStyle(.borderedProminent)
                 }
-                .padding(12)
+                .padding(.horizontal, Theme.s3)
+                .padding(.vertical, Theme.s2 + 2)
                 Divider()
+                if model.schedules.isEmpty {
+                    ContentUnavailableView {
+                        Label("No schedules", systemImage: "clock")
+                    } description: {
+                        Text("Run a prompt, a task or a flow later or again")
+                    }
+                } else {
+                    List(selection: $selected) {
+                        ForEach(model.schedules) { schedule in
+                            ScheduleRow(schedule: schedule)
+                                .tag(schedule.id)
+                        }
+                    }
+                    .listStyle(.sidebar)
+                    .scrollContentBackground(.hidden)
+                }
+            }
+            .frame(minWidth: 250, idealWidth: 285)
+
+            Group {
                 if let id = selected, let schedule = model.schedules.first(where: { $0.id == id }) {
                     ScheduleDetail(model: model, schedule: schedule)
                 } else {
-                    ContentUnavailableView("No schedule chosen", systemImage: "clock",
-                                           description: Text("Schedules run prompts, `apprentice run` tasks and flows later or again."))
+                    ScreenPage(title: "Schedules",
+                         subtitle: "Prompts, `apprentice run` tasks and playbook flows that run later or again: the daemon owns the timer, so they fire with nothing else open.",
+                         icon: "clock.badge.checkmark", tint: Theme.indigo) {
+                        AnyView(
+                            HStack(spacing: Theme.s2) {
+                                Button {
+                                    adding = true
+                                } label: { Label("New schedule", systemImage: "plus") }
+                                    .buttonStyle(.borderedProminent)
+                                Button {
+                                    model.act("schedule", ["agent", "on"])
+                                } label: { Label("Start at login", systemImage: "power") }
+                            }
+                        )
+                    } content: {
+                        HStack(spacing: Theme.s3) {
+                            FeatureCard(symbol: "sparkles", tint: Theme.plum, title: "An agent prompt",
+                                        detail: "`claude -p \"…\"` or `codex exec \"…\"` in a folder")
+                            FeatureCard(symbol: "play.circle", tint: Theme.accent, title: "A run",
+                                        detail: "`apprentice run \"task\"` with its model")
+                            FeatureCard(symbol: "book.closed", tint: Theme.green, title: "A flow",
+                                        detail: "`apprentice do <flow>` with its plan")
+                        }
+                    }
                 }
             }
+            .frame(minWidth: 420)
         }
+        .background(Theme.canvas)
         .sheet(isPresented: $adding) {
             ScheduleEditor(model: model, existing: nil) { adding = false }
         }
+    }
+}
+
+struct FeatureCard: View {
+    let symbol: String
+    let tint: Color
+    let title: String
+    let detail: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.s2) {
+            IconTile(symbol: symbol, tint: tint, size: 28)
+            Text(title).font(.system(size: 12.5, weight: .semibold, design: .rounded))
+            Text(detail)
+                .font(.system(size: 10.5))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .card(Theme.s3)
+    }
+}
+
+private struct ScheduleRow: View {
+    let schedule: Schedules.Schedule
+
+    private var tint: Color {
+        switch schedule.kind {
+        case .prompt: return Theme.plum
+        case .run: return Theme.accent
+        case .flow: return Theme.green
+        case .sh: return Theme.slate
+        }
+    }
+
+    private var symbol: String {
+        switch schedule.kind {
+        case .prompt: return "sparkles"
+        case .run: return "play.circle"
+        case .flow: return "book.closed"
+        case .sh: return "terminal"
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: Theme.s2 + 2) {
+            IconTile(symbol: symbol, tint: tint, size: 28)
+            VStack(alignment: .leading, spacing: 1) {
+                HStack(spacing: 5) {
+                    Text(schedule.name)
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .lineLimit(1)
+                    if !schedule.enabled { StatusPill(text: "paused", tint: Theme.slate, dot: false) }
+                }
+                Text(schedule.when_ + (schedule.jitter > 0 ? "  ±\(schedule.jitter)m" : ""))
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                if let next = schedule.next, schedule.enabled {
+                    Text("next \(next.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.system(size: 9.5, weight: .medium, design: .rounded))
+                        .foregroundStyle(tint)
+                } else if let result = schedule.lastResult {
+                    Text(result).font(.system(size: 9.5)).foregroundStyle(.secondary).lineLimit(1)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 3)
     }
 }
 
@@ -594,63 +1096,117 @@ struct ScheduleDetail: View {
     @State private var editing = false
     @State private var runs: [(name: String, url: URL)] = []
 
+    private var tint: Color {
+        switch schedule.kind {
+        case .prompt: return Theme.plum
+        case .run: return Theme.accent
+        case .flow: return Theme.green
+        case .sh: return Theme.slate
+        }
+    }
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
+        ScreenPage(title: schedule.name,
+             subtitle: "\(schedule.kind.label) · \(schedule.when_)" + (schedule.jitter > 0 ? " ±\(schedule.jitter) min" : ""),
+             icon: schedule.kind == .flow ? "book.closed" : schedule.kind == .prompt ? "sparkles" : "clock.badge.checkmark",
+             tint: tint) {
+            AnyView(
+                HStack(spacing: Theme.s2) {
                     Toggle("Enabled", isOn: Binding(get: { schedule.enabled }, set: { on in
                         model.act("schedule", [on ? "resume" : "pause", schedule.id])
                     }))
                     .toggleStyle(.switch)
-                    Spacer()
-                    Button("Run now") { model.act("schedule", ["now", schedule.id]) }
-                    Button("Edit") { editing = true }
-                    Button("Delete", role: .destructive) { model.act("schedule", ["rm", schedule.id]) }
-                }
-                GroupBox("What") {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(schedule.kind.label).font(.caption).foregroundStyle(.secondary)
-                        Text(schedule.target).textSelection(.enabled).font(.system(.body, design: .monospaced))
-                        if let dir = schedule.dir { Text("in \(dir)").font(.caption) }
-                        if let vm = schedule.vm { Text("VM \(vm)").font(.caption) }
+                    .controlSize(.small)
+                    Button { model.act("schedule", ["now", schedule.id]) } label: {
+                        Label("Run now", systemImage: "play.fill")
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(4)
-                }
-                GroupBox("When") {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(schedule.when_).bold()
-                        if schedule.jitter > 0 { Text("±\(schedule.jitter) min, so it never lands on the same second").font(.caption).foregroundStyle(.secondary) }
-                        if let next = schedule.next { Text("next: \(next.formatted(date: .complete, time: .standard))").font(.caption) }
-                        Divider()
-                        Text("Next five runs").font(.caption.bold())
-                        ForEach(Schedules.preview(schedule), id: \.self) { date in
-                            Text(date.formatted(date: .abbreviated, time: .standard)).font(.caption).monospacedDigit()
-                        }
-                        if Schedules.quietHours(schedule).from >= 0 {
-                            Text("quiet hours \(Int(Schedules.quietHours(schedule).from)):00–\(Int(Schedules.quietHours(schedule).to) % 24):00: a run there moves to the end")
-                                .font(.caption2).foregroundStyle(.secondary)
-                        }
+                    .controlSize(.small)
+                    Button { editing = true } label: {
+                        Label("Edit", systemImage: "pencil")
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(4)
-                }
-                GroupBox("Runs") {
-                    VStack(alignment: .leading, spacing: 4) {
-                        if runs.isEmpty {
-                            Text("no runs yet").font(.caption).foregroundStyle(.secondary)
-                        }
-                        ForEach(runs, id: \.name) { run in
-                            Button(run.name) { NSWorkspace.shared.open(run.url) }
-                                .buttonStyle(.link)
-                                .font(.caption)
-                        }
+                    .controlSize(.small)
+                    Button(role: .destructive) {
+                        model.act("schedule", ["rm", schedule.id])
+                    } label: {
+                        Label("Delete", systemImage: "trash")
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(4)
+                    .controlSize(.small)
+                }
+            )
+        } content: {
+            HStack(alignment: .top, spacing: Theme.s3) {
+                CardSection(title: "What runs", symbol: "text.bubble", tint: tint) {
+                    FieldRow(label: schedule.kind.label, value: schedule.target, mono: true)
+                    if let dir = schedule.dir {
+                        FieldRow(label: "Folder", value: dir, mono: true, tint: .secondary)
+                    }
+                    if let vm = schedule.vm {
+                        FieldRow(label: "VM", value: vm, mono: true, tint: .secondary)
+                    }
+                }
+                CardSection(title: "Next run", symbol: "clock", tint: tint) {
+                    if let next = schedule.next, schedule.enabled {
+                        HStack(spacing: Theme.s2) {
+                            Image(systemName: "arrow.forward.circle.fill")
+                                .font(.system(size: 15))
+                                .foregroundStyle(tint)
+                            Text(next.formatted(date: .complete, time: .shortened))
+                                .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                        }
+                    } else {
+                        Text(schedule.enabled ? "not scheduled" : "paused")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    if Schedules.quietHours(schedule).from >= 0 {
+                        Text("quiet hours \(Int(Schedules.quietHours(schedule).from)):00–\(Int(Schedules.quietHours(schedule).to) % 24):00; a run there moves to the end")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                    }
+                    if let result = schedule.lastResult {
+                        StatusPill(text: "last: \(result)", tint: result.hasPrefix("ok") ? Theme.green : Theme.orange)
+                    }
                 }
             }
-            .padding(12)
+            CardSection(title: "Next five runs", symbol: "calendar", tint: tint) {
+                let preview = Schedules.preview(schedule)
+                if preview.isEmpty {
+                    Text("nothing ahead").font(.callout).foregroundStyle(.secondary)
+                } else {
+                    ForEach(Array(preview.enumerated()), id: \.offset) { index, date in
+                        HStack(spacing: Theme.s2) {
+                            Circle()
+                                .fill(tint.opacity(index == 0 ? 1 : 0.35))
+                                .frame(width: 6, height: 6)
+                            Text(date.formatted(date: .abbreviated, time: .standard))
+                                .font(Theme.mono)
+                                .foregroundStyle(index == 0 ? .primary : .secondary)
+                            Spacer()
+                            if index == 0 { StatusPill(text: "next", tint: tint) }
+                        }
+                    }
+                }
+            }
+            CardSection(title: "Runs", symbol: "doc.text", tint: Theme.slate) {
+                if runs.isEmpty {
+                    Text("no runs yet").font(.callout).foregroundStyle(.secondary)
+                } else {
+                    ForEach(runs, id: \.name) { run in
+                        Button {
+                            NSWorkspace.shared.open(run.url)
+                        } label: {
+                            HStack(spacing: Theme.s2) {
+                                Image(systemName: "doc.text").foregroundStyle(Theme.slate)
+                                Text(run.name).font(Theme.mono)
+                                Spacer()
+                                Image(systemName: "arrow.up.forward.app").foregroundStyle(.tertiary)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
         }
         .onAppear { runs = Schedules.runs(schedule.id) }
         .onChange(of: model.revision) { _, _ in runs = Schedules.runs(schedule.id) }
@@ -682,49 +1238,83 @@ struct ScheduleEditor: View {
     @State private var site = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(existing == nil ? "New schedule" : "Edit schedule").font(.title3.bold())
-            Form {
-                TextField("Name", text: $name)
-                Picker("Runs", selection: $kind) {
-                    Text("an agent CLI prompt").tag("prompt")
-                    Text("apprentice run").tag("run")
-                    Text("a playbook flow").tag("do")
-                    Text("a shell command").tag("sh")
+        VStack(alignment: .leading, spacing: Theme.s4) {
+            HStack(spacing: Theme.s2) {
+                IconTile(symbol: "clock.badge.checkmark", tint: Theme.indigo, size: 30, solid: true)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(existing == nil ? "New schedule" : "Edit schedule")
+                        .font(Theme.title(17))
+                    Text("It runs through the same commands, budgets and gate as anything else")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
                 }
-                if kind == "prompt" {
-                    TextField("Agent CLI (claude, codex, opencode…)", text: $agent)
-                }
-                TextField("The \(kind == "prompt" ? "prompt" : kind == "run" ? "task" : kind == "do" ? "flow" : "command")", text: $target)
-                Picker("When", selection: $trigger) {
-                    Text("once, at a date and time").tag("at")
-                    Text("every N minutes").tag("every")
-                    Text("daily").tag("daily")
-                    Text("on chosen weekdays").tag("weekly")
-                    Text("a cron line").tag("cron")
-                }
-                switch trigger {
-                case "at": TextField("2026-11-05T09:00:00", text: $at)
-                case "every": TextField("Minutes", text: $every)
-                case "daily": TextField("HH:MM", text: $daily)
-                case "weekly": TextField("mon,wed 09:00", text: $weekly)
-                default: TextField("m h dom mon dow", text: $cron)
-                }
-                TextField("Jitter (± minutes)", text: $jitter)
-                TextField("Folder (empty: home)", text: $dir)
-                TextField("VM (empty: this Mac)", text: $vm)
-                TextField("Model (empty: the agent's own)", text: $model_)
-                TextField("Site whose quiet hours apply (optional)", text: $site)
             }
+            ScrollView {
+                VStack(alignment: .leading, spacing: Theme.s3) {
+                    CardSection(title: "What", symbol: "text.bubble", tint: Theme.accent) {
+                        LabeledField("Name") { TextField("say what it does", text: $name) }
+                        LabeledField("Runs") {
+                            Picker("", selection: $kind) {
+                                Text("an agent CLI prompt").tag("prompt")
+                                Text("apprentice run").tag("run")
+                                Text("a playbook flow").tag("do")
+                                Text("a shell command").tag("sh")
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                        }
+                        if kind == "prompt" {
+                            LabeledField("Agent CLI") { TextField("claude, codex, opencode…", text: $agent) }
+                        }
+                        LabeledField(kind == "prompt" ? "Prompt" : kind == "run" ? "Task" : kind == "do" ? "Flow" : "Command") {
+                            TextField("what should it do", text: $target)
+                                .font(Theme.mono)
+                        }
+                    }
+                    CardSection(title: "When", symbol: "calendar.badge.clock", tint: Theme.indigo) {
+                        LabeledField("Repeat") {
+                            Picker("", selection: $trigger) {
+                                Text("once, at a date and time").tag("at")
+                                Text("every N minutes").tag("every")
+                                Text("daily").tag("daily")
+                                Text("on chosen weekdays").tag("weekly")
+                                Text("a cron line").tag("cron")
+                            }
+                            .labelsHidden()
+                            .pickerStyle(.menu)
+                        }
+                        switch trigger {
+                        case "at": LabeledField("At") { TextField("2026-11-05T09:00:00", text: $at) }
+                        case "every": LabeledField("Minutes") { TextField("60", text: $every) }
+                        case "daily": LabeledField("Time") { TextField("09:00", text: $daily) }
+                        case "weekly": LabeledField("Days and time") { TextField("mon,wed 09:00", text: $weekly) }
+                        default: LabeledField("Cron") { TextField("0 9 * * 1-5", text: $cron).font(Theme.mono) }
+                        }
+                        LabeledField("Jitter") { TextField("± minutes", text: $jitter) }
+                    }
+                    CardSection(title: "Where", symbol: "folder", tint: Theme.slate) {
+                        LabeledField("Folder") { TextField("empty: home", text: $dir) }
+                        LabeledField("VM") { TextField("empty: this Mac", text: $vm) }
+                        LabeledField("Model") { TextField("empty: the agent's own", text: $model_) }
+                        LabeledField("Site quiet hours") { TextField("optional domain", text: $site) }
+                    }
+                }
+            }
+            .frame(maxHeight: 420)
             HStack {
+                Text("Adding or changing one from an agent needs your approval; here it is yours.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
                 Spacer()
                 Button("Cancel") { done() }
                 Button("Save") { save() }
+                    .buttonStyle(.borderedProminent)
                     .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(16)
-        .frame(width: 520)
+        .padding(Theme.s5)
+        .frame(width: 560)
+        .background(Theme.canvas)
         .onAppear(perform: load)
     }
 
@@ -768,6 +1358,30 @@ struct ScheduleEditor: View {
     }
 }
 
+/// A form row: a label of fixed width, then the control, so every sheet lines up.
+struct LabeledField<Content: View>: View {
+    let label: String
+    @ViewBuilder var content: () -> Content
+
+    init(_ label: String, @ViewBuilder content: @escaping () -> Content) {
+        self.label = label
+        self.content = content
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: Theme.s3) {
+            Text(label)
+                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .foregroundStyle(.secondary)
+                .frame(width: 118, alignment: .trailing)
+            content()
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.small)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+}
+
 // MARK: - Approvals
 
 extension Approvals.Pending: Identifiable {
@@ -778,42 +1392,74 @@ struct ApprovalsView: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("Waiting on you").font(.title2.bold())
-                Spacer()
-                Text(model.pending.isEmpty ? "nothing pending" : "\(model.pending.count) waiting")
-                    .foregroundStyle(.secondary)
-            }
-            .padding(12)
-            Divider()
+        ScreenPage(title: "Waiting on you",
+             subtitle: model.pending.isEmpty
+                ? "Nothing needs you. Pending ⚠ steps from every daemon and open questions appear here."
+                : "\(model.pending.count) step\(model.pending.count == 1 ? "" : "s") from every daemon, in one list.",
+             icon: "hand.raised.fill", tint: Theme.orange) {
+            AnyView(
+                Button { model.refresh() } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+                .controlSize(.small)
+            )
+        } content: {
             if model.pending.isEmpty {
-                ContentUnavailableView("Nothing needs you", systemImage: "checkmark.seal",
-                                       description: Text("Pending ⚠ steps from every daemon, and open questions, appear here."))
+                VStack(spacing: Theme.s3) {
+                    IconTile(symbol: "checkmark.seal.fill", tint: Theme.green, size: 44, solid: true)
+                    Text("Nothing needs you").font(.system(size: 14, weight: .semibold, design: .rounded))
+                    Text("An agent's ⚠ step, a question, or a challenge waiting for a check shows up here.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, Theme.s6)
+                .card(Theme.s5)
             } else {
-                List(model.pending, id: \.token) { pending in
-                    VStack(alignment: .leading, spacing: 6) {
-                        HStack {
-                            Text(pending.summary).font(.body.weight(.semibold))
-                            Spacer()
-                            Text(pending.token).font(.caption).monospaced().foregroundStyle(.secondary)
-                        }
-                        ForEach(pending.warnings ?? [], id: \.self) { warning in
-                            Text("⚠ \(warning)").font(.caption).foregroundStyle(.orange)
-                        }
-                        HStack {
-                            Text("\(pending.cmd) · tab \(pending.tab ?? "—") · \(Date(timeIntervalSince1970: pending.at).formatted(date: .omitted, time: .standard))")
-                                .font(.caption2).foregroundStyle(.secondary)
-                            Spacer()
-                            Button("Deny", role: .destructive) { model.deny(pending.token) }
-                            Button("Allow") { model.approve(pending.token) }
-                                .buttonStyle(.borderedProminent)
-                        }
-                    }
-                    .padding(.vertical, 4)
+                ForEach(model.pending) { pending in
+                    ApprovalCard(model: model, pending: pending)
                 }
             }
         }
+    }
+}
+
+private struct ApprovalCard: View {
+    @ObservedObject var model: AppModel
+    let pending: Approvals.Pending
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.s3) {
+            HStack(alignment: .top, spacing: Theme.s3) {
+                IconTile(symbol: "exclamationmark.triangle.fill", tint: Theme.orange, size: 28, solid: true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(pending.summary)
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("\(pending.cmd) · tab \(pending.tab ?? "—") · \(Date(timeIntervalSince1970: pending.at).formatted(date: .omitted, time: .standard))")
+                        .font(Theme.mono)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+                StatusPill(text: pending.token, tint: Theme.slate, dot: false)
+            }
+            if let warnings = pending.warnings, !warnings.isEmpty {
+                FlowChips(items: warnings.map { "⚠ \($0)" }, tint: Theme.orange)
+            }
+            HStack {
+                Spacer()
+                Button("Deny", role: .destructive) { model.deny(pending.token) }
+                    .controlSize(.small)
+                Button { model.approve(pending.token) } label: {
+                    Label("Allow", systemImage: "checkmark")
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Theme.orange)
+                .controlSize(.small)
+            }
+        }
+        .card(Theme.s4)
     }
 }
 
@@ -824,30 +1470,54 @@ struct ActivityView: View {
     @State private var part = 0
     @State private var text = ""
 
+    private var tint: Color { [Theme.teal, Theme.plum, Theme.accent, Theme.orange][min(part, 3)] }
+
     var body: some View {
-        VStack(spacing: 0) {
-            Picker("", selection: $part) {
-                Text("Now").tag(0)
-                Text("Grow").tag(1)
-                Text("Sessions").tag(2)
-                Text("Events").tag(3)
-            }
-            .pickerStyle(.segmented)
-            .padding(10)
-            .onChange(of: part) { _, _ in load() }
-            Divider()
-            TextEditor(text: .constant(text))
-                .font(.system(.body, design: .monospaced))
-                .textSelection(.enabled)
-                .padding(6)
-            HStack {
-                Button("Refresh") { load() }
-                Spacer()
-                Button("Open a tab and work on this") {
-                    model.newTab(preset: "Claude Code", command: "claude")
+        ScreenPage(title: "Activity",
+             subtitle: "What each daemon is doing now, what was learned, and what happened on a site.",
+             icon: "waveform.path.ecg", tint: Theme.teal) {
+            AnyView(
+                HStack(spacing: Theme.s2) {
+                    Button { load() } label: { Label("Refresh", systemImage: "arrow.clockwise") }
+                        .controlSize(.small)
+                    Button {
+                        model.newTab(preset: "Claude Code", command: "claude")
+                    } label: {
+                        Label("Work on this", systemImage: "sparkles")
+                    }
+                    .controlSize(.small)
+                    .buttonStyle(.borderedProminent)
                 }
+            )
+        } content: {
+            HStack(spacing: Theme.s2) {
+                ForEach(Array(["Now", "Grow", "Sessions", "Events"].enumerated()), id: \.offset) { index, title in
+                    Button {
+                        part = index
+                        load()
+                    } label: {
+                        Text(title)
+                            .font(.system(size: 11, weight: part == index ? .semibold : .regular, design: .rounded))
+                            .padding(.horizontal, Theme.s3)
+                            .padding(.vertical, 5)
+                            .background(
+                                Capsule().fill(part == index ? tint.opacity(0.16) : Color.primary.opacity(0.05))
+                            )
+                            .foregroundStyle(part == index ? tint : .secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
+                Spacer()
             }
-            .padding(8)
+            CardSection(title: part == 0 ? "Now" : part == 1 ? "Growth" : part == 2 ? "Sessions" : "Events",
+                        symbol: part == 0 ? "dot.radiowaves.left.and.right" : part == 1 ? "chart.line.uptrend.xyaxis" : part == 2 ? "list.bullet.rectangle" : "bolt",
+                        tint: tint) {
+                Text(text.isEmpty ? "…" : text)
+                    .font(Theme.mono)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .onAppear(perform: load)
     }
@@ -897,71 +1567,116 @@ struct SitesView: View {
 
     var body: some View {
         HSplitView {
-            List(selection: $site) {
-                ForEach(sites, id: \.self) { name in
-                    HStack {
-                        Text(name)
-                        if Config.socialSites.contains(name) { Text("careful").font(.caption2).foregroundStyle(.secondary) }
-                    }
-                    .tag(name)
+            VStack(spacing: 0) {
+                HStack {
+                    Text("\(sites.count) site\(sites.count == 1 ? "" : "s")")
+                        .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Button { wizard = true } label: { Label("New", systemImage: "plus") }
+                        .controlSize(.small)
+                        .buttonStyle(.borderedProminent)
                 }
-            }
-            .frame(minWidth: 200, idealWidth: 240)
-            .onChange(of: site) { _, _ in load() }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    HStack {
-                        Text(site.isEmpty ? "Sites" : site).font(.title2.bold())
-                        Spacer()
-                        Button { wizard = true } label: { Label("New site", systemImage: "plus") }
-                    }
-                    if site.isEmpty {
-                        Text("Choose a site to see its pace, quiet hours, budgets and any cooldown or challenge.")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        GroupBox("Pace ([pace.\"\(site)\"])") {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("style: \(Config.current.profiles[site].map { _ in "from config.toml" } ?? "default")")
-                                    .font(.caption).foregroundStyle(.secondary)
-                                TextField("Quiet hours, e.g. 2,6 (empty: none)", text: $quiet)
-                                TextField("Actions per day (empty: off)", text: $perDay)
-                                TextField("Longest sitting, minutes (empty: off)", text: $sitting)
-                                Button("Save to config.toml") { savePace() }
+                .padding(.horizontal, Theme.s3)
+                .padding(.vertical, Theme.s2 + 2)
+                Divider()
+                List(selection: $site) {
+                    ForEach(sites, id: \.self) { name in
+                        HStack(spacing: Theme.s2) {
+                            IconTile(symbol: icon(for: name), tint: tint(for: name), size: 22)
+                            VStack(alignment: .leading, spacing: 0) {
+                                Text(name).font(.system(size: 11.5, weight: .medium, design: .rounded))
+                                if Config.socialSites.contains(name) {
+                                    Text("careful").font(.system(size: 9)).foregroundStyle(Theme.orange)
+                                }
                             }
-                            .padding(4)
+                            Spacer(minLength: 0)
                         }
-                        GroupBox("Usage") {
+                        .tag(name)
+                    }
+                }
+                .listStyle(.sidebar)
+                .scrollContentBackground(.hidden)
+            }
+            .frame(minWidth: 220, idealWidth: 250)
+            .onChange(of: site) { _, _ in load() }
+
+            Group {
+                if site.isEmpty {
+                    ScreenPage(title: "Sites", subtitle: "Choose a site for its pace, quiet hours, budgets, policy notes and any cooldown or challenge.", icon: "globe", tint: Theme.green) {
+                        AnyView(EmptyView())
+                    } content: {
+                        HStack(spacing: Theme.s3) {
+                            FeatureCard(symbol: "timer", tint: Theme.indigo, title: "Pace",
+                                        detail: "Timing, quiet hours, a sitting's length and a daily cap")
+                            FeatureCard(symbol: "chart.bar", tint: Theme.green, title: "Budgets",
+                                        detail: "What is left today and this hour, per action")
+                            FeatureCard(symbol: "checkmark.shield", tint: Theme.orange, title: "Cooldowns",
+                                        detail: "A rate limit or a challenge, and clearing it once checked")
+                        }
+                    }
+                } else {
+                    ScreenPage(title: site,
+                         subtitle: Config.socialSites.contains(site) ? "A social site: the careful style and a person's day apply" : "Pace, budgets and notes for this site",
+                         icon: "globe", tint: tint(for: site)) {
+                        AnyView(
+                            Button { model.act("cool", ["--clear", site]) } label: {
+                                Label("I checked it", systemImage: "checkmark.shield")
+                            }
+                            .controlSize(.small)
+                        )
+                    } content: {
+                        CardSection(title: "Pace", symbol: "timer", tint: Theme.indigo) {
+                            LabeledField("Quiet hours") { TextField("2,6 (empty: none)", text: $quiet) }
+                            LabeledField("Actions per day") { TextField("empty: off", text: $perDay) }
+                            LabeledField("Sitting, minutes") { TextField("empty: off", text: $sitting) }
+                            HStack {
+                                Spacer()
+                                Button("Save to config.toml") { savePace() }
+                                    .controlSize(.small)
+                                    .buttonStyle(.borderedProminent)
+                            }
+                        }
+                        CardSection(title: "What is left today", symbol: "chart.bar", tint: Theme.green) {
                             Text(usage.isEmpty ? "…" : usage)
-                                .font(.system(.caption, design: .monospaced))
+                                .font(Theme.mono)
                                 .textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(4)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
-                        GroupBox("Policy notes ([policy.\"\(site)\"])") {
-                            VStack(alignment: .leading, spacing: 6) {
-                                TextEditor(text: $note).frame(height: 70).font(.caption)
-                                Text("Shown with the site's hints; never used to refuse it.")
-                                    .font(.caption2).foregroundStyle(.secondary)
-                                Button("Save note to routes.toml") { saveNote() }
-                            }
-                            .padding(4)
-                        }
-                        GroupBox("Cooldown and challenge") {
+                        CardSection(title: "Policy notes", symbol: "text.quote", tint: Theme.slate) {
+                            TextField("what the site's terms allow", text: $note, axis: .vertical)
+                                .textFieldStyle(.roundedBorder)
+                                .lineLimit(2...5)
+                                .font(.callout)
                             HStack {
-                                Button("I checked it: clear the cooldown") { model.act("cool", ["--clear", site]) }
+                                Text("Shown with the site's hints; never used to refuse it.")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
                                 Spacer()
+                                Button("Save to routes.toml") { saveNote() }
+                                    .controlSize(.small)
                             }
-                            .padding(4)
                         }
                     }
                 }
-                .padding(12)
             }
+            .frame(minWidth: 420)
         }
+        .background(Theme.canvas)
         .sheet(isPresented: $wizard) {
             NewSiteWizard(model: model) { wizard = false }
         }
         .onAppear(perform: load)
+    }
+
+    private func icon(for site: String) -> String {
+        if Config.socialSites.contains(site) { return "person.2" }
+        return "globe"
+    }
+
+    private func tint(for site: String) -> Color {
+        Config.socialSites.contains(site) ? Theme.orange : Theme.green
     }
 
     private func load() {
@@ -1007,16 +1722,27 @@ struct NewSiteWizard: View {
     private var style: String { Config.socialSites.contains { domain.hasSuffix($0) } ? "careful" : "steady" }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("New site").font(.title3.bold())
-            Form {
-                TextField("Domain, e.g. example.com", text: $domain)
-                LabeledContent("Suggested pace", value: style)
-                TextField("Quiet hours (from,to)", text: $quiet)
-                TextField("Actions per day", text: $perDay)
+        VStack(alignment: .leading, spacing: Theme.s4) {
+            HStack(spacing: Theme.s2) {
+                IconTile(symbol: "globe.badge.chevron.backward", tint: Theme.green, size: 30, solid: true)
+                Text("New site").font(Theme.title(17))
             }
-            Text("It adds [pace.\"\(domain)\"] to config.toml with the \(style) style as its base.")
-                .font(.caption).foregroundStyle(.secondary)
+            CardSection(title: "The site", symbol: "globe", tint: Theme.green) {
+                LabeledField("Domain") { TextField("example.com", text: $domain) }
+                LabeledField("Pace") {
+                    HStack {
+                        Text(style).font(.callout.weight(.medium))
+                        Text(style == "careful" ? "· a social site" : "· a web page")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                LabeledField("Quiet hours") { TextField("2,6", text: $quiet) }
+                LabeledField("Actions per day") { TextField("400", text: $perDay) }
+            }
+            Text("Adds [pace.\"\(domain)\"] to config.toml, with the \(style) style as its base.")
+                .font(.system(size: 10.5))
+                .foregroundStyle(.secondary)
             HStack {
                 Spacer()
                 Button("Cancel") { done() }
@@ -1031,12 +1757,14 @@ struct NewSiteWizard: View {
                     Config.reloadIfChanged()
                     done()
                 }
+                .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
                 .disabled(domain.isEmpty)
             }
         }
-        .padding(16)
-        .frame(width: 460)
+        .padding(Theme.s5)
+        .frame(width: 480)
+        .background(Theme.canvas)
     }
 }
 
@@ -1050,93 +1778,102 @@ struct SettingsView: View {
     @State private var status = ""
     @State private var fields: [ConfigField] = []
 
+    private func icon(for section: String) -> String {
+        switch section {
+        case "agent": return "person.crop.circle"
+        case "run": return "cpu"
+        case "sites": return "globe"
+        case "gate": return "hand.raised"
+        case "session": return "rectangle.on.rectangle"
+        case "update": return "arrow.triangle.2.circlepath"
+        case "storage": return "externaldrive"
+        case "schedules": return "clock"
+        case "away": return "moon"
+        case "app": return "macwindow"
+        default: return section.hasPrefix("pace") ? "timer" : "gearshape"
+        }
+    }
+
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Picker("", selection: $raw) {
-                    Text("Form").tag(false)
-                    Text("Raw TOML").tag(true)
+        ScreenPage(title: "Settings",
+             subtitle: "config.toml, written the way you wrote it: the form edits a key in place, and the raw view never overwrites a file that does not parse.",
+             icon: "slider.horizontal.3", tint: Theme.slate) {
+            AnyView(
+                HStack(spacing: Theme.s2) {
+                    Picker("", selection: $raw) {
+                        Text("Form").tag(false)
+                        Text("Raw TOML").tag(true)
+                    }
+                    .labelsHidden()
+                    .pickerStyle(.segmented)
+                    .frame(width: 190)
+                    Button {
+                        NSWorkspace.shared.selectFile(Config.path.path, inFileViewerRootedAtPath: Settings.dir.path)
+                    } label: {
+                        Label("Reveal", systemImage: "folder")
+                    }
+                    .controlSize(.small)
                 }
-                .pickerStyle(.segmented)
-                .frame(width: 220)
-                Spacer()
-                Text(Config.path.path).font(.caption).foregroundStyle(.secondary)
-                Button("Reveal") { NSWorkspace.shared.selectFile(Config.path.path, inFileViewerRootedAtPath: Settings.dir.path) }
-            }
-            .padding(10)
-            Divider()
+            )
+        } content: {
             if raw {
-                TextEditor(text: $text).font(.system(.body, design: .monospaced)).padding(6)
+                CardSection(title: "config.toml", symbol: "doc.plaintext", tint: Theme.slate) {
+                    TextEditor(text: $text)
+                        .font(Theme.mono)
+                        .scrollContentBackground(.hidden)
+                        .frame(minHeight: 420)
+                        .padding(Theme.s2)
+                        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusSmall))
+                }
             } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 14) {
-                        ForEach(dictionaryKeys(fields), id: \.self) { section in
-                            GroupBox(section.isEmpty ? "top" : section) {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    ForEach(fields.filter { $0.section == section }, id: \.self) { field in
-                                        fieldRow(field)
-                                    }
-                                }
-                                .padding(4)
-                            }
-                        }
-                        GroupBox("Projects, routes and phone") {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text("Projects: \(model.run("project", ["status"]).out)").font(.caption)
-                                Button("Routes: edit \(Settings.dir.path)/routes.toml") {
-                                    NSWorkspace.shared.open(Settings.dir.appendingPathComponent("routes.toml"))
-                                }
-                                Button("Phone setup (topic, test push, QR)") { model.act("phone", []) }
-                            }
-                            .padding(4)
+                ForEach(sections, id: \.self) { section in
+                    CardSection(title: section.isEmpty ? "top" : section, symbol: icon(for: section),
+                                tint: section.hasPrefix("pace") ? Theme.indigo : Theme.accent) {
+                        ForEach(fields.filter { $0.section == section }, id: \.self) { field in
+                            SettingFieldRow(field: field, value: Binding(
+                                get: { edits[field.id] ?? field.value },
+                                set: { edits[field.id] = $0 }))
                         }
                     }
-                    .padding(12)
+                }
+                CardSection(title: "Projects, routes and phone", symbol: "point.3.connected.trianglepath.dotted", tint: Theme.teal) {
+                    FieldRow(label: "Projects", value: model.run("project", ["status"]).out)
+                    HStack(spacing: Theme.s2) {
+                        Button {
+                            NSWorkspace.shared.open(Settings.dir.appendingPathComponent("routes.toml"))
+                        } label: { Label("Routes", systemImage: "arrow.triangle.branch") }
+                        Button { model.act("phone", []) } label: { Label("Phone setup", systemImage: "iphone.radiowaves.left.and.right") }
+                        Spacer()
+                    }
+                    .controlSize(.small)
                 }
             }
-            Divider()
-            HStack {
-                Text(status).font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: Theme.s2) {
+                if !status.isEmpty {
+                    StatusPill(text: status, tint: status.hasPrefix("not saved") ? Theme.red : Theme.green)
+                }
+                Text(Config.path.path)
+                    .font(Theme.mono)
+                    .foregroundStyle(.tertiary)
                 Spacer()
                 Button(raw ? "Save raw TOML" : "Save changes") { save() }
+                    .buttonStyle(.borderedProminent)
                     .keyboardShortcut("s", modifiers: .command)
             }
-            .padding(8)
+            .padding(.top, Theme.s1)
         }
         .onAppear(perform: load)
         .onChange(of: raw) { _, _ in load() }
     }
 
-    private func dictionaryKeys(_ fields: [ConfigField]) -> [String] {
+    private var sections: [String] {
         var seen: [String] = []
         for field in fields where !seen.contains(field.section) { seen.append(field.section) }
         return seen
     }
 
-    private func fieldRow(_ field: ConfigField) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(field.key).font(.caption.bold())
-            if !field.comment.isEmpty {
-                Text(field.comment).font(.caption2).foregroundStyle(.secondary)
-            }
-            if field.value == "true" || field.value == "false" {
-                Toggle("", isOn: Binding(
-                    get: { (edits[field.id] ?? field.value) == "true" },
-                    set: { edits[field.id] = $0 ? "true" : "false" }))
-                .labelsHidden()
-            } else {
-                TextField(field.example, text: Binding(
-                    get: { edits[field.id] ?? field.value },
-                    set: { edits[field.id] = $0 }))
-                .textFieldStyle(.roundedBorder)
-                .font(.system(.caption, design: .monospaced))
-            }
-        }
-    }
-
     private func load() {
         fields = ConfigField.parse(example: AppModel.exampleConfig, live: Config.path)
-        raw = raw
         text = (try? String(contentsOf: Config.path, encoding: .utf8)) ?? ""
         status = ""
     }
@@ -1153,22 +1890,55 @@ struct SettingsView: View {
             let parsed = Toml.load(temp)
             try? FileManager.default.removeItem(at: temp)
             guard !parsed.isEmpty, parsed["agent"] != nil || parsed["pace.default"] != nil else {
-                status = "not saved: the TOML does not parse (a .bak of the old file is beside it)"
+                status = "not saved: the TOML does not parse"
                 return
             }
             try? text.write(to: path, atomically: true, encoding: .utf8)
         } else {
             for (key, value) in edits {
                 guard let field = fields.first(where: { $0.id == key }) else { continue }
-                let literal = field.literal(value)
-                Toml.set(path, field.section, field.key, literal)
+                Toml.set(path, field.section, field.key, field.literal(value))
             }
         }
         Config.reloadIfChanged()
-        status = "saved · the old file is at config.toml.bak"
         edits.removeAll()
         load()
-        status = "saved · the old file is at config.toml.bak"
+        status = "saved · a .bak is beside it"
+    }
+}
+
+private struct SettingFieldRow: View {
+    let field: ConfigField
+    @Binding var value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(field.key)
+                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                Spacer()
+                if field.value == "true" || field.value == "false" {
+                    Toggle("", isOn: Binding(
+                        get: { value == "true" },
+                        set: { value = $0 ? "true" : "false" }))
+                    .toggleStyle(.switch)
+                    .labelsHidden()
+                    .controlSize(.mini)
+                }
+            }
+            if !field.comment.isEmpty {
+                Text(field.comment)
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if field.value != "true" && field.value != "false" {
+                TextField(field.example, text: $value)
+                    .textFieldStyle(.roundedBorder)
+                    .controlSize(.small)
+                    .font(Theme.mono)
+            }
+        }
     }
 }
 
@@ -1212,11 +1982,11 @@ struct ConfigField: Hashable {
             guard let eq = trimmed.firstIndex(of: "=") else { continue }
             let key = trimmed[..<eq].trimmingCharacters(in: .whitespaces)
             let value = trimmed[trimmed.index(after: eq)...].trimmingCharacters(in: .whitespaces)
-            // A commented-out example is still a real setting; show it with its default.
-            let cleanKey = key
-            guard !cleanKey.isEmpty, !cleanKey.hasPrefix("#") else { continue }
-            let current = liveTable[section]?[cleanKey].map { _ in Config.loadedLiteral(section: section, key: cleanKey, raw: liveTable[section]?[cleanKey] ?? "") } ?? value
-            out.append(ConfigField(section: section, key: cleanKey, comment: comment.suffix(3).joined(separator: " "),
+            guard !key.isEmpty, !key.hasPrefix("#") else { continue }
+            let current = liveTable[section]?[key].map { _ in
+                Config.loadedLiteral(section: section, key: key, raw: liveTable[section]?[key] ?? "")
+            } ?? value
+            out.append(ConfigField(section: section, key: key, comment: comment.suffix(3).joined(separator: " "),
                                    value: current, example: value))
             comment = []
         }
@@ -1250,39 +2020,77 @@ struct PlaybooksView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack {
-                TextField("Search playbooks", text: $query).textFieldStyle(.roundedBorder)
-                Button("Check for personal details") {
-                    check = model.run("playbooks", ["--check"]).out
+        ScreenPage(title: "Playbooks",
+             subtitle: "What was learned about apps, sites and flows; shared, so they stay free of personal details.",
+             icon: "book.closed.fill", tint: Theme.plum) {
+            AnyView(
+                HStack(spacing: Theme.s2) {
+                    Button { check = model.run("playbooks", ["--check"]).out } label: {
+                        Label("Check", systemImage: "checkmark.shield")
+                    }
+                    .controlSize(.small)
+                    Button { NSWorkspace.shared.open(Playbooks.dir) } label: {
+                        Label("Folder", systemImage: "folder")
+                    }
+                    .controlSize(.small)
                 }
-                Button("Open folder") { NSWorkspace.shared.open(Playbooks.dir) }
+            )
+        } content: {
+            HStack(spacing: Theme.s2) {
+                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                TextField("Search playbooks", text: $query)
+                    .textFieldStyle(.plain)
+                    .font(.callout)
+                if !query.isEmpty {
+                    Button { query = "" } label: { Image(systemName: "xmark.circle.fill") }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.tertiary)
+                }
             }
-            .padding(10)
-            Divider()
-            List(books, id: \.path) { book in
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(book.title).bold()
-                    Text(book.path).font(.caption2).foregroundStyle(.secondary)
-                    ForEach(book.keyFacts.prefix(3), id: \.self) { fact in
-                        Text("• \(fact)").font(.caption2).foregroundStyle(.secondary)
-                    }
-                    HStack(spacing: 8) {
-                        Button("Edit") { NSWorkspace.shared.open(book.url) }
-                            .buttonStyle(.link).font(.caption2)
-                        Button("Explain which flow a task picks") {
-                            check = model.run("do", ["--explain", book.title]).out
+            .padding(.horizontal, Theme.s3)
+            .padding(.vertical, Theme.s2)
+            .background(Theme.surface, in: Capsule())
+            .overlay(Capsule().strokeBorder(Theme.hairline))
+
+            if books.isEmpty {
+                Text("no playbook matches").font(.callout).foregroundStyle(.secondary).card()
+            } else {
+                ForEach(books, id: \.path) { book in
+                    VStack(alignment: .leading, spacing: Theme.s2) {
+                        HStack(spacing: Theme.s2) {
+                            IconTile(symbol: "doc.text", tint: Theme.plum, size: 22)
+                            Text(book.title).font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                            Spacer()
+                            Text(book.path).font(.system(size: 9.5, design: .monospaced)).foregroundStyle(.tertiary)
                         }
-                        .buttonStyle(.link).font(.caption2)
+                        ForEach(book.keyFacts.prefix(3), id: \.self) { fact in
+                            HStack(alignment: .top, spacing: 6) {
+                                Circle().fill(Theme.plum.opacity(0.5)).frame(width: 4, height: 4).padding(.top, 5)
+                                Text(fact).font(.system(size: 10.5)).foregroundStyle(.secondary)
+                            }
+                        }
+                        HStack(spacing: Theme.s3) {
+                            Button { NSWorkspace.shared.open(book.url) } label: {
+                                Label("Edit", systemImage: "pencil")
+                            }
+                            .buttonStyle(.link).font(.system(size: 10.5))
+                            Button { check = model.run("do", ["--explain", book.title]).out } label: {
+                                Label("Which flow a task picks", systemImage: "arrow.triangle.branch")
+                            }
+                            .buttonStyle(.link).font(.system(size: 10.5))
+                            Spacer()
+                        }
                     }
+                    .card(Theme.s3 + 2)
                 }
-                .padding(.vertical, 3)
             }
             if !check.isEmpty {
-                Divider()
-                TextEditor(text: .constant(check))
-                    .font(.system(.caption, design: .monospaced))
-                    .frame(height: 120)
+                CardSection(title: "Result", symbol: "terminal", tint: Theme.slate) {
+                    Text(check)
+                        .font(Theme.mono)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
         }
     }
@@ -1294,25 +2102,43 @@ struct VMsView: View {
     @ObservedObject var model: AppModel
     @State private var text = ""
 
+    private let actions: [(String, String)] = [
+        ("up", "play.fill"), ("down", "stop.fill"), ("on", "power"),
+        ("off", "poweroff"), ("look", "eye"), ("status", "info.circle"), ("list", "list.bullet"),
+    ]
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
-                Text("VMs").font(.title2.bold())
-                Spacer()
-                ForEach(["up", "down", "on", "off", "look", "status", "list"], id: \.self) { action in
-                    Button(action) { text = model.run("vm", [action]).out }
-                        .buttonStyle(.bordered)
-                }
-                Button("Shell tab") {
+        ScreenPage(title: "VMs",
+             subtitle: "A small Linux VM with its own screen, cursor and keyboard, so browser work never borrows yours.",
+             icon: "desktopcomputer", tint: Theme.teal) {
+            AnyView(
+                Button {
                     model.newTab(preset: "VM shell", command: "apprentice vm shell")
+                } label: {
+                    Label("Shell tab", systemImage: "terminal")
                 }
+                .controlSize(.small)
+                .buttonStyle(.borderedProminent)
+            )
+        } content: {
+            HStack(spacing: Theme.s2) {
+                ForEach(actions, id: \.0) { action, icon in
+                    Button {
+                        text = model.run("vm", [action]).out
+                    } label: {
+                        Label(action, systemImage: icon)
+                    }
+                    .controlSize(.small)
+                }
+                Spacer()
             }
-            .padding(10)
-            Divider()
-            TextEditor(text: .constant(text))
-                .font(.system(.body, design: .monospaced))
-                .textSelection(.enabled)
-                .padding(8)
+            CardSection(title: "State", symbol: "server.rack", tint: Theme.teal) {
+                Text(text.isEmpty ? "…" : text)
+                    .font(Theme.mono)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .onAppear { text = model.run("vm", ["list"]).out }
     }
@@ -1326,52 +2152,69 @@ struct HealthView: View {
     @State private var version = ""
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("Updates & health").font(.title2.bold())
+        ScreenPage(title: "Updates & health",
+             subtitle: "The installed commit, the checks a first run needs, and how to offer a fix upstream.",
+             icon: "heart.text.square.fill", tint: Theme.red) {
+            AnyView(
+                Button { load() } label: { Label("Check again", systemImage: "arrow.clockwise") }
+                    .controlSize(.small)
+            )
+        } content: {
+            CardSection(title: "Installed", symbol: "shippingbox", tint: Theme.accent) {
+                FieldRow(label: "version", value: version, mono: true)
+                if let install = Build.install {
+                    FieldRow(label: "clone", value: install.clone, mono: true, tint: .secondary)
+                    FieldRow(label: "built", value: install.built ?? "?", mono: true, tint: .secondary)
+                }
+                HStack(spacing: Theme.s2) {
+                    Button { checks = model.run("update", []).out } label: {
+                        Label("Update now", systemImage: "arrow.down.circle")
+                    }
+                    Button { checks = model.run("update", ["--check"]).out } label: {
+                        Label("Check upstream", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    Button { checks = model.run("pr", ["--local"]).out } label: {
+                        Label("Share my fixes", systemImage: "arrow.up.forward.square")
+                    }
                     Spacer()
-                    Button("Check again") { load() }
                 }
-                GroupBox("Installed") {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(version).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                        if let install = Build.install {
-                            Text("clone \(install.clone) · built \(install.built ?? "?")").font(.caption).foregroundStyle(.secondary)
-                        }
-                        HStack {
-                            Button("Update now") { checks = model.run("update", []).out }
-                            Button("Check upstream") { checks = model.run("update", ["--check"]).out }
-                            Button("Share my fixes") { checks = model.run("pr", ["--local"]).out }
-                        }
-                    }
+                .controlSize(.small)
+            }
+            CardSection(title: "doctor", symbol: "stethoscope", tint: Theme.green) {
+                Text(checks.isEmpty ? "…" : checks)
+                    .font(Theme.mono)
+                    .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(4)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: Theme.s2) {
+                    Button { _ = model.run("doctor", ["--fix"]) } label: {
+                        Label("Fix permissions", systemImage: "wrench.and.screwdriver")
+                    }
+                    Button { checks = model.run("selftest", []).out } label: {
+                        Label("Self-test", systemImage: "checkmark.seal")
+                    }
+                    Spacer()
                 }
-                GroupBox("doctor") {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(checks.isEmpty ? "…" : checks)
-                            .font(.system(.caption, design: .monospaced))
-                            .textSelection(.enabled)
-                        HStack {
-                            Button("Fix permissions") { _ = model.run("doctor", ["--fix"]) }
-                            Button("Self-test") { checks = model.run("selftest", []).out }
-                        }
+                .controlSize(.small)
+            }
+            HStack(alignment: .top, spacing: Theme.s3) {
+                CardSection(title: "Bugs", symbol: "ladybug", tint: Theme.orange) {
+                    Text("\(bugCount()) open items in BUGS.md")
+                        .font(.callout)
+                    Button { NSWorkspace.shared.open(Repo.root.appendingPathComponent("BUGS.md")) } label: {
+                        Label("Open BUGS.md", systemImage: "arrow.up.forward.app")
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(4)
+                    .controlSize(.small)
                 }
-                GroupBox("Bugs and todo") {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("\(bugCount()) open items in BUGS.md · \(todoCount()) in TODO.md")
-                        Button("Open BUGS.md") { NSWorkspace.shared.open(Repo.root.appendingPathComponent("BUGS.md")) }
-                        Button("Open TODO.md") { NSWorkspace.shared.open(Repo.root.appendingPathComponent("TODO.md")) }
+                CardSection(title: "Todo", symbol: "checklist", tint: Theme.indigo) {
+                    Text("\(todoCount()) items in TODO.md")
+                        .font(.callout)
+                    Button { NSWorkspace.shared.open(Repo.root.appendingPathComponent("TODO.md")) } label: {
+                        Label("Open TODO.md", systemImage: "arrow.up.forward.app")
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(4)
+                    .controlSize(.small)
                 }
             }
-            .padding(12)
         }
         .onAppear(perform: load)
     }
@@ -1399,29 +2242,52 @@ struct CommandPalette: View {
     @State private var output = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Run an apprentice command").font(.headline)
-            TextField("schedule list", text: $model.paletteText)
-                .textFieldStyle(.roundedBorder)
-                .font(.system(.body, design: .monospaced))
-                .onSubmit(run)
-            Text("Same commands and exit codes as the CLI: every screen is a client of them.")
-                .font(.caption2).foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: Theme.s3) {
+            HStack(spacing: Theme.s2) {
+                IconTile(symbol: "command", tint: Theme.accent, size: 26, solid: true)
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Run a command").font(Theme.title(15))
+                    Text("Same commands and exit codes as the CLI")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            HStack(spacing: Theme.s2) {
+                Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.accent)
+                TextField("schedule list", text: $model.paletteText)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 13, design: .monospaced))
+                    .onSubmit(run)
+            }
+            .padding(.horizontal, Theme.s3)
+            .padding(.vertical, Theme.s2 + 2)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusSmall))
+            .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall).strokeBorder(Theme.hairline))
             ScrollView {
                 Text(output.isEmpty ? "output appears here" : output)
-                    .font(.system(.caption, design: .monospaced))
+                    .font(Theme.mono)
+                    .foregroundStyle(output.isEmpty ? .tertiary : .primary)
                     .textSelection(.enabled)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(Theme.s3)
             }
-            .frame(height: 220)
+            .frame(height: 230)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radiusSmall))
+            .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall).strokeBorder(Theme.hairline))
             HStack {
+                Text("⌘K to open · Return to run")
+                    .font(.system(size: 9.5))
+                    .foregroundStyle(.tertiary)
                 Spacer()
                 Button("Close") { model.paletteOpen = false }
-                Button("Run", action: run).keyboardShortcut(.defaultAction)
+                Button("Run", action: run)
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(16)
-        .frame(width: 560)
+        .padding(Theme.s5)
+        .frame(width: 600)
+        .background(Theme.canvas)
     }
 
     private func run() {
