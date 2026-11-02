@@ -66,14 +66,6 @@
     },
     {
       "@type": "Question",
-      "name": "Does it take screenshots of my screen?",
-      "acceptedAnswer": {
-        "@type": "Answer",
-        "text": "Not by default. It reads the window as a numbered text list through macOS accessibility, so a step costs tens of tokens instead of an image. Screenshots are used only when a page hides its contents from accessibility."
-      }
-    },
-    {
-      "@type": "Question",
       "name": "Will sites flag or ban my account?",
       "acceptedAnswer": {
         "@type": "Answer",
@@ -94,14 +86,6 @@
       "acceptedAnswer": {
         "@type": "Answer",
         "text": "It stays on your Mac, in ~/.apprentice, readable only by you. Logs never contain what you type, and password managers, banking and health apps are never logged."
-      }
-    },
-    {
-      "@type": "Question",
-      "name": "How do I update or uninstall it?",
-      "acceptedAnswer": {
-        "@type": "Answer",
-        "text": "It updates itself from GitHub between tasks. apprentice uninstall --yes removes everything it installed; add --all to remove its source folder too."
       }
     },
     {
@@ -322,9 +306,7 @@
     <header class="top">
       <a class="brand" href="./"><img src="assets/icon.svg" alt="">apprentice</a>
       <nav class="links">
-        <a href="#ask" class="hide-sm">What to ask</a>
         <a href="#how" class="hide-sm">How it works</a>
-        <a href="#help" class="hide-sm">Help out</a>
         <a href="#install" class="hide-sm">Install</a>
         <a href="#faq" class="hide-sm">FAQ</a>
         <a href="https://github.com/robertsolves/apprentice">GitHub</a>
@@ -335,12 +317,7 @@
       <img class="logo" src="assets/icon.svg" alt="apprentice icon">
       <div><span class="pill"><span class="beta">Beta</span>Human pace · Real cursor and keys · You approve</span></div>
       <h1>Your agent on Mac, Linux and the web, like a person</h1>
-      <p class="lede">
-        apprentice lets a coding agent or a hosted model use macOS, Linux and the web the way a normal person
-        would, not a bot: the real cursor on a curved path, real keys at a typing rhythm,
-        pauses to look, and rests between bursts. It reads the screen as a short numbered list and proposes
-        every change before it makes it.
-      </p>
+      <p class="lede">Your coding agent does tasks in your apps and on the web, with the real cursor and keyboard at a person's pace. It proposes every change and you approve.</p>
       <div class="cta">
         <a class="btn primary" href="#install">Install</a>
         <a class="btn" href="https://github.com/robertsolves/apprentice">
@@ -348,8 +325,9 @@
           View on GitHub
         </a>
       </div>
-      <p class="fine">Ask Claude, Codex, Gemini, Freebuff, Devin, Grok or any coding agent · No screenshots by default</p>
+      <p class="fine">Works with Claude Code, Codex, Gemini CLI and any coding agent · Free and open source</p>
 
+      <!-- Demo slot: replace this figure with the screen-recorded video once it exists (see TODO.md). -->
       <figure class="term" aria-label="Example: asking your agent to do something on screen">
         <div class="bar"><i></i><i></i><i></i></div>
 <pre><span class="u">you</span>    <span class="c">Download my January internet bill and put it in ~/Documents/Bills.</span>
@@ -379,25 +357,6 @@
     </div>
   </div>
 
-  <section id="ask">
-    <div class="wrap">
-      <h2>What you can ask</h2>
-      <p class="sub">Anything you'd do yourself with the mouse and keyboard, one task at a time. Say it to your agent in plain words.</p>
-      <div class="asks">
-        <div class="ask">“Download my January internet bill and put it in ~/Documents/Bills.”</div>
-        <div class="ask">“Forward the invoice from Acme to my accountant.”</div>
-        <div class="ask">“Move my dentist appointment from Tuesday to Thursday.”</div>
-        <div class="ask">“Fill in the passport renewal form with my details from contacts.md.”</div>
-        <div class="ask">“Turn on Do Not Disturb from 10pm until 8am.”</div>
-        <div class="ask">“Post this changelog to the #updates channel in our Discord.”</div>
-        <div class="ask">“Reorder the coffee beans I bought last month.”</div>
-        <div class="ask">“Rename the screenshots in ~/Downloads to YYYY-MM-DD and move them to ~/Pictures/Screenshots.”</div>
-        <div class="ask">“Do the weekly Shopify stock check like last time.”</div>
-        <div class="ask">“In the Linux VM, open the staging site in Chromium and check the login page loads.”</div>
-      </div>
-    </div>
-  </section>
-
   <section id="how">
     <div class="wrap">
       <h2>How it works</h2>
@@ -408,64 +367,6 @@
         <li><h3>You approve</h3><p>Every change is proposed first. Risky ones come to you.</p></li>
         <li><h3>It acts</h3><p>Real cursor and keys, at a human pace, on your Mac or in a Linux VM.</p></li>
       </ol>
-      <div class="feats">
-        <div class="feat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h13"/></svg><div><h3>Text, not pixels</h3><p>A step costs tens of tokens instead of an image.</p></div></div>
-        <div class="feat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3l14 8-6 2-3 6z"/></svg><div><h3>Moves like a person</h3><p>Curved paths, a natural typing rhythm and pauses to look.</p></div></div>
-        <div class="feat"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg><div><h3>Stops when you move</h3><p>Touch the mouse or keyboard and it halts. ctrl+opt+cmd+. is a kill switch.</p></div></div>
-        <div class="feat"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg><div><h3>Answers on your phone</h3><p>Away from your desk? Questions buzz your phone through free ntfy.</p></div></div>
-        <div class="feat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/></svg><div><h3>Plays by site rules</h3><p>Per-site budgets and cooldowns. CAPTCHAs and payments are always yours.</p></div></div>
-        <div class="feat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3M18 3v4h-4M6 21v-4h4"/></svg><div><h3>Gets better with use</h3><p>Tasks that worked become rerunnable flows, and it updates itself safely.</p></div></div>
-      </div>
-    </div>
-  </section>
-
-  <section>
-    <div class="wrap">
-      <h2>Built for one person</h2>
-      <p class="sub">
-        apprentice is for a solo owner running a handful of tools and accounts at a pace they could keep up by hand.
-        It's meant to bring the care of a bigger team, not more volume. Bulk outreach, mass following,
-        scraping at volume and running several accounts on one site are out of scope on purpose.
-      </p>
-    </div>
-  </section>
-
-  <section id="help">
-    <div class="wrap">
-      <h2>It's in beta. Help us make it better</h2>
-      <p class="sub">
-        apprentice works today, but it's early and it will trip over some apps and sites. Every report and fix
-        makes the next run smoother for everyone, so we're asking anyone who tries it to pitch in.
-      </p>
-      <p class="sub" id="risk">
-        <strong>Use it at your own risk.</strong> apprentice drives your Mac with the real cursor and keyboard, it can
-        make mistakes, and some sites forbid automation in their terms. You are responsible for what it does on your
-        accounts, and it comes with no warranty. Playbooks are shared with everyone, so never put anything personal
-        in one: apprentice refuses to commit or offer a playbook that looks like it holds a name, handle, email,
-        number or private link.
-      </p>
-      <div class="grid">
-        <div class="card"><h3>Report what breaks</h3><p>Open an <a href="https://github.com/robertsolves/apprentice/issues">issue</a>, or ask your agent to run <code>apprentice bug</code> and it writes the report for you.</p></div>
-        <div class="card"><h3>Teach it an app or site</h3><p>Playbooks in <code>playbooks/</code> tell agents how an app works. <code>apprentice learn</code> drafts one from a run that went well.</p></div>
-        <div class="card"><h3>Send a fix</h3><p>Fix it in your local clone, then <code>apprentice pr</code> offers it upstream. See <a href="https://github.com/robertsolves/apprentice/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a>.</p></div>
-      </div>
-    </div>
-  </section>
-
-  <section id="faq" class="faq">
-    <div class="wrap">
-      <h2>Questions</h2>
-      <p class="sub">Short answers to what people ask first.</p>
-      <details open><summary>What is apprentice?</summary><p>apprentice is a free, open-source macOS command-line tool that lets a coding agent such as Claude Code, Codex or Gemini CLI use apps and websites on your Mac, in a Linux VM and on the web. It reads the screen as a numbered text list, uses the real cursor and keyboard at a human pace, and proposes every change for approval.</p></details>
-      <details><summary>Is it safe?</summary><p>Every change is proposed first and nothing happens until it is approved. Risky steps you didn&#x27;t ask for (sending, deleting, spending) come to you in a small window, or to the chat or your phone when you&#x27;re away. Passwords, payments and CAPTCHAs only you can approve. Touching the mouse or keyboard stops it, and ctrl+opt+cmd+. is a kill switch.</p></details>
-      <details><summary>Can I answer apprentice from my phone?</summary><p>Yes. Ask your agent to set up your phone. It runs <code>apprentice phone</code>, which picks a private, random <a href="https://ntfy.sh">ntfy</a> topic and gives you a link to tap: on Android it subscribes the ntfy app in one tap, and on iPhone it opens the topic so you can subscribe. While you're away (for example, driving your Mac's Claude Code session from the Claude app), questions and approvals come to the chat and your phone buzzes. Only the question text is sent, never a screenshot, and questions about password and banking apps say only that a question is waiting.</p></details>
-      <details><summary>Which agents work with it?</summary><p>Any coding agent that can run shell commands or call MCP tools: Claude Code, Codex, Gemini CLI, opencode, Kilo, Cursor, Freebuff and others. The installer connects the ones it finds. It can also run its own loop against a hosted OpenAI-compatible API.</p></details>
-      <details><summary>Does it take screenshots of my screen?</summary><p>Not by default. It reads the window as a numbered text list through macOS accessibility, so a step costs tens of tokens instead of an image. Screenshots are used only when a page hides its contents from accessibility.</p></details>
-      <details><summary>Will sites flag or ban my account?</summary><p>It acts at a pace one person could keep by hand, with per-site budgets, cooldowns after a rate limit, and a stop on any challenge. Bulk outreach, mass following, scraping and several accounts on one site are out of scope by design. Some sites forbid automation in their terms, so use it at your own risk.</p></details>
-      <details><summary>What does it need?</summary><p>macOS 14 or later and Swift (Xcode or the command-line tools: xcode-select --install). You grant Accessibility and Screen Recording once; the installer opens both panes for you. Linux apps and browser sessions can run in a small Debian VM under Tart.</p></details>
-      <details><summary>Where does my data go?</summary><p>It stays on your Mac, in ~/.apprentice, readable only by you. Logs never contain what you type, and password managers, banking and health apps are never logged.</p></details>
-      <details><summary>How do I update or uninstall it?</summary><p>It updates itself from GitHub between tasks. apprentice uninstall --yes removes everything it installed; add --all to remove its source folder too.</p></details>
-      <details><summary>Is it free?</summary><p>Yes. It&#x27;s open source under the MIT licence.</p></details>
     </div>
   </section>
 
@@ -473,21 +374,28 @@
     <div class="wrap">
       <div class="panel">
         <h2>Install</h2>
-        <p class="sub" style="margin-bottom:0">You need macOS 14 or later and Swift (Xcode or the command-line tools: <code>xcode-select --install</code>). One command installs it, and running it again updates:</p>
+        <p class="sub" style="margin-bottom:0">You need macOS 14 or later and Swift (Xcode or the command-line tools: <code>xcode-select --install</code>). One command:</p>
         <div class="cmd"><code id="cmd">git clone https://github.com/robertsolves/apprentice.git ~/.apprentice/src &amp;&amp; ~/.apprentice/src/install.sh</code><button class="copy" type="button" data-copy="cmd">Copy</button></div>
-        <ol>
-          <li>It builds a release binary, runs its self-test and installs it to <code>~/.local/bin/apprentice</code>, signed so your permissions survive rebuilds.</li>
-          <li>It connects every AI agent it finds on your Mac, so you can just ask it to do things on screen.</li>
-          <li>It opens System Settings at <strong>Accessibility</strong> and <strong>Screen Recording</strong> once, so you can grant both to <code>~/.local/bin/apprentice</code>.</li>
-        </ol>
-        <a class="btn primary" href="https://github.com/robertsolves/apprentice#readme">Read the full README</a>
+        <p class="fine" style="margin:0">It builds, connects the agents it finds, and opens the two macOS permission panes once. Run it again to update.</p>
       </div>
+    </div>
+  </section>
+
+  <section id="faq" class="faq">
+    <div class="wrap">
+      <h2>Questions</h2>
+      <details><summary>Is it safe?</summary><p>Every change is proposed first and nothing happens until it is approved. Risky steps you didn&#x27;t ask for (sending, deleting, spending) come to you in a small window, or to the chat or your phone when you&#x27;re away. Passwords, payments and CAPTCHAs only you can approve. Touching the mouse or keyboard stops it, and ctrl+opt+cmd+. is a kill switch.</p></details>
+      <details><summary>Which agents work with it?</summary><p>Any coding agent that can run shell commands or call MCP tools: Claude Code, Codex, Gemini CLI, opencode, Kilo, Cursor, Freebuff and others. The installer connects the ones it finds. It can also run its own loop against a hosted OpenAI-compatible API.</p></details>
+      <details><summary>Will sites flag or ban my account?</summary><p>It acts at a pace one person could keep by hand, with per-site budgets, cooldowns after a rate limit, and a stop on any challenge. Bulk outreach, mass following, scraping and several accounts on one site are out of scope by design. Some sites forbid automation in their terms, so use it at your own risk.</p></details>
+      <details><summary>What does it need?</summary><p>macOS 14 or later and Swift (Xcode or the command-line tools: xcode-select --install). You grant Accessibility and Screen Recording once; the installer opens both panes for you. Linux apps and browser sessions can run in a small Debian VM under Tart.</p></details>
+      <details><summary>Where does my data go?</summary><p>It stays on your Mac, in ~/.apprentice, readable only by you. Logs never contain what you type, and password managers, banking and health apps are never logged.</p></details>
+      <details><summary>Is it free?</summary><p>Yes. It&#x27;s open source under the MIT licence.</p></details>
     </div>
   </section>
 
   <footer>
     <div class="wrap">
-      <span>apprentice · by <a href="https://github.com/robertsolves">robertsolves</a> · beta, <a href="#risk">use at your own risk</a></span>
+      <span>apprentice · by <a href="https://github.com/robertsolves">robertsolves</a> · beta, use at your own risk · MIT</span>
       <span>
         <a href="https://github.com/robertsolves/apprentice">Source</a> ·
         <a href="https://github.com/robertsolves/apprentice/issues">Issues</a> ·
