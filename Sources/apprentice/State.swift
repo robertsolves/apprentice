@@ -477,6 +477,8 @@ enum Approvals {
     static let ttl = 300.0
     /// How many proposals wait at once. A new one no longer drops the one the user is deciding on.
     static let kept = 5
+    /// How long a proposal stays open once it is handed to the user in the chat or on their phone.
+    static let userTTL = 3600.0
     /// The request being dispatched, and the approved one while it runs.
     static var request = Request(cmd: "")
     static var granted: Pending?
@@ -501,6 +503,16 @@ enum Approvals {
 
     static func add(_ p: Pending) { store(all.filter { $0.token != p.token } + [p]) }
     static func drop(_ token: String) { store(all.filter { $0.token != token }) }
+
+    /// Keeps `token` open for `seconds` more while the user decides; it never shortens one.
+    static func extend(_ token: String, by seconds: Double) {
+        let until = Date().timeIntervalSince1970 + seconds
+        store(all.map { p in
+            var p = p
+            if p.token == token { p.until = max(p.expires, until) }
+            return p
+        })
+    }
 
     /// Set while an approved `do` runs its steps: the plan was approved as a whole.
     static var planActive = false

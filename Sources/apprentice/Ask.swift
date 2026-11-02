@@ -393,20 +393,26 @@ extension Ask {
         let approve = "Approve", deny = "Deny"
         let why = a.value("why").map { "\n\nWhy: \($0)" } ?? ""
         let remote = ["question: approve this step? \(p.summary)\(why.replacingOccurrences(of: "\n\n", with: " "))",
-                      "if they say yes in the chat: `apprentice approve \(token)`; if no: `apprentice deny \(token)`. Nothing is done until then."]
-        if away { throw handOff(remote, push: "Approve this step? \(p.summary)") }
+                      "if they say yes in the chat: `apprentice approve \(token)`; if no: `apprentice deny \(token)`. Nothing is done until then; the step stays open for an hour."]
+        // The user may answer from the chat or their phone long after the usual five minutes.
+        func handBack() -> Fail {
+            Daemon.serial { Approvals.extend(token, by: Approvals.userTTL) }
+            return handOff(remote, push: "Approve this step? \(p.summary)")
+        }
+        if away { throw handBack() }
         let caller = caller
+        let timeout = windowTime(a.value("timeout").flatMap(Double.init) ?? 600)
+        Daemon.serial { Approvals.extend(token, by: timeout + 60) }
         let reply = DispatchQueue.main.sync {
             show("Approve this step?\n\n\(p.summary)\(why)", choices: [approve, deny], multi: false, withText: true,
-                 timeout: windowTime(a.value("timeout").flatMap(Double.init) ?? 600), placeholder: "Anything to add (optional)",
-                 caller: caller)
+                 timeout: timeout, placeholder: "Anything to add (optional)", caller: caller)
         }
         // An approval in the second after the agent gave up would run a step nobody is watching.
         if reply?.chosen.contains(approve) == true, !waiting(caller) {
             Store.log(["confirm": p.summary, "by": "user", "dropped": "caller gone"])
             throw Fail(3, "no answer: the caller stopped waiting, nothing was done")
         }
-        if reply == nil, Config.current.askIn != "window" { throw handOff(remote, push: "Approve this step? \(p.summary)") }
+        if reply == nil, Config.current.askIn != "window" { throw handBack() }
         let note = reply.map { $0.text.isEmpty ? "" : "\nuser: \($0.text)" } ?? ""
         guard let reply, !reply.skipped, reply.chosen.contains(approve) else {
             if reply != nil { _ = try Daemon.command(Request(cmd: "deny", args: [token])) }

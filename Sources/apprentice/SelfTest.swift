@@ -222,6 +222,12 @@ enum SelfTest {
         check(Approvals.find(tokens[0])?.args == ["5"] && (try? Approvals.take(tokens[1])) != nil && Approvals.pending?.token == tokens[0],
               "a new proposal keeps the one before it")
         Approvals.drop(tokens[0])
+        Approvals.add(Approvals.Pending(token: "old2", cmd: "click", args: ["3"], summary: "click 3", snap: nil,
+                                        at: Date().timeIntervalSince1970 - Approvals.ttl + 5, element: nil))
+        Approvals.extend("old2", by: Approvals.userTTL)
+        check(Approvals.find("old2").map { $0.expires > Date().timeIntervalSince1970 + 3000 } == true,
+              "a step handed to the user stays open for an hour")
+        Approvals.drop("old2")
         Approvals.request = Request(cmd: "")
     }
 
