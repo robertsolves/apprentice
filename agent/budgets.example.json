@@ -1,5 +1,5 @@
 {
-  "_note": "Copied to ~/.apprentice/budgets.json. Conservative self-imposed caps, not published platform limits. Lower is always allowed.",
+  "_note": "Copied to ~/.apprentice/budgets.json. Only the caps in this file apply: remove a kind or a site to lift its cap. These are conservative self-imposed caps, not published platform limits; they keep the account well below shadow-ban levels.",
   "default": {
     "post":     { "hour": 2,  "day": 5,   "min_gap_s": 600 },
     "comment":  { "hour": 5,  "day": 20,  "min_gap_s": 90 },
@@ -8,7 +8,8 @@
     "unfollow": { "hour": 5,  "day": 20,  "min_gap_s": 120 },
     "message":  { "hour": 5,  "day": 20,  "min_gap_s": 120 },
     "upload":   { "hour": 3,  "day": 10,  "min_gap_s": 300 },
-    "settings": { "hour": 3,  "day": 10,  "min_gap_s": 60 }
+    "settings": { "hour": 3,  "day": 10,  "min_gap_s": 60 },
+    "default":  { "hour": 120, "day": 500 }
   },
   "instagram.com": {
     "inherit": "default",

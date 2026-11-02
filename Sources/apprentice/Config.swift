@@ -262,7 +262,7 @@ struct Config {
     var userOnly = [
         "pay", "pay now", "buy", "buy now", "purchase", "checkout", "check out", "place order", "order now",
         "donate", "transfer", "upgrade", "captcha", "not a robot", "verify you are human", "delete account",
-        "close account", "deactivate", "password",
+        "close account", "deactivate",
     ]
     /// Signs of a CAPTCHA or identity check, which only the user may complete.
     var challengeMarkers = [

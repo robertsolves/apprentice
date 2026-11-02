@@ -45,15 +45,29 @@ actions_per_min = 8
 [pace.native]
 mode = "fast"   # shorter key gaps in native apps
 
-# Text that means a site is throttling the account (seen after an action: the site cools down for
-# 1 h, then 6 h, then 24 h) and signs of a check only the user may complete. These replace the
-# built-in lists; matched lower case, no commas inside a phrase.
+# What apprentice does when a site pushes back. apprentice never refuses a site on its own; these
+# decide. "stop" refuses actions on that site, "warn" lets work go on with a ⚠ line, "off" does not look.
 [sites]
+# A throttling message after an action ("try again later", "rate limit"…). Stopping is what keeps an
+# account from a shadow ban: the cooldown lasts each of cooldown_hours in turn (the last one repeats).
+on_soft_block = "stop"
+cooldown_hours = [1, 6, 24]
+# A CAPTCHA or "confirm it's you" check. apprentice never completes one in any mode; the user does.
+on_challenge = "stop"
+# Text that means the site is throttling, and signs of a check. These replace the built-in lists;
+# matched lower case, no commas inside a phrase.
 # soft_block = ["try again later", "temporarily restricted", "unusual activity", "rate limit"]
 # challenge = ["captcha", "verify you are human", "confirm it's you", "enter the code"]
 
+[gate]
+# Steps only the user can approve, in apprentice's window or menu-bar item; the agent's approve is
+# refused, even inside an approved flow. Whole words in the button or link. Password fields always are.
+# [] leaves every step to the agent.
+user_only = ["pay", "pay now", "buy", "buy now", "purchase", "checkout", "check out", "place order", "order now", "donate", "transfer", "upgrade", "captcha", "not a robot", "verify you are human", "delete account", "close account", "deactivate"]
+
 [session]
-# Empty means unrestricted. Example: allow = ["github.com", "example.com"]
+# Sites this session may use. Empty: any site, and the agent goes only where the task needs.
+# Example: allow = ["github.com", "example.com"]
 allow = []
 
 [agent]

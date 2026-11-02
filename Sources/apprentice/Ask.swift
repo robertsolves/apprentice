@@ -396,7 +396,7 @@ extension Ask {
         let why = a.value("why").map { "\n\nWhy: \($0)" } ?? ""
         let remote = p.needsUser
             ? ["question: approve this step? \(p.summary)\(why.replacingOccurrences(of: "\n\n", with: " "))",
-               "it is \(Gate.credential), so only the user can approve it, at the Mac: when they are back, run `apprentice confirm \(token)` again. A yes in the chat cannot run it. The step stays open for an hour."]
+               "\(p.warnings?.first(where: Gate.forUser.contains) ?? Gate.credential): only the user can approve it, at the Mac: when they are back, run `apprentice confirm \(token)` again. A yes in the chat cannot run it. The step stays open for an hour."]
             : ["question: approve this step? \(p.summary)\(why.replacingOccurrences(of: "\n\n", with: " "))",
                "if they say yes in the chat: `apprentice approve \(token)`; if no: `apprentice deny \(token)`. Nothing is done until then; the step stays open for an hour."]
         // The user may answer from the chat or their phone long after the usual five minutes.

@@ -172,7 +172,9 @@ Settings are `config.toml` (see `agent/config.example.toml`), `routes.toml` and 
 - **`[run]`:** the model endpoint for `apprentice run`.
 
 Site rules ship as defaults and live in your own files:
-- `budgets.json` caps each kind of action per site, per hour and per day, with a minimum gap. It starts with conservative caps for LinkedIn, X, Reddit, Instagram, Facebook and TikTok.
+- `budgets.json` caps each kind of action per site, per hour and per day, with a minimum gap. Only the caps in it apply; it starts with conservative ones for LinkedIn, X, Reddit, Instagram, Facebook and TikTok, well below shadow-ban levels.
+- `[sites]` in `config.toml` says what a rate-limit message or a CAPTCHA does: `on_soft_block` and `on_challenge` are `stop` (the default), `warn` or `off`, and `cooldown_hours` sets the waits. apprentice never completes a CAPTCHA.
+- `[gate] user_only` lists steps only you can approve, in apprentice's window or menu-bar item: payments, checkout, donations, transfers, CAPTCHAs, closing an account. Password fields always are.
 - `[pace.styles]` puts LinkedIn, X and Reddit on the `careful` style (dwell, bursts, rests, fidgets), with `[pace."<site>"]` sections for what differs.
 - `[policy."<site>"]` in `routes.toml` is your note on a site's terms (link, date checked, official API). It never refuses a site: apprentice works on any site.
 

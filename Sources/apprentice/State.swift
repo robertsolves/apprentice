@@ -433,11 +433,15 @@ enum Gate {
         return ["/settings", "/account", "/billing", "/security", "/admin", "/password"].contains { u.contains($0) }
     }
 
-    /// A step only the user may approve (`[gate] user_only`, and any password field): a payment, a
-    /// CAPTCHA, closing an account. The agent's `approve` is refused; `confirm` and the menu-bar item work.
+    /// The warning on a step `[gate] user_only` names (a payment, a CAPTCHA, closing an account):
+    /// like a credential, only the user can approve it.
+    static let userOnlyStep = "only the user approves this ([gate] user_only)"
+
+    /// The warnings `approve` takes only from the user (`confirm`, the menu bar), even inside a flow.
+    static let forUser: Set<String> = [credential, userOnlyStep]
+
     static func userOnly(_ e: Element?) -> Bool {
         guard let e else { return false }
-        if e.label == "password" { return true }
         let padded = " " + "\(e.label) \(e.name)".lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).joined(separator: " ") + " "
         return Config.current.userOnly.contains { padded.contains(" \($0) ") }
     }
@@ -455,6 +459,7 @@ enum Gate {
                 out.append(credential)
             }
         }
+        if userOnly(element) { out.append(userOnlyStep) }
         // Controls inside a dialog or sheet usually confirm something (I2).
         if t.scope == "sheet" { out.append("inside a dialog") }
         return out
@@ -479,7 +484,7 @@ enum Approvals {
 
         var expires: Double { until ?? at + Approvals.ttl }
         /// A credential step runs only once the user approves it themselves.
-        var needsUser: Bool { warnings?.contains(Gate.credential) == true }
+        var needsUser: Bool { warnings?.contains(where: Gate.forUser.contains) == true }
     }
 
     static let ttl = 300.0
@@ -532,7 +537,7 @@ enum Approvals {
     /// What the approved plan covers of a step's live warnings. A step the plan did not flag, or one on a
     /// password field, is proposed on its own, so a flow never runs a risk the approver did not see.
     static func planCovers(_ warnings: [String]) -> Bool {
-        warnings.isEmpty || (planFlagged && !warnings.contains(Gate.credential))
+        warnings.isEmpty || (planFlagged && !warnings.contains(where: Gate.forUser.contains))
     }
 
     static var approved: Bool {

@@ -30,6 +30,7 @@ enum SelfTest {
         sites()
         budgets()
         policies()
+        siteSettings()
         gate()
         allowlist()
         flows()
@@ -322,6 +323,34 @@ enum SelfTest {
         let page = Page(url: "https://www.blocked.example/feed", title: "Feed", scope: "web")
         check((try? Site.guardPage(page, cmd: "click", read: { Snapshot(snap: 1, scope: "web", url: page.url, title: "Feed", total: 0, elements: []) })) != nil, "a policy entry never refuses a site")
         check(Policies.describe("www.blocked.example").contains("https://blocked.example/terms"), "policy prints the terms on file")
+    }
+
+    /// Every site decision comes from the config files: no budgets.json means no caps, a broken one
+    /// stops work, cooldowns and challenges follow `[sites]`, and `[gate] user_only` steps need the user.
+    private static func siteSettings() {
+        let saved = Config.current
+        defer { Config.current = saved; try? FileManager.default.removeItem(at: Budgets.path) }
+        try? FileManager.default.removeItem(at: Budgets.path)
+        check((0..<50).allSatisfy { _ in (try? Budgets.check("nocaps.example", "like", record: true)) != nil }, "no budgets.json, no caps")
+        try? "{ not json".write(to: Budgets.path, atomically: true, encoding: .utf8)
+        check((try? Budgets.check("nocaps.example", "post", record: false)) == nil, "a broken budgets.json stops budgeted actions")
+        try? FileManager.default.removeItem(at: Budgets.path)
+
+        Limits.update { $0.cooling = ["cool.example": Limits.Cooling(until: Date().timeIntervalSince1970 + 600, strikes: 1, last: 0)] }
+        check((try? Cooldown.check("cool.example")) == nil && Cooldown.warning("cool.example") == nil, "on_soft_block = stop refuses a cooling site")
+        Config.current.onSoftBlock = "warn"
+        check((try? Cooldown.check("cool.example")) != nil && Cooldown.warning("cool.example") != nil, "on_soft_block = warn lets it run with a ⚠ line")
+        Limits.update { $0.cooling = nil }
+
+        func el(_ label: String, _ name: String) -> Element {
+            Element(id: 1, path: [], label: label, name: name, value: nil, frame: [0, 0, 1, 1], offscreen: false, gated: false)
+        }
+        check(Gate.userOnly(el("button", "Place order")) && Gate.userOnly(el("button", "Buy now")) && !Gate.userOnly(el("button", "Buyers guide")),
+              "user_only phrases match whole words")
+        let shop = Page(url: "https://shop.example/cart", title: "Cart", scope: "web")
+        check(Gate.warnings(el("button", "Pay"), shop).contains(Gate.userOnlyStep), "a payment step is the user's to approve")
+        Config.current.userOnly = []
+        check(!Gate.warnings(el("button", "Pay"), shop).contains(Gate.userOnlyStep), "an empty user_only leaves it to the agent")
     }
 
     /// The ⚠ lines: what a step is, never what the agent says it is.

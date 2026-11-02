@@ -18,7 +18,7 @@ Core principles:
 - **The calling agent is the brain.** apprentice is a toolset, not an agent. An optional built-in loop exists for running cheap models on their own.
 - **APIs before screens.** GitHub and other services with a CLI or API go through that (for example `gh`). apprentice covers what has no API.
 - **Approval before every change.** Every action that can change state is proposed first and runs only when the calling LLM approves it. The LLM decides, or asks the user; the chain is CLI ↔ LLM ↔ the user.
-- **Stop when a site says stop.** A rate limit or a challenge pauses the work on that site until it clears; no site is refused outright. The tool keeps work below the levels that get an account restricted.
+- **Every decision is in the config files.** apprentice never refuses a site on its own. Budgets come only from `budgets.json`; what a rate limit or a challenge does is `[sites] on_soft_block` and `on_challenge` (`stop`, `warn` or `off`); which steps only the user may approve is `[gate] user_only`. The defaults are careful: they stop on a rate limit or a challenge and keep caps well below shadow-ban levels, and payments, CAPTCHAs and passwords are always the user's to approve.
 
 ## Goals and non-goals
 
@@ -307,7 +307,7 @@ How it works:
 2. `⚠` lines flag what needs extra care: gate-list words (send, post, publish, like, follow, comment, submit, save, update, upload, pay, buy, delete, remove, confirm and more), settings, account and billing pages, return keys that may submit, uploads, and anything the caller marked `--gate`. Flagged proposals also keep a window screenshot in the run log.
 3. `approve <token>` runs exactly the saved request, paced and rate-limited as usual, and charges its budget. A step that never acts (refused by a rate limit, stopped by the user or the kill switch) gets its count back. `approve <token> --text "…"` replaces the text of a pending `type`. `deny <token>` drops it. Both are logged.
 4. A token is single-use and expires after 5 minutes, or after an hour once `confirm` hands it to the user in the chat. Up to five proposals wait at once, each answered by its own token. Reading the screen again is fine: on approval the element is checked again, and a step whose id now points at something else is refused as `stale`.
-5. A step on a password or security-code field runs only on the user's own approval (the `confirm` window or the menu bar); `approve` refuses it. The `run` loop sends every `⚠` approval to `confirm`.
+5. A step on a password or security-code field, or one whose button or link names a `[gate] user_only` phrase (by default pay, buy, checkout, place order, donate, transfer, upgrade, captcha, "not a robot", delete or close account), runs only on the user's own approval (the `confirm` window or the menu bar); `approve` refuses it, even inside an approved flow. The `run` loop sends every `⚠` approval to `confirm`.
 6. The usage docs tell agents to approve only steps the task needs, and to ask the user before any `⚠` step they did not ask for.
 
 Other guardrails:
@@ -327,7 +327,7 @@ Five pieces keep permitted work on the user's own accounts inside commonly enfor
 
 Hourly, daily and weekly caps per action kind, on top of the per-minute cap. Sites commonly enforce limits over hours and days, not only on bursts within a minute.
 
-- The caps live in `~/.apprentice/budgets.json`, which `kit.sh` seeds from `agent/budgets.example.json`. Each domain inherits from `default` and overrides only what it sets. A missing or unreadable file falls back to built-in caps, never to no limits.
+- The caps live in `~/.apprentice/budgets.json`, which `kit.sh` seeds from `agent/budgets.example.json`. Each domain inherits from `default` and overrides only what it sets. Only the caps in the file apply: no file means no caps, and a kind or site left out has none (the `default` entry's `default` kind caps any other gated action). A file that is not valid JSON stops budgeted actions with exit 4 until it is fixed, so a typo never lifts every cap.
 - Each kind has `hour`, `day`, an optional `week`, and `min_gap_s`. Kinds without a cap of their own borrow a close one (upvote → like; story, group post, repost → post; connect, friend request, join → follow; endorse → like). Any other gated action counts against a general cap of 120 an hour and 500 a day.
 - The kind comes from the gated element's label, matched on whole words. Only a click, or a `type --enter`, has a kind. An upload is `upload`; a gated action on a settings page is `settings`.
 - The budget is checked before the proposal and charged after approval. Over a cap is exit 4 `budget: 20 likes on x.com today`. A `min_gap_s` remainder of up to 30 s is waited out; a longer one is refused with the time it is allowed again. The agent stops; it does not retry.
@@ -358,7 +358,7 @@ Volume caps don't decide whether automation is allowed. Site policies do.
 When a site signals that it is throttling the account, work on that domain stops. Continuing past a rate limit can turn a temporary pause into a longer restriction.
 
 - **Detect.** After each action, phrases such as "try again later", "you're doing that too much", "temporarily restricted", "temporarily limited", "over the daily limit", "unusual activity", "we limit how often" and "rate limit" are matched only in elements new since the last snapshot. Text fields, URL changes and scroll, browse, hover and open commands are skipped, so a page that merely mentions "rate limit" doesn't cool its site down. The list is `[sites] soft_block` in `config.toml`.
-- **Cool down.** The domain is marked cooling in `limits.json` and every action on it is refused with exit 4 `soft block: x.com, cooling until 15:40`. The hold is 1 hour the first time, 6 hours the second, then 24 hours; a week with no block resets the count.
+- **Cool down.** With `[sites] on_soft_block = "stop"` (the default) the domain is marked cooling in `limits.json` and every action on it is refused with exit 4 `soft block: x.com, cooling until 15:40`. The holds are `[sites] cooldown_hours` (1, 6, then 24 by default; the last repeats); a week with no block resets the count. `"warn"` records the cooldown but lets work go on, with a `⚠` line on the action's output and on every proposal there until it ends; `"off"` does not look.
 - **Record.** The trigger phrase, the last 5 steps and a screenshot are logged to `events.jsonl`, and a macOS notification names the site.
 - **Clear.** `apprentice cool --clear <domain>` asks the user in the little window. Agents cannot clear it.
 
@@ -367,7 +367,7 @@ When a site signals that it is throttling the account, work on that domain stops
 CAPTCHAs, 2FA prompts and identity checkpoints are out of scope. The daemon notices one rather than clicking around it.
 
 1. **Detect.** On every read and after every action, match challenge URL paths (`/challenge`, `/checkpoint`, `/captcha` and similar), then the title and short element names against `[sites] challenge` ("captcha", "verify you are human", "confirm it's you", "enter the code", "press and hold", "your account has been locked"…).
-2. **Pause.** Exit 4 with `challenge:` and the marker seen (8 already means "approval needed"). Every action on that site is refused until it clears; reading still works.
+2. **Pause.** With `[sites] on_challenge = "stop"` (the default), exit 4 with `challenge:` and the marker seen (8 already means "approval needed"). Every action on that site is refused until it clears; reading still works. `"warn"` reports it with a `⚠` line and lets other work go on; `"off"` does not look. In every mode the challenge itself is the user's: CAPTCHA controls are in `[gate] user_only`.
 3. **Notify.** A macOS notification names the site, the first time.
 4. **Resume.** The next `read` or action looks again; once the markers are gone, `read` says the challenge is gone. Nothing polls in the background, so a command never blocks for minutes. The user is the only one who completes the challenge.
 
@@ -383,7 +383,7 @@ apprentice never refuses a site. A `[policy."<domain>"]` entry in `routes.toml` 
 | `checked` | date | Warns under `session` and `open` when older than 6 months, since terms change |
 | `api` | short text | The official API or export, if there is one |
 
-There are no built-in entries, and an older `automation` field is ignored. Budgets, cooldowns and challenge stops still apply on every site. `routes.example.toml` has commented examples.
+There are no built-in entries, and an older `automation` field is ignored. Budgets, cooldowns and challenges follow their own settings on every site. `routes.example.toml` has commented examples.
 
 ### Reviewing a restriction
 
