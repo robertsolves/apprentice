@@ -170,6 +170,7 @@ Settings are `config.toml` (see `agent/config.example.toml`), `routes.toml` and 
   - `ask_sound` is the ping, or `"none"`;
   - `ask_on_start` shows the options window;
   - `menu_bar = false` hides the menu-bar item.
+  - `overlay = false` hides the always-on-top status box (working, handed to you, paused; closing it asks, then stops apprentice).
 - **`[update]`:** `auto = false` to only be told about updates; `check_hours` (6).
 - **`[storage]`:** `sessions = "scrubbed"` (the default), `"full"` or `"off"`: what the clone keeps of each session (see below).
 - **`[run]`:** the model endpoint for `apprentice run`.

@@ -104,6 +104,7 @@ keep_awake = false
 # The menu-bar item: α idle, α … working, α ? waiting for you, α ! a step needs approval (its menu approves or denies it).
 menu_bar = true
 # A small always-on-top box: working, handed to you while you move, paused. Close asks, then stops apprentice.
+overlay = true
 # Where questions go. "both": the little window first, and if nobody answers within ask_window_s the
 # agent asks in the chat (terminal), so the user can answer remotely. "window" or "terminal" for one only.
 # `apprentice away on` switches to the terminal until `apprentice away off`.

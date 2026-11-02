@@ -745,6 +745,7 @@ enum Borrow {
     }
 
     static func waitIdle(_ seconds: Double = 1) throws {
+        Pause.wait()
         let deadline = Date().addingTimeInterval(30)
         try Timing.measure("idle") {
             while humanIdle < seconds {

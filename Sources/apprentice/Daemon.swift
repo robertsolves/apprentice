@@ -84,6 +84,7 @@ enum Daemon {
         Events.prune()
         KillSwitch.install()
         StatusItem.install()
+        Overlay.install()
         Borrow.watchHuman()
         if Store.vmName == nil { Repo.scheduleChecks() }
         if Config.current.keepAwake { Awake.set(true) }
