@@ -105,6 +105,8 @@ keep_awake = false
 menu_bar = true
 # A small always-on-top box: working, handed to you while you move, paused. Close asks, then stops apprentice.
 overlay = true
+# A short system sound for each thing that happens (a command, a hand-off to you, a pause, a failure).
+sounds = true
 # Where questions go. "both": the little window first, and if nobody answers within ask_window_s the
 # agent asks in the chat (terminal), so the user can answer remotely. "window" or "terminal" for one only.
 # `apprentice away on` switches to the terminal until `apprentice away off`.

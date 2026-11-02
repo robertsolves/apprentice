@@ -28,6 +28,7 @@ enum StatusItem {
 
     /// From any thread: a command started or finished.
     static func busy(_ on: Bool) {
+        Sound.play(on ? "Tink" : "Pop")
         DispatchQueue.main.async {
             working = on
             render()

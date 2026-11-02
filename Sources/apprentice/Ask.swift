@@ -110,6 +110,7 @@ enum Ask {
         // On every Space and above a full-screen app, so the question is never behind the work.
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
+        blue(panel)
         StatusItem.asking(true)
         defer { StatusItem.asking(false) }
 
@@ -204,6 +205,12 @@ enum Ask {
         if let frame = screen?.visibleFrame {
             panel.setFrameTopLeftPoint(NSPoint(x: frame.midX - panel.frame.width / 2, y: frame.maxY - 12))
         }
+    }
+
+    /// Dialogs are blue, so they stand out from the work behind them: white text on apprentice's blue.
+    static func blue(_ window: NSWindow) {
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.backgroundColor = NSColor(srgbRed: 0x0A / 255, green: 0x5C / 255, blue: 0xE6 / 255, alpha: 1)
     }
 
     /// The apprentice mark beside the text, so it is plain who is asking.
@@ -314,6 +321,7 @@ extension Ask {
         panel.becomesKeyOnlyIfNeeded = true
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
+        blue(panel)
 
         let label = NSTextField(wrappingLabelWithString: "Show me: \(what)\n\nPress Start, move the cursor onto it, and hold still.")
         label.preferredMaxLayoutWidth = width - 32 - 52

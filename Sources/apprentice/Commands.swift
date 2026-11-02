@@ -322,6 +322,7 @@ enum Commands {
         // A new session ends the last one: its scrubbed copy goes into the clone (`[storage] sessions`).
         if req.cmd == "session" { Sessions.archiveCurrent() }
         let result = Result { try Awake.busy { try dispatch(req) } }
+        if case .failure(let e) = result { Sound.play((e as? Fail)?.code == 8 ? "Sosumi" : "Basso") }
         if case .failure = result, let r = reserved { Budgets.refund(r.host, r.kind) }
         reserved = nil
         // `session --task "…"` records what the user asked for, so the log reads as a task, not just steps.

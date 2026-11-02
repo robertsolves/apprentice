@@ -280,7 +280,12 @@ func readSnapshot(_ t: Target, includeOffscreen: Bool = false) -> Snapshot {
     walker.walk(t.root, path: [], depth: 0)
     var elements = walker.out
     for n in elements.indices { elements[n].id = n + 1 }
-    return Snapshot(snap: SnapStore.next(), scope: t.scope, url: t.url, title: t.title, total: elements.count, elements: elements)
+    // The address and title as they are now, not as `locate` found them: a click on a link changes them
+    // after the target was found, and an old address here made the next command call the page stale.
+    // A page that was replaced leaves `root` dead, so the window is asked instead.
+    let url = t.url == nil ? nil : (t.root.string("AXURL") ?? windowURL(t.window) ?? t.url)
+    let title = t.window.string(kAXTitleAttribute) ?? t.title
+    return Snapshot(snap: SnapStore.next(), scope: t.scope, url: url, title: title, total: elements.count, elements: elements)
 }
 
 func walkPath(_ root: AXUIElement, _ path: [Int]) -> AXUIElement? {

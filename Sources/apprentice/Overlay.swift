@@ -10,6 +10,25 @@ enum Pause {
     }
 }
 
+/// A short system sound for each thing that happens, so the person hears it without looking.
+/// `[agent] sounds = false` silences them all (`ask_sound` still sets the question ping).
+enum Sound {
+    private static var playing: [String: NSSound] = [:]
+    private static var last: [String: Date] = [:]
+
+    /// From any thread. The same sound is not repeated inside 0.25 s.
+    static func play(_ name: String) {
+        guard Config.current.sounds else { return }
+        DispatchQueue.main.async {
+            if let t = last[name], Date().timeIntervalSince(t) < 0.25 { return }
+            last[name] = Date()
+            // Held in a static: a sound released right after play() stops before it is heard.
+            playing[name] = NSSound(named: NSSound.Name(name))
+            playing[name]?.play()
+        }
+    }
+}
+
 /// A small always-on-top box that says what apprentice is doing: working, handed to you while you move
 /// the mouse or type, taking over again once you have been still, paused, or idle. Closing it asks first,
 /// then stops apprentice. `[agent] overlay = false` hides it.
@@ -21,6 +40,7 @@ enum Overlay {
 
     private static var panel: NSPanel?
     private static var dot = NSTextField(labelWithString: "●")
+    private static var lastHead = ""
     private static var title = NSTextField(labelWithString: "")
     private static var detail = NSTextField(labelWithString: "")
     private static let pauseButton = NSButton(title: "Pause", target: nil, action: nil)
@@ -57,16 +77,19 @@ enum Overlay {
         text.orientation = .vertical
         text.alignment = .leading
         text.spacing = 1
-        let row = NSStackView(views: [dot, text, pauseButton])
+        let mark = NSImageView(image: Ask.icon)
+        mark.setAccessibilityLabel("apprentice")
+        mark.widthAnchor.constraint(equalToConstant: 32).isActive = true
+        mark.heightAnchor.constraint(equalToConstant: 32).isActive = true
+        let row = NSStackView(views: [mark, dot, text, pauseButton])
         row.orientation = .horizontal
         row.alignment = .centerY
         row.spacing = 8
         row.edgeInsets = NSEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
         p.contentView = row
-        p.setContentSize(row.fittingSize.width < 280 ? NSSize(width: 280, height: row.fittingSize.height) : row.fittingSize)
-        if let screen = NSScreen.main?.visibleFrame {
-            p.setFrameOrigin(NSPoint(x: screen.maxX - p.frame.width - 16, y: screen.maxY - p.frame.height - 12))
-        }
+        row.layoutSubtreeIfNeeded()
+        p.setContentSize(NSSize(width: max(row.fittingSize.width, 300), height: max(row.fittingSize.height, 52)))
+        place(p)
         p.orderFrontRegardless()
         panel = p
         render()
@@ -75,13 +98,39 @@ enum Overlay {
         timer = t
     }
 
+    /// Top right of the main screen, fully inside its visible area.
+    private static func place(_ p: NSPanel) {
+        guard let screen = NSScreen.main?.visibleFrame else { return }
+        p.setFrameTopLeftPoint(NSPoint(x: screen.maxX - p.frame.width - 16, y: screen.maxY - 12))
+    }
+
+    /// One sound for each change of state, so a hand-off or a pause is heard as well as seen.
+    private static func chime(_ head: String) {
+        defer { lastHead = head }
+        guard !lastHead.isEmpty, head != lastHead else { return }
+        switch head {
+        case "Yours": Sound.play("Funk")
+        case "Paused": Sound.play("Morse")
+        case "Stopped": Sound.play("Basso")
+        case "Needs approval": Sound.play("Sosumi")
+        case "Working" where lastHead == "Yours": Sound.play("Glass")
+        case "Ready" where lastHead == "Yours": Sound.play("Glass")
+        default: if lastHead == "Paused" { Sound.play("Hero") }
+        }
+    }
+
     private static func render() {
         let (color, head, sub, label) = status()
+        chime(head)
         dot.textColor = color
         title.stringValue = head
         detail.stringValue = sub
         pauseButton.title = label
-        panel?.orderFrontRegardless()
+        if let p = panel {
+            // Back on screen if a display went away or the window was dragged off.
+            if !NSScreen.screens.contains(where: { $0.visibleFrame.intersects(p.frame) }) { place(p) }
+            p.orderFrontRegardless()
+        }
     }
 
     private static func status() -> (NSColor, String, String, String) {
@@ -119,6 +168,7 @@ enum Overlay {
             alert.addButton(withTitle: "Stop apprentice")
             alert.addButton(withTitle: "Keep running")
             alert.alertStyle = .warning
+            Ask.blue(alert.window)
             NSApp.activate(ignoringOtherApps: true)
             if alert.runModal() == .alertFirstButtonReturn {
                 Store.log(["overlay": "stop", "by": "user"])

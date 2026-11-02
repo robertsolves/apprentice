@@ -295,6 +295,7 @@ struct Config {
     /// The menu-bar item that says whether apprentice is working, waiting for the user or holding a proposal.
     var menuBar = true
     var overlay = true
+    var sounds = true
     /// Where questions go: "both" (the window, then the chat if unanswered), "window", or "terminal".
     var askIn = "both"
     var askWindowSeconds = 60.0
@@ -442,6 +443,7 @@ struct Config {
         if let v = toml["agent"]?["ask_sound"] { c.askSound = Toml.unquote(v) }
         if let v = toml["agent"]?["keep_awake"] { c.keepAwake = Toml.unquote(v) == "true" }
         if let v = toml["agent"]?["menu_bar"] { c.menuBar = Toml.unquote(v) != "false" }
+        if let v = toml["agent"]?["sounds"] { c.sounds = Toml.unquote(v) != "false" }
         if let v = toml["agent"]?["overlay"] { c.overlay = Toml.unquote(v) != "false" }
         if let v = toml["agent"]?["ask_in"] { c.askIn = Toml.unquote(v) }
         if let v = toml["agent"]?["notify"] { c.notify = Toml.unquote(v) }
