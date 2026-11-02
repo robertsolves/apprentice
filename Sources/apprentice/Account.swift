@@ -267,6 +267,22 @@ enum Account {
         return code == 200 ? true : (code == 401 ? false : nil)
     }
 
+    /// A GitHub API call with the signed-in token (`Sync` makes the settings repo with it). The token goes
+    /// only in the request's header.
+    static func api(_ method: String, _ path: String, _ body: [String: Any]? = nil, token: String) -> (code: Int?, json: [String: Any]?) {
+        guard let u = URL(string: "https://api.github.com" + path) else { return (nil, nil) }
+        var req = URLRequest(url: u, timeoutInterval: 15)
+        req.httpMethod = method
+        req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue("apprentice/\(Build.number)", forHTTPHeaderField: "User-Agent")
+        if let body {
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        }
+        return send(req)
+    }
+
     private static func post(_ url: String, _ fields: [String: String]) -> [String: Any]? {
         guard let u = URL(string: url) else { return nil }
         var req = URLRequest(url: u, timeoutInterval: 15)

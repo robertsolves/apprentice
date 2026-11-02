@@ -44,6 +44,7 @@ enum SelfTest {
         siteLists()
         appText()
         prefs()
+        sync()
         allowlist()
         flows()
         playbooks()
@@ -1373,6 +1374,55 @@ enum SelfTest {
     }
 
     /// Prefs: the nearest device wins, only the user's words or the task's own site are saved, and lookups match words.
+    /// Sync: two Macs through a local bare repo. The allow-list keeps secrets and session state out, a new
+    /// Mac takes the repo's copy, logs merge line by line, a clash keeps this Mac's, and a key is never sent.
+    private static func sync() {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent("apprentice-sync-\(UUID().uuidString)")
+        let bare = root.appendingPathComponent("home.git").path
+        let a = root.appendingPathComponent("a"), b = root.appendingPathComponent("b")
+        defer { try? fm.removeItem(at: root); Sync.testDir = nil; Sync.testRemote = nil }
+        try? fm.createDirectory(at: a.appendingPathComponent("vm"), withIntermediateDirectories: true)
+        try? fm.createDirectory(at: b, withIntermediateDirectories: true)
+        Repo.run("git", ["init", "-q", "--bare", "-b", "main", bare], in: root)
+        func on(_ mac: URL) { Sync.testDir = mac; Sync.testRemote = bare }
+        func put(_ mac: URL, _ name: String, _ text: String) { try? text.write(to: mac.appendingPathComponent(name), atomically: true, encoding: .utf8) }
+        func get(_ mac: URL, _ name: String) -> String { (try? String(contentsOf: mac.appendingPathComponent(name), encoding: .utf8)) ?? "" }
+
+        put(a, "voice.md", "short and plain\n")
+        put(a, "events.jsonl", "{\"a\":1}\n")
+        put(a, "session.json", "{}")
+        put(a, "vm/id_ed25519", "-----BEGIN OPENSSH PRIVATE KEY-----\n")
+        on(a)
+        let first = try? Sync.round()
+        let sent = Repo.run("git", ["--git-dir", bare, "ls-tree", "-r", "--name-only", "main"], in: root).out
+        check(first?.error == nil && sent.contains("voice.md") && sent.contains("events.jsonl"), "sync: the first Mac sends its settings")
+        check(!sent.contains("session.json") && !sent.contains("id_ed25519"), "sync: session state and the VM's ssh key never leave the Mac")
+
+        put(b, "voice.md", "drawn on the new Mac\n")
+        on(b)
+        let restored = try? Sync.round()
+        check(get(b, "voice.md") == "short and plain\n" && restored?.restoredTo != nil, "sync: a new Mac takes the repo's copy and keeps its own aside")
+
+        put(b, "events.jsonl", "{\"a\":1}\n{\"b\":2}\n")
+        put(b, "voice.md", "from b\n")
+        _ = try? Sync.round()
+        on(a)
+        put(a, "events.jsonl", "{\"a\":1}\n{\"c\":3}\n")
+        put(a, "voice.md", "from a\n")
+        let merged = try? Sync.round()
+        let log = get(a, "events.jsonl")
+        check(merged?.error == nil && log.contains("\"b\"") && log.contains("\"c\""), "sync: logs from two Macs merge line by line")
+        check(get(a, "voice.md") == "from a\n", "sync: a clash keeps this Mac's copy")
+
+        put(a, "config.toml", "[run]\napi_key = \"sk-abcdefghijklmnopqrstuvwxyz123456\"\n")
+        let refused = try? Sync.round()
+        let tree = Repo.run("git", ["--git-dir", bare, "ls-tree", "-r", "--name-only", "main"], in: root).out
+        check(refused?.refused["config.toml"] != nil && !tree.contains("config.toml"), "sync: a file that holds a key is never sent")
+        check(Sync.secret(in: "[agent]\nnotify = \"https://ntfy.sh/abcd1234efgh\"") != nil && Sync.secret(in: "[agent]\nsounds = true") == nil,
+              "sync: the phone's topic is a secret, a plain setting is not")
+    }
+
     private static func prefs() {
         let p = { (v: String) in Prefs.Pref(value: v, from: "you", at: "2026-11-02") }
         let seen = Prefs.merge([(.vm(nil), ["gym": p("vm-gym.com")]), (.mac, ["gym": p("mac-gym.com"), "linkedin": p("in/sam")])])

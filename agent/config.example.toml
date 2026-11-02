@@ -219,6 +219,14 @@ vision_model = ""
 # [vm.linkedin]
 # memory_mb = 2048
 
+[sync]
+# Send your settings, preferences, voice, typing, skills and logs (as text) to your own private GitHub repo,
+# apprentice-home, so signing in on another Mac brings them back (`apprentice sync on`). Keys, the VM's
+# ssh key, session state and screenshots never leave this Mac, and a file that looks like it holds a key
+# is not sent. Needs `apprentice account login`.
+# on = false
+# every_min = 5
+
 [account]
 # Your GitHub account, for what apprentice will send to the project in your name (`apprentice account
 # login`, or Settings ▸ GitHub account in the window). Signing in is a code you enter at

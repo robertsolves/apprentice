@@ -92,7 +92,7 @@ enum Daemon {
         Voice.install()
         // The window's own process is separate (`apprentice app`), so a stuck terminal or a crashed view
         // never takes the daemon and a pending approval down with it.
-        if Store.vmName == nil { Repo.scheduleChecks() }
+        if Store.vmName == nil { Repo.scheduleChecks(); Sync.schedule() }
         Schedules.install()
         Away.install()
         if Config.current.keepAwake { Awake.set(true) }

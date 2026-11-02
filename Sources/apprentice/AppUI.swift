@@ -710,7 +710,7 @@ final class AppModel: ObservableObject {
     static let inClient: Set<String> = ["route", "playbooks", "notes", "prefs", "remember", "forget", "learn", "bug",
                                         "commit", "update", "settings", "repo", "policy", "budget", "activity", "flag",
                                         "grow", "sessions", "project", "doctor", "tour", "pr", "run", "replay", "vm",
-                                        "phone", "selftest", "version", "account", "pipeline", "device", "skills"]
+                                        "phone", "selftest", "version", "account", "sync", "pipeline", "device", "skills"]
 
     /// Every button: the same request the CLI sends, marked as the user's own. It blocks, so it never runs
     /// on the main thread: `run(_:_:then:)` and `act` call it from a background queue.

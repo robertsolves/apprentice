@@ -43,6 +43,7 @@ func usage() {
       apprentice type <id> --secret username|password|code [--enter]   sign in ([login] auto): saved account, or the user's code
       apprentice login add|remove|status <domain>   save a sign-in to the Keychain through the little window
       apprentice account login [--start | --wait | --cancel] [--no-browser] | status [--offline] | logout   your GitHub account: sign in with a code at github.com/login/device
+      apprentice sync [status] | on | off | now   send settings, prefs, voice, skills and logs to your own private GitHub repo, apprentice-home
       apprentice key <combo> [--tier 3]
       apprentice menu "File > New Folder" [--tier 3]
       apprentice scroll up|down|left|right [n] [--in id | --at x,y]
@@ -128,7 +129,7 @@ let rest = Array(argv.dropFirst())
 /// `route` and the rest beside the daemon's commands.
 let loggedHere: Set<String> = ["route", "playbooks", "skills", "device", "notes", "learn", "bug", "commit", "update", "settings", "repo", "policy", "budget", "pace",
                                "activity", "flag", "grow", "sessions", "project", "doctor", "pr", "vm", "replay", "phone", "tour", "prefs", "remember", "forget", "account",
-                               "pipeline"]
+                               "pipeline", "sync"]
 if loggedHere.contains(command) { Timing.begin() }
 
 func done(_ code: Int32) -> Never {
@@ -238,6 +239,8 @@ case "tour":
     attempt { print(try Tour.command(Args.parse(rest))) }
 case "account":
     attempt { print(try Account.command(Args.parse(rest))) }
+case "sync":
+    attempt { print(try Sync.command(Args.parse(rest))) }
 case "uninstall":
     attempt { print(try Doctor.uninstall(Args.parse(rest))) }
 case "pr":
