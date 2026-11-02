@@ -6,6 +6,8 @@ What an LLM learned driving apps and sites, kept so the next run does not have t
 - `apprentice notes "words"` ranks notes by those words and shows the matching lines.
 - `apprentice learn "task"` drafts `flows/<slug>.md` from the session's approved steps. Edit it, then commit.
 - `apprentice do <flow> --key value` runs a flow: one approval for the whole plan, element names found on screen as it goes, and it stops with the screen at the first step that fails.
+- `apprentice do --explain "task"` shows which flow a task would pick for the current model (`APPRENTICE_MODEL`), and why.
+- `routes-learned.toml` is written by `do` the first time a model runs a flow to the end, so `route` points that model straight at it next time.
 
 ## Layout
 
@@ -21,6 +23,8 @@ scope: app | site | system | flow
 match: Finder, com.apple.finder        # app names, bundle ids or hosts; * matches every session
 system: macos                          # optional: macos or linux (the VM); the note shows only there
 tags: files, folder, rename
+model: any                             # flows: the model that learned it; another model skips it unless "any"
+tool: gh                               # optional: a flow whose steps are shell commands for this tool
 lang: en                               # menu and button titles are in this language
 verified: 2026-11-01, macOS 26.2
 status: verified | partial | draft
@@ -37,6 +41,7 @@ status: verified | partial | draft
 2. `click #button "Save"`          # #label "name" → that element's id at run time
 3. `type #textbox "" "{name}"`     # {name} ← --name "…"
 4. Pick the right row by hand.     # no backticks: `do` stops here and hands over
+5. `sh: gh pr list --repo {repo}`  # a shell step, same approval; refused when the policy is UI only
 ```
 
 A step that starts with a backticked command is run by `do`. Put notes after it, following " — ".

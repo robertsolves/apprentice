@@ -70,6 +70,8 @@ ask_on_start = true
 ask_sound = "Ping"
 # Keep the display and system from idle sleep and locking while a task runs, and 2 min after (`apprentice awake on|off`).
 keep_awake = false
+# The menu-bar item: α idle, α … working, α ? waiting for you, α ! a step needs approval (its menu approves or denies it).
+menu_bar = true
 # Where questions go. "both": the little window first, and if nobody answers within ask_window_s the
 # agent asks in the chat (terminal), so the user can answer remotely. "window" or "terminal" for one only.
 # `apprentice away on` switches to the terminal until `apprentice away off`.
@@ -110,3 +112,10 @@ vision_model = ""
 # version. Set auto = false to only be told (`session` prints it) and run `apprentice update` yourself.
 auto = true
 check_hours = 6
+
+# What the clone keeps of each session in sessions/, committed when the session ends, so what was
+# learned outlives the 30-day log and can travel in `apprentice pr`. "scrubbed" keeps commands, diffs,
+# timings, errors (quoted text removed), hosts, the model and the task; "full" also keeps URLs and
+# element names; "off" keeps nothing. Never typed text or screenshots.
+[storage]
+sessions = "scrubbed"
