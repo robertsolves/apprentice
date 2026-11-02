@@ -72,6 +72,9 @@ func usage() {
       apprentice sessions [--limit 10]          recent sessions: app, sites, steps, errors, model, task
       apprentice route "task"
       apprentice playbooks ["words"] [--check]        learned app, site and flow playbooks; --check looks for anything personal
+      apprentice prefs ["words"]                what the user uses (their gym's site, their handles): this device's, then its parent's
+      apprentice remember <key> "<value>" --from you|task [--on mac]   save one on this device: the user's words, or the site or app the task ran on
+      apprentice forget <key> [--on mac]        drop one from this device; a parent's value then applies
       apprentice learn "task" [--name slug] [--model m] [--force]  draft a flow from this session's steps
       apprentice do --explain "task"            which flow a task would pick for this model, and why
       apprentice run "task" --model <name> [--base-url url] [--screen-anyway] [--save name]
@@ -107,7 +110,7 @@ let rest = Array(argv.dropFirst())
 /// Commands answered in this process log their own row, so `log --session` and `grow` see `learn`, `bug`,
 /// `route` and the rest beside the daemon's commands.
 let loggedHere: Set<String> = ["route", "playbooks", "notes", "learn", "bug", "commit", "update", "settings", "repo", "policy", "budget",
-                               "activity", "flag", "grow", "sessions", "project", "doctor", "pr", "vm", "replay", "phone"]
+                               "activity", "flag", "grow", "sessions", "project", "doctor", "pr", "vm", "replay", "phone", "prefs", "remember", "forget"]
 if loggedHere.contains(command) { Timing.begin() }
 
 func done(_ code: Int32) -> Never {
@@ -161,6 +164,13 @@ case "route", "playbooks", "notes":
         print(out)
     }
     done(0)
+case "prefs":
+    print(Prefs.list(Args.parse(rest)))
+    done(0)
+case "remember":
+    attempt { print(try Prefs.remember(Args.parse(rest))) }
+case "forget":
+    attempt { print(try Prefs.forget(Args.parse(rest))) }
 case "learn":
     attempt { print(try Playbooks.learn(Args.parse(rest))) }
 case "bug":

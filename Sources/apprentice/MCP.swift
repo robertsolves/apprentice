@@ -41,6 +41,9 @@ enum MCP {
         tool("upload", "Click a file control and pick a file in the dialog", ["id": ["type": "integer"], "path": ["type": "string"]], ["id", "path"]),
         tool("download", "Save a linked file or image to a path", ["id": ["type": "integer"], "path": ["type": "string"]], ["id", "path"]),
         tool("log", "The last steps of this session", ["tail": ["type": "integer"]]),
+        tool("prefs", "What the user uses (their gym's site, their handles, folders) on this device and its parent; check before a task", ["query": ["type": "string"]]),
+        tool("remember", "Save a pref on this device, unasked: from: you (the user's own words) or task (the site or app the task ran on). Never other screen text",
+             ["key": ["type": "string"], "value": ["type": "string"], "from": ["type": "string"]], ["key", "value", "from"]),
         tool("pending", "The proposals waiting for approve or deny, if any", [:]),
         tool("resume", "Lift the kill switch's stop, only when the user has said to carry on", [:]),
         tool("playbooks", "Search the learned app, site and flow playbooks", ["query": ["type": "string"]]),
@@ -117,6 +120,9 @@ enum MCP {
             var a = [args["task"] as? String ?? ""]
             if let n = args["name"] as? String { a += ["--name", n] }
             return try Playbooks.learn(Args.parse(a))
+        case "prefs": return Prefs.list(Args.parse([args["query"] as? String ?? ""]))
+        case "remember":
+            return try Prefs.remember(Args.parse([args["key"] as? String ?? "", args["value"] as? String ?? "", "--from", args["from"] as? String ?? ""]))
         case "policy": return (args["domain"] as? String).map(Policies.describe) ?? Config.policyLine
         case "budget": return Budgets.report(args["domain"] as? String)
         default: return nil

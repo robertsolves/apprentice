@@ -9,14 +9,15 @@ lang="${4:-en-US}"
 src=/tmp/apprentice-vm
 
 if ! command -v chromium >/dev/null || ! command -v Xvfb >/dev/null || ! command -v openbox >/dev/null \
+  || ! command -v git >/dev/null \
   || ! ls /usr/lib/*/girepository-1.0/Gtk-3.0.typelib >/dev/null 2>&1; then
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
   # No desktop: a virtual display, VNC, a window manager, Chromium, a terminal, and what reads their
-  # accessibility trees and types into them. Other apps are one `apt-get install` away, over ssh.
+  # accessibility trees and types into them, and git for the VM's own clone of apprentice. Other apps are one `apt-get install` away, over ssh.
   apt-get install -y -qq --no-install-recommends xvfb x11vnc openbox wmctrl xfce4-terminal libnotify-bin chromium \
     at-spi2-core gir1.2-atspi-2.0 python3-gi python3-xlib dbus-bin dbus-x11 \
-    gir1.2-gtk-3.0 fonts-dejavu-core fonts-noto-color-emoji ca-certificates >/dev/null
+    gir1.2-gtk-3.0 fonts-dejavu-core fonts-noto-color-emoji ca-certificates git >/dev/null
   apt-get clean
 fi
 

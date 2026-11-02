@@ -117,13 +117,13 @@ enum Routes {
         var lines = ["route · \"\(task)\""]
         if matches.isEmpty {
             lines.append("no faster route: use screen control")
-            return lines.joined(separator: "\n")
+            return (lines + Prefs.hints(task)).joined(separator: "\n")
         }
         for m in matches {
             let remaining = m.remaining.map { " (screen still needed: \($0))" } ?? ""
             lines.append("\(m.label) → \(m.faster)\(remaining)")
         }
-        return lines.joined(separator: "\n")
+        return (lines + Prefs.hints(task)).joined(separator: "\n")
     }
 
     static func hintLines(for domain: String?) -> [String] {

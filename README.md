@@ -71,6 +71,7 @@ ok · snap 4 · +2 -0 ~0
 - **It shows what it is doing.** A menu-bar item reads `α` when idle, `α …` while working, `α ?` while a question waits for you and `α !` when a step needs approval. Its menu approves or denies that step, opens the session's log and stops apprentice.
 - **It can keep the browser off your desktop, and drive Linux too.** A small Linux VM (about 2 GB, under a gigabyte to download) runs Chromium, a terminal and any Linux app you install, with its own screen, cursor and keyboard, so the agent works while you keep working. Terminal first: the agent runs commands over plain ssh (`apprentice vm shell`) and takes the screen (`session --app <name> --on linux`) only where no command does it. Approvals, budgets and logs stay on your Mac; `apprentice vm look` shows you the VM, and `apprentice vm call "what"` asks you into it when a site needs a person. The VM is Linux only for now; a macOS VM, for Mac apps and Safari, is planned.
 - **One VM per job.** `APPRENTICE_VM=linkedin apprentice vm setup` makes another VM, and an agent session started with `APPRENTICE_VM=linkedin` works only there, so two agents run side by side without touching each other's browser. Each site's budgets and cooldowns count across all of them. Uploads and downloads move files between your Mac and the VM, and questions open on the VM's screen.
+- **It remembers your usual.** When you say "my gym is …" or a task runs on a site you'll use again, the agent saves it (`apprentice remember gym "bookings.examplegym.com.au" --from you`), so next time it goes straight there instead of asking. It saves only your own words or the site or app a task ran on, never other text from a screen. `apprentice prefs` lists them, `forget` drops one. Each VM keeps its own `~/.apprentice` and clone, and inherits your Mac's values under its own.
 - **It learns, per model.** Playbooks for apps and sites live in this repo under `playbooks/`, so updates share them. `learn` turns a task that worked into a flow tagged with the model that did it. Next time, the same model finds its own flow first (`do --explain "task"` shows the pick and why), and `do <flow>` reruns it with one approval for the whole plan, handing back if a step fails. Whenever asking you solved a problem, the playbook gets updated and a code fix is filed. See [How the next run gets faster](#how-the-next-run-gets-faster).
 - **It logs every session.** Every command is logged, including the ones that don't touch the screen (`learn`, `bug`, `route`), with the model and the exit code. `apprentice sessions` lists recent sessions, and `apprentice log --session` replays one on a single screen.
 
@@ -127,7 +128,8 @@ With `[agent] ask_on_start = true`, the first `session` after the daemon starts 
 | `approve <token>` · `deny <token>` · `confirm <token>` · `pending` | Approvals |
 | `ask "question" [--choices "A\|B"] [--multi] [--text]` · `show "what"` | Ask the user in the little window |
 | `playbooks "words"` · `playbooks --check` · `learn "task" [--model m]` · `do <flow> --key value` · `do --explain "task"` | Playbooks and flows; `--explain` shows which flow this model would pick, and why |
-| `route "task"` | Check for a faster route (an API, `gh`, a connector) before using the screen |
+| `route "task"` | Check for a faster route (an API, `gh`, a connector) before using the screen; also prints matching preferences |
+| `prefs ["words"]` · `remember <key> "<value>" --from you\|task [--on mac]` · `forget <key> [--on mac]` | What you use (your gym's site, your handles), on this device and inherited from its parent |
 | `shot` · `ocr` · `log [--tail n]` · `log --session [<id>]` · `sessions` | A screenshot, OCR of the window, recent steps, one whole session, recent sessions |
 | `project [init \| status]` | A project's own `.apprentice/` folder: its own site counts and tighter caps |
 | `policy` · `away on\|off` · `phone [on\|off\|test]` · `awake on\|off` | Settings for shell use, remote questions and keep-awake |
@@ -206,6 +208,7 @@ Everything apprentice learns is kept in your clone, where updates and `pr` can s
 | --- | --- | --- | --- |
 | Key facts about an app or site | `playbooks/macos/`, `playbooks/web/`, `playbooks/linux/` | you or the agent, after a question or a fix | `session` and `open` print them |
 | Flows: a task as steps, tagged with the model | `playbooks/flows/<slug>.md` | `learn "task"` drafts one from the session's approved steps | `do --explain` picks one for this model; `do <flow>` runs it with one approval |
+| Your preferences: sites you use, your handles | `prefs.json` in this device's `.apprentice` (in a VM, inside the VM) | the agent, from your own words or the site a task ran on (`remember`) | `route` and `prefs` print them |
 | Learned routes | `playbooks/routes-learned.toml` | `do`, the first time a model gets through a flow | `route "task"` sends that model straight to the flow |
 | Session copies | `sessions/<date>-<session>.jsonl` | the daemon, when a session ends | you, `grow`, and anyone reviewing a `pr` |
 

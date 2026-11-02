@@ -127,6 +127,8 @@ Verdicts: **keep** (used and pays off), **watch** (too new or too little data), 
 | Per-model flow ranking: a flow's `model:` tag, other models' flows left out, `do --explain` prints the pick and score | `Playbooks.swift` `rank`, `explain` | Which model ran which flow; skips by other models | The model that learned a flow finds it first | keep |
 | `sh:` steps inside flows | `Flows.swift` `shellCommand`, `runShell` | `cmd: sh` rows with the flow path | Tool flows run without the screen | watch |
 | `do --explain` (which flow this model picks, and why) | `Playbooks.explain` | `--explain` calls | Agents check before running a flow blind | watch |
+| Preferences (`remember`, `prefs`, `pref:` lines in `route`) | `Prefs.swift` | `remember` rows by `--from`; `ask` questions about the same thing before and after (grow) | Questions like "which gym?" stop coming back | watch |
+| Per-device layers (a VM's own `~/.apprentice` and clone, inheriting from the Mac) | `Layers.swift`, `VM.seedClone` | Not measured: add the layer a pref or setting came from to `route` rows | VMs actually carry their own prefs or settings | watch |
 | `learn` | `Playbooks.learn` | Flows drafted that later ran | Drafts turn into used flows | watch |
 | Routes (`route`) and route hints on `session` / `open` | `Routes.swift` | `route` calls, hints followed | Agents take the route; no calls in the log means cut it | cut? |
 | `run` loop (`--model`, `--base-url`, `--screen-anyway`, `--save`; stops at 40 steps, 15 minutes or 3 identical actions) | `AgentLoop.swift` | `run` sessions, steps, stops | Someone runs tasks without a coding agent; no uses means cut it | cut? |

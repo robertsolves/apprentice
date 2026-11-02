@@ -418,6 +418,46 @@ enum VM {
             + "sudo -n sh /tmp/apprentice-vm/provision.sh \(shellQuoted(user)) \(shellQuoted(password)) \(shellQuoted(zone)) \(shellQuoted(lang))", input: tar.out)
         guard r.code == 0 else { throw Fail(5, "could not set up the VM: \(r.err)") }
         Remote.disconnect()
-        return "installed the browser, terminal and helper in \(name) (\(ip))"
+        return "installed the browser, terminal and helper in \(name) (\(ip))\n" + seedClone(ip)
+    }
+
+    /// The VM's own `~/.apprentice` and its own clone of the repo (`Layers`). The clone's upstream is this
+    /// Mac's clone, sent as a bundle on every install, so notes and local fixes flow down while the VM's own
+    /// commits stay in the VM. Only committed work goes; a failure here leaves the VM working as before.
+    static func seedClone(_ ip: String) -> String {
+        let root = Repo.root
+        let current = run("/usr/bin/git", ["-C", root.path, "branch", "--show-current"])
+        let branch = String(decoding: current.out, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+            .filter { $0.isLetter || $0.isNumber || "._/-".contains($0) }
+        guard !branch.isEmpty else { return "warning: \(root.path) is not on a branch, so the VM's clone was not updated" }
+        let bundle = FileManager.default.temporaryDirectory.appendingPathComponent("apprentice-\(UUID().uuidString).bundle")
+        defer { try? FileManager.default.removeItem(at: bundle) }
+        let made = run("/usr/bin/git", ["-C", root.path, "bundle", "create", "-q", bundle.path, branch])
+        guard made.code == 0, let data = try? Data(contentsOf: bundle) else {
+            return "warning: could not bundle \(root.path) for the VM's clone: \(made.err)"
+        }
+        let script = """
+        set -e; umask 077; mkdir -p ~/.apprentice; chmod 700 ~/.apprentice
+        cat > ~/.apprentice/upstream.bundle
+        src=~/.apprentice/src
+        if [ -d "$src/.git" ]; then
+          git -C "$src" fetch -q upstream
+          if ! git -C "$src" rebase -q --autostash upstream/\(branch) 2>/dev/null; then
+            git -C "$src" rebase --abort 2>/dev/null || true
+            echo "conflict"; exit 3
+          fi
+        else
+          git clone -q -o upstream -b \(branch) ~/.apprentice/upstream.bundle "$src"
+          git -C "$src" remote set-url --push upstream no-push
+          git -C "$src" config user.name apprentice
+          git -C "$src" config user.email "apprentice@$(hostname -s).local"
+        fi
+        git -C "$src" rev-parse --short HEAD
+        """
+        let r = ssh(ip, script, input: data)
+        let out = String(decoding: r.out, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+        if r.code == 3 { return "warning: the VM's own commits in ~/.apprentice/src conflict with this Mac's clone; left as it was" }
+        guard r.code == 0 else { return "warning: could not update the VM's clone: \(r.err.trimmingCharacters(in: .whitespacesAndNewlines))" }
+        return "the VM's clone ~/.apprentice/src is at \(out.split(separator: "\n").last ?? ""), from this Mac's \(branch)"
     }
 }

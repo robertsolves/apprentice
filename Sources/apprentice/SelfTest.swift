@@ -33,6 +33,7 @@ enum SelfTest {
         siteSettings()
         gate()
         login()
+        prefs()
         allowlist()
         flows()
         playbooks()
@@ -807,5 +808,27 @@ enum SelfTest {
         Repo.testBuild = { (1, "error: broken") }
         let good = head()
         check(!Repo.applyUpdate() && head() == good, "a failed build goes back to the old commit")
+    }
+
+    /// Prefs: the nearest device wins, only the user's words or the task's own site are saved, and lookups match words.
+    private static func prefs() {
+        let p = { (v: String) in Prefs.Pref(value: v, from: "you", at: "2026-11-02") }
+        let seen = Prefs.merge([(.vm, ["gym": p("vm-gym.com")]), (.mac, ["gym": p("mac-gym.com"), "linkedin": p("in/sam")])])
+        check(seen.count == 2 && seen.first { $0.key == "gym" }?.pref.value == "vm-gym.com", "a VM's own pref wins over the Mac's")
+        check(seen.first { $0.key == "linkedin" }?.place == .mac, "a pref only the Mac has is inherited")
+        check(Prefs.key("My Gym!") == "my-gym" && Prefs.key("") == nil, "keys are lower case words joined by dashes")
+        check(Prefs.valueProblem("a\nb") != nil && Prefs.valueProblem(String(repeating: "x", count: 201)) != nil
+              && Prefs.valueProblem("bookings.gym.com") == nil, "a value is one short line")
+        check(Prefs.taskValueOK("https://www.gym.com/book", url: "https://gym.com/classes", app: "Safari"), "--from task takes the session's site")
+        check(!Prefs.taskValueOK("evil.com", url: "https://gym.com/classes", app: "Safari"), "--from task refuses another site")
+        check(Prefs.taskValueOK("gym.com", url: "https://book.gym.com/", app: nil) && !Prefs.taskValueOK("com", url: "https://gym.com/", app: nil)
+              && !Prefs.taskValueOK("notgym.com", url: "https://gym.com/", app: nil), "a subdomain is the same site, a lookalike is not")
+        check(Prefs.taskValueOK("Figma", url: nil, app: "Figma"), "--from task takes the session's app")
+        check(Prefs.matching(seen, "book my gym class").map(\.key) == ["gym"], "a task finds the prefs it mentions")
+        check(Prefs.matching(seen, "").count == 2, "no words lists every pref")
+        let config = Layers.overlay(["pace.default": ["min": "1", "max": "2"], "agent": ["ui_only": "false"]],
+                                    ["pace.default": ["max": "3"]])
+        check(config["pace.default"] == ["min": "1", "max": "3"] && config["agent"]?["ui_only"] == "false",
+              "a VM's config.toml overrides key by key and inherits the rest")
     }
 }
