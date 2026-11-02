@@ -90,7 +90,7 @@ func usage() {
       apprentice schedule add|list|show|pause|resume|rm|now|agent   prompts and tasks that run later or again
       apprentice away on|off|status|wait|add|list|cancel   work that runs only while you are away, and stops when you are back
       apprentice serve [--background] | stop
-      apprentice uninstall [--all] [--yes]      list, then remove, everything apprentice installed (--all: the clone too)
+      apprentice uninstall [--all] [--keep-vms] [--yes]   list, then remove, everything apprentice installed (--all: the clone too; --keep-vms: the VMs stay)
 
     output is compact text for an agent. add --json for the raw reply from the commands that go through the daemon, and from `route` and `playbooks`.
     open, click, type, key, menu, drag, upload, download, choose and do only propose: they exit 8 with a token,

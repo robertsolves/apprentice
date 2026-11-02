@@ -186,7 +186,7 @@ Verdicts: **keep** (used and pays off), **watch** (too new or too little data), 
 | `install.json` and `version` (the installed commit); CI builds the universal binary and runs `selftest`, releases on `v*` tags | `Build.swift`, `.github/workflows/` | `version` calls; CI and release failures | `version` matches the tag and CI stays green | keep |
 | `[vm] host` (a guest on another machine), `[vm] local` (sites kept on this Mac even with `vm on`), `[agent] notify`, `menu_bar`, `ask_on_start`, `keep_awake`, and the `APPRENTICE_*` overrides | `Config.swift`, `Remote+More.swift`, `VM.swift`, `Notify.swift` | Which keys and overrides a run used (add them to rows) | People configure a VM host or keep a site local, and it works | watch |
 | GitHub account: `account login` (device flow for a GitHub App, `--start`, `--wait`, `--cancel`), `status [--offline]`, `logout`; tokens in the login Keychain, refreshed before they run out; Settings ▸ GitHub account in the window, and the login in its sidebar | `Account.swift`, `AppUI.swift` `AccountCard` | Sign-ins (`account` rows); refused tokens in `status` | Error reports and settings sync use it | watch |
-| `doctor [--fix]`, `uninstall [--all] [--yes]`, `selftest`, `repo`, `version` | `Doctor.swift`, `SelfTest.swift`, `Repo.swift`, `Build.swift` | `doctor` gaps reported; selftest failures; uninstall runs | First runs succeed and selftest stays green | keep |
+| `doctor [--fix]`, `uninstall [--all] [--keep-vms] [--yes]`, `selftest`, `repo`, `version` | `Doctor.swift`, `SelfTest.swift`, `Repo.swift`, `Build.swift` | `doctor` gaps reported; selftest failures; uninstall runs | First runs succeed and selftest stays green | keep |
 
 ## Coverage map
 
@@ -280,7 +280,7 @@ Every command the CLI accepts, and the section that scopes it. `help` and `versi
 | `serve [--background]` / `stop` | Platforms and integration |
 | `mcp` | Platforms and integration |
 | `vm setup\|install\|up\|down\|on\|off\|look\|call\|shell\|list\|status` | Platforms and integration |
-| `uninstall [--all] [--yes]` | Platforms and integration |
+| `uninstall [--all] [--keep-vms] [--yes]` | Platforms and integration |
 | `--vm <name> …` (before any command) | Platforms and integration |
 | `--json` (on any command) | Logs, sessions and review |
 

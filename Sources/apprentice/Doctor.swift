@@ -156,7 +156,7 @@ enum Doctor {
 
     // MARK: - uninstall
 
-    /// `uninstall [--all] [--yes]`: without --yes it only lists what it would remove. The clone stays unless
+    /// `uninstall [--all] [--keep-vms] [--yes]`: without --yes it only lists what it would remove. The clone stays unless
     /// --all, since it holds the user's own commits, playbooks and session copies.
     static func uninstall(_ a: Args) throws -> String {
         let fm = FileManager.default
@@ -170,14 +170,19 @@ enum Doctor {
         var plan = ["stop the daemons", "\(bin)", "the agent skills, rules sections and MCP entries kit.sh added (agent/connect.py --remove)",
                     "the signing identity \"apprentice\" in the login keychain", "the GitHub sign-in in the login keychain",
                     "the PATH lines kit.sh added to ~/.zprofile or ~/.bash_profile"]
-        let vms = VM.tartPath == nil ? [] : tartVMs()
+        // --keep-vms keeps the VMs and what reaches them (`vm/`: the ssh key and config; `vms/`), so a new
+        // install, the release app included, picks them up again.
+        let keepVMs = a.has("keep-vms")
+        let vms = VM.tartPath == nil || keepVMs ? [] : tartVMs()
         if !vms.isEmpty { plan.append("the VMs " + vms.joined(separator: ", ")) }
-        plan.append(Store.dir.path + (cloneInside && !a.has("all") ? " except the clone \(clone)" : ""))
+        var kept = cloneInside && !a.has("all") ? ["the clone \(clone)"] : []
+        if keepVMs { kept.append("vm/ and vms/ (the VMs stay)") }
+        plan.append(Store.dir.path + (kept.isEmpty ? "" : " except " + kept.joined(separator: " and ")))
         if a.has("all"), isClone, !cloneInside { plan.append("the clone \(clone), with its local commits") }
         guard a.has("yes") else {
             return (["uninstall would remove:"] + plan.map { "  - \($0)" }
                     + [a.has("all") ? "" : "the clone \(clone) stays (your commits and playbooks); --all removes it too",
-                       "run `apprentice uninstall\(a.has("all") ? " --all" : "") --yes` to do it"]).filter { !$0.isEmpty }.joined(separator: "\n")
+                       "run `apprentice uninstall\(a.has("all") ? " --all" : "")\(keepVMs ? " --keep-vms" : "") --yes` to do it"]).filter { !$0.isEmpty }.joined(separator: "\n")
         }
         var done: [String] = []
         Wire.stopVMDaemons()
@@ -202,11 +207,12 @@ enum Doctor {
         for item in items {
             let path = Store.dir.appendingPathComponent(item).path
             if !a.has("all"), cloneInside, clone == path || clone.hasPrefix(path + "/") { continue }
+            if keepVMs, item == "vm" || item == "vms" { continue }
             do { try fm.removeItem(atPath: path) } catch { failed.append("\(path): \(error.localizedDescription)") }
         }
-        if a.has("all") || !cloneInside { try? fm.removeItem(atPath: Store.dir.path) }
+        if (a.has("all") || !cloneInside) && !keepVMs { try? fm.removeItem(atPath: Store.dir.path) }
         if failed.isEmpty {
-            done.append("removed \(Store.dir.path)" + (cloneInside && !a.has("all") ? " except \(clone)" : ""))
+            done.append("removed \(Store.dir.path)" + (kept.isEmpty ? "" : " except " + kept.joined(separator: " and ")))
         } else {
             done.append("could not remove, still in \(Store.dir.path):\n" + failed.map { "  " + $0 }.joined(separator: "\n"))
         }
