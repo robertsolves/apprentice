@@ -394,6 +394,13 @@ enum SelfTest {
         check(filled == "type 3 \"Ada ‹city›\"" && missing == ["city"], "placeholders fill, a missing one is marked and reported")
         var loop = Set<String>()
         check(!Commands.fill("{a}", ["a": "{a}"], &loop).isEmpty, "a value that brings its placeholder back does not loop for ever")
+        var shellMissing = Set<String>()
+        check(Commands.fill("sh: echo ${HOME} {a,b} {x}", ["x": "1"], &shellMissing, onlyKnown: true) == "sh: echo ${HOME} {a,b} 1" && shellMissing.isEmpty,
+              "a shell step keeps its own braces")
+        var hidden = Set<String>()
+        check(Commands.fill("type 1 \"{password}\"", ["password": "hunter2"], &hidden, hide: true) == "type 1 \"‹hidden›\"",
+              "a secret value is hidden in what a flow shows")
+        check(Toml.array("[\"Acme, Inc\", \"b\"]") == ["Acme, Inc", "b"], "a comma inside quotes does not split a TOML array")
     }
 
     /// Playbooks: front matter, key facts, steps, and which session sees which note.

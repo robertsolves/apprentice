@@ -44,7 +44,31 @@ enum Toml {
 
     static func array(_ s: String) -> [String]? {
         guard s.hasPrefix("["), s.hasSuffix("]") else { return nil }
-        return s.dropFirst().dropLast().split(separator: ",").map { unquote(String($0)) }
+        return splitTop(String(s.dropFirst().dropLast())).map { unquote($0) }
+    }
+
+    /// Splits on commas outside quotes, so `["Acme, Inc"]` stays one item.
+    static func splitTop(_ s: String) -> [String] {
+        var parts: [String] = []
+        var cur = ""
+        var quote: Character?
+        var prev: Character = " "
+        for ch in s {
+            if let q = quote {
+                if ch == q && prev != "\\" { quote = nil }
+            } else if ch == "\"" || ch == "'" {
+                quote = ch
+            } else if ch == "," {
+                parts.append(cur)
+                cur = ""
+                prev = ch
+                continue
+            }
+            cur.append(ch)
+            prev = ch
+        }
+        if !cur.trimmingCharacters(in: .whitespaces).isEmpty { parts.append(cur) }
+        return parts
     }
 
     static func doubles(_ s: String) -> [Double]? {
@@ -54,7 +78,7 @@ enum Toml {
     static func table(_ s: String) -> [String: String] {
         guard s.hasPrefix("{"), s.hasSuffix("}") else { return [:] }
         var out: [String: String] = [:]
-        for part in s.dropFirst().dropLast().split(separator: ",") {
+        for part in splitTop(String(s.dropFirst().dropLast())) {
             let pair = part.split(separator: "=", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
             if pair.count == 2 { out[pair[0]] = pair[1] }
         }
@@ -336,8 +360,9 @@ struct Config {
         }
         c.profiles = styled
         for (section, values) in toml where section.hasPrefix("pace.") && !["pace.default", "pace.styles"].contains(section) {
-            let key = String(section.dropFirst("pace.".count))
-            c.profiles[key] = PaceConfig(values, base: styled[key.lowercased()] ?? c.pace)
+            // Lower case, as the lookups are, so `[pace."LinkedIn.com"]` and `[pace."Safari"]` match in any spelling.
+            let key = String(section.dropFirst("pace.".count)).lowercased()
+            c.profiles[key] = PaceConfig(values, base: styled[key] ?? c.pace)
         }
         if let s = toml["session"] {
             if let a = s["allow"].flatMap(Toml.array) { c.allow = a }
@@ -381,7 +406,7 @@ struct Config {
     /// Activates the profile for a domain or app for the next action.
     static func activate(_ key: String?) {
         current.pace = current.defaultPace
-        guard let key, let p = current.profiles[key] else { return }
+        guard let key, let p = current.profiles[key.lowercased()] else { return }
         current.pace = p
     }
 
@@ -394,7 +419,7 @@ struct Config {
                 host = String(host[host.index(after: dot)...])
             }
         }
-        if current.profiles[session.app] != nil { return session.app }
+        if current.profiles[session.app.lowercased()] != nil { return session.app.lowercased() }
         return session.isBrowser ? "web" : "native"
     }
 }

@@ -49,7 +49,8 @@ enum Capture {
         // Window frames have a top-left origin; NSScreen frames have a bottom-left one.
         let flipped = CGRect(x: frame.minX, y: main - frame.maxY, width: frame.width, height: frame.height)
         let screen = screens.max { $0.frame.intersection(flipped).area < $1.frame.intersection(flipped).area }
-        return screen?.backingScaleFactor ?? 2
+        guard let screen, screen.frame.intersection(flipped).area > 0 else { return screens.first?.backingScaleFactor ?? 2 }
+        return screen.backingScaleFactor
     }
 
     /// Captures one window, even when it is covered or on another Space, via ScreenCaptureKit.
@@ -157,7 +158,8 @@ enum Capture {
 
         var rows: [[Word]] = merge ? [] : words.map { [$0] }
         for w in merge ? words.sorted(by: { $0.box.midY > $1.box.midY }) : [] {
-            if var last = rows.last, let first = last.first, abs(first.box.midY - w.box.midY) < 0.012 {
+            // Compared with the row's latest word, not its first, so a line whose baseline drifts stays one row.
+            if var last = rows.last, let prev = last.last, abs(prev.box.midY - w.box.midY) < 0.012 {
                 last.append(w)
                 rows[rows.count - 1] = last
             } else {

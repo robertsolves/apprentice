@@ -9,6 +9,8 @@ import IOKit.pwr_mgt
 enum Awake {
     /// The setting: `[agent] keep_awake`, the start-up window, or `awake on|off`.
     private(set) static var enabled = false
+    // Touched from the command queue, the main queue and the questions queue, so behind a lock.
+    private static let lock = NSLock()
     private static var assertions: [IOPMAssertionID] = []
     private static var lastEnd = Date.distantPast
     static let grace = 120.0
@@ -24,15 +26,19 @@ enum Awake {
         guard enabled else { return try body() }
         hold()
         defer {
-            lastEnd = Date()
+            lock.lock(); lastEnd = Date(); lock.unlock()
             DispatchQueue.main.asyncAfter(deadline: .now() + grace + 1) {
-                Daemon.queue.async { if Date().timeIntervalSince(lastEnd) >= grace { release() } }
+                Daemon.queue.async {
+                    lock.lock(); let idle = Date().timeIntervalSince(lastEnd) >= grace; lock.unlock()
+                    if idle { release() }
+                }
             }
         }
         return try body()
     }
 
     private static func hold() {
+        lock.lock(); defer { lock.unlock() }
         guard assertions.isEmpty else { return }
         for type in [kIOPMAssertionTypePreventUserIdleDisplaySleep, kIOPMAssertionTypePreventUserIdleSystemSleep] {
             var id = IOPMAssertionID(0)
@@ -43,6 +49,7 @@ enum Awake {
     }
 
     private static func release() {
+        lock.lock(); defer { lock.unlock() }
         for id in assertions { IOPMAssertionRelease(id) }
         assertions = []
     }

@@ -29,8 +29,17 @@ enum Settings {
         guard synced else { return status() }
         let fm = FileManager.default
         for file in files where fm.fileExists(atPath: repoDir.appendingPathComponent(file).path) {
-            try? fm.removeItem(at: Store.dir.appendingPathComponent(file))
-            try fm.moveItem(at: repoDir.appendingPathComponent(file), to: Store.dir.appendingPathComponent(file))
+            // Copy in beside the old file, then swap, so a failure leaves the live file where it was.
+            let source = repoDir.appendingPathComponent(file), dest = Store.dir.appendingPathComponent(file)
+            let temp = Store.dir.appendingPathComponent(file + ".incoming")
+            try? fm.removeItem(at: temp)
+            try fm.copyItem(at: source, to: temp)
+            if fm.fileExists(atPath: dest.path) {
+                _ = try fm.replaceItemAt(dest, withItemAt: temp)
+            } else {
+                try fm.moveItem(at: temp, to: dest)
+            }
+            try? fm.removeItem(at: source)
         }
         try fm.removeItem(at: repoDir)
         return "settings: now in \(Store.dir.path), on this Mac only"

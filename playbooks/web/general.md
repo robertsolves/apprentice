@@ -1,6 +1,6 @@
 ---
 scope: system
-match:
+match: *
 tags: web, browser, site, page, login, form
 lang: any
 verified: 2026-11-01

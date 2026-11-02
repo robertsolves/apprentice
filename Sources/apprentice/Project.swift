@@ -38,6 +38,8 @@ enum Project {
     @discardableResult
     static func update<T>(_ dir: URL, _ body: (inout Limits) throws -> T) rethrows -> T {
         let file = dir.appendingPathComponent("limits.json")
+        // A deleted project folder is made again, so the caps keep counting instead of silently doing nothing.
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return try Store.locked(at: file) {
             var l = limits(dir)
             let result = try body(&l)

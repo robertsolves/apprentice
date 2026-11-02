@@ -95,7 +95,6 @@ enum AgentLoop {
 
             if case .done(let summary) = action {
                 print("done · \(step - 1) steps · \(summary)")
-                save(a, used)
                 // A draft only: it is never overwritten, and a person or agent generalizes it before committing.
                 if !used.isEmpty, let out = try? Playbooks.learn(Args.parse([task])) {
                     print(out.split(separator: "\n").first ?? "")
@@ -290,13 +289,14 @@ enum AgentLoop {
         for attempt in 1...4 {
             do {
                 return try chatOnce(messages, cfg, model: model)
-            } catch let f as Fail where f.code == 4 && attempt < 4 {
+            } catch let f as Fail where f.code == 4 {
+                if attempt == 4 { throw Fail(4, "model still busy after 4 tries: \(f.message.prefix(120))") }
                 print("model busy (\(f.message.prefix(60))…), retrying in \(Int(wait)) s")
                 Pace.sleep(wait)
                 wait *= 2
             }
         }
-        throw Fail(4, "model still busy after 4 tries")
+        throw Fail(4, "model still busy after 4 tries")  // unreachable: the last attempt throws above
     }
 
     private static func chatOnce(_ messages: [[String: Any]], _ cfg: Config, model: String) throws -> String {
@@ -397,6 +397,9 @@ enum Replay {
         guard let data = try? Data(contentsOf: file),
               let list = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
             throw Fail(5, "no replay \"\(name)\": saved runs land in ~/.apprentice/replays/<name>.json")
+        }
+        guard first >= 1, first <= list.count else {
+            throw Fail(5, "replay \"\(name)\" has \(list.count) steps; --from \(first) is past the end")
         }
         var step = first
         for item in list.dropFirst(first - 1) {

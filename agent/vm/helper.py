@@ -345,7 +345,11 @@ def snap(req):
     if doc is None:
         return {"url": None, "title": title, "scope": "window", "bounds": wframe, "elements": [], "busy": True}
     root, dframe = doc
-    bounds = [max(dframe[0], wframe[0]), max(dframe[1], wframe[1]), min(dframe[2], wframe[2]), min(dframe[3], wframe[3])]
+    # The intersection of the page and the window: edges first, then the size between them.
+    left, top = max(dframe[0], wframe[0]), max(dframe[1], wframe[1])
+    right = min(dframe[0] + dframe[2], wframe[0] + wframe[2])
+    bottom = min(dframe[1] + dframe[3], wframe[1] + wframe[3])
+    bounds = [left, top, max(right - left, 0), max(bottom - top, 0)]
     out = []
     walk(root, [], 0, bounds, out, bool(req.get("offscreen")), None, [0])
     # Chromium marks the page busy while it loads.
@@ -386,6 +390,7 @@ NAMES = {
 }
 MODS = {"ctrl": "Control_L", "shift": "Shift_L", "alt": "Alt_L", "super": "Super_L"}
 spare = []
+remapped = {}  # keysym -> spare keycode mapped to it
 held = {}
 
 
@@ -394,17 +399,23 @@ def keycode_for(keysym):
     for code, index in dpy.keysym_to_keycodes(keysym):
         if index in (0, 1):
             return code, index == 1
+    if keysym in remapped:
+        return remapped[keysym], False
     if not spare:
         first = dpy.display.info.min_keycode
         count = dpy.display.info.max_keycode - first + 1
         mapping = dpy.get_keyboard_mapping(first, count)
         spare.extend(first + i for i, syms in enumerate(mapping) if not any(syms))
+    if not spare and remapped:
+        # All spare keys are in use: the longest-held mapping is the one least likely to be typed again.
+        spare.append(remapped.pop(next(iter(remapped))))
     if not spare:
         return None, False
+    # A spare key, once mapped, is kept for its character: it is not handed out again for another one.
     code = spare.pop(0)
     dpy.change_keyboard_mapping(code, [(keysym,) * 2])
     dpy.sync()
-    spare.append(code)
+    remapped[keysym] = code
     return code, False
 
 
@@ -542,6 +553,7 @@ def dialog(req):
             if (types and dialog_type in types.value) or transient:
                 name = w.get_full_property(atom("_NET_WM_NAME"), X.AnyPropertyType)
                 g = w.get_geometry()
+                # python-xlib translates (0, 0) of `root` into w's space, i.e. minus w's origin: negated below.
                 at = w.translate_coords(root, 0, 0)
                 box = [-at.x, -at.y, g.width, g.height]
                 # `active`: it has the keyboard, so keys typed now land in it.

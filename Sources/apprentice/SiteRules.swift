@@ -167,7 +167,7 @@ enum Budgets {
             _ = try count(&l, domain, projectKind, cap(domain, projectKind, table: projectCaps), record: false, scope: "in this project")
         }
         // Only a recorded step changes the shared counts, so only it takes the lock and writes them.
-        let wait: Double
+        var wait: Double
         if record {
             wait = try Limits.update { try count(&$0, domain, kind, cap(domain, kind, table: caps), record: true, scope: nil) }
         } else {
@@ -175,7 +175,9 @@ enum Budgets {
             wait = try count(&l, domain, kind, cap(domain, kind, table: caps), record: false, scope: nil)
         }
         if record, let project, let projectCaps {
-            _ = try? Project.update(project) { try count(&$0, domain, projectKind, cap(domain, projectKind, table: projectCaps), record: true, scope: "in this project") }
+            // The project's own spacing is waited out too, whichever of the two gaps is longer.
+            let projectWait = try Project.update(project) { try count(&$0, domain, projectKind, cap(domain, projectKind, table: projectCaps), record: true, scope: "in this project") }
+            wait = max(wait, projectWait)
         }
         if wait > 0 { Timing.measure("gap") { Pace.sleep(wait) } }
     }

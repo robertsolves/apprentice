@@ -41,14 +41,16 @@ enum PR {
             throw Fail(5, "selftest fails, so nothing was offered:\n\(test.out.split(separator: "\n").suffix(10).joined(separator: "\n"))")
         }
 
-        let title = a.value("title") ?? subjects[0]
+        // The session copies `archive` commits ride along but do not name the change.
+        let changes = subjects.filter { !$0.hasPrefix("Session ") }
+        let title = a.value("title") ?? changes.first ?? subjects[0]
         var branch = Repo.git("branch", "--show-current").out
         if branch == base || branch.isEmpty {
             branch = "fix/" + Playbooks.slugify(title)
             // A branch of its own at this commit, so the PR never names the user's main.
             Repo.git("branch", "-f", branch, "HEAD")
         }
-        let body = self.body(subjects, files: files)
+        let body = self.body(changes.isEmpty ? subjects : changes, files: files)
         let upstreamURL = Repo.git("remote", "get-url", remote).out
         let upstreamRepo = a.value("repo") ?? github(upstreamURL)
 

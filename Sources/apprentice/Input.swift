@@ -52,11 +52,15 @@ enum Keys {
     /// Rebuilt when the input source changes; `codes` covers named keys and layouts it cannot read.
     private static var layoutID = ""
     private static var layoutMap: [Character: (CGKeyCode, Bool)] = [:]
+    private static let layoutLock = NSLock()
 
     static func layout() -> [Character: (CGKeyCode, Bool)] {
         guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
               let idPtr = TISGetInputSourceProperty(source, kTISPropertyInputSourceID) else { return [:] }
-        let id = Unmanaged<CFString>.fromOpaque(idPtr).takeUnretainedValue() as String
+        // The hardware keyboard type is part of the key: UCKeyTranslate reads it, so another keyboard needs a new map.
+        let id = (Unmanaged<CFString>.fromOpaque(idPtr).takeUnretainedValue() as String) + "|\(LMGetKbdType())"
+        layoutLock.lock()
+        defer { layoutLock.unlock() }
         if id == layoutID { return layoutMap }
         var map: [Character: (CGKeyCode, Bool)] = [:]
         if let dataPtr = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData) {
@@ -213,21 +217,29 @@ enum Keys {
         // The VM has no clipboard of this Mac's; its address bar is typed into quickly instead.
         if Remote.active { return try type(text, fast: true) }
         let board = NSPasteboard.general
-        let saved = board.pasteboardItems?.map { item in
-            item.types.reduce(into: [NSPasteboard.PasteboardType: Data]()) { $0[$1] = item.data(forType: $1) }
-        } ?? []
+        // Lazily provided types (promises, Continuity items) have no data yet: they are skipped, and an item
+        // left with no type is not put back as an empty entry.
+        let saved = (board.pasteboardItems ?? []).map { item in
+            item.types.reduce(into: [NSPasteboard.PasteboardType: Data]()) { out, type in
+                if let data = item.data(forType: type) { out[type] = data }
+            }
+        }.filter { !$0.isEmpty }
+        // Runs on every exit, so a throw between the clear and the paste still gives the clipboard back.
+        defer {
+            if !saved.isEmpty {
+                board.clearContents()
+                board.writeObjects(saved.map { types -> NSPasteboardItem in
+                    let item = NSPasteboardItem()
+                    for (type, data) in types { item.setData(data, forType: type) }
+                    return item
+                })
+            }
+        }
         board.clearContents()
         board.setString(text, forType: .string)
         Pace.sleep(0.05)
         try press("cmd+v")
         Pace.sleep(0.25)
-        board.clearContents()
-        let items = saved.map { types -> NSPasteboardItem in
-            let item = NSPasteboardItem()
-            for (type, data) in types { item.setData(data, forType: type) }
-            return item
-        }
-        if !items.isEmpty { board.writeObjects(items) }
     }
 
     /// Marks every event apprentice posts, so monitors can tell them from the person's own input.

@@ -117,6 +117,9 @@ The first `session` after the daemon starts opens an options window:
 | `click <id>` · `click --on "text"` · `click --at x,y` | Click an element, visible text (OCR if it is not listed) or a point |
 | `type <id\|focused> "text" [--enter]` | Click into a field, then type, key by key |
 | `key <combo>` · `menu "File > Save…"` | A shortcut, or a menu item clicked like a person |
+| `focus <app> [--on mac\|linux]` | Bring an app or the VM's browser to the front and bind to it |
+| `budget` · `cool` · `activity` · `flag` | What is left of the site caps, a site's cooldown, recent events, and flagging a page |
+| `serve` · `stop` · `replay <name> [--from n] [--approve]` | Run the daemon in the foreground, stop it, replay a saved run |
 | `scroll`, `hover`, `drag`, `wait-for "text"` | The rest of what a hand does |
 | `browse [seconds]` | Read down a page or feed at a reading pace, clicking nothing |
 | `open <url>` | Navigate the browser window, at a polite pace |
@@ -133,21 +136,21 @@ The first `session` after the daemon starts opens an options window:
 | `commit "what and why"` · `update [--check]` · `selftest` · `repo` · `version` | A small commit (rebuilds on a source change), upstream fixes in by hand (it also updates itself), the built-in tests, where the clone is, and the installed commit |
 | `pr [--title t] [--draft] [--fork remote] [--local]` | Offer your local commits upstream as a pull request, from your fork |
 | `uninstall [--all] [--yes]` | List, then remove, everything apprentice installed |
-| `vm setup` · `vm on`/`off` · `vm up`/`down` · `vm shell` · `vm look` · `vm call "what"` · `vm install` | The Linux VM: make it, send browser sessions to it, start or stop it, print its ssh config, see it, bring the user into it, update what runs in it |
+| `vm setup` · `vm on`/`off` · `vm up`/`down` · `vm list` · `vm shell` · `vm look` · `vm call "what"` · `vm install` | The Linux VM: make it, send browser sessions to it, start or stop it, print its ssh config, see it, bring the user into it, update what runs in it |
 | `run "task" --model <name>` · `mcp` | A built-in loop for any OpenAI-compatible model, and an MCP server |
 
-Add `--json` to any command for the raw reply.
+Add `--json` for the raw reply on the commands that go through the daemon, and on `route` and `playbooks`.
 
 ### Exit codes
 
 | Code | Meaning |
 | --- | --- |
 | 0 | ok |
-| 2 | stale: the screen changed, read it again |
+| 2 | stale: the screen changed, or the page changed without apprentice; read it again (actions are refused until then) |
 | 3 | The user denied the step |
-| 4 | blocked by the allowlist or a rate limit |
+| 4 | blocked: allowlist, rate limit, budget, a site cooling down after it throttled the account, or a check only the user may complete |
 | 5 | not found, timed out, or a usage error |
-| 6 | interrupted by the user or the kill switch |
+| 6 | interrupted by the user during borrow mode, or by the kill switch (later steps are held until the user answers) |
 | 7 | a permission is missing |
 | 8 | approval needed: proposed, nothing done yet |
 | 9 | ask the user in the chat: they are away or did not answer the window |

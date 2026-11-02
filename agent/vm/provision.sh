@@ -35,7 +35,9 @@ printf '{"PasswordManagerEnabled": false, "AutofillCreditCardEnabled": false}\n'
 
 home="$(getent passwd "$user" | cut -d: -f6)"
 install -d -o "$user" "$home/.vnc"
-su "$user" -c "x11vnc -storepasswd '$password' '$home/.vnc/passwd' >/dev/null 2>&1"
+# The password goes in the environment, never into a command string, so a quote or `$` in it is harmless.
+VNCPW="$password" VNCFILE="$home/.vnc/passwd" su -m "$user" -s /bin/sh -c 'x11vnc -storepasswd "$VNCPW" "$VNCFILE" >/dev/null 2>&1' \
+    || echo "could not store the VNC password" >&2
 
 unit=/etc/systemd/system/apprentice-browser.service
 old="$(cat "$unit" 2>/dev/null || true)"

@@ -1,6 +1,6 @@
 ---
 scope: system
-match:
+match: *
 tags: save, save as, open, panel, dialog, go to folder, location, where, file name
 lang: en
 verified: 2026-11-01, macOS 26.2

@@ -422,7 +422,7 @@ extension Ask {
         if reply == nil, Config.current.askIn != "window" { throw handBack() }
         let note = reply.map { $0.text.isEmpty ? "" : "\nuser: \($0.text)" } ?? ""
         guard let reply, !reply.skipped, reply.chosen.contains(approve) else {
-            if reply != nil { _ = try Daemon.command(Request(cmd: "deny", args: [token])) }
+            if reply != nil { _ = try? Daemon.command(Request(cmd: "deny", args: [token])) }
             throw Fail(3, (reply == nil ? "no answer: nothing was done" : "The user denied: \(p.summary)") + note)
         }
         Store.log(["confirm": p.summary, "by": "user"])

@@ -170,14 +170,19 @@ enum Doctor {
             }
         }
         if (try? fm.removeItem(atPath: bin)) != nil { done.append("removed \(bin)") }
+        var failed: [String] = []
         let items = (try? fm.contentsOfDirectory(atPath: Store.dir.path)) ?? []
         for item in items {
             let path = Store.dir.appendingPathComponent(item).path
             if !a.has("all"), cloneInside, clone == path || clone.hasPrefix(path + "/") { continue }
-            try? fm.removeItem(atPath: path)
+            do { try fm.removeItem(atPath: path) } catch { failed.append("\(path): \(error.localizedDescription)") }
         }
         if a.has("all") || !cloneInside { try? fm.removeItem(atPath: Store.dir.path) }
-        done.append("removed \(Store.dir.path)" + (cloneInside && !a.has("all") ? " except \(clone)" : ""))
+        if failed.isEmpty {
+            done.append("removed \(Store.dir.path)" + (cloneInside && !a.has("all") ? " except \(clone)" : ""))
+        } else {
+            done.append("could not remove, still in \(Store.dir.path):\n" + failed.map { "  " + $0 }.joined(separator: "\n"))
+        }
         if a.has("all"), isClone, !cloneInside { try? fm.removeItem(atPath: clone); done.append("removed \(clone)") }
         done.append("Accessibility and Screen Recording entries stay in System Settings until you remove them there")
         return done.filter { !$0.isEmpty }.joined(separator: "\n")

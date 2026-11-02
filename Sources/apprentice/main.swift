@@ -75,11 +75,11 @@ func usage() {
       apprentice run "task" --model <name> [--base-url url] [--screen-anyway] [--save name]
       apprentice replay <name> [--from n] [--approve]
       apprentice mcp
-      apprentice vm setup | install | up | down | on | off | look | call "what" | shell | status   a small Linux VM with its own screen, cursor and keyboard: its browser and Linux apps (--on linux); shell prints the ssh command for its terminal
+      apprentice vm setup | install | up | down | on | off | look | call "what" | shell | status | list   a small Linux VM with its own screen, cursor and keyboard: its browser and Linux apps (--on linux); shell prints the ssh command for its terminal
       apprentice serve [--background] | stop
       apprentice uninstall [--all] [--yes]      list, then remove, everything apprentice installed (--all: the clone too)
 
-    output is compact text for an agent. add --json for the raw reply.
+    output is compact text for an agent. add --json for the raw reply from the commands that go through the daemon, and from `route` and `playbooks`.
     open, click, type, key, menu, drag, upload, download, choose and do only propose: they exit 8 with a token,
     and act once you run `apprentice approve <token>`. ctrl+opt+cmd+. is the kill switch: it stops whatever runs, and nothing more runs until the user answers.
     exit codes: 0 ok · 2 stale, re-read · 3 the user denied · 4 blocked, rate limited, over budget, cooling or a challenge ·

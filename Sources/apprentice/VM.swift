@@ -31,6 +31,9 @@ enum VM {
     static func setting(_ key: String, _ fallback: String) -> String { settings[key].map(Toml.unquote) ?? fallback }
     static var name: String { setting("name", Store.vmName.map { "apprentice-\($0)" } ?? "apprentice-browser") }
     static var user: String { setting("user", "admin") }
+    /// One shell word, whatever the text holds (a quote, `$` or a backtick in a password).
+    static func shellQuoted(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+
     /// The image's login, used once to install the ssh key, and the VNC password for `vm look`.
     /// Its own once `vm setup` has changed it (kept in this VM's folder), else `[vm] password`, else the
     /// image's admin.
@@ -98,8 +101,13 @@ enum VM {
         // A port of its own per VM, so a tunnel left from one VM never shows another.
         let port = 5959 + Int(name.utf8.reduce(0) { ($0 &* 31 &+ UInt32($1)) % 1000 } % 40)
         // A tunnel from an earlier `look` may still be up; then the port is taken and this one exits.
-        run("/usr/bin/ssh", ["-f", "-N", "-o", "ExitOnForwardFailure=yes", "-L", "127.0.0.1:\(port):127.0.0.1:5900"]
+        let tunnel = run("/usr/bin/ssh", ["-f", "-N", "-o", "ExitOnForwardFailure=yes", "-L", "127.0.0.1:\(port):127.0.0.1:5900"]
             + sshArgs(ip, shared: false))
+        if tunnel.code != 0 {
+            // Usually the tunnel from an earlier look, still holding the port; anything else is told.
+            let listening = run("/usr/bin/nc", ["-z", "-w", "2", "127.0.0.1", "\(port)"]).code == 0
+            guard listening else { throw Fail(5, "could not open the ssh tunnel to the VM on port \(port): \(tunnel.err)") }
+        }
         let pass = password.addingPercentEncoding(withAllowedCharacters: .urlPasswordAllowed) ?? ""
         guard let url = URL(string: "vnc://:\(pass)@127.0.0.1:\(port)") else { throw Fail(5, "bad VM address \(ip)") }
         NSWorkspace.shared.open(url)
@@ -137,9 +145,13 @@ enum VM {
 
     static func address(fresh: Bool = false) throws -> String {
         if let host { return writeSSHConfig(host) }
-        if !fresh, let ip = state.ip { return writeSSHConfig(ip) }
+        // A cached address is a DHCP lease that may have changed since: it is used only while the guest answers there.
+        if !fresh, let ip = state.ip, answers(ip) { return writeSSHConfig(ip) }
         let r = tart(["ip", name, "--wait", "30"])
-        guard r.code == 0, !r.text.isEmpty else { throw Fail(5, "the VM is not running: start it with `apprentice vm up`") }
+        guard r.code == 0, !r.text.isEmpty else {
+            if let ip = state.ip, running { throw Fail(5, "the VM is running but does not answer at \(ip): wait a moment, or `apprentice vm up`") }
+            throw Fail(5, "the VM is not running: start it with `apprentice vm up`")
+        }
         var s = state
         s.ip = r.text
         state = s
@@ -189,13 +201,18 @@ enum VM {
         proc.standardError = err
         proc.standardInput = input == nil ? FileHandle.nullDevice : inp
         do { try proc.run() } catch { return (127, Data(), "\(tool): \(error.localizedDescription)") }
-        if let input {
-            try? inp.fileHandleForWriting.write(contentsOf: input)
-            try? inp.fileHandleForWriting.close()
-        }
-        // Stderr drains on its own, so a chatty tool cannot block on a full pipe while we read stdout.
+        // Stdin goes in from its own queue, with stderr drained alongside, so a tool that reads and writes
+        // more than a pipe holds cannot block against us while we wait on its output.
         var errData = Data()
         let group = DispatchGroup()
+        if let input {
+            group.enter()
+            DispatchQueue.global().async {
+                try? inp.fileHandleForWriting.write(contentsOf: input)
+                try? inp.fileHandleForWriting.close()
+                group.leave()
+            }
+        }
         group.enter()
         DispatchQueue.global().async { errData = err.fileHandleForReading.readDataToEndOfFile(); group.leave() }
         let data = out.fileHandleForReading.readDataToEndOfFile()
@@ -349,7 +366,7 @@ enum VM {
         if ssh(ip, "true").code != 0 {
             // The first login uses the image's password once, to install the key; ssh reads it from SSH_ASKPASS.
             let askpass = dir.appendingPathComponent("askpass.sh")
-            try "#!/bin/sh\necho '\(password)'\n".write(to: askpass, atomically: true, encoding: .utf8)
+            try "#!/bin/sh\nprintf '%s\\n' \(shellQuoted(password))\n".write(to: askpass, atomically: true, encoding: .utf8)
             chmod(askpass.path, 0o700)
             defer { try? FileManager.default.removeItem(at: askpass) }
             let pub = (try? Data(contentsOf: key.appendingPathExtension("pub"))) ?? Data()
@@ -398,7 +415,7 @@ enum VM {
         let zone = TimeZone.current.identifier
         let lang = (Locale.preferredLanguages.first ?? "en-US").filter { $0.isLetter || $0 == "-" }
         let r = ssh(ip, "rm -rf /tmp/apprentice-vm && mkdir /tmp/apprentice-vm && tar -xf - -C /tmp/apprentice-vm && "
-            + "sudo -n sh /tmp/apprentice-vm/provision.sh '\(user)' '\(password)' '\(zone)' '\(lang)'", input: tar.out)
+            + "sudo -n sh /tmp/apprentice-vm/provision.sh \(shellQuoted(user)) \(shellQuoted(password)) \(shellQuoted(zone)) \(shellQuoted(lang))", input: tar.out)
         guard r.code == 0 else { throw Fail(5, "could not set up the VM: \(r.err)") }
         Remote.disconnect()
         return "installed the browser, terminal and helper in \(name) (\(ip))"

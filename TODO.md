@@ -71,8 +71,6 @@ From a `/simplify` pass on 2026-11-02; the small shared helpers landed, these we
 
 ## Agent commands
 
-- The weak-agent trial harness (`.agents/skills/improve-prompts/scripts/agent_runs/`) has no planted tasks: the three that came over from compledo were Dart-specific and were dropped. Add a few for apprentice (for example a stale exit code in `agent/SKILL.md` for `/update-docs`) before `/improve-prompts` can measure anything.
-- `/improve-prompts` has no tool for the app's own prompt (the `run` loop's system prompt in `AgentLoop.swift`); a replay set and a scorer would let it tune that too.
 
 ## Site
 

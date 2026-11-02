@@ -129,7 +129,8 @@ enum Playbooks {
     /// Playbook text for the `run` loop: the window's playbooks plus the best flow for this task and model, kept
     /// under a budget so a long playbook cannot crowd out the screen.
     static func context(task: String, session: Session?, model: String? = Store.model, budget: Int = 3000) -> String {
-        var parts = hintLines(app: session?.app, bundle: session?.bundle, host: hostOf(session?.url))
+        var parts = hintLines(app: session?.app, bundle: session?.bundle, host: hostOf(session?.url),
+                              system: session?.vm == true ? "linux" : "macos")
         if let best = rank(task: task, model: model, session: session).first {
             parts.append("flow · \(best.note.path) (\(best.why))\n\(best.note.body.trimmingCharacters(in: .whitespacesAndNewlines))")
         }

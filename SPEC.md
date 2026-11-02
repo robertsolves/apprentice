@@ -85,7 +85,7 @@ Callers check faster routes first; everything else goes through one CLI to the d
 | Routes and playbooks | `Routes.swift`, `Playbooks.swift`, `Flows.swift` | Faster-route hints, playbooks, flows |
 | Log | `State.swift` | One folder per session for replay |
 | `run` loop | `AgentLoop.swift` | Drives apprentice with any model when no coding agent is involved |
-| VM | `VM.swift` | Optional macOS guest so browser work has its own cursor and keyboard |
+| VM | `VM.swift` | Optional Linux (Debian) guest under Tart, so browser work has its own cursor and keyboard; a macOS guest is planned |
 
 There is one executable target with no package dependencies: argument and TOML parsing are hand-written. Why Swift: it calls the accessibility, CGEvent and ScreenCaptureKit APIs directly, walks large web trees quickly, and ships as one binary that macOS permissions attach to.
 
@@ -194,7 +194,7 @@ Exit codes (kept in sync with `usage()` and `agent/*.md`):
 | 3 | The user denied the step in the little window (`confirm`) |
 | 4 | blocked: allowlist, rate limit (`refresh limit`), budget (`budget:`), a site cooling down after it throttled the account (`soft block:`), or a check only the user may complete (`challenge:`) |
 | 5 | element or text not found, or timeout |
-| 6 | interrupted by the user during borrow mode |
+| 6 | interrupted by the user during borrow mode, or by the kill switch (later steps are held until the user answers) |
 | 7 | permission missing (Accessibility or Screen Recording) |
 | 8 | approval needed: the action was proposed, nothing was done |
 | 9 | ask the user in the chat: they are away (`away on`) or did not answer the little window in time. The output names a screenshot of the screen it is about, and `[agent] notify` pushes the question to the phone |

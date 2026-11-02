@@ -11,7 +11,7 @@ struct Args {
     /// `click --right 5` keeps 5 as the id.
     static let switches: Set<String> = [
         "right", "double", "enter", "new-window", "json", "gate", "approve", "screen-anyway", "no-options",
-        "multi", "text", "force", "background", "front", "real", "all",
+        "multi", "text", "force", "background", "all",
     ]
 
     static func parse(_ raw: [String]) -> Args {
@@ -309,6 +309,7 @@ enum Commands {
         if req.cmd != "ping" { KillSwitch.tripped = false }
         Borrow.interrupted = false
         charged = nil
+        notice = nil
         Timing.begin()
         StatusItem.busy(true)
         defer { StatusItem.busy(false); lastAt = Date() }
@@ -582,7 +583,7 @@ enum Commands {
         guard arrived != nil else {
             throw Fail(5, "the window did not go to \(hostname): it shows \((try? locate(session).url) ?? "no page"). Check it with `read`")
         }
-        let playbooks = hostname == hostOf(target.url) ? [] : Playbooks.hintLines(app: nil, bundle: nil, host: hostname)
+        let playbooks = hostname == hostOf(target.url) ? [] : Playbooks.hintLines(app: nil, bundle: nil, host: hostname, system: Session.stored?.vm == true ? "linux" : "macos")
         let extra = ["→ \(raw)"] + Routes.hintLines(for: hostname) + Policies.lines(for: hostname) + playbooks
         return try finish("open", session, target, old, extra: extra, log: ["url": raw])
     }
@@ -903,7 +904,10 @@ enum Commands {
         let (session, target, old) = try prepare()
         try beforeAction(session, url: target.url)
         var rect = CGRect(x: target.bounds.midX - 20, y: target.bounds.midY - 20, width: 40, height: 40)
-        if let raw = a.value("in"), let id = Int(raw) { rect = try resolve(id, target).1.rect }
+        if let raw = a.value("in") {
+            guard let id = Int(raw) else { throw Fail(5, "--in takes an element id, not \"\(raw)\"") }
+            rect = try resolve(id, target).1.rect
+        }
         let at = try a.value("at").map { try screenPoint($0, "scroll --at x,y") }
         if let at, !(target.window.frame?.contains(at) ?? false) { throw Fail(4, "\(a.value("at") ?? "") is outside the session window") }
         try Borrow.run(target) {
@@ -930,7 +934,10 @@ enum Commands {
         let (session, target, old) = try prepare()
         try beforeAction(session, url: target.url)
         var rect = CGRect(x: target.bounds.midX - 40, y: target.bounds.midY - 40, width: 80, height: 80)
-        if let raw = a.value("in"), let id = Int(raw) { rect = try resolve(id, target).1.rect }
+        if let raw = a.value("in") {
+            guard let id = Int(raw) else { throw Fail(5, "--in takes an element id, not \"\(raw)\"") }
+            rect = try resolve(id, target).1.rect
+        }
         let moved = try Borrow.run(target) { () -> (down: Int, up: Int) in
             Mouse.move(to: Mouse.landing(in: rect), size: rect.size)
             try Borrow.checkpoint()
@@ -1007,7 +1014,11 @@ enum Commands {
         let (session, target, old) = try prepare()
         var rect = CGRect(x: target.bounds.midX - 40, y: target.bounds.midY - 40, width: 80, height: 80)
         var e: Element?
-        if let r = a.value("in"), let id = Int(r) { e = try resolve(id, target).1; rect = e!.rect }
+        if let r = a.value("in") {
+            guard let id = Int(r) else { throw Fail(5, "--in takes an element id, not \"\(r)\"") }
+            e = try resolve(id, target).1
+            rect = e!.rect
+        }
         let start = try a.value("at").map { try screenPoint($0, dragUsage) } ?? Mouse.landing(in: rect)
         let end = CGPoint(x: start.x + by.x, y: start.y + by.y)
         guard let frame = target.window.frame, frame.contains(start), frame.contains(end) else {
@@ -1254,15 +1265,22 @@ enum Commands {
 
     static func waitFor(_ a: Args) throws -> String {
         guard let text = a.pos.first else { throw Fail(5, "wait-for \"text\"") }
-        let timeout = a.value("timeout").flatMap(Double.init) ?? 10
+        let timeout = Double(min(try a.count("timeout", 10, min: 1), 600))
         let (_, target, _) = try prepare()
         let needle = text.lowercased()
         let start = Date()
-        let found = poll(timeout: timeout, interval: 0.3) { () -> (Snapshot, Element)? in
+        func look() -> (Snapshot, Element)? {
             let snap = readSnapshot(target)
             return snap.elements.first {
                 $0.name.lowercased().contains(needle) || ($0.value ?? "").lowercased().contains(needle)
             }.map { (snap, $0) }
+        }
+        // The loop checks the kill switch and the person's own input each round, so a long wait can be stopped.
+        var found = look()
+        while found == nil, Date().timeIntervalSince(start) < timeout {
+            try Borrow.checkpoint()
+            Pace.sleep(0.3)
+            found = look()
         }
         guard let (snap, hit) = found else {
             Store.log(["cmd": "wait-for", "text": text, "found": false])
@@ -1303,7 +1321,7 @@ enum Commands {
         }
         let formatter = DateFormatter()
         formatter.dateFormat = "HHmmss"
-        let url = Store.runFolder().appendingPathComponent("shots/shot-\(formatter.string(from: Date())).png")
+        let url = Store.runFolder().appendingPathComponent("shots/shot-\(formatter.string(from: Date()))-\(UUID().uuidString.prefix(4)).png")
         try Capture.save(image, to: url)
         Sessions.capShots(Store.runFolder())
         Store.log(["cmd": "shot", "path": url.path, "marks": marked != nil])
