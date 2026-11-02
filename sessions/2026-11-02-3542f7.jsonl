@@ -331,3 +331,6 @@
 {"cmd":"read","model":"claude-opus-5-5","ms":409,"ts":"2026-11-02T13:35:52.324+10:00","vm":true}
 {"client":true,"cmd":"playbooks","code":5,"model":"claude-opus-5-5","ms":2021,"ts":"2026-11-02T13:36:57.108+10:00"}
 {"client":true,"cmd":"playbooks","code":0,"model":"claude-opus-5-5","ms":2043,"ts":"2026-11-02T13:37:04.962+10:00"}
+{"code":5,"error":"Google Chrome has no window: open one, or run `apprentice session --new-window`","failed":"session","model":"claude-opus-5-5","ts":"2026-11-02T13:37:29.792+10:00"}
+{"cmd":"read","model":"claude-opus-5-5","ms":395,"ts":"2026-11-02T13:37:30.210+10:00","vm":true}
+{"code":5,"error":"flows\/canary-full-test.md needs --text \"…\"","failed":"do","model":"claude-opus-5-5","ts":"2026-11-02T13:37:30.232+10:00"}
