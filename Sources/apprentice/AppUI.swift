@@ -123,7 +123,7 @@ enum AppMain {
         app.delegate = delegate
         app.setActivationPolicy(.regular)
         app.applicationIconImage = Ask.icon
-        app.appearance = nil
+        AppLook.apply()
         if let icon = NSImage(contentsOfFile: Bundle.main.bundlePath + "/Contents/Resources/AppIcon.icns") {
             app.applicationIconImage = icon
         }
@@ -1071,10 +1071,7 @@ struct TerminalWorkspace: View {
         .background(Theme.canvas)
     }
 
-    private var font: NSFont {
-        NSFont(name: Config.current.appFont, size: Config.current.appFontSize)
-            ?? NSFont.monospacedSystemFont(ofSize: Config.current.appFontSize, weight: .regular)
-    }
+    private var font: NSFont { AppLook.terminalFont }
 
     private var tabBar: some View {
         HStack(spacing: Theme.s2) {
@@ -1857,6 +1854,7 @@ struct SettingsView: View {
 
     private func saved() {
         Config.reloadIfChanged()
+        AppLook.apply()
         status = "saved"
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { if status == "saved" { status = "" } }
     }
@@ -1913,6 +1911,12 @@ private struct SettingRow: View {
             .labelsHidden().pickerStyle(.segmented).frame(width: 200)
         case .text:
             TextField("", text: $value).textFieldStyle(.roundedBorder).controlSize(.small).frame(width: 200)
+        case .font:
+            let families = AppLook.monospacedFamilies
+            Picker("", selection: Binding(get: { families.contains(value) ? value : AppLook.system }, set: { value = $0 })) {
+                ForEach(families, id: \.self) { Text($0).font(.custom($0, size: 12)).tag($0) }
+            }
+            .labelsHidden().pickerStyle(.menu).frame(width: 200)
         }
     }
 }

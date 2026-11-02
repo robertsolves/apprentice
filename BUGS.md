@@ -195,3 +195,9 @@ Filed by `apprentice bug` while working. Each has a suggested fix to review; non
 - Cause: `tick` looks only at the oldest queued task, and when that one wants this Mac and `[away] host` is now false it `return`s — without marking the task, skipping it, or logging anything. The task stays `queued` in `away status` for ever and every task behind it, VM ones included, never starts, with no note to say why. Reachable by queueing while `host = true` (or by an agent's `away add --host` while it is on) and then turning it back off, which is exactly the setting the docs tell people to flip.
 - Suggested fix: skip that one task rather than the whole queue — mark it failed with "this Mac runs away work only with [away] host = true", as `add` refuses at :448, and continue to the next.
 
+### F84 · `settings local` deletes a custom `agents.toml` (and anything else) from the old synced settings folder — 2026-11-02
+- Severity: low
+- Where: `Sources/apprentice/Settings.swift:8` (`files`, the three names it moves), :31-43 (the loop), :44 (`try fm.removeItem(at: repoDir)`), and `Sources/apprentice/AgentCLIs.swift:27-29` (which reads `agents.toml` from `Settings.dir`)
+- Cause: on an older install whose settings live in the synced clone, `AgentCLIs` looks for the user's agent definitions at `Settings.dir/agents.toml` — that folder — so that is where a person's own `[agent.…]` entries are. `settings local` moves only `config.toml`, `routes.toml` and `budgets.json`, then removes the folder outright: the custom agents file is destroyed, and after the move `AgentCLIs` looks for it in `~/.apprentice` where nothing was put. Any other file kept there (`sites.toml`, a backup) goes the same way, with no warning and no Trash copy.
+- Suggested fix: move every file in the old clone that is not part of its `.git`, `agents.toml` first among them, and only remove what is left; or refuse and list what would be deleted.
+

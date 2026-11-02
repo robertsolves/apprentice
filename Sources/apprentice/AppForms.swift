@@ -13,6 +13,8 @@ struct Setting: Identifiable {
         case number(ClosedRange<Int>)
         case choice([String])
         case text
+        /// One of the monospaced font families installed on this Mac, from a menu.
+        case font
     }
 
     let section: String
@@ -66,6 +68,7 @@ struct Setting: Identifiable {
                 kind = .number(lo...max(lo, hi))
             case "choice": kind = .choice(v["choices"].flatMap(Toml.array) ?? [])
             case "text": kind = .text
+            case "font": kind = .font
             default: continue
             }
             settings.append(Setting(section: parts[1], key: parts[2], label: v["label"].map(Toml.unquote) ?? parts[2],
@@ -79,8 +82,40 @@ struct Setting: Identifiable {
         switch kind {
         case .toggle: return shown == "true" ? "true" : "false"
         case .number: return String(Int(shown) ?? Int(Toml.unquote(fallback)) ?? 0)
-        case .choice, .text: return "\"" + shown.replacingOccurrences(of: "\"", with: "\\\"") + "\""
+        case .choice, .text, .font: return "\"" + shown.replacingOccurrences(of: "\"", with: "\\\"") + "\""
         }
+    }
+}
+
+/// The window's look and its terminal's font, from `[app]`.
+enum AppLook {
+    /// `[app] theme`: "light", "dark", or "system" to follow macOS.
+    static func apply() {
+        switch Config.current.appTheme {
+        case "light": NSApp.appearance = NSAppearance(named: .aqua)
+        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+        default: NSApp.appearance = nil
+        }
+    }
+
+    /// The monospaced font families installed on this Mac, the system's own first.
+    static var monospacedFamilies: [String] {
+        let fixed = Set(NSFontManager.shared.availableFontNames(with: .fixedPitchFontMask) ?? [])
+        let families = NSFontManager.shared.availableFontFamilies.filter { family in
+            (NSFontManager.shared.availableMembers(ofFontFamily: family) ?? []).contains { ($0.first as? String).map(fixed.contains) == true }
+        }
+        return [system] + families.filter { $0 != system }.sorted()
+    }
+
+    /// The name `[app] font` falls back to: the system's monospaced font, installed or not.
+    static let system = "SF Mono"
+
+    /// `[app] font` at `[app] font_size`: a family or a font's own name, else the system's monospaced font.
+    static var terminalFont: NSFont {
+        let name = Config.current.appFont, size = Config.current.appFontSize
+        return NSFontManager.shared.font(withFamily: name, traits: [], weight: 5, size: size)
+            ?? NSFont(name: name, size: size)
+            ?? NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
     }
 }
 

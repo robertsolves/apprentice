@@ -37,7 +37,7 @@ enum Doctor {
         let onPath = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").contains {
             URL(fileURLWithPath: String($0)).appendingPathComponent("apprentice").resolvingSymlinksInPath().path == resolved
         }
-        out.append(Check(ok: onPath, line: "on PATH", fix: "open a new terminal, or add \(URL(fileURLWithPath: bin).deletingLastPathComponent().path) to PATH in ~/.zprofile"))
+        out.append(Check(ok: onPath, line: "on PATH", fix: "open a new terminal, or add \(Release.isRelease ? Release.link.deletingLastPathComponent().path : URL(fileURLWithPath: bin).deletingLastPathComponent().path) to PATH in ~/.zprofile"))
 
         let daemon = Wire.ping()
         out.append(Check(ok: true, line: daemon ? "daemon: running" : "daemon: not running (the next command starts it)"))
@@ -63,9 +63,10 @@ enum Doctor {
 
         out.append(Check(ok: FileManager.default.fileExists(atPath: Config.path.path), line: "settings: \(Config.path.path)",
                          fix: "run kit.sh to write the example config"))
-        let open = worldReadable(Store.dir) || worldReadable(Config.path)
+        // Files inside a 700 folder are out of other users' reach whatever their own mode.
+        let open = worldReadable(Store.dir)
         out.append(Check(ok: !open, line: open ? "state: readable by other users" : "state: this user only",
-                         fix: open ? "chmod 700 \(Store.dir.path); chmod 600 \(Config.path.path)" : nil))
+                         fix: open ? "chmod 700 \(Store.dir.path)" : nil))
         out.append(Check(ok: true, line: "sessions in the clone: \(Sessions.mode) ([storage] sessions)"))
         // Offline: doctor never waits on GitHub. `account status` checks the token itself.
         out.append(Check(ok: true, line: "github: " + Account.status(live: false)))

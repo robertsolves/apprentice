@@ -527,6 +527,7 @@ enum SelfTest {
               "settings screen: read from its file in order, an unknown kind left out")
         let font = screen.settings.first { $0.key == "font" }
         check(font?.literal("Menlo") == "\"Menlo\"", "a text setting is written quoted")
+        check(Setting.parse("[setting.\"app.font\"]\nkind = \"font\"\n").settings.first?.kind == .font, "a font setting is a menu of fonts")
         let size = screen.settings.first { $0.key == "font_size" }
         check(size?.literal("abc") == "12", "a number setting falls back to its default on nonsense")
         let mine = Store.dir.appendingPathComponent("settings-mine.toml")

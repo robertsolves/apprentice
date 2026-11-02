@@ -3,7 +3,8 @@
 # section and key replaces this one and a new one is added: any config.toml key can be put on the screen.
 #
 # [group.<section>]  title: the heading over that section's settings.
-# [setting."<section>.<key>"]  label, help, and kind: toggle, number (min, max), choice (choices) or text.
+# [setting."<section>.<key>"]  label, help, and kind: toggle, number (min, max), choice (choices), text,
+# or font (a menu of the monospaced fonts installed on this Mac).
 # fallback: the value the file has when the key is absent, written as TOML.
 
 [group.agent]
@@ -86,8 +87,7 @@ fallback = "system"
 
 [setting."app.font"]
 label = "Terminal font"
-help = "Any installed monospaced font."
-kind = "text"
+kind = "font"
 fallback = "SF Mono"
 
 [setting."app.font_size"]
