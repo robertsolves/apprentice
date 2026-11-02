@@ -120,7 +120,8 @@ sounds = true
 # Desktop notifications (with the apprentice icon) when it needs a question or an approval answered. Off by default;
 # the phone push (`notify`, an ntfy topic) is also off until `apprentice phone on` sets it.
 notifications = false
-# The apprentice icon in the Dock while it runs (the menu-bar icon is always there unless menu_bar = false).
+# The apprentice icon in the Dock while it runs and the window is closed; the window's own icon stands in
+# while it is open (the menu-bar icon is always there unless menu_bar = false).
 dock_icon = true
 # Where questions go. "both": the little window first, and if nobody answers within ask_window_s the
 # agent asks in the chat (terminal), so the user can answer remotely. "window" or "terminal" for one only.

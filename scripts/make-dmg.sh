@@ -28,6 +28,10 @@ cp "$bin" "$app/Contents/Helpers/apprentice"
 for dir in agent skills playbooks; do
   ditto "$root/$dir" "$app/Contents/Resources/share/$dir"
 done
+# The docs the window's Help tab reads (an agent answering questions from them).
+for doc in README.md SPEC.md FEATURES.md; do
+  cp "$root/$doc" "$app/Contents/Resources/share/$doc"
+done
 find "$app/Contents/Resources/share" -name .DS_Store -delete
 
 version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")"

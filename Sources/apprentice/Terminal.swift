@@ -186,6 +186,8 @@ final class TermScreen {
     private(set) var cursorX = 0
     private(set) var cursorY = 0
     private(set) var cursorVisible = true
+    /// DECCKM: a full-screen program asked for `ESC O A` arrow keys instead of `ESC [ A`.
+    private(set) var appCursorKeys = false
     private(set) var title = ""
     var scrollback: [[TermCell]] = []
     let maxScrollback = 3000
@@ -468,6 +470,7 @@ final class TermScreen {
                     switch value {
                     case 1049, 47, 1047: setAlt(on)
                     case 25: cursorVisible = on
+                    case 1: appCursorKeys = on
                     default: break
                     }
                 }
@@ -688,10 +691,11 @@ final class TermSession: ObservableObject, Identifiable {
         case 119: pty.write("\u{1b}[F"); return true
         case 116: pty.write("\u{1b}[5~"); return true
         case 121: pty.write("\u{1b}[6~"); return true
-        case 123: pty.write("\u{1b}[D"); return true
-        case 124: pty.write("\u{1b}[C"); return true
-        case 125: pty.write("\u{1b}[B"); return true
-        case 126: pty.write("\u{1b}[A"); return true
+        // Arrow keys: `ESC O A` once a program asked for application cursor keys (DECCKM), else `ESC [ A`.
+        case 123: pty.write(screen.appCursorKeys ? "\u{1b}OD" : "\u{1b}[D"); return true
+        case 124: pty.write(screen.appCursorKeys ? "\u{1b}OC" : "\u{1b}[C"); return true
+        case 125: pty.write(screen.appCursorKeys ? "\u{1b}OB" : "\u{1b}[B"); return true
+        case 126: pty.write(screen.appCursorKeys ? "\u{1b}OA" : "\u{1b}[A"); return true
         default: break
         }
         if flags.contains(.control), let chars = event.charactersIgnoringModifiers, let first = chars.utf8.first {
@@ -752,6 +756,9 @@ struct TerminalPane: NSViewRepresentable {
         context.coordinator.view = view
         view.term = term
         context.coordinator.draw(term, font: font)
+        // The keyboard belongs to the shell as soon as the tab shows: without this the sidebar list keeps
+        // the focus, and an arrow key moves its selection (or scrolls) instead of reaching a prompt.
+        DispatchQueue.main.async { view.window?.makeFirstResponder(view) }
         return scroll
     }
 
@@ -904,6 +911,11 @@ final class TerminalTextView: NSTextView {
             if chars == "v", onKey?(event) == true { return true }
         }
         return super.performKeyEquivalent(with: event)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil { DispatchQueue.main.async { [weak self] in if let self { self.window?.makeFirstResponder(self) } } }
     }
 
     override func layout() {

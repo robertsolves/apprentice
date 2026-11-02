@@ -35,6 +35,7 @@ enum SelfTest {
         gate()
         login()
         account()
+        forms()
         prefs()
         allowlist()
         flows()
@@ -496,6 +497,22 @@ enum SelfTest {
     /// Signing in is off by default; on, a code prompt is a sign-in step, not a check, and sign-ins on a
     /// site are spaced out and capped a day.
     /// The device flow's answers, read without the network or the Keychain (both are the user's, never the test's).
+    private static func forms() {
+        check(WeekTime.weekly(days: [2, 4], minutes: 9 * 60) == "mon,wed 09:00", "weekdays and a time are written as schedule takes them")
+        let parsed = WeekTime.parseWeekly("fri,sun 18:30")
+        check(parsed?.days == [6, 1] && parsed?.minutes == 18 * 60 + 30, "a weekly line reads back into days and minutes")
+        check(WeekTime.parseWeekly("someday 09:00") == nil, "an unknown day is refused")
+        check(WeekTime.clock(5) == "00:05", "a clock is zero-padded")
+        check(Set(Setting.shown.map(\.id)).count == Setting.shown.count, "every setting the window offers has its own key")
+        let font = Setting.shown.first { $0.key == "font" }
+        check(font?.literal("Menlo") == "\"Menlo\"", "a text setting is written quoted")
+        let size = Setting.shown.first { $0.key == "font_size" }
+        check(size?.literal("abc") == "12", "a number setting falls back to its default on nonsense")
+        let book = NewPlaybookSheet.text(scope: "site", match: "example.com", title: "", notes: "Login is top right\n- Orders under Account", day: "2026-11-02")
+        check(book.hasPrefix("---\nscope: site\nmatch: example.com\n") && book.contains("# example.com\n") && book.contains("- Login is top right\n- Orders under Account\n"),
+              "a new playbook has front matter, the match as its title and one bullet per note")
+    }
+
     private static func account() {
         let d = Account.parseDevice(["device_code": "dc", "user_code": "WDJB-MJHT", "verification_uri": "https://github.com/login/device",
                                      "expires_in": 900, "interval": 5], now: 1000)

@@ -131,3 +131,26 @@ enum StatusItem {
         }
     }
 }
+
+/// The daemon's Dock icon stands in for the window: while `Apprentice.app` is open the window's icon is
+/// enough, so the daemon's hides, and it comes back when the window closes.
+enum DockIcon {
+    static var windowOpen: Bool { AppBundle.runningInstance != nil }
+
+    /// On the main thread, once the daemon starts: follows the window's launches and exits.
+    static func watch() {
+        let center = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
+            center.addObserver(forName: name, object: nil, queue: .main) { note in
+                guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+                      app.bundleIdentifier == AppBundle.identifier else { return }
+                apply()
+            }
+        }
+    }
+
+    static func apply() {
+        guard Config.current.dockIcon else { return }
+        NSApp.setActivationPolicy(windowOpen ? .accessory : .regular)
+    }
+}

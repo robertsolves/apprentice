@@ -46,10 +46,11 @@ The window (`apprentice app`), schedules and away are built; FEATURES.md lists w
 
 - Terminal: split panes inside a tab (⌘D / ⇧⌘D); tab drag-reorder, pinning and torn-off windows; scrollback restored across a relaunch (`[app] keep_scrollback` is read but not yet used); clickable paths and URLs; find in scrollback (⌘F); copy on select; per-preset environment keys.
 - Terminal fidelity: mouse reporting and bracketed paste are accepted and ignored; some rare DEC modes are not emulated. Verified against a shell and `claude`, not against every TUI.
-- First run: the window's grant check marks on first launch.
 - The new-site wizard should preview the TOML it will add; today it writes it and shows the result.
 - `[agent] ask_in = "app"`: answering an `ask` in the tab's banner instead of the floating window.
-- Phone page: `phone` runs from the palette and shows its text; no QR page in the window yet.
+- The window is for someone who is not technical (decided 2026-11-02): Terminal, Schedules, Playbooks, VMs, Settings and Updates only. Sites, Activity, an Approvals list, the phone set-up and the raw config form left it for the CLI; anything new goes in only if its label needs no explanation. A per-site note belongs in a playbook, not a Sites page.
+- Help tab: needs Claude Code on the Mac; falls back to `apprentice --help`. Offer Codex or opencode when `claude` is missing, and a `[app] help_agent` key.
+- Settings shows `Setting.shown` (`AppForms.swift`); `[run]` (the API key for `apprentice run`) is set in the file or `apprentice settings`, not in the window.
 - LaunchAgent offer: the hint is in `schedule add`'s output and on the Schedules screen, not a modal when the first schedule is added.
 - Away resume by the journal: `Away.decide` (proceed / redo / needs-you) is written and tested but nothing calls it, and there is no field undo, so a return always makes the task needs-you. An undo must check the focused field holds exactly the unit's text (its digest), in the unit's window, and press its keys through `gate()` and `Borrow.run`, never while the user is at the Mac.
 - Schedules written by hand: the daemon runs whatever `schedules.toml` holds, so an agent with a shell can add one without the gate (as it could a crontab). A record of what the user approved (a keyed hash in the keychain) would let the daemon skip entries nobody approved.

@@ -75,6 +75,8 @@ enum Notify {
 
     /// The `notify-post` command, run from inside `Apprentice.app`: posts one notification and exits 0 when it was delivered.
     static func post(title: String, text: String) -> Int32 {
+        // A helper process inside the app bundle, alive for a second: it must not flash in the Dock.
+        NSApplication.shared.setActivationPolicy(.prohibited)
         let center = UNUserNotificationCenter.current()
         let done = DispatchSemaphore(value: 0)
         var code: Int32 = 1
