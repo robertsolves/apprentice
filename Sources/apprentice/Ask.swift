@@ -142,6 +142,7 @@ enum Ask {
         skip.setAccessibilityLabel("Skip, Escape")
         let buttons = NSStackView(views: [Sound.muteButton(), NSView(), skip, send])
         buttons.spacing = 12
+        buttons.alignment = .centerY
         rows.append(buttons)
 
         let stack = NSStackView(views: rows)
@@ -345,6 +346,7 @@ extension Ask {
         let skip = NSButton(title: "Skip", target: handler, action: #selector(PointHandler.skip))
         let buttons = NSStackView(views: [Sound.muteButton(), status, NSView(), skip, start])
         buttons.spacing = 12
+        buttons.alignment = .centerY
         let stack = NSStackView(views: [header(label), buttons])
         stack.orientation = .vertical
         stack.alignment = .leading

@@ -30,9 +30,11 @@ enum Sound {
     private static let toggle = Toggle()
 
     private static func style(_ b: NSButton) {
-        b.title = muted ? " Muted" : " Sound on"
-        b.image = NSImage(systemSymbolName: muted ? "speaker.slash.fill" : "speaker.wave.2.fill", accessibilityDescription: nil)
-        b.imagePosition = .imageLeading
+        b.title = ""
+        let symbol = NSImage(systemSymbolName: muted ? "speaker.slash.fill" : "speaker.wave.2.fill", accessibilityDescription: nil)
+        b.image = symbol?.withSymbolConfiguration(.init(pointSize: 15, weight: .semibold))
+        b.imagePosition = .imageOnly
+        b.toolTip = muted ? "Muted: click to turn sounds on" : "Sounds on: click to mute"
         b.bezelColor = muted ? .systemGray : .systemTeal
         b.contentTintColor = .white
         b.setAccessibilityLabel(muted ? "Sounds are muted; press to turn them on" : "Sounds are on; press to mute")
@@ -44,7 +46,7 @@ enum Sound {
         b.bezelStyle = .rounded
         b.controlSize = .regular
         b.font = .boldSystemFont(ofSize: 12)
-        b.widthAnchor.constraint(equalToConstant: 112).isActive = true
+        b.widthAnchor.constraint(equalToConstant: 48).isActive = true
         style(b)
         buttons.add(b)
         return b
@@ -126,9 +128,9 @@ enum Overlay {
         text.alignment = .leading
         text.spacing = 1
         // Fixed widths everywhere: nothing moves when the text changes, and the box never widens.
-        text.widthAnchor.constraint(equalToConstant: 240).isActive = true
-        title.widthAnchor.constraint(equalToConstant: 240).isActive = true
-        detail.widthAnchor.constraint(equalToConstant: 240).isActive = true
+        text.widthAnchor.constraint(equalToConstant: 236).isActive = true
+        title.widthAnchor.constraint(equalToConstant: 236).isActive = true
+        detail.widthAnchor.constraint(equalToConstant: 236).isActive = true
         dot.alignment = .center
         dot.widthAnchor.constraint(equalToConstant: 16).isActive = true
         let mark = NSImageView(image: Ask.icon)
@@ -144,12 +146,12 @@ enum Overlay {
         let bottom = NSStackView(views: [mute, NSView(), pauseButton])
         bottom.orientation = .horizontal
         bottom.alignment = .centerY
-        bottom.widthAnchor.constraint(equalToConstant: 316).isActive = true
+        bottom.widthAnchor.constraint(equalToConstant: 300).isActive = true
         let column = NSStackView(views: [top, bottom])
         column.orientation = .vertical
         column.alignment = .leading
-        column.spacing = 10
-        column.edgeInsets = NSEdgeInsets(top: 10, left: 12, bottom: 12, right: 12)
+        column.spacing = 14
+        column.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
         p.contentView = column
         column.layoutSubtreeIfNeeded()
         p.setContentSize(column.fittingSize)
