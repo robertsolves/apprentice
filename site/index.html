@@ -4,16 +4,65 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>apprentice — your agent on Mac, Linux and the web, like a person</title>
-  <meta name="description" content="apprentice lets a coding agent or a hosted model use macOS, Linux and the web the way a normal person would, not a bot: it reads the screen as a numbered text list, uses the real cursor and keyboard, and proposes every change for your approval.">
+  <meta name="description" content="Open-source computer use for AI coding agents. It reads Mac, Linux and web apps as text and uses the real cursor and keys at human pace, with your approval.">
+  <link rel="canonical" href="https://robertsolves.github.io/apprentice/">
+  <meta name="theme-color" content="#0a5ce6">
   <link rel="icon" type="image/svg+xml" href="assets/icon.svg">
   <link rel="apple-touch-icon" href="assets/icon.png">
 
   <meta property="og:type" content="website">
+  <meta property="og:site_name" content="apprentice">
+  <meta property="og:locale" content="en_US">
   <meta property="og:title" content="apprentice — your agent on Mac, Linux and the web, like a person">
   <meta property="og:description" content="Your agent uses macOS, Linux and the web like a normal person, not a bot: real cursor, real keys, human pace, and your approval.">
   <meta property="og:url" content="https://robertsolves.github.io/apprentice/">
   <meta property="og:image" content="https://robertsolves.github.io/apprentice/assets/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="apprentice: your agent on Mac, Linux and the web, like a person">
   <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="apprentice — your agent on Mac, Linux and the web, like a person">
+  <meta name="twitter:description" content="Your agent uses macOS, Linux and the web like a normal person, not a bot: real cursor, real keys, human pace, and your approval.">
+  <meta name="twitter:image" content="https://robertsolves.github.io/apprentice/assets/og.png">
+  <meta name="twitter:image:alt" content="apprentice: your agent on Mac, Linux and the web, like a person">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "apprentice",
+    "url": "https://robertsolves.github.io/apprentice/",
+    "description": "A macOS CLI and daemon that lets a coding agent or a hosted model use macOS, Linux and the web like a careful person: it reads the screen as a numbered text list through the accessibility tree, acts with the real cursor and keyboard at a human pace, and proposes every change for approval.",
+    "applicationCategory": "DeveloperApplication",
+    "operatingSystem": "macOS 14 or later",
+    "image": "https://robertsolves.github.io/apprentice/assets/og.png",
+    "license": "https://opensource.org/licenses/MIT",
+    "isAccessibleForFree": true,
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+    "codeRepository": "https://github.com/robertsolves/apprentice",
+    "author": { "@type": "Person", "name": "Robert Mollentze", "url": "https://github.com/robertsolves" }
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      { "@type": "Question", "name": "What is apprentice?",
+        "acceptedAnswer": { "@type": "Answer", "text": "apprentice is a free, open-source macOS command-line tool that lets a coding agent such as Claude Code, Codex or Gemini CLI use apps and websites on your Mac, in a Linux VM and on the web. It reads the screen as a numbered text list, uses the real cursor and keyboard at a human pace, and proposes every change for approval." } },
+      { "@type": "Question", "name": "Which AI agents work with apprentice?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Any coding agent that can run shell commands or call MCP tools: Claude Code, Codex, Gemini CLI, opencode, Kilo, Cursor, Freebuff and others. The installer connects the agents it finds. apprentice can also run its own loop against a hosted OpenAI-compatible API." } },
+      { "@type": "Question", "name": "Does apprentice take screenshots?",
+        "acceptedAnswer": { "@type": "Answer", "text": "No, not by default. It reads the accessibility tree as text, so a step costs tens of tokens instead of an image. Screenshots and OCR are available for the rare page that hides its contents from accessibility." } },
+      { "@type": "Question", "name": "How does apprentice keep me in control?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Every change is proposed before it happens and needs approval. Risky steps such as sending, deleting, buying, passwords and settings go to you in a small window on your screen, or to the chat when you are away. Touching the mouse or keyboard stops it at once, and ctrl+opt+cmd+. is a kill switch." } },
+      { "@type": "Question", "name": "What does apprentice need to run?",
+        "acceptedAnswer": { "@type": "Answer", "text": "macOS 14 or later and Swift (Xcode or the command-line tools). You grant Accessibility and Screen Recording to the installed binary. Linux work runs in a small Debian VM under Tart." } },
+      { "@type": "Question", "name": "What is apprentice not for?",
+        "acceptedAnswer": { "@type": "Answer", "text": "Bulk outreach, mass following, scraping at volume and running several accounts on one site are out of scope by design. Per-site budgets, cooldowns and allowlists keep activity at a pace one person could keep by hand, and sites whose terms forbid automation, such as Meta and TikTok, are refused." } }
+    ]
+  }
+  </script>
 
   <style>
     :root {
@@ -142,6 +191,9 @@
 
     .asks { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
     .asks .ask { border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; background: var(--surface); line-height: 1.45; }
+    .faq details { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); padding: 14px 16px; margin: 0 0 10px; }
+    .faq summary { cursor: pointer; font-weight: 600; }
+    .faq details p { margin: 10px 0 0; color: var(--muted); }
     .tags { display: flex; flex-wrap: wrap; gap: 10px; }
     .tags span {
       border: 1px solid var(--border); background: var(--surface); border-radius: 8px;
@@ -178,6 +230,7 @@
         <a href="#ask" class="hide-sm">What to ask</a>
         <a href="#how" class="hide-sm">How it works</a>
         <a href="#install" class="hide-sm">Install</a>
+        <a href="#faq" class="hide-sm">FAQ</a>
         <a href="https://github.com/robertsolves/apprentice">GitHub</a>
       </nav>
     </header>
@@ -275,6 +328,19 @@
         It's meant to bring the care of a bigger team, not more volume. Bulk outreach, mass following,
         scraping at volume and running several accounts on one site are out of scope on purpose.
       </p>
+    </div>
+  </section>
+
+  <section id="faq" class="faq">
+    <div class="wrap">
+      <h2>Questions</h2>
+      <p class="sub">Short answers to what people ask first.</p>
+      <details open><summary>What is apprentice?</summary><p>apprentice is a free, open-source macOS command-line tool that lets a coding agent such as Claude Code, Codex or Gemini CLI use apps and websites on your Mac, in a Linux VM and on the web. It reads the screen as a numbered text list, uses the real cursor and keyboard at a human pace, and proposes every change for approval.</p></details>
+      <details><summary>Which AI agents work with apprentice?</summary><p>Any coding agent that can run shell commands or call MCP tools: Claude Code, Codex, Gemini CLI, opencode, Kilo, Cursor, Freebuff and others. The installer connects the agents it finds. apprentice can also run its own loop against a hosted OpenAI-compatible API.</p></details>
+      <details><summary>Does apprentice take screenshots?</summary><p>No, not by default. It reads the accessibility tree as text, so a step costs tens of tokens instead of an image. Screenshots and OCR are available for the rare page that hides its contents from accessibility.</p></details>
+      <details><summary>How does apprentice keep me in control?</summary><p>Every change is proposed before it happens and needs approval. Risky steps such as sending, deleting, buying, passwords and settings go to you in a small window on your screen, or to the chat when you are away. Touching the mouse or keyboard stops it at once, and ctrl+opt+cmd+. is a kill switch.</p></details>
+      <details><summary>What does apprentice need to run?</summary><p>macOS 14 or later and Swift (Xcode or the command-line tools). You grant Accessibility and Screen Recording to the installed binary. Linux work runs in a small Debian VM under Tart.</p></details>
+      <details><summary>What is apprentice not for?</summary><p>Bulk outreach, mass following, scraping at volume and running several accounts on one site are out of scope by design. Per-site budgets, cooldowns and allowlists keep activity at a pace one person could keep by hand, and sites whose terms forbid automation, such as Meta and TikTok, are refused.</p></details>
     </div>
   </section>
 

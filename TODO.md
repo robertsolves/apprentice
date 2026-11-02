@@ -36,3 +36,9 @@ It runs: Debian guests under Tart (2 GB disk, 2 GB memory each) or on a server (
 - `bug --fixed` was not added: fixed reports are deleted from `BUGS.md` and the commit is the record, so `pr` cites the `F<n>` the commit subjects name.
 - MCP does not expose `sessions`, `do --explain` or `log --session` yet.
 - Flows gained `sh:` steps; `learn` still drafts only screen steps, so a shell flow is written by hand.
+
+## Site
+
+- `robots.txt` is not served: Pages publishes `site/` under `/apprentice/`, and crawlers read only the domain root (`robertsolves.github.io/robots.txt`). Submit `https://robertsolves.github.io/apprentice/sitemap.xml` in Google Search Console and Bing Webmaster Tools instead, or move the site to its own domain and add one there.
+- `sitemap.xml` has a hand-written `lastmod`; bump it when the page changes, or have the Pages workflow write it from the last commit date.
+- No per-feature pages yet (approvals, Linux VM, site rules, supported agents): each would give search and answer engines a page that answers one question.
