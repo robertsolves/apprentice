@@ -83,8 +83,6 @@ enum Daemon {
             Repo.notice("apprentice: the last daemon stopped unexpectedly\(err.isEmpty ? "" : ": \(err)"); this is a fresh one, so read the screen again")
         }
         try? String(ProcessInfo.processInfo.processIdentifier).write(toFile: Store.pidPath, atomically: true, encoding: .utf8)
-        Store.pruneLogs()
-        Events.prune()
         KillSwitch.install()
         StatusItem.install()
         Overlay.install()
@@ -130,6 +128,12 @@ enum Daemon {
         } catch {
             try? FileManager.default.removeItem(atPath: Store.pidPath)
             throw error
+        }
+        // Pruning can take a while on a long history, so the socket answers first; on the command
+        // queue, so it never rewrites events.jsonl under a command recording one.
+        Daemon.queue.async {
+            Store.pruneLogs()
+            Events.prune()
         }
 
         if !background {

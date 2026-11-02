@@ -116,7 +116,7 @@ extension Commands {
         return String(step.dropFirst(4).prefix { $0 != "`" }).trimmingCharacters(in: .whitespaces)
     }
 
-    /// Runs one step in the user's login shell, in their home folder, for at most two minutes.
+    /// Runs one step in the user's login shell, in their home folder, for at most `[flow] sh_timeout_s` (two minutes by default).
     static func runShell(_ command: String) -> (code: Int32, out: String) {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/bin/zsh")
@@ -128,7 +128,7 @@ extension Commands {
         proc.standardError = pipe
         do { try proc.run() } catch { return (127, "\(error)") }
         let timer = DispatchWorkItem { if proc.isRunning { proc.terminate() } }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 120, execute: timer)
+        DispatchQueue.global().asyncAfter(deadline: .now() + Config.current.flowShellSeconds, execute: timer)
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         proc.waitUntilExit()
         timer.cancel()

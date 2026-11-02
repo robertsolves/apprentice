@@ -179,6 +179,11 @@ base_url = "https://api.openai.com/v1"
 model = "gpt-4o-mini"
 api_key = ""
 vision_model = ""
+# max_steps = 40                 # the run stops after this many steps
+# max_minutes = 15               # or after this long
+
+# [flow]
+# sh_timeout_s = 120             # a flow's `sh:` step is stopped after this long
 
 # A small Linux VM (Tart, about 2 GB) that runs Chromium, so browser work never borrows your cursor
 # and keyboard. install.sh makes it (`apprentice vm setup`); `apprentice vm on` / `off` switches it.

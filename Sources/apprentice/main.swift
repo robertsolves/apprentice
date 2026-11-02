@@ -59,7 +59,7 @@ func usage() {
       apprentice settings [local]               where the settings are; local moves an old synced copy back
       apprentice repo                           the clone apprentice runs from
       apprentice policy [domain]                may the LLM use shell commands for macOS tasks? With a domain: notes on its terms
-      apprentice budget [domain]                what is left of today's and this hour's caps per site and kind
+      apprentice budget [domain]                what is left of this hour's, today's and this week's caps per site and kind
       apprentice project [init | status]        a project's own .apprentice/ folder: its own site counts and tighter caps, on top of the account-wide ones
       apprentice cool [--clear domain]          sites cooling down after a rate limit; clearing asks the user
       apprentice activity <domain> [--days 7]   actions per day, rate limits, challenges and flags on one site

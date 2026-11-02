@@ -459,6 +459,9 @@ struct Config {
     var runModel = "gpt-4o-mini"
     var runKey = ""
     var visionModel = ""
+    var runMaxSteps = 40
+    var runMaxMinutes = 15.0
+    var flowShellSeconds = 120.0
     /// Text a site shows when it throttles the account; seeing one after an action cools the site down.
     /// English first, then the same messages as the big sites word them in other languages (BOT_DETECTION D1).
     var softBlockPhrases = [
@@ -656,7 +659,10 @@ struct Config {
             if let v = r["model"] { c.runModel = Toml.unquote(v) }
             if let v = r["api_key"] { c.runKey = Toml.unquote(v) }
             if let v = r["vision_model"] { c.visionModel = Toml.unquote(v) }
+            if let v = r["max_steps"].flatMap({ Int(Toml.unquote($0)) }), v >= 1, v <= 500 { c.runMaxSteps = v }
+            if let v = r["max_minutes"].flatMap({ Double(Toml.unquote($0)) }), v > 0, v <= 240 { c.runMaxMinutes = v }
         }
+        if let v = toml["flow"]?["sh_timeout_s"].flatMap({ Double(Toml.unquote($0)) }), v >= 1, v <= 3600 { c.flowShellSeconds = v }
         // A fixed order, so the same environment always means the same model: OPENAI_* first, then
         // APPRENTICE_* on top (K2).
         let env = ProcessInfo.processInfo.environment

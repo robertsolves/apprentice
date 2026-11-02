@@ -108,6 +108,17 @@ enum Prefs {
         return matching(visible().seen, task).prefix(8).map { "pref: " + line($0) }
     }
 
+    /// The lines `session` adds: prefs that name the task, the site or the app it bound. The site goes in
+    /// without its suffix, or "com" would match every pref that holds an address.
+    static func sessionHints(_ a: Args, app: String, host: String?) -> [String] {
+        hints(sessionText(task: a.value("task") ?? a.value("goal"), app: app, host: host))
+    }
+
+    static func sessionText(task: String?, app: String, host: String?) -> String {
+        let site = host.map(Site.domain)?.split(separator: ".").first.map(String.init)
+        return [task, app, site].compactMap { $0 }.joined(separator: " ")
+    }
+
     /// The device's own prefs, or the Mac's with `--on mac`, which every VM inherits.
     static func target(_ a: Args) -> Layers.Place {
         ["mac", "macos"].contains(a.value("on")?.lowercased() ?? "") ? .mac : Layers.local

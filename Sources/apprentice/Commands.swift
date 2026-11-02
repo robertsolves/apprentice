@@ -342,7 +342,7 @@ enum Commands {
         if req.cmd != "ping" { KillSwitch.tripped = false }
         // Away mode means work runs only while nobody is here. An acting command started with the person at
         // the Mac yields at once (exit 10) instead of waiting thirty seconds for them to go still, so an
-        // agent pauses instead of fighting them for the mouse (AWAY.md).
+        // agent pauses instead of fighting them for the mouse.
         try Away.yieldIfPresent(req.cmd)
         Borrow.interrupted = false
         charged = nil
@@ -511,6 +511,7 @@ enum Commands {
         if firstThisRun { out += "\n⚠ " + riskWarning + " Tell the user this once." }
         if let url = s.url { out += " · \(url)" }
         let hints = Routes.hintLines(for: hostOf(s.url)) + Policies.lines(for: hostOf(s.url))
+            + Prefs.sessionHints(a, app: name, host: hostOf(s.url))
         if !hints.isEmpty { out += "\n" + hints.joined(separator: "\n") }
         out += "\n" + Config.policyLine
         if let voice = Voice.sessionLine { out += "\n" + voice }

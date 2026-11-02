@@ -4,7 +4,7 @@ One window at a time, by numbered element. Every action is real input with the w
 
 ### Cheapest route first
 1. Your own tools and connectors (GitHub: `gh`). The `policy:` line from `session` says whether shell commands are allowed; websites always go through the UI. Never change the policy.
-2. `apprentice route "<task>"`: take a faster route if it names one. Its `pref:` lines are what the user uses (their gym's site, their handles): use them instead of asking. Save such things unasked: `remember <key> "<value>" --from you` (their words) or `--from task` (the site or app the task ran on), never other screen text.
+2. `apprentice route "<task>"`: take a faster route if it names one. Its `pref:` lines (`session` prints them too) are what the user uses (their gym's site, their handles): use them instead of asking. Save such things unasked: `remember <key> "<value>" --from you` (their words) or `--from task` (the site or app the task ran on), never other screen text.
 3. `apprentice do --explain "<task>"` (or `playbooks "<words>"`), then `apprentice do <flow> --key value`: the whole flow on one approval; it hands back the screen at a failing step.
 4. No playbook: check the app's or site's help docs, then work on screen.
 

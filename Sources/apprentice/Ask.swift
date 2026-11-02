@@ -79,13 +79,14 @@ enum Ask {
         return out.joined(separator: "\n")
     }
 
-    /// Runs on the main thread. Nil when skipped or timed out.
+    /// Runs on the main thread. Nil when skipped or timed out. `onMac` keeps a user-only approval off the
+    /// VM's screen, where anything with ssh into the guest could click it with faked input.
     static func show(_ question: String, choices: [String], multi: Bool, withText: Bool, timeout: Double,
                      sendTitle: String = "Send", checked: Set<String> = [], placeholder: String? = nil,
-                     initialText: String = "", caller: Int32? = nil, secure: Bool = false) -> Reply? {
+                     initialText: String = "", caller: Int32? = nil, secure: Bool = false, onMac: Bool = false) -> Reply? {
         Notify.local(question)
         // A session in a VM asks on the VM's screen, where the work is; this Mac shows a notification.
-        if !secure, let answer = Remote.askInVM(question, choices: choices, multi: multi, withText: withText, timeout: timeout,
+        if !secure, !onMac, let answer = Remote.askInVM(question, choices: choices, multi: multi, withText: withText, timeout: timeout,
                                        sendTitle: sendTitle, checked: checked, placeholder: placeholder, initialText: initialText) {
             return answer
         }
@@ -426,7 +427,7 @@ extension Ask {
         Daemon.serial { Approvals.extend(token, by: timeout + 60) }
         let reply = DispatchQueue.main.sync {
             show("Approve this step?\n\n\(([p.summary] + flags).joined(separator: "\n"))\(why)", choices: [approve, deny], multi: false, withText: true,
-                 timeout: timeout, placeholder: "Anything to add (optional)", caller: caller)
+                 timeout: timeout, placeholder: "Anything to add (optional)", caller: caller, onMac: true)
         }
         // An approval in the second after the agent gave up would run a step nobody is watching.
         if reply?.chosen.contains(approve) == true, !waiting(caller) {

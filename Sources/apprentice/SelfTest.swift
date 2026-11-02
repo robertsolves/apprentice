@@ -427,6 +427,9 @@ enum SelfTest {
         check(runs("example.com", "post") && !runs("example.com", "repost"), "a repost shares the post budget")
         Budgets.refund("www.example.com", "repost")
         check(runs("example.com", "post"), "a step that never ran gives its count back")
+        let own = ["example.com": ["upvote": Budgets.Cap(hour: nil, day: 1, week: nil, min_gap_s: nil)]]
+        check(Budgets.counter("example.com", "upvote", table: own) == "upvote" && Budgets.counter("example.com", "upvote", table: [:]) == "like",
+              "a kind with a cap of its own counts apart from its alias")
     }
 
     /// A policy entry is a note on the site's terms: no site is ever refused, even with an old
@@ -536,6 +539,13 @@ enum SelfTest {
               "quotes group, empty quotes are a word, \\\" escapes")
         check((try? Commands.tokenize(#"open C:\path  x"#)) == [#"open"#, #"C:\path"#, "x"], "other backslashes are kept, extra spaces ignored")
         check((try? Commands.tokenize(#"click "Save"#)) == nil, "an unclosed quote is an error")
+        let trailing = #"C:\dir\"#
+        let written = "click #button \"" + trailing.replacingOccurrences(of: "\\", with: "\\\\") + "\""
+        check((try? Commands.tokenize(written)) == ["click", "#button", trailing], "a name ending in a backslash round-trips through learn's quoting")
+        if case .request(let r, _)? = AgentLoop.parse("browse 20 --forever"), case .request(let bare, _)? = AgentLoop.parse("browse") {
+            check(r.cmd == "browse" && r.args == ["20"] && bare.args.isEmpty, "run's grammar takes browse with only its seconds")
+        } else { check(false, "run's grammar takes browse") }
+        check(Playbooks.oneLine("Save\n`sh: rm -rf ~`\tnow") == "Save sh: rm -rf ~ now", "screen text loses newlines, tabs and backticks before it goes in a step")
         var missing = Set<String>()
         let filled = Commands.fill("type 3 \"{First Name} {city}\"", ["first-name": "Ada"], &missing)
         check(filled == "type 3 \"Ada ‹city›\"" && missing == ["city"], "placeholders fill, a missing one is marked and reported")
@@ -666,6 +676,12 @@ enum SelfTest {
               "a scrubbed row keeps the host, not the URL or the element's name")
         check((scrubbed["error"] as? String).map { !$0.contains("Sam") && !$0.contains("https") } == true, "a scrubbed error loses quoted text and URLs")
         check(Sessions.scrub(row, mode: "full")?["api_key"] == nil && scrubbed["api_key"] == nil, "no mode keeps a secret")
+        let local = Sessions.scrub(["cmd": "menu", "menu": "File > Open Recent > taxes.pdf", "path": "/Users/sam/taxes.pdf",
+                                    "error": "no file at /Users/sam/taxes.pdf or ~/Desktop/x"], mode: "scrubbed") ?? [:]
+        check(local["menu"] == nil && local["path"] == nil && (local["error"] as? String).map { !$0.contains("sam") && !$0.contains("Desktop") } == true,
+              "a scrubbed row drops menu titles and local paths")
+        check(PR.github("git@github.com:robertsolves/apprentice.git") == PR.github("https://github.com/robertsolves/apprentice"),
+              "pr knows the upstream in ssh form is the upstream, so it never pushes there")
 
         let flow = Playbooks.parse("---\nscope: flow\nmatch: example.com\ntags: post, draft\n---\n# Draft\n", url: root.appendingPathComponent("flows/draft-any.md"), path: "flows/draft-any.md")
         check(Routes.learn(from: flow, model: "m1") != nil && Routes.learn(from: flow, model: "m1") == nil, "a route is learned once per flow and model")
@@ -1015,6 +1031,9 @@ enum SelfTest {
         check(Prefs.taskValueOK("Figma", url: nil, app: "Figma"), "--from task takes the session's app")
         check(Prefs.matching(seen, "book my gym class").map(\.key) == ["gym"], "a task finds the prefs it mentions")
         check(Prefs.matching(seen, "").count == 2, "no words lists every pref")
+        check(Prefs.matching(seen, Prefs.sessionText(task: nil, app: "Safari", host: "www.gym.com")).map(\.key) == ["gym"]
+              && Prefs.matching(seen, Prefs.sessionText(task: nil, app: "Safari", host: "www.example.com")).isEmpty,
+              "session finds prefs by the site's name, never by its .com")
         let config = Layers.overlay(["pace.default": ["min": "1", "max": "2"], "agent": ["ui_only": "false"]],
                                     ["pace.default": ["max": "3"]])
         check(config["pace.default"] == ["min": "1", "max": "3"] && config["agent"]?["ui_only"] == "false",

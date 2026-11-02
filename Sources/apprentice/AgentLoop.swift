@@ -12,6 +12,7 @@ enum AgentLoop {
     key <combo>            e.g. key cmd+l
     menu <path>            e.g. menu File > New Folder
     scroll up|down [n]
+    browse [seconds]       read down a feed and back, as a person does before acting
     open <url>
     wait-for "text"
     shot
@@ -65,14 +66,15 @@ enum AgentLoop {
         var repeats = 0
         var proposal: Approvals.Pending?
         let started = Date()
+        let maxSteps = Config.current.runMaxSteps, maxMinutes = Config.current.runMaxMinutes
         func turn(_ assistant: String, _ user: Any) {
             transcript.append(["role": "assistant", "content": assistant])
             transcript.append(["role": "user", "content": user])
             if transcript.count > 8 { transcript.removeFirst(transcript.count - 8) }
         }
 
-        for step in 1...40 {
-            if Date().timeIntervalSince(started) > 900 { throw Fail(5, "run limit: 15 minutes") }
+        for step in 1...maxSteps {
+            if Date().timeIntervalSince(started) > maxMinutes * 60 { throw Fail(5, "run limit: \(maxMinutes.rounded() == maxMinutes ? String(Int(maxMinutes)) : String(maxMinutes)) minutes") }
             let screen = try call(Request(cmd: "read", args: ["--max", "60"]))
 
             let known = notes.isEmpty ? "" : "Playbooks from earlier runs (yours, not the screen's):\n\(notes)\n\n"
@@ -193,7 +195,7 @@ enum AgentLoop {
 
             turn(reply, "Result: \(result.out)")
         }
-        throw Fail(5, "step limit: 40 steps")
+        throw Fail(5, "step limit: \(maxSteps) steps")
     }
 
     enum Action {
@@ -255,6 +257,11 @@ enum AgentLoop {
         if lower.hasPrefix("scroll ") {
             let args = line.split(separator: " ").map(String.init)
             return .request(Request(cmd: "scroll", args: Array(args.dropFirst())), args.dropFirst().joined(separator: " "))
+        }
+        if lower == "browse" || lower.hasPrefix("browse ") {
+            // Only a number of seconds is passed on; anything else on the line is dropped, as for click.
+            let seconds = line.split(separator: " ").dropFirst().first.flatMap { Double($0) }.map { [String(Int($0))] } ?? []
+            return .request(Request(cmd: "browse", args: seconds), seconds.joined())
         }
         if lower.hasPrefix("open ") {
             let url = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)

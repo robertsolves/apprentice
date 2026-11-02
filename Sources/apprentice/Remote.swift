@@ -435,6 +435,7 @@ enum Remote {
         if firstThisRun { out += "\n⚠ " + Commands.riskWarning + " Tell the user this once." }
         if let url = s.url { out += " · \(url)" }
         let hints = Routes.hintLines(for: hostOf(s.url)) + Policies.lines(for: hostOf(s.url))
+            + (focusing ? [] : Prefs.sessionHints(a, app: "Chromium", host: hostOf(s.url)))
         if !hints.isEmpty { out += "\n" + hints.joined(separator: "\n") }
         out += "\n" + Config.policyLine
         if Awake.enabled { out += "\n" + Awake.status }

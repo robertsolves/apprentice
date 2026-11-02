@@ -396,7 +396,7 @@ enum Cooldown {
         if l.challenged?[domain] != nil {
             let reply = DispatchQueue.main.sync {
                 Ask.show("apprentice thinks \(domain) shows a check only you can complete. Is it gone, so apprentice may act there again?",
-                         choices: ["It is gone", "Not yet"], multi: false, withText: false, timeout: 120)
+                         choices: ["It is gone", "Not yet"], multi: false, withText: false, timeout: 120, onMac: true)
             }
             guard reply?.chosen == ["It is gone"] else { throw Fail(3, "\(domain) stays paused until the check is gone") }
             Challenge.clear(domain)
@@ -408,7 +408,7 @@ enum Cooldown {
         let clear = "Clear it", keep = "Keep waiting"
         let reply = DispatchQueue.main.sync {
             Ask.show("\(domain) asked apprentice to slow down. Clear the cooldown (until \(Site.time(c.until))) and allow actions there again?",
-                     choices: [clear, keep], multi: false, withText: false, timeout: 120)
+                     choices: [clear, keep], multi: false, withText: false, timeout: 120, onMac: true)
         }
         guard let reply, reply.chosen == [clear] else { throw Fail(3, "the cooldown on \(domain) stays until \(Site.time(c.until))") }
         Limits.update { $0.cooling?[domain]?.until = now }

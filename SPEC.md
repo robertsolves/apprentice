@@ -239,7 +239,7 @@ All randomness in pacing comes from `Rand` (`Rand.swift`): one xoshiro256** gene
 - **Dwell.** With `dwell_s` set, an action that counts against a budget (like, follow, comment…) waits until the page has been open that long, drifting the pointer meanwhile. Acting on content before it could have been read is a strong tell.
 - **A person's day.** With `quiet_hours` set (`careful`: 2–6 local time), no actions on the site in those hours. With `session_max_min` (`careful`: 50), a sitting on one site that runs that long starts a break of `break_min` minutes (15–40), shared by every VM's daemon; a pause as long as the shortest break starts a new sitting. With `actions_per_day` (`careful`: 400), no more actions on the site that day. Each refuses with exit 4 and logs a `pace` event; reading still works.
 - **Navigation.** At least `nav_min_gap_s` (5 s) between page loads on the same domain, and at most 3 loads of the same URL in 120 s; the next fails with `refresh limit`. `wait-for` never polls by reloading.
-- **Run loop.** `run` stops at 40 steps, 15 minutes, or 3 identical actions in a row.
+- **Run loop.** `run` stops at 40 steps, 15 minutes (`[run] max_steps`, `max_minutes`), or 3 identical actions in a row.
 
 ### Styles
 
@@ -470,7 +470,7 @@ An audit, made on 2026-11-01 against `78ff6d6`, of what Instagram, Facebook, Tik
 
 ### The VM
 
-A Debian guest (Tart on this Mac, or `[vm] host` for a server elsewhere) with its own screen, cursor and keyboard. With `vm on`, browser sessions run there; `session --app <name> --on linux` binds any Linux app; `apprentice vm shell` prints the plain ssh command for terminal work. Several VMs can run at once, one per agent session (`APPRENTICE_VM=<name>`, or `apprentice --vm <name> …` per command), each with its own daemon, session, snapshot, approval and pacing; budgets, cooldowns and challenges are per site and shared by all of them. Questions and approvals for a VM session open on the VM's screen, and the Mac shows a notification; a question whose answer is to open the VM (`show`, `vm call`) stays on this Mac. `upload` copies the file into the guest and picks it in the app's own file dialog with real input; `download` brings the file back.
+A Debian guest (Tart on this Mac, or `[vm] host` for a server elsewhere) with its own screen, cursor and keyboard. With `vm on`, browser sessions run there; `session --app <name> --on linux` binds any Linux app; `apprentice vm shell` prints the plain ssh command for terminal work. Several VMs can run at once, one per agent session (`APPRENTICE_VM=<name>`, or `apprentice --vm <name> …` per command), each with its own daemon, session, snapshot, approval and pacing; budgets, cooldowns and challenges are per site and shared by all of them. Questions for a VM session open on the VM's screen, and the Mac shows a notification. A question whose answer is to open the VM (`show`, `vm call`) stays on this Mac, and so do the user-only approvals (`confirm`, clearing a challenge or a cooldown), which anything with ssh into the guest could otherwise click with faked input. `upload` copies the file into the guest and picks it in the app's own file dialog with real input; `download` brings the file back.
 
 What still holds: no WebDriver, CDP or injected script; the page is read through AT-SPI, Linux's accessibility bus; input goes through XTest into the X server, so events are trusted, in the full pointer sequence, with the same pacing code; the time zone and language follow this Mac, and a local VM shares the Mac's IP. What changes: it is a second device, Linux with software WebGL and its own Chromium profile, so the first sign-in on each site looks like a new device, and a server elsewhere has an IP that is not the user's. Nothing is spoofed to hide that. Chromium there saves no passwords or payment cards (a managed policy), since the agent has a shell in the guest; sign-ins last through cookies. Accounts whose standing matters most stay on this Mac's own browser: `[vm] local = ["site.com"]` refuses them in every VM.
 
@@ -513,7 +513,7 @@ The `run` loop, for when no coding agent is involved:
 
 - One OpenAI-compatible client: `base_url`, `model`, `api_key`. That covers Claude (through an adapter), DeepSeek and OpenRouter.
 - The model replies in a tiny grammar (`click 14`, `type 16 "…"`, `scroll down`, `done`, `need_image`), parsed locally. A separate optional vision model handles `need_image`.
-- Limits: 40 steps, 15 minutes, and stop after 3 identical actions.
+- Limits: 40 steps, 15 minutes (`[run] max_steps`, `max_minutes`), and stop after 3 identical actions.
 
 ## Playbooks
 
