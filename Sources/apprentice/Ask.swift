@@ -102,7 +102,7 @@ enum Ask {
         }
         // Wider for a long question or long choices, so neither is cut short.
         let longest = max(question.count / 3, choices.map(\.count).max() ?? 0)
-        let width: CGFloat = min(max(380, CGFloat(longest) * 7), 620)
+        let width: CGFloat = min(max(420, CGFloat(longest) * 7), 620)
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: width, height: 160),
                             styleMask: [.titled, .closable], backing: .buffered, defer: false)
         panel.title = "apprentice needs you"
@@ -116,7 +116,7 @@ enum Ask {
 
         let handler = Handler()
         let label = NSTextField(wrappingLabelWithString: question)
-        label.preferredMaxLayoutWidth = width - 32 - 52
+        label.preferredMaxLayoutWidth = width - 48 - 56
         label.setAccessibilityLabel("Question from apprentice: \(question)")
         var rows: [NSView] = [header(label)]
 
@@ -140,17 +140,19 @@ enum Ask {
         skip.keyEquivalent = "\u{1b}"
         skip.setAccessibilityLabel("Skip, Escape")
         let buttons = NSStackView(views: [NSView(), skip, send])
+        buttons.spacing = 12
         rows.append(buttons)
 
         let stack = NSStackView(views: rows)
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 8
-        stack.edgeInsets = NSEdgeInsets(top: 14, left: 16, bottom: 14, right: 16)
+        stack.spacing = 14
+        stack.edgeInsets = NSEdgeInsets(top: 22, left: 24, bottom: 22, right: 24)
+        stack.setCustomSpacing(20, after: rows[rows.count - 2])
         // A leading-aligned stack fits to its widest row and drops the right inset; hold it to the panel's width.
         stack.widthAnchor.constraint(equalToConstant: width).isActive = true
         for view in [field, buttons] where rows.contains(view) {
-            view.widthAnchor.constraint(equalToConstant: width - 32).isActive = true
+            view.widthAnchor.constraint(equalToConstant: width - 48).isActive = true
         }
         panel.contentView = stack
         panel.setContentSize(stack.fittingSize)
@@ -221,7 +223,7 @@ enum Ask {
         mark.heightAnchor.constraint(equalToConstant: 40).isActive = true
         let row = NSStackView(views: [mark, label])
         row.alignment = .top
-        row.spacing = 12
+        row.spacing = 16
         return row
     }
 
@@ -324,21 +326,22 @@ extension Ask {
         blue(panel)
 
         let label = NSTextField(wrappingLabelWithString: "Show me: \(what)\n\nPress Start, move the cursor onto it, and hold still.")
-        label.preferredMaxLayoutWidth = width - 32 - 52
+        label.preferredMaxLayoutWidth = width - 48 - 56
         let status = NSTextField(labelWithString: "")
         status.textColor = .secondaryLabelColor
         let handler = PointHandler()
         let start = NSButton(title: "Start", target: handler, action: #selector(PointHandler.start))
         let skip = NSButton(title: "Skip", target: handler, action: #selector(PointHandler.skip))
         let buttons = NSStackView(views: [status, NSView(), skip, start])
+        buttons.spacing = 12
         let stack = NSStackView(views: [header(label), buttons])
         stack.orientation = .vertical
         stack.alignment = .leading
-        stack.spacing = 10
-        stack.edgeInsets = NSEdgeInsets(top: 12, left: 16, bottom: 12, right: 16)
+        stack.spacing = 18
+        stack.edgeInsets = NSEdgeInsets(top: 22, left: 24, bottom: 22, right: 24)
         // A leading-aligned stack fits to its widest row and drops the right inset; hold it to the panel's width.
         stack.widthAnchor.constraint(equalToConstant: width).isActive = true
-        buttons.widthAnchor.constraint(equalToConstant: width - 32).isActive = true
+        buttons.widthAnchor.constraint(equalToConstant: width - 48).isActive = true
         panel.contentView = stack
         panel.setContentSize(stack.fittingSize)
         place(panel)

@@ -113,7 +113,13 @@ enum Keys {
     /// on a US board): the keys a person presses for them, in order (BOT_DETECTION P2, P16).
     static func sequences() -> [Character: [(CGKeyCode, CGEventFlags)]] { readLayout().sequences }
 
+    /// The input-source calls assert they run on the main queue, and commands run on `Daemon.queue`:
+    /// read there, it trapped the daemon (a VM `type`, through `Keys.parse`).
     private static func readLayout() -> (keys: [Character: (CGKeyCode, Bool)], sequences: [Character: [(CGKeyCode, CGEventFlags)]]) {
+        Thread.isMainThread ? readLayoutHere() : DispatchQueue.main.sync { readLayoutHere() }
+    }
+
+    private static func readLayoutHere() -> (keys: [Character: (CGKeyCode, Bool)], sequences: [Character: [(CGKeyCode, CGEventFlags)]]) {
         guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
               let idPtr = TISGetInputSourceProperty(source, kTISPropertyInputSourceID) else { return ([:], [:]) }
         // The hardware keyboard type is part of the key: UCKeyTranslate reads it, so another keyboard needs a new map.
