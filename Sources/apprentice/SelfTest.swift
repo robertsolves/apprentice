@@ -38,6 +38,7 @@ enum SelfTest {
         forms()
         pipelines()
         skillKinds()
+        oneAtATime()
         prefs()
         allowlist()
         flows()
@@ -998,6 +999,25 @@ enum SelfTest {
               "terminal: mouse, paste and focus modes are tracked")
         menu.feed(Data((esc + "[?1000l" + esc + "[?2004l").utf8))
         check(!menu.mouseTracking && !menu.bracketedPaste, "terminal: the modes turn off again")
+    }
+
+    /// One agent per screen: a second one is refused until the first is quiet or frees it.
+    private static func oneAtATime() {
+        defer { try? FileManager.default.removeItem(at: Device.file()) }
+        try? FileManager.default.removeItem(at: Device.file())
+        var a = Request(cmd: "click", args: ["3"]); a.tab = "A"
+        var b = Request(cmd: "click", args: ["4"]); b.tab = "B"
+        let now = Date().timeIntervalSince1970
+        check((try? Device.check(a, now: now)) != nil, "device: the first agent takes the screen")
+        check((try? Device.check(a, now: now + 10)) != nil, "device: and keeps using it")
+        do { try Device.check(b, now: now + 20); check(false, "device: a second agent is refused") } catch let f as Fail {
+            check(f.code == 4 && f.message.contains("in use by"), "device: a second agent is refused with who holds it")
+        } catch { check(false, "device: a second agent is refused") }
+        check((try? Device.check(Request(cmd: "log"), now: now + 20)) != nil, "device: reading the log is never refused")
+        var user = Request(cmd: "click", args: ["1"]); user.user = true
+        check((try? Device.check(user, now: now + 20)) != nil, "device: the user's own click is never refused")
+        check((try? Device.check(b, now: now + 10 + Device.busySeconds + 1)) != nil, "device: a quiet holder lets the next agent in")
+        check(Device.busy(vm: nil, for: "tab:B") == nil && Device.busy(vm: nil, for: "schedule:x") != nil, "device: schedules see who holds it")
     }
 
     /// Skills come in three kinds by folder; learned facts stay small, dated and deduplicated.

@@ -427,6 +427,8 @@ enum Schedules {
                 advance(s)
                 continue
             }
+            // The screen is another agent's right now: wait for it (the next tick looks again), up to the catch-up time.
+            if Device.busy(vm: s.vm, for: "schedule:\(s.id)") != nil, catchUp(due: due, now: now, minutes: catchUpMinutes) { continue }
             guard catchUp(due: due, now: now, minutes: catchUpMinutes) else {
                 Store.log(["cmd": "schedule", "schedule": s.id, "skipped": "missed while the Mac was asleep or off"])
                 advance(s)

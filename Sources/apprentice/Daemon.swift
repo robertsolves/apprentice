@@ -112,6 +112,8 @@ enum Daemon {
                 if !aside {
                     Store.model = req.model
                     Project.dir = req.project.map { URL(fileURLWithPath: $0) }
+                    // One agent at a time on this screen (`Device`).
+                    try Device.check(req)
                 }
                 let out = try aside ? Commands.aside(req) : Commands.run(req)
                 return (Response(code: 0, out: out), false)

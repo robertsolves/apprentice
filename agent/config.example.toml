@@ -144,6 +144,11 @@ optional_every_h = 4
 # Context-menu items `download` uses, matched lower case. Add your language's if the Mac is not in English.
 # download_menu = ["save image as", "download linked file", "save link as", "download image"]
 
+[device]
+# One agent at a time per screen (this Mac, each VM): another agent's screen commands exit 4 until the one
+# using it has been quiet this long, or `apprentice device free`. Schedules and pipelines wait instead.
+# busy_min = 5
+
 [skills]
 # Learned skills: what apprentice writes as it works, in ~/.apprentice/skills/learned (on this Mac only).
 # auto_learn: save a session's steps when it ends after working, and repair saved steps that broke.

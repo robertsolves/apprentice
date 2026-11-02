@@ -97,6 +97,7 @@ func usage() {
       apprentice replay <name> [--from n] [--approve]
       apprentice mcp
       apprentice vm setup | install | up | down | on | off | look | call "what" | shell | status | list   a small Linux VM with its own screen, cursor and keyboard: its browser and Linux apps (--on linux); shell prints the ssh command for its terminal
+      apprentice device [free]                  who is using this Mac's (or --vm's) screen right now; free lets another agent use it. One agent per screen at a time
       apprentice app                            the window: projects, terminal tabs where agents run, pipelines, schedules, skills, VMs and settings
       apprentice schedule add|list|show|pause|resume|rm|now|agent   prompts and tasks that run later or again
       apprentice away on|off|status|wait|add|list|cancel   work that runs only while you are away, and stops when you are back
@@ -106,7 +107,7 @@ func usage() {
     output is compact text for an agent. add --json for the raw reply from the commands that go through the daemon, and from `route` and `skills`.
     open, click, type, key, menu, drag, upload, download, choose and do only propose: they exit 8 with a token,
     and act once you run `apprentice approve <token>`. ctrl+opt+cmd+. is the kill switch: it stops whatever runs, and nothing more runs until the user answers.
-    exit codes: 0 ok · 2 stale, re-read · 3 the user denied · 4 blocked, rate limited, over budget, cooling or a challenge ·
+    exit codes: 0 ok · 2 stale, re-read · 3 the user denied · 4 blocked (another agent is using this screen), rate limited, over budget, cooling or a challenge ·
                 5 not found or timeout · 6 interrupted · 7 permission missing · 8 approval needed, nothing done yet ·
                 9 ask the user in the chat (they are away or did not answer the window) ·
                 10 yielded: the user is back (away mode), nothing was done; wait with `apprentice away wait`
@@ -125,7 +126,7 @@ let rest = Array(argv.dropFirst())
 
 /// Commands answered in this process log their own row, so `log --session` and `grow` see `learn`, `bug`,
 /// `route` and the rest beside the daemon's commands.
-let loggedHere: Set<String> = ["route", "playbooks", "skills", "notes", "learn", "bug", "commit", "update", "settings", "repo", "policy", "budget", "pace",
+let loggedHere: Set<String> = ["route", "playbooks", "skills", "device", "notes", "learn", "bug", "commit", "update", "settings", "repo", "policy", "budget", "pace",
                                "activity", "flag", "grow", "sessions", "project", "doctor", "pr", "vm", "replay", "phone", "tour", "prefs", "remember", "forget", "account",
                                "pipeline"]
 if loggedHere.contains(command) { Timing.begin() }
@@ -228,6 +229,9 @@ case "project":
     attempt { print(try Project.command(Args.parse(rest))) }
 case "pipeline":
     attempt { print(try Pipelines.command(Args.parse(rest))) }
+case "device":
+    print(Device.command(Args.parse(rest)))
+    done(0)
 case "doctor":
     attempt { print(try Doctor.run(Args.parse(rest))) }
 case "tour":

@@ -194,10 +194,20 @@ enum Pipelines {
         guard from >= 1, from <= p.steps.count else { throw Fail(5, "--from is 1 to \(p.steps.count)") }
         let started = Date()
         var previous = ""
+        // Every step is one owner of the screen (`Device`): the tab or schedule it runs from, else the pipeline.
+        let tab = ProcessInfo.processInfo.environment["APPRENTICE_TAB"].flatMap { $0.isEmpty ? nil : $0 } ?? "pipeline:\(p.ref)"
+        let who = tab.hasPrefix("schedule:") || tab.hasPrefix("pipeline:") ? tab : "tab:\(tab)"
         var failed: [String] = []
         for i in (from - 1)..<p.steps.count {
             let step = p.steps[i]
             say("\n── step \(i + 1) of \(p.steps.count) · \(step.title.isEmpty ? "untitled" : step.title)\n")
+            // One thing at a time on a screen: wait while another agent holds it, up to half an hour.
+            var waited = 0
+            while let holder = Device.busy(vm: p.effectiveVM, for: who), waited < 1800 {
+                if waited == 0 { say("waiting: \(p.effectiveVM.map { "the VM \($0)" } ?? "this Mac") is in use by \(holder)\n") }
+                Thread.sleep(forTimeInterval: 15)
+                waited += 15
+            }
             var argv: [String]
             if let command = step.shell ?? (p.agent == "shell" ? step.prompt : nil) {
                 if Config.current.uiOnly { throw Fail(5, "step \(i + 1) is a shell command, and shells are off under [agent] ui_only") }
@@ -205,7 +215,7 @@ enum Pipelines {
             } else {
                 argv = ["/bin/zsh", "-lc", "exec \"$@\"", "zsh"] + Schedules.agentArgv(p.agent, prompt(p, step: i, previous: previous))
             }
-            let (code, output) = stream(argv, in: p.folder, vm: p.effectiveVM, project: p.project)
+            let (code, output) = stream(argv, in: p.folder, vm: p.effectiveVM, project: p.project, tab: tab)
             Store.log(["cmd": "pipeline", "pipeline": p.ref, "step": i + 1, "code": Int(code)])
             previous = output
             if code != 0 {
@@ -226,13 +236,14 @@ enum Pipelines {
     }
 
     /// Runs one step with its output shown as it comes and kept for the next step.
-    private static func stream(_ argv: [String], in folder: URL, vm: String?, project: URL?) -> (Int32, String) {
+    private static func stream(_ argv: [String], in folder: URL, vm: String?, project: URL?, tab: String) -> (Int32, String) {
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: argv[0])
         proc.arguments = Array(argv.dropFirst())
         proc.currentDirectoryURL = folder
         var env = ProcessInfo.processInfo.environment
         if let vm { env["APPRENTICE_VM"] = vm }
+        env["APPRENTICE_TAB"] = tab
         if let project { env["APPRENTICE_PROJECT"] = project.appendingPathComponent(".apprentice").path }
         proc.environment = env
         proc.standardInput = FileHandle.nullDevice

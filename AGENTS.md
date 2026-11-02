@@ -67,6 +67,7 @@ Commands re-read these files on each call. That's why client-side code such as `
 - A project folder (`project init`) adds its own `limits.json` counts and optional `budgets.json` caps: `Budgets.check` checks the project's first, then the account-wide ones, and records in both. Project caps only tighten; never let them replace the account-wide check.
 - `SiteRules.swift` holds the site rules from `SPEC.md`: `Budgets` (per-kind caps in `budgets.json`, checked in `gate()`), `Cooldown` and `Challenge` (checked in `prepare()` and after every action in `finish()`; exit 4, or a `⚠` line under `[sites] on_soft_block` / `on_challenge = "warn"`, which `inspect` returns as a `Fail` with code 0), `Policies` (`[policy."<domain>"]` in `routes.toml`: notes on a site's terms that never refuse it; apprentice never refuses a site) and `Events` (`events.jsonl`, kept 180 days, read by `activity`).
 - `allowCheck` (in `Commands.swift`) enforces the per-session allowlist.
+- `Device` (`Device.swift`): one agent per screen. The daemon's request handler calls `Device.check` before every screen command: the first caller (its tab, `schedule:<id>` or `pipeline:<ref>`, else its project, else its model) holds this Mac or the VM until quiet for `[device] busy_min`; another gets exit 4 naming the holder. The user's own requests pass. Schedules wait for a free screen; pipeline steps share one owner and wait between steps. `device [free]`.
 - `Privacy.blocked` keeps scrubbed apps out of the logs.
 - `KillSwitch` (`Daemon.swift`) is a global hotkey, ctrl+opt+cmd+.
 
