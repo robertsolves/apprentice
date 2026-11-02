@@ -1,6 +1,6 @@
 import Foundation
 
-/// `do <flow>`: runs a flow from notes/flows with one approval, so the LLM only steps in when a step fails.
+/// `do <flow>`: runs a flow from playbooks/flows with one approval, so the LLM only steps in when a step fails.
 /// A step is a line under "## Steps" that starts with a backticked command. `#label "name"` in it is
 /// resolved to an element id on the screen at that moment, and `{key}` comes from `--key value`.
 /// A step of the form `sh: <command>` runs a shell command (a `tool:` flow: `gh`, `git`, `ssh`), under the
@@ -9,12 +9,12 @@ extension Commands {
     static func runFlow(_ a: Args) throws -> String {
         if a.has("explain") {
             let task = a.value("explain") ?? a.pos.joined(separator: " ")
-            return Notes.explain(task, model: Store.model, session: Session.stored)
+            return Playbooks.explain(task, model: Store.model, session: Session.stored)
         }
-        guard let name = a.pos.first else { throw Fail(5, "do <flow> [--key value ...]: list flows with `apprentice notes flow`") }
-        guard let note = Notes.flow(named: name) else { throw Fail(5, "no flow \"\(name)\": find one with `apprentice notes \"<words>\"`") }
+        guard let name = a.pos.first else { throw Fail(5, "do <flow> [--key value ...]: list flows with `apprentice playbooks flow`") }
+        guard let note = Playbooks.flow(named: name) else { throw Fail(5, "no flow \"\(name)\": find one with `apprentice playbooks \"<words>\"`") }
         var missing = Set<String>()
-        let raw = Notes.steps(note)
+        let raw = Playbooks.steps(note)
         // `sh:` steps are the shell's own text: only the keys the caller passed are substituted, so `${HOME}`,
         // `awk '{print $1}'` and `{a,b}` reach the shell untouched. `real` runs; `steps` is what is shown, with
         // the values of secret-looking keys hidden so they never reach the chat or the log.
@@ -52,6 +52,13 @@ extension Commands {
         for (i, step) in steps.enumerated() {
             let n = i + 1
             Approvals.planFlagged = flagged.contains(i)
+            // A kill-switch press between steps stops the flow before the next one, shell steps included.
+            if KillSwitch.tripped || KillSwitch.halted {
+                // Cleared here so this message, with the steps that ran, is the one the caller gets; `halted` stays.
+                KillSwitch.tripped = false
+                out.append("stopped: steps \(n)…\(steps.count) were not run")
+                throw Fail(6, (out + ["interrupted: " + KillSwitch.message]).joined(separator: "\n"))
+            }
             if let lastResult, !shell.contains(i) { look(after: lastResult) }
             guard step.hasPrefix("`") else {
                 out.append("\(n) · needs you: \(step)")
@@ -79,6 +86,11 @@ extension Commands {
                 let result = try dispatch(Request(cmd: cmd, args: tokens))
                 lastResult = result
                 out.append("\(n) ✓ \(step) → \(result.split(separator: "\n").first ?? "")")
+            } catch let amb as Ambiguous {
+                // The matches are listed in full; their ids are those of the snapshot just saved, so no re-read.
+                out.append("\(n) ✗ \(step) → several matches")
+                out.append("stopped: steps \(n)…\(steps.count) were not run. Take over from here:")
+                throw Fail(5, (out + [amb.message]).joined(separator: "\n"))
             } catch let f as Fail where f.code == 8 {
                 // The step showed a warning the plan did not: it is proposed on its own.
                 out.append("\(n) ⚠ \(step) needs its own approval: it shows something the plan did not")
@@ -138,14 +150,20 @@ extension Commands {
     }
 
     /// The current screen, saved as the snapshot later ids refer to.
+    /// It is a read: a page that changed without apprentice (the exit 2 that stopped the flow) is taken in
+    /// and shown, so the caller decides on what is there now instead of getting no screen back.
     private static func screen() throws -> String {
+        Approvals.request = Request(cmd: "read")
         let (_, target, _) = try prepare()
         let snap = readSnapshot(target)
         SnapStore.save(snap)
         return "<screen>\n" + snap.elements.prefix(40).map(\.line).joined(separator: "\n") + "\n</screen>"
     }
 
-    /// `#button` followed by a name becomes the id of the first such element on screen now.
+    /// Several elements fit a `#label "name"`: the caller picks one, from the list in `message`.
+    private struct Ambiguous: Error { let message: String }
+
+    /// `#button` followed by a name becomes the id of the one such element on screen now.
     private static func resolveRefs(_ tokens: [String]) throws -> [String] {
         guard tokens.contains(where: { $0.hasPrefix("#") }) else { return tokens }
         let (session, target, _) = try prepare()
@@ -163,8 +181,15 @@ extension Commands {
                 }
                 let label = String(t.dropFirst()), name = tokens[i + 1].lowercased()
                 let same = snap.elements.filter { $0.label == label }
-                guard let hit = same.first(where: { $0.name.lowercased() == name })
-                        ?? same.first(where: { !name.isEmpty && $0.name.lowercased().contains(name) }) else {
+                // Exact names first, then names that contain the words. Several matches are the caller's
+                // choice, never a guess, as with `click --on`: they come back to pick from.
+                let exact = same.filter { $0.name.lowercased() == name }
+                let hits = exact.isEmpty ? same.filter { !name.isEmpty && $0.name.lowercased().contains(name) } : exact
+                if hits.count > 1 {
+                    throw Ambiguous(message: "\(hits.count) elements match \(label) \"\(tokens[i + 1])\", so the step was not run. Pick one by id:\n"
+                        + hits.prefix(12).map(\.line).joined(separator: "\n"))
+                }
+                guard let hit = hits.first else {
                     throw Fail(5, "no \(label) \"\(tokens[i + 1])\" on screen")
                 }
                 // A near match must not do more than the step says: "Save" never becomes "Save and send".

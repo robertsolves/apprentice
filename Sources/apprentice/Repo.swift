@@ -5,14 +5,14 @@ import Foundation
 /// only fetched. apprentice checks it every few hours and, unless `[update] auto = false`, rebases the
 /// local commits onto it, rebuilds, self-tests and restarts on its own.
 enum Repo {
-    /// The clone kit.sh last installed from (`install.json`), else the one the notes link into.
+    /// The clone kit.sh last installed from (`install.json`), else the one the playbooks link into.
     static var root: URL {
         if let testRoot { return testRoot }
-        if ProcessInfo.processInfo.environment["APPRENTICE_NOTES"] == nil, let clone = Build.install?.clone,
+        if ProcessInfo.processInfo.environment["APPRENTICE_PLAYBOOKS"] == nil, ProcessInfo.processInfo.environment["APPRENTICE_NOTES"] == nil, let clone = Build.install?.clone,
            FileManager.default.fileExists(atPath: clone + "/.git") {
             return URL(fileURLWithPath: clone)
         }
-        return Notes.repo
+        return Playbooks.repo
     }
     /// For `selftest`: a throwaway clone, and a build that stands in for kit.sh.
     static var testRoot: URL?
@@ -42,8 +42,9 @@ enum Repo {
     static var checkSeconds: Double { max(settings["check_hours"].flatMap { Double(Toml.unquote($0)) } ?? 6, 1) * 3600 }
 
     @discardableResult
-    static func run(_ tool: String, _ args: [String], in dir: URL? = nil) -> (code: Int32, out: String) {
+    static func run(_ tool: String, _ args: [String], in dir: URL? = nil, env: [String: String] = [:]) -> (code: Int32, out: String) {
         let proc = quiet(Process())
+        proc.environment?.merge(env) { $1 }
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         proc.arguments = [tool] + args
         proc.currentDirectoryURL = dir ?? root
@@ -60,14 +61,26 @@ enum Repo {
     static func git(_ args: String...) -> (code: Int32, out: String) { run("git", args) }
 
     /// Commits `paths` (everything when empty) as one small commit. Quiet when there is nothing
-    /// to commit or the notes are not in a git clone; returns the short hash otherwise.
+    /// to commit or the playbooks are not in a git clone; returns the short hash otherwise. Throws, and
+    /// commits nothing, when the playbook lines it would add look personal (`Playbooks.leaks`).
     @discardableResult
-    static func commit(_ message: String, paths: [String] = []) -> String? {
+    static func commit(_ message: String, paths: [String] = []) throws -> String? {
         guard isGit else { return nil }
         // Named paths commit on their own, so whatever the user has staged stays out of it (M1).
         let scope = ["--"] + (paths.isEmpty ? ["."] : paths)
         run("git", ["add", "-A"] + scope)
         guard run("git", ["diff", "--cached", "--quiet"] + scope).code != 0 else { return nil }
+        let staged = run("git", ["diff", "--cached", "--name-only"] + scope).out
+        if staged.split(separator: "\n").contains(where: { $0.hasPrefix("playbooks/") }) {
+            let patch = run("git", ["diff", "--cached", "-U0", "--no-ext-diff", "--", "playbooks/"]).out
+            let found = Playbooks.leaks(inPatch: patch) + Playbooks.leaks(message).map { "the commit message: \($0)" }
+            if !found.isEmpty {
+                run("git", ["reset", "-q"] + scope)
+                throw Fail(5, "not committed: playbooks are shared with everyone, and this looks personal:\n"
+                    + found.map { "  - \($0)" }.joined(separator: "\n")
+                    + "\nreplace each with a {placeholder} or a generic name, then commit again")
+            }
+        }
         guard run("git", ["commit", "-q", "-m", message] + (paths.isEmpty ? [] : scope)).code == 0 else { return nil }
         return git("rev-parse", "--short", "HEAD").out
     }
@@ -79,7 +92,7 @@ enum Repo {
         guard !message.isEmpty else { throw Fail(5, "commit \"what changed and why\"") }
         guard isGit else { throw Fail(5, "\(root.path) is not a git clone: reinstall with install.sh") }
         let before = git("rev-parse", "HEAD").out
-        guard let hash = commit(message) else { return "nothing to commit" }
+        guard let hash = try commit(message) else { return "nothing to commit" }
         var out = "committed \(hash) \(message)"
         if touchesSource(since: before) { out += "\n" + (try rebuild()) }
         return out
@@ -210,12 +223,38 @@ enum Repo {
     /// The next command starts the new binary.
     static func restartWhenIdle() {
         let idle = Approvals.pending == nil && StatusItem.state != .waiting && !KillSwitch.halted
-            && Date().timeIntervalSince(Commands.lastAt) > 60
+            && Date().timeIntervalSince(Commands.lastAt) > 60 && !vmBusy
         guard idle else {
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 60) { restartWhenIdle() }
             return
         }
-        Daemon.queue.async { Wire.stopVMDaemons(); _ = Wire.stopDaemon() }
+        Daemon.queue.async {
+            // kit.sh left the VM alone (APPRENTICE_DEFER_VM): a changed screen script restarts Chromium there.
+            if testRoot == nil, VM.running { _ = try? VM.install() }
+            Wire.stopVMDaemons()
+            _ = Wire.stopDaemon()
+        }
+    }
+
+    /// The restart stops every VM's daemon (`APPRENTICE_VM`) too, so it waits while one of them holds an open
+    /// proposal or has read or acted within the last minute.
+    static var vmBusy: Bool {
+        let root = Store.dir.appendingPathComponent("vms")
+        let now = Date()
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? [] {
+            let dir = root.appendingPathComponent(name)
+            if let data = try? Data(contentsOf: dir.appendingPathComponent("pending.json")) {
+                let list = (try? JSONDecoder().decode([Approvals.Pending].self, from: data))
+                    ?? (try? JSONDecoder().decode(Approvals.Pending.self, from: data)).map { [$0] } ?? []
+                if list.contains(where: { now.timeIntervalSince1970 < $0.expires }) { return true }
+            }
+            for file in ["snap.json", "session.json", "pace.json"] {
+                let url = dir.appendingPathComponent(file)
+                if let m = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
+                   now.timeIntervalSince(m) < 60 { return true }
+            }
+        }
+        return false
     }
 
     /// The automatic update: only on a clean tree on the base branch, and back to where it was if the
@@ -224,7 +263,7 @@ enum Repo {
         let remote = upstream
         let base = branch(remote)
         guard installedHere || testRoot != nil else {
-            notice("apprentice: updating is off: \(Store.dir.path)/notes no longer links into \(root.path). Run kit.sh in the clone you use")
+            notice("apprentice: updating is off: \(Store.dir.path)/playbooks no longer links into \(root.path). Run kit.sh in the clone you use")
             return false
         }
         // The session so far goes into the clone first, so its own copy never holds the update back.
@@ -244,10 +283,11 @@ enum Repo {
         }
         let to = git("log", "-1", "--format=%h %s").out
         guard touchesSource(since: before) else {
-            notice("apprentice: updated its notes and docs to \(to)")
+            notice("apprentice: updated its playbooks and docs to \(to)")
             return false
         }
-        let built = testBuild?() ?? run("bash", [root.appendingPathComponent("kit.sh").path])
+        // The VM is brought up to date at the restart, between tasks, not in the middle of one.
+        let built = testBuild?() ?? run("bash", [root.appendingPathComponent("kit.sh").path], env: ["APPRENTICE_DEFER_VM": "1"])
         guard built.code == 0 else {
             // The tree was clean before the rebase, so this only undoes the update.
             git("reset", "-q", "--hard", before)
@@ -277,10 +317,10 @@ enum Repo {
         !git("diff", "--name-only", rev, "HEAD", "--", "Sources", "Package.swift", "kit.sh").out.isEmpty
     }
 
-    /// Only the clone ~/.apprentice/notes links into is the installed one. kit.sh from any other clone
-    /// (APPRENTICE_NOTES, a test copy) would reinstall from it and relink the notes (M7).
+    /// Only the clone ~/.apprentice/playbooks links into is the installed one. kit.sh from any other clone
+    /// (APPRENTICE_PLAYBOOKS, a test copy) would reinstall from it and relink the playbooks (M7).
     private static var installedHere: Bool {
-        let installed = Store.dir.appendingPathComponent("notes").resolvingSymlinksInPath().deletingLastPathComponent()
+        let installed = Store.dir.appendingPathComponent("playbooks").resolvingSymlinksInPath().deletingLastPathComponent()
         return installed.standardizedFileURL.path == root.standardizedFileURL.path
     }
 

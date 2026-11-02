@@ -149,8 +149,12 @@ func requireSession() throws -> Session {
 func prepare(checkAllow: Bool = true) throws -> (Session, Target, Snapshot?) {
     var session = try requireSession()
     let target = try locate(session)
-    // apprentice records every page it leads to, so any other change came from someone else.
+    // apprentice records every page it leads to, so any other change came from someone else. Reading
+    // takes the new page in; an action is refused, since its ids and its plan belong to the old page.
     if let was = session.url, let now = target.url, was != now {
+        guard Commands.reads.contains(Approvals.request.cmd) else {
+            throw Fail(2, "stale: the page changed to \(now) without apprentice. The user or another tool may be using this window. Nothing was done: `read` the page and decide again")
+        }
         Commands.notice = "note: the page changed to \(now) without apprentice. The user or another tool may be using this window; check before acting."
     }
     session.track(target.url)
@@ -333,6 +337,10 @@ enum Commands {
     /// (`Daemon.queue(for:)`), touch no per-command state, and hop onto the queue for anything on screen.
     static let asides: Set<String> = ["ask", "confirm", "show", "log", "pending"]
 
+    /// Commands that only look at the screen: they take in a page changed by someone else, where an
+    /// action is refused until the caller has read it.
+    static let reads: Set<String> = ["read", "ocr", "shot", "wait-for", "show"]
+
     static func aside(_ req: Request) throws -> String {
         let a = Args.parse(req.args)
         switch req.cmd {
@@ -444,18 +452,21 @@ enum Commands {
         }
         if a.has("new-window") { makeNewWindow(app) }
         var s = try attach(app, name, a)
+        let firstThisRun = !optionsAsked
         if !optionsAsked, Config.current.askOnStart, !a.has("no-options"), !Ask.away {
-            optionsAsked = true
             s = startOptions(s)
         }
+        optionsAsked = true
         var out = "session \(s.id ?? "-") · \(name) · window \(s.wid)"
+        // Once per daemon run, whether or not the options window opened: the agent passes it on.
+        if firstThisRun { out += "\n⚠ " + riskWarning + " Tell the user this once." }
         if let url = s.url { out += " · \(url)" }
         let hints = Routes.hintLines(for: hostOf(s.url)) + Policies.lines(for: hostOf(s.url))
         if !hints.isEmpty { out += "\n" + hints.joined(separator: "\n") }
         out += "\n" + Config.policyLine
         if Awake.enabled { out += "\n" + Awake.status }
         if let update = Repo.updateLine() { out += "\n" + update }
-        out += notesLines(s)
+        out += playbookLines(s)
         Store.log(["cmd": "session", "app": name, "wid": Int(s.wid), "url": s.url ?? ""])
         return out
     }
@@ -468,12 +479,15 @@ enum Commands {
         let s = try attach(app, name, a, keep: Session.stored)
         var out = "focus · \(name) · window \(s.wid)"
         if let url = s.url { out += " · \(url)" }
-        out += notesLines(s)
+        out += playbookLines(s)
         return out
     }
 
     /// The start-up options window is shown once per daemon run, on its first `session`.
     static var optionsAsked = false
+
+    /// Shown at the start of every daemon run, in the options window and under the first `session`.
+    static let riskWarning = "apprentice is beta software that drives this Mac with the real cursor and keyboard. It can make mistakes, and some sites forbid automation in their terms. Use it at your own risk: you are responsible for what it does on your accounts. Playbooks are shared, so never put anything personal in one."
 
     /// Asks the user how this run should work. Skipping keeps the defaults; "Remember" saves them.
     static func startOptions(_ s: Session) -> Session {
@@ -482,7 +496,7 @@ enum Commands {
         let remember = "Remember these as defaults"
         var s = s
         let reply = DispatchQueue.main.sync {
-            Ask.show("apprentice is starting with \(s.app). Options for this session:",
+            Ask.show("⚠ \(riskWarning)\n\napprentice is starting with \(s.app). Options for this session:",
                      choices: [uiOnly, awake, remember], multi: true, withText: true, timeout: Ask.windowTime(120),
                      sendTitle: "Start", checked: Set((Config.current.uiOnly ? [uiOnly] : []) + (Awake.enabled ? [awake] : [])),
                      placeholder: "Allowed sites, comma separated (empty: any)", initialText: s.allow.joined(separator: ", "))
@@ -501,9 +515,9 @@ enum Commands {
         return s
     }
 
-    /// Key facts from the notes for this app and page, printed under `session` and `focus`.
-    static func notesLines(_ s: Session) -> String {
-        let lines = Notes.hintLines(app: s.app, bundle: s.bundle, host: hostOf(s.url), system: s.vm == true ? "linux" : "macos")
+    /// Key facts from the playbooks for this app and page, printed under `session` and `focus`.
+    static func playbookLines(_ s: Session) -> String {
+        let lines = Playbooks.hintLines(app: s.app, bundle: s.bundle, host: hostOf(s.url), system: s.vm == true ? "linux" : "macos")
         return lines.isEmpty ? "" : "\n" + lines.joined(separator: "\n")
     }
 
@@ -568,8 +582,8 @@ enum Commands {
         guard arrived != nil else {
             throw Fail(5, "the window did not go to \(hostname): it shows \((try? locate(session).url) ?? "no page"). Check it with `read`")
         }
-        let notes = hostname == hostOf(target.url) ? [] : Notes.hintLines(app: nil, bundle: nil, host: hostname)
-        let extra = ["→ \(raw)"] + Routes.hintLines(for: hostname) + Policies.lines(for: hostname) + notes
+        let playbooks = hostname == hostOf(target.url) ? [] : Playbooks.hintLines(app: nil, bundle: nil, host: hostname)
+        let extra = ["→ \(raw)"] + Routes.hintLines(for: hostname) + Policies.lines(for: hostname) + playbooks
         return try finish("open", session, target, old, extra: extra, log: ["url": raw])
     }
 
@@ -632,7 +646,9 @@ enum Commands {
             if now == last { break }
             last = now
         }
-        return (node, last)
+        // Only the part inside the view is clicked: the middle of a half-visible element may lie outside it.
+        let visible = last.intersection(target.bounds)
+        return (node, visible.isNull || visible.isEmpty ? last : visible)
     }
 
     /// Moves the real cursor into `rect` along a curved path and clicks. Call inside `Borrow.run`.
@@ -684,7 +700,8 @@ enum Commands {
         if before != "" { try Keys.press("cmd+a") }
         let secret = (target.app.attr(kAXFocusedUIElementAttribute) as! AXUIElement?)?.string(kAXSubroleAttribute) == "AXSecureTextField"
             || label.lowercased().contains("password")
-        try Keys.type(text, fast: fast, corrections: !secret)
+        // On a web page a line break is shift+return, so a chat composer never sends half the text.
+        try Keys.type(text, fast: fast, corrections: !secret, newline: target.url != nil ? "shift+return" : "return")
         // Keys can land nowhere (another app or tool has focus) while every step "works" (F4). Checked
         // before any return is pressed, so nothing half-typed is sent.
         guard !text.isEmpty else { return nil }
@@ -710,18 +727,30 @@ enum Commands {
         let needle = words.lowercased()
         let snap = readSnapshot(target)
         SnapStore.save(snap)
-        let listed = snap.elements.first { $0.name.lowercased() == needle }
-            ?? snap.elements.first { e in
-                e.name.lowercased().contains(needle) && !Element.fieldLabels.contains(e.label)
-            }
+        // Exact names first, then names that contain the words. More than one match is the caller's
+        // choice to make, never a guess: the matches come back to pick from (by id, or by point).
+        let exact = snap.elements.filter { $0.name.lowercased() == needle }
+        let candidates = exact.isEmpty ? snap.elements.filter { e in
+            e.name.lowercased().contains(needle) && !Element.fieldLabels.contains(e.label)
+        } : exact
+        if candidates.count > 1 {
+            throw Fail(5, "\(candidates.count) elements match \"\(words)\", so nothing was clicked. Pick one with `click <id>`:\n"
+                + candidates.prefix(12).map(\.line).joined(separator: "\n"))
+        }
+        let listed = candidates.first
         var rect = listed?.rect
         var how = listed.map { "listed as \($0.short)" } ?? ""
         if rect == nil {
             try Capture.ensure()
             let (image, frame) = try capture(session, target, Args())
             let lines = Capture.ocr(image, windowFrame: frame, merge: false)
-            let line = lines.first { $0.text.lowercased() == needle } ?? lines.first { $0.text.lowercased().contains(needle) }
-            guard let line else { throw Fail(5, "no \"\(words)\" on screen, in the list or by OCR") }
+            let exactLines = lines.filter { $0.text.lowercased() == needle }
+            let found = exactLines.isEmpty ? lines.filter { $0.text.lowercased().contains(needle) } : exactLines
+            if found.count > 1 {
+                throw Fail(5, "\(found.count) places on screen show \"\(words)\", so nothing was clicked. Pick one with `click --at x,y`:\n"
+                    + found.prefix(12).map { "at \(Int($0.box.midX)),\(Int($0.box.midY)) · \"\(clip($0.text, 60))\"" }.joined(separator: "\n"))
+            }
+            guard let line = found.first else { throw Fail(5, "no \"\(words)\" on screen, in the list or by OCR") }
             rect = line.box
             how = "found by OCR: \"\(clip(line.text, 60))\""
         }
@@ -1169,12 +1198,58 @@ enum Commands {
         } else {
             saved = false
         }
-        guard saved else {
-            // Some browsers save straight to Downloads without asking.
-            throw Fail(5, "nothing new was saved at \(path). The browser may have saved it to Downloads without asking; check there")
+        var extra = ["saved " + path]
+        if !saved {
+            // Some browsers save straight to Downloads without asking: the new file there is moved to `path`.
+            guard let landed = newDownload(since: started) else {
+                throw Fail(5, "nothing new was saved at \(path), nor in Downloads")
+            }
+            try moveDownload(landed, to: path)
+            extra = ["saved " + path + " (the browser put it in Downloads; moved from \(landed.lastPathComponent))"]
         }
-        return try finish("download", session, target, old, extra: ["saved " + path],
+        return try finish("download", session, target, old, extra: extra,
                       log: ["id": id, "path": path, "source": source, "label": e.label, "name": e.name])
+    }
+
+    /// The file a browser saved to Downloads on its own after `since`, once it has finished arriving.
+    static func newDownload(since: Date, timeout: Double = 30) -> URL? {
+        guard let folder = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first else { return nil }
+        let partial: Set<String> = ["crdownload", "download", "part", "partial", "tmp"]
+        let found = { () -> URL? in
+            let items = (try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.contentModificationDateKey],
+                                                                        options: [.skipsHiddenFiles])) ?? []
+            let fresh = items.filter { url in
+                let date = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+                return date.map { $0 >= since.addingTimeInterval(-1) } == true
+            }
+            // Still arriving while any fresh partial file is there.
+            guard !fresh.contains(where: { partial.contains($0.pathExtension.lowercased()) }) else { return nil }
+            return fresh.max { a, b in
+                let da = (try? a.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                let db = (try? b.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                return da < db
+            }
+        }
+        return poll(timeout: timeout, interval: 0.5, found)
+    }
+
+    /// Moves a file the browser saved to Downloads to the path the caller asked for, replacing an older file there.
+    static func moveDownload(_ from: URL, to path: String) throws {
+        let fm = FileManager.default
+        var isDir: ObjCBool = false
+        // A folder (or a path ending in "/") takes the file under the browser's name; it is never replaced.
+        let into = path.hasSuffix("/") || (fm.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue)
+        let dest = into ? URL(fileURLWithPath: path).appendingPathComponent(from.lastPathComponent) : URL(fileURLWithPath: path)
+        if fm.fileExists(atPath: dest.path, isDirectory: &isDir), isDir.boolValue {
+            throw Fail(5, "\(dest.path) is a folder: nothing was replaced; the file stays in Downloads as \(from.lastPathComponent)")
+        }
+        do {
+            try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
+            try fm.moveItem(at: from, to: dest)
+        } catch {
+            throw Fail(5, "the browser saved \(from.lastPathComponent) to Downloads, but it could not be moved to \(path): \(error.localizedDescription)")
+        }
     }
 
     static func waitFor(_ a: Args) throws -> String {

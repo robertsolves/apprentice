@@ -34,7 +34,7 @@ enum SelfTest {
         gate()
         allowlist()
         flows()
-        notes()
+        playbooks()
         learning()
         projects()
         updates()
@@ -396,8 +396,33 @@ enum SelfTest {
         check(!Commands.fill("{a}", ["a": "{a}"], &loop).isEmpty, "a value that brings its placeholder back does not loop for ever")
     }
 
-    /// Notes: front matter, key facts, steps, and which session sees which note.
-    private static func notes() {
+    /// Playbooks: front matter, key facts, steps, and which session sees which note.
+    private static func playbooks() {
+        // Playbooks are shared, so anything personal in one keeps it from being committed or offered.
+        let generic = """
+        ---
+        scope: flow
+        match: www.example.com
+        verified: 2026-11-01, macOS 26.2
+        ---
+        1. `open https://www.example.com/{path}`
+        2. `click #button "Save"` — then `type #textbox "" "{name}"` in /Users/{user}/Desktop
+        """
+        check(Playbooks.leaks(generic, identity: ["Jane"]).isEmpty, "a generic playbook passes")
+        for (text, what) in [("mail jane.doe@mail.com", "email"), ("call +1 (415) 555-0134", "phone"),
+                             ("card 4111 1111 1111 1111", "card"), ("follow @janedoe", "handle"),
+                             ("open https://shop.com/orders/1234567", "id in a URL"), ("open https://x.com/@jane", "profile URL"),
+                             ("open https://a.com/s?q=rent", "query"), ("in /Users/jane/Desktop", "home path"),
+                             ("key ghp_abcdefghijklmnopqrstuvwx1234", "token"), ("order 8812734", "long number"),
+                             ("server 10.1.2.3", "IP address"), ("ask JANE first", "own name")] {
+            check(!Playbooks.leaks(text, identity: ["Jane"]).isEmpty, "a playbook with a \(what) is refused")
+        }
+        check(Playbooks.leaks("mail team@example.com, server 127.0.0.1", identity: []).isEmpty, "example addresses and loopback pass")
+        check(Playbooks.leaks(inPatch: "+++ b/playbooks/a.md\n+call 415 555 0134\n-old@mail.com\n+++ b/playbooks/b.md\n+fine\n") == ["playbooks/a.md: a phone, card or account number: 415 555 0134"],
+              "a patch is judged on the lines it adds, file by file")
+        check(Playbooks.genericURL("https://www.instagram.com/janedoe/?hl=en") == "https://www.instagram.com/{path}", "learn keeps the host, not the page")
+        check(Playbooks.genericURL("https://example.com") == "https://example.com/", "a bare host stays")
+
         let text = """
         ---
         scope: flow
@@ -415,15 +440,15 @@ enum SelfTest {
         ## Fails
         3. not a step either
         """
-        let n = Notes.parse(text, url: URL(fileURLWithPath: "/x/new-folder.md"), path: "flows/new-folder.md")
+        let n = Playbooks.parse(text, url: URL(fileURLWithPath: "/x/new-folder.md"), path: "flows/new-folder.md")
         check(n.meta["scope"] == "flow" && n.title == "New folder" && n.match == ["finder"], "front matter and title")
         check(n.keyFacts == ["one", "two"], "key facts are the bullets under their heading")
-        check(Notes.steps(n) == ["`menu \"File > New Folder\"`", "Pick the row by hand."], "steps are the numbered lines under Steps")
-        check(Notes.parse("# T\nbody", url: URL(fileURLWithPath: "/x/a.md"), path: "a.md").meta.isEmpty, "no front matter is fine")
-        check(Notes.slugify("Post a job: LinkedIn (draft)!") == "post-a-job-linkedin-draft", "slugs")
+        check(Playbooks.steps(n) == ["`menu \"File > New Folder\"`", "Pick the row by hand."], "steps are the numbered lines under Steps")
+        check(Playbooks.parse("# T\nbody", url: URL(fileURLWithPath: "/x/a.md"), path: "a.md").meta.isEmpty, "no front matter is fine")
+        check(Playbooks.slugify("Post a job: LinkedIn (draft)!") == "post-a-job-linkedin-draft", "slugs")
 
-        let root = Store.dir.appendingPathComponent("notes-test")
-        defer { try? FileManager.default.removeItem(at: root); unsetenv("APPRENTICE_NOTES") }
+        let root = Store.dir.appendingPathComponent("playbooks-test")
+        defer { try? FileManager.default.removeItem(at: root); unsetenv("APPRENTICE_PLAYBOOKS") }
         func write(_ name: String, _ meta: String) {
             try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             try? "---\n\(meta)\n---\n# \(name)\n".write(to: root.appendingPathComponent(name + ".md"), atomically: true, encoding: .utf8)
@@ -432,19 +457,19 @@ enum SelfTest {
         write("linux", "scope: system\nmatch: *\nsystem: linux")
         write("site", "scope: site\nmatch: example.com")
         write("flow", "scope: flow\nmatch: *")
-        setenv("APPRENTICE_NOTES", root.path, 1)
+        setenv("APPRENTICE_PLAYBOOKS", root.path, 1)
         func seen(_ host: String?, _ system: String) -> [String] {
-            Notes.matching(app: "Chromium", bundle: nil, host: host, system: system).map(\.title).sorted()
+            Playbooks.matching(app: "Chromium", bundle: nil, host: host, system: system).map(\.title).sorted()
         }
-        check(seen("www.example.com", "linux") == ["linux", "site"], "the VM sees its own notes and the site's, not the Mac's")
-        check(seen("badexample.com", "macos") == ["mac"], "a look-alike host gets no site note, and flows never show")
+        check(seen("www.example.com", "linux") == ["linux", "site"], "the VM sees its own playbooks and the site's, not the Mac's")
+        check(seen("badexample.com", "macos") == ["mac"], "a look-alike host gets no site playbook, and flows never show")
     }
 
     /// What makes the next run faster: flows ranked per model, `do --explain`, the scrubbed session copy,
     /// learned routes and the PR helpers.
     private static func learning() {
         let root = Store.dir.appendingPathComponent("learning-test")
-        defer { try? FileManager.default.removeItem(at: root); unsetenv("APPRENTICE_NOTES") }
+        defer { try? FileManager.default.removeItem(at: root); unsetenv("APPRENTICE_PLAYBOOKS") }
         func write(_ name: String, _ meta: String) {
             try? FileManager.default.createDirectory(at: root.appendingPathComponent("flows"), withIntermediateDirectories: true)
             try? "---\nscope: flow\n\(meta)\n---\n# \(name)\n## Steps\n1. `key cmd+n`\n".write(to: root.appendingPathComponent("flows/\(name).md"), atomically: true, encoding: .utf8)
@@ -452,13 +477,13 @@ enum SelfTest {
         write("draft-m1", "match: example.com\ntags: post, draft\nmodel: m1")
         write("draft-any", "match: example.com\ntags: post, draft")
         write("unrelated", "match: example.com\ntags: invoice")
-        setenv("APPRENTICE_NOTES", root.path, 1)
-        let m1 = Notes.rank(task: "post a draft", model: "m1", session: nil).map { $0.note.url.deletingPathExtension().lastPathComponent }
+        setenv("APPRENTICE_PLAYBOOKS", root.path, 1)
+        let m1 = Playbooks.rank(task: "post a draft", model: "m1", session: nil).map { $0.note.url.deletingPathExtension().lastPathComponent }
         check(m1 == ["draft-m1", "draft-any"], "a flow learned by this model ranks first, unrelated flows are left out")
-        let m2 = Notes.rank(task: "post a draft", model: "m2", session: nil).map { $0.note.url.deletingPathExtension().lastPathComponent }
+        let m2 = Playbooks.rank(task: "post a draft", model: "m2", session: nil).map { $0.note.url.deletingPathExtension().lastPathComponent }
         check(m2 == ["draft-any"], "another model's flow is left out unless it says any")
-        check(Notes.explain("post a draft", model: "m1", session: nil).contains("→ "), "do --explain names the pick and its score")
-        check(Notes.context(task: "post a draft", session: nil, model: "m1", budget: 50).count < 120, "the run loop's notes stay under their budget")
+        check(Playbooks.explain("post a draft", model: "m1", session: nil).contains("→ "), "do --explain names the pick and its score")
+        check(Playbooks.context(task: "post a draft", session: nil, model: "m1", budget: 50).count < 120, "the run loop's playbooks stay under their budget")
 
         let row: [String: Any] = ["cmd": "click", "label": "button", "name": "Send to Sam", "url": "https://mail.example.com/inbox?q=sam",
                                   "error": "no button \"Send to Sam\" at https://x.example/a", "api_key": "sk-1", "ms": 10]
@@ -468,7 +493,7 @@ enum SelfTest {
         check((scrubbed["error"] as? String).map { !$0.contains("Sam") && !$0.contains("https") } == true, "a scrubbed error loses quoted text and URLs")
         check(Sessions.scrub(row, mode: "full")?["api_key"] == nil && scrubbed["api_key"] == nil, "no mode keeps a secret")
 
-        let flow = Notes.parse("---\nscope: flow\nmatch: example.com\ntags: post, draft\n---\n# Draft\n", url: root.appendingPathComponent("flows/draft-any.md"), path: "flows/draft-any.md")
+        let flow = Playbooks.parse("---\nscope: flow\nmatch: example.com\ntags: post, draft\n---\n# Draft\n", url: root.appendingPathComponent("flows/draft-any.md"), path: "flows/draft-any.md")
         check(Routes.learn(from: flow, model: "m1") != nil && Routes.learn(from: flow, model: "m1") == nil, "a route is learned once per flow and model")
         check(Routes.all(model: "m1").first?.faster == "apprentice do draft-any", "this model's learned route comes first")
         check(!Routes.all(model: "m2").contains { $0.label == "draft-any" }, "another model does not see it")

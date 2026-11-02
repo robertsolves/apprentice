@@ -46,7 +46,7 @@ CI builds the universal release binary and runs `selftest` on every PR.
   keystroke. No accessibility presses, no values set through AX, no events
   posted to an app's process. Accessibility is for reading the screen.
 - **No app- or site-specific code.** Knowledge about one app or site goes in
-  [`notes/`](notes/README.md); code stays generic. A good note is a great
+  [`playbooks/`](playbooks/README.md); code stays generic. A good playbook is a great
   first contribution.
 - **Safety is the product.** Every state-changing command goes through the
   approval gate, budgets, cooldowns, allowlists and site policies. Don't add a

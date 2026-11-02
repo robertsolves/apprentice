@@ -38,9 +38,9 @@ enum Doctor {
         let daemon = Wire.ping()
         out.append(Check(ok: true, line: daemon ? "daemon: running" : "daemon: not running (the next command starts it)"))
 
-        let notes = Notes.dir.resolvingSymlinksInPath()
-        let notesOK = FileManager.default.fileExists(atPath: notes.path)
-        out.append(Check(ok: notesOK, line: "notes: \(notes.path)", fix: "run kit.sh in the clone to link \(Store.dir.path)/notes", blocking: true))
+        let playbooks = Playbooks.dir.resolvingSymlinksInPath()
+        let playbooksOK = FileManager.default.fileExists(atPath: playbooks.path)
+        out.append(Check(ok: playbooksOK, line: "playbooks: \(playbooks.path)", fix: "run kit.sh in the clone to link \(Store.dir.path)/playbooks", blocking: true))
 
         if Repo.isGit {
             let remote = Repo.upstream
@@ -133,13 +133,13 @@ enum Doctor {
     // MARK: - uninstall
 
     /// `uninstall [--all] [--yes]`: without --yes it only lists what it would remove. The clone stays unless
-    /// --all, since it holds the user's own commits, notes and session copies.
+    /// --all, since it holds the user's own commits, playbooks and session copies.
     static func uninstall(_ a: Args) throws -> String {
         let fm = FileManager.default
         let home = fm.homeDirectoryForCurrentUser.path
         let bin = home + "/.local/bin/apprentice"
         let clone = Repo.root.path
-        // Only a real apprentice clone is ever removed: never a folder the notes happen to sit in.
+        // Only a real apprentice clone is ever removed: never a folder the playbooks happen to sit in.
         let isClone = ["Package.swift", "Sources/apprentice", ".git"].allSatisfy { fm.fileExists(atPath: clone + "/" + $0) }
         guard !a.has("all") || isClone else { throw Fail(5, "\(clone) is not an apprentice clone, so --all will not remove it; run uninstall without --all") }
         let cloneInside = isClone && clone.hasPrefix(Store.dir.path + "/")
@@ -151,7 +151,7 @@ enum Doctor {
         if a.has("all"), isClone, !cloneInside { plan.append("the clone \(clone), with its local commits") }
         guard a.has("yes") else {
             return (["uninstall would remove:"] + plan.map { "  - \($0)" }
-                    + [a.has("all") ? "" : "the clone \(clone) stays (your commits and notes); --all removes it too",
+                    + [a.has("all") ? "" : "the clone \(clone) stays (your commits and playbooks); --all removes it too",
                        "run `apprentice uninstall\(a.has("all") ? " --all" : "") --yes` to do it"]).filter { !$0.isEmpty }.joined(separator: "\n")
         }
         var done: [String] = []

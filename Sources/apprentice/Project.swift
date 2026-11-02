@@ -15,7 +15,9 @@ enum Project {
         let fm = FileManager.default
         if !env.isEmpty {
             let root = URL(fileURLWithPath: (env as NSString).expandingTildeInPath)
-            return root.lastPathComponent == ".apprentice" ? root : root.appendingPathComponent(".apprentice")
+            let named = root.lastPathComponent == ".apprentice" ? root : root.appendingPathComponent(".apprentice")
+            // The account-wide folder is never a project too: its counts would be recorded twice per action.
+            return named.standardizedFileURL.path == Store.dir.standardizedFileURL.path ? nil : named
         }
         let home = fm.homeDirectoryForCurrentUser.standardizedFileURL.path
         var url = URL(fileURLWithPath: start).standardizedFileURL

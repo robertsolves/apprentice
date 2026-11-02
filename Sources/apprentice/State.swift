@@ -34,7 +34,7 @@ enum Store {
 
     /// One daemon runs per VM, each with its own socket and its own session, snapshot, pending approval
     /// and pacing, so agent sessions on different VMs never touch each other's. Sites, budgets, logs,
-    /// notes and settings stay in `dir`, shared by all of them.
+    /// playbooks and settings stay in `dir`, shared by all of them.
     static let stateDir: URL = {
         guard let vmName else { return dir }
         let url = dir.appendingPathComponent("vms/\(vmName)")
@@ -366,20 +366,21 @@ struct Limits: Codable {
         if wait > 0 { Timing.measure("gap") { Pace.sleep(wait) } }
     }
 
-    /// Rate-limits actions on a host, then waits out the pause between web actions. One load, one save.
+    /// Holds actions on a host to its per-minute cap, then waits out the pause between web actions. One load, one save.
     static func beforeAction(host: String?, web: Bool) throws {
         guard web || !(host ?? "").isEmpty else { return }
         let cfg = Config.current.pace
-        let waits = try update { l -> (gap: Double, rest: Double) in
+        let waits = update { l -> (gap: Double, rest: Double) in
         let now = Date().timeIntervalSince1970
-        var gapWait = 0.0, restWait = 0.0
+        var gapWait = 0.0, restWait = 0.0, minuteWait = 0.0
         if let host, !host.isEmpty {
-            var times = (l.acts[host] ?? []).filter { now - $0 < 60 }
-            if Double(times.count) >= cfg.actionsPerMin {
-                throw Fail(4, "rate limit: \(times.count) actions on \(host) in the last minute")
-            }
-            // Record this action, or the per-minute cap can never be reached.
-            times.append(now)
+            var times = (l.acts[host] ?? []).filter { now - $0 < 60 }.sorted()
+            // At the cap, wait (under a minute) until the oldest action leaves the window rather than
+            // refuse an approved step: the rate stays the same and the task goes on.
+            let cap = max(1, Int(cfg.actionsPerMin))
+            if times.count >= cap { minuteWait = max(0, times[times.count - cap] + 60 - now) }
+            // Record this action at the time it will happen, or the per-minute cap can never be reached.
+            times.append(now + minuteWait)
             l.acts[host] = times
         }
         if web {
@@ -401,9 +402,9 @@ struct Limits: Codable {
                     l.burstAt = limit
                 }
             }
-            l.lastAction = now + gapWait + restWait
+            l.lastAction = now + max(gapWait, minuteWait) + restWait
         }
-        return (gapWait, restWait)
+        return (max(gapWait, minuteWait), restWait)
         }
         if waits.gap + waits.rest > 0 { Timing.measure("gap") { Pace.sleep(waits.gap + waits.rest) } }
     }

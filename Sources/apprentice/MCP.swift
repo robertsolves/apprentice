@@ -12,7 +12,8 @@ enum MCP {
     static let tools: [[String: Any]] = [
         tool("session", "Attach to one app window; on: mac (default) or linux, the VM", ["app": ["type": "string"], "on": ["type": "string"], "new_window": ["type": "boolean"], "allow": ["type": "string"]]),
         tool("read", "Numbered element list for the session window", ["max": ["type": "integer"], "filter": ["type": "string"]]),
-        tool("click", "Click an element by number, or visible text with 'on' (OCR when it is not listed)", ["id": ["type": "integer"], "on": ["type": "string"], "right": ["type": "boolean"], "double": ["type": "boolean"]]),
+        tool("click", "Click an element by number, visible text with 'on' (OCR when it is not listed), or a screen point with 'at' (\"x,y\", from show or an OCR match list)",
+             ["id": ["type": "integer"], "on": ["type": "string"], "at": ["type": "string"], "right": ["type": "boolean"], "double": ["type": "boolean"]]),
         tool("type", "Type text into an element", ["id": ["type": "integer"], "text": ["type": "string"], "enter": ["type": "boolean"], "pace": ["type": "string"]], ["id", "text"]),
         tool("key", "Send a keyboard shortcut", ["combo": ["type": "string"]], ["combo"]),
         tool("menu", "Pick a menu-bar item, e.g. File > New Folder", ["path": ["type": "string"]], ["path"]),
@@ -33,7 +34,7 @@ enum MCP {
         tool("log", "The last steps of this session", ["tail": ["type": "integer"]]),
         tool("pending", "The proposals waiting for approve or deny, if any", [:]),
         tool("resume", "Lift the kill switch's stop, only when the user has said to carry on", [:]),
-        tool("notes", "Search the learned notes and flows", ["query": ["type": "string"]]),
+        tool("playbooks", "Search the learned app, site and flow playbooks", ["query": ["type": "string"]]),
         tool("learn", "Draft a flow from this session's approved steps", ["task": ["type": "string"], "name": ["type": "string"]], ["task"]),
         tool("show", "Ask the user to point at something on screen; returns the element there", ["what": ["type": "string"]], ["what"]),
         tool("away", "The user is away (on) or back (off): questions go to the chat while away", ["state": ["type": "string"]], ["state"]),
@@ -41,7 +42,7 @@ enum MCP {
         tool("policy", "Whether quick macOS tasks may use shell commands; with a domain, the user's notes on that site's terms", ["domain": ["type": "string"]]),
         tool("budget", "What is left of today's and this hour's action caps per site and kind", ["domain": ["type": "string"]]),
         tool("choose", "In an open or save dialog, go to a path: picks a file or fills in a new name", ["path": ["type": "string"]], ["path"]),
-        tool("do", "Run a flow from notes/flows with one approval. vars: {\"name\": \"value\"} fills {name}", ["flow": ["type": "string"], "vars": ["type": "object"]], ["flow"]),
+        tool("do", "Run a flow from playbooks/flows with one approval. vars: {\"name\": \"value\"} fills {name}", ["flow": ["type": "string"], "vars": ["type": "object"]], ["flow"]),
         tool("ask", "When stuck or deciding, show the user a little window: free text, or choices (multi for checkboxes, text to add a reply field). Returns their reply",
              ["question": ["type": "string"], "choices": ["type": "array", "items": ["type": "string"]], "multi": ["type": "boolean"], "text": ["type": "boolean"]], ["question"]),
         tool("confirm", "Show the user a pending step with Approve and Deny; runs it if they approve. Use for ⚠ steps", ["token": ["type": "string"], "why": ["type": "string"]], ["token"]),
@@ -86,8 +87,10 @@ enum MCP {
                         continue
                     }
                     let response = try Wire.send(try map(name, arguments))
-                    // Exit 8 is a proposal waiting for approve or deny, not a failure.
-                    (text, isError) = (response.out, response.code != 0 && response.code != 8)
+                    // Exit 8 is a proposal waiting for approve or deny, not a failure. The exit code is part of
+                    // the agent contract (stale, stop, ask in the chat…), so a tool call names it as the CLI does.
+                    let code = response.code == 0 ? "" : "\n(exit \(response.code))"
+                    (text, isError) = (response.out + code, response.code != 0 && response.code != 8)
                 } catch {
                     (text, isError) = ("\(error)", true)
                 }
@@ -100,11 +103,11 @@ enum MCP {
 
     static func runLocally(_ name: String, _ args: [String: Any]) throws -> String? {
         switch name {
-        case "notes": return Notes.search(args["query"] as? String ?? "")
+        case "playbooks", "notes": return Playbooks.search(args["query"] as? String ?? "")
         case "learn":
             var a = [args["task"] as? String ?? ""]
             if let n = args["name"] as? String { a += ["--name", n] }
-            return try Notes.learn(Args.parse(a))
+            return try Playbooks.learn(Args.parse(a))
         case "policy": return (args["domain"] as? String).map(Policies.describe) ?? Config.policyLine
         case "budget": return Budgets.report(args["domain"] as? String)
         default: return nil
@@ -132,7 +135,7 @@ enum MCP {
             if let filter = s("filter") { a += ["--filter", filter] }
             return Request(cmd: "read", args: a)
         case "click":
-            var a = s("on").map { ["--on", $0] } ?? [s("id") ?? ""]
+            var a = s("on").map { ["--on", $0] } ?? s("at").map { ["--at=\($0)"] } ?? [s("id") ?? ""]
             if b("right") { a.append("--right") }
             if b("double") { a.append("--double") }
             return Request(cmd: "click", args: a)

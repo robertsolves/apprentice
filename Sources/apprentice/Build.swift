@@ -1,7 +1,7 @@
 import Foundation
 
 /// What `kit.sh` installed: the clone it built from and that clone's commit, in `~/.apprentice/install.json`.
-/// It names the clone without going through the notes link, and tells an updated build from an old one.
+/// It names the clone without going through the playbooks link, and tells an updated build from an old one.
 enum Build {
     static let number = "0.1.0"
 

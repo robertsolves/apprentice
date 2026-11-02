@@ -72,20 +72,24 @@ enum Fidget {
 
     /// What a command ends with: nothing, a fidget, or (on a web page, the profile's `browse` share) a
     /// spell of reading down the feed. Never after `hover`, whose point is where the cursor rests, or
-    /// after `browse`, which already did.
-    enum Plan { case fidget, browse(Double) }
+    /// after `browse`, which already did. After `type`, `key` and `drag` nothing scrolls: a scroll closes
+    /// the suggestions a field just opened and zooms the map a drag just panned, and the next step needs them.
+    enum Plan { case fidget(scrolls: Bool), browse(Double) }
+
+    static let keepsStill: Set<String> = ["type", "key", "drag"]
 
     static func plan(after command: String, web: Bool) -> Plan? {
         let p = Config.current.pace
         guard command != "hover", command != "browse", !KillSwitch.tripped else { return nil }
-        if web, p.browseShare > 0, Rand.chance(p.browseShare) { return .browse(Rand.uniform(p.browseMin...p.browseMax)) }
-        if p.fidget > 0, Rand.chance(p.fidget) { return .fidget }
+        let scrolls = !keepsStill.contains(command)
+        if web, scrolls, p.browseShare > 0, Rand.chance(p.browseShare) { return .browse(Rand.uniform(p.browseMin...p.browseMax)) }
+        if p.fidget > 0, Rand.chance(p.fidget) { return .fidget(scrolls: scrolls) }
         return nil
     }
 
     static func perform(_ plan: Plan, in area: CGRect, web: Bool) {
         switch plan {
-        case .fidget: run(in: area, web: web)
+        case .fidget(let scrolls): run(in: area, web: web, scrolls: scrolls)
         case .browse(let seconds): browse(seconds, in: area)
         }
     }
@@ -104,14 +108,14 @@ enum Fidget {
         }
     }
 
-    static func run(in area: CGRect, web: Bool) {
+    static func run(in area: CGRect, web: Bool, scrolls: Bool = true) {
         guard !Wheel.stopped, area.width > 200, area.height > 200 else { return }
         let inner = area.insetBy(dx: area.width * 0.1, dy: area.height * 0.15)
         func point(_ fx: Double, _ fy: Double) -> CGPoint {
             CGPoint(x: inner.minX + inner.width * CGFloat(fx), y: inner.minY + inner.height * CGFloat(fy))
         }
         var kinds: [(Kind, Double)] = [(.glance, 3), (.trace, 2), (.rest, 2)]
-        if web { kinds.append((.peek, 1.5)) }
+        if web, scrolls { kinds.append((.peek, 1.5)) }
         Timing.measure("fidget") {
             switch Rand.weighted(kinds) {
             case .glance:

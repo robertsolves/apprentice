@@ -145,13 +145,13 @@ jobs:
               echo "Universal binary (Apple Silicon + Intel), macOS 14+."
             fi
             echo
-            echo "**Install (recommended):** clone and build, which also connects your coding agents, links the notes and keeps apprentice updated:"
+            echo "**Install (recommended):** clone and build, which also connects your coding agents, links the playbooks and keeps apprentice updated:"
             echo
             echo '```sh'
             echo "git clone https://github.com/${{ github.repository }}.git ~/.apprentice/src && ~/.apprentice/src/install.sh"
             echo '```'
             echo
-            echo "\`apprentice-macos.zip\` is the bare binary, for when you want it without building from source. It has no agent docs, notes or self-update."
+            echo "\`apprentice-macos.zip\` is the bare binary, for when you want it without building from source. It has no agent docs, playbooks or self-update."
             if [ "$HAS_SIGNING" != "true" ]; then
               echo
               echo "> [!IMPORTANT]"

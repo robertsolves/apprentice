@@ -2,7 +2,9 @@
 
 > apprentice is a free, open-source (MIT) macOS 14+ CLI and daemon in one Swift binary. It lets a coding agent (Claude Code, Codex, Gemini CLI, opencode, Kilo, Cursor and others) or a hosted model use macOS, Linux and the web like a careful person: it reads one window as a numbered text list through the accessibility tree (no screenshots by default), acts with the real cursor and keyboard at a human pace, and proposes every change for approval.
 
-apprentice is in beta: bug reports, notes on apps and sites, and fixes are welcome at https://github.com/robertsolves/apprentice/issues.
+apprentice is in beta: bug reports, playbooks for apps and sites, and fixes are welcome at https://github.com/robertsolves/apprentice/issues.
+
+Use it at your own risk: it drives the Mac with the real cursor and keyboard, can make mistakes, and comes with no warranty; the user is responsible for what it does on their accounts. Playbooks are shared, so they must never hold personal information.
 
 - Every change is a proposal first; risky steps (send, delete, buy, passwords, settings) go to the user in a small window or the chat.
 - `apprentice phone` sets up push notifications in one tap (a private ntfy topic), so questions reach the user on their phone while they're away.
@@ -19,5 +21,5 @@ apprentice is in beta: bug reports, notes on apps and sites, and fixes are welco
 
 ## Optional
 
-- [Source](https://github.com/robertsolves/apprentice): Swift source, agent docs and notes
+- [Source](https://github.com/robertsolves/apprentice): Swift source, agent docs and playbooks
 - [Issues](https://github.com/robertsolves/apprentice/issues)

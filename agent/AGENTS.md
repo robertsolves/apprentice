@@ -5,12 +5,12 @@ Read and control one macOS app or browser window by numbered element. Every acti
 Before the screen:
 1. Your own connectors and tools first. GitHub goes through `gh`.
 2. `apprentice route "<task>"`: use a faster route if it names one.
-3. `apprentice do --explain "<task>"` picks the best flow for your model (or `apprentice notes "<words>"`); run it with `apprentice do <flow> --key value` (one approval; hands over if a step fails, or proposes it alone, exit 8, if it shows a risk the plan did not). Flows are kept per model; yours is detected from your agent.
-4. No note? Search the app's or site's own help docs first.
+3. `apprentice do --explain "<task>"` picks the best flow for your model (or `apprentice playbooks "<words>"`); run it with `apprentice do <flow> --key value` (one approval; hands over if a step fails, or proposes it alone, exit 8, if it shows a risk the plan did not). Flows are kept per model; yours is detected from your agent.
+4. No playbook? Search the app's or site's own help docs first.
 
 Loop:
 ```
-apprentice session --app Safari   # first one asks the user for options; prints policy and notes
+apprentice session --app Safari   # first one asks the user for options; prints policy and playbooks
 apprentice read
 apprentice click 14
 apprentice type 16 "new bio" --enter
@@ -27,12 +27,12 @@ Approval:
 Asking the user:
 - Use the little window for every decision that is their: options, risks, unclear instructions, and when stuck. It pings when it opens.
 - Exit 9: they are away or did not answer the window; ask the same question in the chat (with the screenshot it names, if you can send files) and carry on with their answer. `apprentice away on|off` when they say they are away or back; `apprentice phone` (give them its link) when they want their phone to buzz.
-- `apprentice ask "question"` (`--choices "A|B"`, `--multi`, `--text`) or `apprentice show "what"` (they point at it). When their answer unblocks you, put it in the note and file `apprentice bug "…" --fix "…"` with the code change that would have avoided asking.
+- `apprentice ask "question"` (`--choices "A|B"`, `--multi`, `--text`) or `apprentice show "what"` (they point at it). When their answer unblocks you, put it in the playbook and file `apprentice bug "…" --fix "…"` with the code change that would have avoided asking.
 - After a task works: `apprentice learn "<task>"`, then generalize the draft.
-- Never copy screen text into notes.
+- Playbooks are shared with everyone: never put screen text or personal details in one (names, handles, emails, numbers, ids, home paths, tokens); use `{placeholders}`. `commit` refuses one that has them; `apprentice playbooks --check` finds them first. Pass on the use-at-your-own-risk line the first `session` prints.
 
 Fixing apprentice as you go (it runs from its own local git clone; `apprentice repo` prints where):
-- A missing or wrong note: edit it in `<repo>/notes/`, then `apprentice commit "what and why"`.
+- A missing or wrong playbook: edit it in `<repo>/playbooks/`, then `apprentice commit "what and why"`.
 - apprentice misbehaves: read its source and `<repo>/CLAUDE.md`, make the smallest generic fix, then `apprentice commit "…"`. It rebuilds and restarts apprentice; if the build fails, fix it and commit again. Too big or unclear: `apprentice bug "summary" --cause … --fix …` instead.
 - One small change per commit; `bug` and `learn` commit on their own. apprentice updates itself; pass on any `apprentice:` update line `session` prints. Never run `update` yourself.
 - The Linux VM has its own screen, cursor and keyboard. With `vm on`, `session` binds Chromium there; `session --app <name> --on linux` binds any Linux app (`xfce4-terminal`, or one you install over ssh), and `focus <app> --on linux` switches. Same commands as on the Mac; cmd shortcuts are ctrl there, back is `alt+left`. A check or sign-in the user must do happens there: `apprentice vm call "what"` opens it for them.
@@ -47,4 +47,4 @@ Rules:
 - Stay in the session window. No secrets in commands. Password fields are write-only.
 - Never change the user's settings (`policy`, `awake`, `settings`); ask them if one is in the way.
 
-Exit codes: 0 ok · 2 stale · 3 the user denied · 4 blocked (allowlist, rate limit, budget, cooling, challenge) · 5 not found/timeout · 6 interrupted · 7 permission missing · 8 approval needed · 9 ask the user in the chat.
+Exit codes: 0 ok · 2 stale or the page changed (read, then decide again) · 3 the user denied · 4 blocked (allowlist, refresh limit, budget, cooling, challenge) · 5 not found/timeout · 6 interrupted · 7 permission missing · 8 approval needed · 9 ask the user in the chat.

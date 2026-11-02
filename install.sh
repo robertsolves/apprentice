@@ -22,14 +22,17 @@ fi
 die() { echo "$*" >&2; exit 1; }
 
 # The clone: the one this script runs from, else APPRENTICE_DIR, else the one an earlier install linked
-# ~/.apprentice/notes to, else ~/.apprentice/src.
+# ~/.apprentice/playbooks (or, before the rename, ~/.apprentice/notes) to, else ~/.apprentice/src.
 dir="${APPRENTICE_DIR:-}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]:-.}")" 2>/dev/null && pwd)" || here=""
 if [ -z "$dir" ] && [ -n "$here" ] && [ -f "$here/kit.sh" ] && [ -d "$here/.git" ]; then dir="$here"; fi
-if [ -z "$dir" ] && [ -L "$HOME/.apprentice/notes" ]; then
-  linked="$(cd -P "$HOME/.apprentice/notes" 2>/dev/null && cd .. && pwd)" || linked=""
-  if [ -n "$linked" ] && [ -d "$linked/.git" ]; then dir="$linked"; fi
-fi
+for link in "$HOME/.apprentice/playbooks" "$HOME/.apprentice/notes"; do
+  if [ -z "$dir" ] && [ -L "$link" ]; then
+    # An old notes link may dangle after the rename, so resolve the link itself, not the folder.
+    linked="$(cd "$(dirname "$(readlink "$link")")" 2>/dev/null && pwd)" || linked=""
+    if [ -n "$linked" ] && [ -d "$linked/.git" ]; then dir="$linked"; fi
+  fi
+done
 dir="${dir:-$HOME/.apprentice/src}"
 
 if [ -d "$dir/.git" ]; then

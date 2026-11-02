@@ -72,23 +72,26 @@ printf '{"clone":"%s","commit":"%s","built":"%s","bin":"%s"}\n' "$root" "$commit
 # State holds URLs, page titles, screenshots and perhaps an API key: this user only.
 chmod 700 "$HOME/.apprentice"
 
-# The browser VM runs a copy of this binary; a running one gets the new build too.
-if [[ "$("$bin" vm status 2>/dev/null || true)" == *' · running · '* ]]; then
+# The browser VM runs a copy of this binary; a running one gets the new build too. The daemon's own update
+# sets APPRENTICE_DEFER_VM and does this at its restart, between tasks, since it can restart Chromium there.
+if [ "${APPRENTICE_DEFER_VM:-0}" != 1 ] && [[ "$("$bin" vm status 2>/dev/null || true)" == *' · running · '* ]]; then
   "$bin" vm install || echo "warning: could not update the VM; run \`apprentice vm install\` once it is up"
 fi
 
 # Every coding agent on the Mac gets the skill and/or its global rules; the Claude and Cursor apps get the MCP server.
 python3 "$root/agent/connect.py" "$bin"
 
-# Notes live in the repo, so an update brings in what was learned upstream,
+# Playbooks live in the repo, so an update brings in what was learned upstream,
 # and `apprentice learn` writes new flows straight into the working tree to commit.
-notes="$HOME/.apprentice/notes"
-if [ -L "$notes" ] || [ ! -e "$notes" ]; then
-  ln -sfn "$root/notes" "$notes"
-  echo "linked $notes → $root/notes"
+playbooks="$HOME/.apprentice/playbooks"
+if [ -L "$playbooks" ] || [ ! -e "$playbooks" ]; then
+  ln -sfn "$root/playbooks" "$playbooks"
+  echo "linked $playbooks → $root/playbooks"
 else
-  echo "warning: $notes is a real folder; move its files into $root/notes, delete it, and re-run"
+  echo "warning: $playbooks is a real folder; move its files into $root/playbooks, delete it, and re-run"
 fi
+# The folder was called notes/ before; its old link points at nothing now.
+[ -L "$HOME/.apprentice/notes" ] && rm -f "$HOME/.apprentice/notes"
 
 # Settings live in ~/.apprentice; an older install that synced them keeps them in ~/.apprentice/settings.
 settings="$HOME/.apprentice"

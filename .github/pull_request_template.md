@@ -10,7 +10,7 @@
 
 - [ ] `swift build` and `apprentice selftest` pass
 - [ ] Input is still real cursor and keys only (no AX actions, no events posted to a process)
-- [ ] No app- or site-specific code paths (that knowledge goes in `notes/`)
+- [ ] No app- or site-specific code paths (that knowledge goes in `playbooks/`)
 - [ ] State-changing commands still go through the approval gate and site rules
 - [ ] `agent/SKILL.md` and `agent/AGENTS.md` updated if commands or exit codes changed
 - [ ] No API keys, passwords or personal screen text in the diff

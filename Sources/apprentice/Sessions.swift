@@ -124,9 +124,9 @@ enum Sessions {
 
     /// Keys never written to the clone, in any mode.
     static let secret = ["api_key", "apikey", "token", "password", "secret", "path"]
-    /// What a scrubbed row may keep.
+    /// What a scrubbed row may keep. Not `menu`: a menu item's title is screen text (a recent file, a bookmark).
     static let kept: Set<String> = ["ts", "cmd", "code", "failed", "error", "diff", "ms", "waits", "app", "model", "task", "kind",
-                                    "vm", "label", "approved", "client", "found", "direction", "count", "combo", "menu"]
+                                    "vm", "label", "approved", "client", "found", "direction", "count", "combo"]
 
     static func scrub(_ row: [String: Any], mode: String) -> [String: Any]? {
         var r = row.filter { key, _ in !secret.contains { key.lowercased().contains($0) } }
@@ -138,7 +138,8 @@ enum Sessions {
         if let e = r["error"] as? String {
             let first = String(e.split(separator: "\n").first ?? "")
             r["error"] = String(first.replacingOccurrences(of: #""[^"]*""#, with: "\"…\"", options: .regularExpression)
-                .replacingOccurrences(of: #"https?://\S+"#, with: "<url>", options: .regularExpression).prefix(160))
+                .replacingOccurrences(of: #"https?://\S+"#, with: "<url>", options: .regularExpression)
+                .replacingOccurrences(of: #"(~|/Users|/Volumes|/private|/tmp|/var)/\S*"#, with: "<path>", options: .regularExpression).prefix(160))
         }
         if row["proposed"] != nil { r["proposed"] = true }
         if row["gate"] != nil { r["gate"] = true }
@@ -168,7 +169,7 @@ enum Sessions {
         guard (try? text.write(to: file, atomically: true, encoding: .utf8)) != nil else { return nil }
         let s = summarize(folder.lastPathComponent, rows)
         let on = s.hosts.isEmpty ? s.app : s.hosts.prefix(3).joined(separator: ", ")
-        Repo.commit("Session \(s.name): \(s.steps) steps\(on.isEmpty ? "" : " on \(on)")", paths: [file.path])
+        try? Repo.commit("Session \(s.name): \(s.steps) steps\(on.isEmpty ? "" : " on \(on)")", paths: [file.path])
         return file.path
     }
 

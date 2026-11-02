@@ -7,14 +7,14 @@ apprentice lets a coding agent or a hosted model use macOS, Linux and the web fo
 You don't type its commands. You ask your coding agent (Claude Code, Codex, Gemini CLI, Freebuff, Cursor and the rest) as you normally would, and it runs apprentice for you:
 
 ```
-you    Book the 7am spin class on my gym's website for Thursday.
+you    Download my January internet bill and put it in ~/Documents/Bills.
 
-agent  (reads the page, opens Thursday's class, presses Book: you asked for that, so it approves it)
-       Booking uses a credit from your class pack. I've asked you in the apprentice window.
+agent  (reads the dashboard, opens January's bill, presses Download: you asked for that, so it approves it)
+       Saving to ~/Downloads. You said ~/Documents/Bills, so I've asked you in the window.
 
-you    (clicks Approve in the little window on your screen)
+you    (chooses ~/Documents/Bills in the save panel)
 
-agent  Booked: Spin, Thursday 7:00 AM.
+agent  Saved: Internet, January, $84.20.
 ```
 
 The agent's words vary by model. What doesn't: every change is proposed first, the agent approves the steps you asked for, and anything risky you didn't mention (spending a credit, sending, deleting) comes to you in apprentice's window, or in the chat when you're away.
@@ -23,16 +23,16 @@ The agent's words vary by model. What doesn't: every change is proposed first, t
 
 Anything you'd do yourself with the mouse and keyboard, one task at a time:
 
-- "Download last month's invoice from the Stripe dashboard and put it in ~/Documents/Invoices."
-- "Reply to the latest email from my accountant in Mail: I'll send the receipts on Friday."
-- "Book the 7am spin class on my gym's website for Thursday."
-- "Go through my LinkedIn notifications and tell me which ones need a reply."
-- "Fill in the contact form on the council website with my details from contacts.md."
-- "Turn on Night Shift from 10pm in System Settings."
+- "Download my January internet bill and put it in ~/Documents/Bills."
+- "Forward the invoice from Acme to my accountant."
+- "Move my dentist appointment from Tuesday to Thursday."
+- "Fill in the passport renewal form with my details from contacts.md."
+- "Turn on Do Not Disturb from 10pm until 8am."
 - "Post this changelog to the #updates channel in our Discord."
-- "Export the selected frame in Figma as a PNG at 2x."
-- "In the Linux VM, open the report in LibreOffice and save it as a PDF."
+- "Reorder the coffee beans I bought last month."
+- "Rename the screenshots in ~/Downloads to YYYY-MM-DD and move them to ~/Pictures/Screenshots."
 - "Do the weekly Shopify stock check like last time." (a flow it learned earlier, rerun with one approval)
+- "In the Linux VM, open the staging site in Chromium and check the login page loads."
 
 It reads the screen as text, proposes each change, and asks you before anything risky: sending, posting, deleting, buying, passwords and settings. It won't do bulk outreach, mass following, scraping at volume or run several accounts on one site.
 
@@ -65,13 +65,13 @@ ok · snap 4 · +2 -0 ~0
   - `confirm` puts a risky step in front of you to approve or deny.
 
   When you are away from the Mac (`apprentice away on`, or nobody answers within a minute), the question comes back with exit 9 and the agent asks you in the chat instead, with a screenshot of what it is about. Say "set up my phone" once: `apprentice phone` gives you one link to tap (an ntfy topic), and from then on those questions also buzz your phone.
-- **It fixes itself.** apprentice runs from your own local clone. When it gets something wrong, the agent fixes the note or the code and commits each small change with `apprentice commit`, which rebuilds, self-tests and restarts apprentice with the fix. Your commits stay in your clone.
+- **It fixes itself.** apprentice runs from your own local clone. When it gets something wrong, the agent fixes the playbook or the code and commits each small change with `apprentice commit`, which rebuilds, self-tests and restarts apprentice with the fix. Your commits stay in your clone.
 - **It updates itself.** Every few hours it checks its upstream. When there's something new, it rebases your commits onto it, rebuilds, runs its self-test and restarts once nothing is waiting on you (no pending approval, no open question, no command in the last minute). The next `session` tells you. If the build or test fails, it stays on the old version. Set `[update] auto = false` to only be told, then run `apprentice update`.
 - **It shares fixes in one command.** `apprentice pr` takes your local commits, checks the tree is clean and the self-test passes, pushes a `fix/…` branch to your fork and opens a pull request with `gh`. `apprentice pr --local` writes the description and prints a compare URL instead.
 - **It shows what it is doing.** A menu-bar item reads `α` when idle, `α …` while working, `α ?` while a question waits for you and `α !` when a step needs approval. Its menu approves or denies that step, opens the session's log and stops apprentice.
 - **It can keep the browser off your desktop, and drive Linux too.** A small Linux VM (about 2 GB, under a gigabyte to download) runs Chromium, a terminal and any Linux app you install, with its own screen, cursor and keyboard, so the agent works while you keep working. Terminal first: the agent runs commands over plain ssh (`apprentice vm shell`) and takes the screen (`session --app <name> --on linux`) only where no command does it. Approvals, budgets and logs stay on your Mac; `apprentice vm look` shows you the VM, and `apprentice vm call "what"` asks you into it when a site needs a person. The VM is Linux only for now; a macOS VM, for Mac apps and Safari, is planned.
 - **One VM per job.** `APPRENTICE_VM=linkedin apprentice vm setup` makes another VM, and an agent session started with `APPRENTICE_VM=linkedin` works only there, so two agents run side by side without touching each other's browser. Each site's budgets and cooldowns count across all of them. Uploads and downloads move files between your Mac and the VM, and questions open on the VM's screen.
-- **It learns, per model.** Notes about apps and sites live in this repo under `notes/`, so updates share them. `learn` turns a task that worked into a flow tagged with the model that did it. Next time, the same model finds its own flow first (`do --explain "task"` shows the pick and why), and `do <flow>` reruns it with one approval for the whole plan, handing back if a step fails. Whenever asking you solved a problem, the note gets updated and a code fix is filed. See [How the next run gets faster](#how-the-next-run-gets-faster).
+- **It learns, per model.** Playbooks for apps and sites live in this repo under `playbooks/`, so updates share them. `learn` turns a task that worked into a flow tagged with the model that did it. Next time, the same model finds its own flow first (`do --explain "task"` shows the pick and why), and `do <flow>` reruns it with one approval for the whole plan, handing back if a step fails. Whenever asking you solved a problem, the playbook gets updated and a code fix is filed. See [How the next run gets faster](#how-the-next-run-gets-faster).
 - **It logs every session.** Every command is logged, including the ones that don't touch the screen (`learn`, `bug`, `route`), with the model and the exit code. `apprentice sessions` lists recent sessions, and `apprentice log --session` replays one on a single screen.
 
 ## Install
@@ -82,7 +82,7 @@ You need macOS 14 or later and Swift 5.9 (Xcode or the command-line tools: `xcod
 git clone https://github.com/robertsolves/apprentice.git ~/.apprentice/src && ~/.apprentice/src/install.sh
 ```
 
-`install.sh` clones into `~/.apprentice/src` (or `APPRENTICE_DIR`, or the clone of your last install, which it finds through `~/.apprentice/notes`). The clone is your copy: `upstream` is fetch-only, so your commits stay in it. Set `APPRENTICE_UPSTREAM` to install from another git URL (a server, a folder, another Mac's clone). Then it runs `kit.sh`. From a clone you already have, run `./kit.sh` directly.
+`install.sh` clones into `~/.apprentice/src` (or `APPRENTICE_DIR`, or the clone of your last install, which it finds through `~/.apprentice/playbooks`). The clone is your copy: `upstream` is fetch-only, so your commits stay in it. Set `APPRENTICE_UPSTREAM` to install from another git URL (a server, a folder, another Mac's clone). Then it runs `kit.sh`. From a clone you already have, run `./kit.sh` directly.
 
 `kit.sh` builds a release binary, runs its self-test (a failure keeps the installed one), and installs it to `~/.local/bin/apprentice`. It signs it with a local identity named `apprentice`, which it creates in your login keychain the first time, so your permissions survive rebuilds (set `APPRENTICE_SIGN_IDENTITY` to use another). A running Linux VM gets the new build too. It also:
 - connects every AI assistant it finds on the Mac (`agent/connect.py`), and leaves out the ones that aren't installed:
@@ -90,7 +90,7 @@ git clone https://github.com/robertsolves/apprentice.git ~/.apprentice/src && ~/
   - the instructions (`agent/AGENTS.md`) go between `<!-- apprentice -->` markers, replaced on every run, in the global rules file of each installed agent: Codex and the ChatGPT app, opencode, Kilo, Gemini CLI, Qwen Code, GitHub Copilot CLI, Amp, Factory Droid, Crush, Mistral Vibe, Continue, Augment's Auggie, and Freebuff and Codebuff (`~/.AGENTS.md`). The shared `~/.agents/AGENTS.md`, which Cline and goose read, always gets them. Kimi, Warp and Cursor's CLI have no global rules file and get the skill only;
   - the Claude desktop app and Cursor, which have no shell, get the MCP server (`apprentice mcp`);
 - puts `~/.local/bin` on your PATH in `~/.zprofile` (or `~/.bash_profile`), so agents can run `apprentice`;
-- links `~/.apprentice/notes` to the repo's `notes/`;
+- links `~/.apprentice/playbooks` to the repo's `playbooks/`;
 - writes example `config.toml` and `routes.toml` files, if you have none yet.
 
 `install.sh` also installs Tart and sets up the Linux VM (`APPRENTICE_SKIP_VM=1` skips it). There is no macOS VM yet.
@@ -99,7 +99,7 @@ Last, `install.sh` runs `apprentice doctor --fix`. It checks the install, opens 
 
 If `kit.sh` can't add its signing identity to your keychain, it signs the binary ad hoc. Then every rebuild or update drops the two permission grants. `doctor` warns about this; fix it by setting `APPRENTICE_SIGN_IDENTITY` to an identity you have, then re-running `kit.sh`.
 
-`apprentice uninstall` lists everything apprentice installed, and `apprentice uninstall --yes` removes it: the binary, the agent skills and rules sections, the MCP entries, the signing identity, the PATH lines, the VMs and `~/.apprentice`. Your clone stays, since it holds your commits and notes; `--all` removes it too.
+`apprentice uninstall` lists everything apprentice installed, and `apprentice uninstall --yes` removes it: the binary, the agent skills and rules sections, the MCP entries, the signing identity, the PATH lines, the VMs and `~/.apprentice`. Your clone stays, since it holds your commits and playbooks; `--all` removes it too.
 
 The first `session` after the daemon starts opens an options window:
 - **UI only:** no shell commands for macOS tasks;
@@ -112,7 +112,7 @@ The first `session` after the daemon starts opens an options window:
 | Command | Does |
 | --- | --- |
 | `doctor [--fix]` | Check permissions, signature, PATH, clone and settings; `--fix` opens the panes and runs a smoke test |
-| `session --app <name> [--new-window] [--allow a.com,b.com] [--task "…"]` | Attach to one app window; prints the policy and notes for that app or site. `--task` records what you asked for in the log |
+| `session --app <name> [--new-window] [--allow a.com,b.com] [--task "…"]` | Attach to one app window; prints the policy and playbooks for that app or site. `--task` records what you asked for in the log |
 | `read [--max 80] [--filter text]` | The numbered list of what is on screen |
 | `click <id>` · `click --on "text"` · `click --at x,y` | Click an element, visible text (OCR if it is not listed) or a point |
 | `type <id\|focused> "text" [--enter]` | Click into a field, then type, key by key |
@@ -123,7 +123,7 @@ The first `session` after the daemon starts opens an options window:
 | `upload <id> <file>` · `download <id> <path>` · `choose <path>` | Files, through the system's own dialogs |
 | `approve <token>` · `deny <token>` · `confirm <token>` · `pending` | Approvals |
 | `ask "question" [--choices "A\|B"] [--multi] [--text]` · `show "what"` | Ask the user in the little window |
-| `notes "words"` · `learn "task" [--model m]` · `do <flow> --key value` · `do --explain "task"` | Learned notes and flows; `--explain` shows which flow this model would pick, and why |
+| `playbooks "words"` · `playbooks --check` · `learn "task" [--model m]` · `do <flow> --key value` · `do --explain "task"` | Playbooks and flows; `--explain` shows which flow this model would pick, and why |
 | `route "task"` | Check for a faster route (an API, `gh`, a connector) before using the screen |
 | `shot` · `ocr` · `log [--tail n]` · `log --session [<id>]` · `sessions` | A screenshot, OCR of the window, recent steps, one whole session, recent sessions |
 | `project [init \| status]` | A project's own `.apprentice/` folder: its own site counts and tighter caps |
@@ -200,30 +200,31 @@ Everything apprentice learns is kept in your clone, where updates and `pr` can s
 
 | What | Where | Written by | Read by |
 | --- | --- | --- | --- |
-| Key facts about an app or site | `notes/macos/`, `notes/web/`, `notes/linux/` | you or the agent, after a question or a fix | `session` and `open` print them |
-| Flows: a task as steps, tagged with the model | `notes/flows/<slug>.md` | `learn "task"` drafts one from the session's approved steps | `do --explain` picks one for this model; `do <flow>` runs it with one approval |
-| Learned routes | `notes/routes-learned.toml` | `do`, the first time a model gets through a flow | `route "task"` sends that model straight to the flow |
+| Key facts about an app or site | `playbooks/macos/`, `playbooks/web/`, `playbooks/linux/` | you or the agent, after a question or a fix | `session` and `open` print them |
+| Flows: a task as steps, tagged with the model | `playbooks/flows/<slug>.md` | `learn "task"` drafts one from the session's approved steps | `do --explain` picks one for this model; `do <flow>` runs it with one approval |
+| Learned routes | `playbooks/routes-learned.toml` | `do`, the first time a model gets through a flow | `route "task"` sends that model straight to the flow |
 | Session copies | `sessions/<date>-<session>.jsonl` | the daemon, when a session ends | you, `grow`, and anyone reviewing a `pr` |
 
 The raw logs (`~/.apprentice/runs/`, with screenshots) stay on the Mac and are pruned after 30 days. `apprentice grow` reads them to say what to fix next.
 
-## Notes and flows
+## Playbooks and flows
 
 ```
-notes/
+playbooks/
   macos/   apps and system parts, e.g. finder.md, save-panel.md
+  linux/   the Linux VM, e.g. general.md
   web/     one file per site, e.g. instagram.com.md
   flows/   runnable task recipes, e.g. finder-new-folder.md
 ```
 
-Notes are plain Markdown with a little front matter. `session` prints each matching note's **Key facts**. A flow step is one backticked command, which `do` runs:
+Playbooks are plain Markdown with a little front matter. `session` prints each matching playbook's **Key facts**. A flow step is one backticked command, which `do` runs:
 - `#label "name"` finds that element on screen when the step runs;
 - `{key}` takes its value from `--key value`;
 - `` `sh: <command>` `` runs a shell command under the same approval (refused when the policy is UI only).
 
 A flow's `model:` line names the model that learned it. Another model skips the flow unless it says `model: any`.
 
-`notes/README.md` has the format and the rules. The main one: notes record what worked and what failed, never text copied from a screen.
+`playbooks/README.md` has the format and the rules. The main one: playbooks record what worked and what failed, never text copied from a screen. Since `pr` and updates share them with everyone, they also never hold personal information (names, handles, emails, phone or account numbers, ids from URLs, home paths, tokens); `{placeholders}` stand in, and `commit`, `learn` and `pr` refuse a playbook that looks like it holds any.
 
 ## Developing
 
@@ -235,7 +236,7 @@ apprentice grow              # repeated errors, questions asked, open field repo
 
 `CLAUDE.md` describes the architecture and the rules for changing it. `SPEC.md` is the design spec. `BUGS.md` holds the field reports the tool files about itself, and `TODO.md` the deferred work. There is no test target; `apprentice selftest` runs the built-in checks, and CI ([`ci.yml`](.github/workflows/ci.yml)) builds the universal release binary and runs them on every PR and push to `main`.
 
-The source has no package dependencies. It keeps two rules: no app- or site-specific code paths, since app knowledge belongs in `notes/`; and no input other than a real cursor and keyboard.
+The source has no package dependencies. It keeps two rules: no app- or site-specific code paths, since app knowledge belongs in `playbooks/`; and no input other than a real cursor and keyboard.
 
 ## Releasing
 

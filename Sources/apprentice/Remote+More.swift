@@ -93,7 +93,7 @@ extension Remote {
     /// comes back to `path` on this Mac.
     static func download(_ a: Args) throws -> String {
         guard let id = a.pos.first.flatMap(Int.init), a.pos.count >= 2 else { throw Fail(5, "download <id> <path>") }
-        let path = (a.pos.dropFirst().joined(separator: " ") as NSString).expandingTildeInPath
+        var path = (a.pos.dropFirst().joined(separator: " ") as NSString).expandingTildeInPath
         let (session, page, old) = try prepare()
         let e = try resolve(id)
         try gate(session, page, e, "download \(e.short) to \(path)")
@@ -139,6 +139,11 @@ extension Remote {
             }
         }
         guard let file else { throw Fail(5, "nothing new arrived in the VM's Downloads within 30 s; check the page with `read`") }
+        // A folder (or a path ending in /) takes the file under the name the browser gave it.
+        var isDir: ObjCBool = false
+        if path.hasSuffix("/") || (FileManager.default.fileExists(atPath: path, isDirectory: &isDir) && isDir.boolValue) {
+            path = (path as NSString).appendingPathComponent(file)
+        }
         try pull("~/Downloads/\(file)", to: path)
         return try done("download", session, page, old, extra: ["saved \(path) (from the VM's Downloads/\(file))"],
                         log: ["id": id, "path": path, "label": e.label, "name": e.name])
@@ -268,7 +273,8 @@ extension Remote {
             Pace.sleep(Rand.uniform(0.1...0.25))
             try Mouse.drag(from: start, to: Mouse.landing(in: dst.rect))
         }
-        return try done("drag", session, page, old, log: ["from": from, "to": to])
+        return try done("drag", session, page, old, extra: ["→ \(from) onto \(to)"],
+                        log: ["from": from, "to": to, "label": src.label, "name": src.name, "to_label": dst.label, "to_name": dst.name])
     }
 
     /// `drag --by dx,dy [--in id | --at x,y]`, as `Commands.dragBy` does it on this Mac.
@@ -291,7 +297,9 @@ extension Remote {
             Pace.sleep(Rand.uniform(0.1...0.25))
             try Mouse.drag(from: start, to: end)
         }
-        return try done("drag", session, page, old, extra: ["→ by \(raw)"], log: ["by": raw])
+        var log: [String: Any] = ["by": raw]
+        if let e { log["label"] = e.label; log["name"] = e.name }
+        return try done("drag", session, page, old, extra: ["→ by \(raw)"], log: log)
     }
 
     // MARK: - the user points
@@ -306,7 +314,7 @@ extension Remote {
                                "or look for it yourself with `apprentice shot` and `apprentice ocr`."],
                                push: "Where is \"\(what)\"?")
         }
-        let open = "Open the VM", later = "Later"
+        let open = openTheVM, later = "Later"
         let reply = DispatchQueue.main.sync {
             Ask.show("apprentice needs you in the VM: click on \(what). Its screen opens; your next click there is the answer.",
                      choices: [open, later], multi: false, withText: false, timeout: Ask.windowTime(120))
@@ -327,11 +335,14 @@ extension Remote {
         } else {
             out.append("not in the list: `click --at \(Int(x)),\(Int(y))` clicks there")
         }
-        out.append("then add where it is to the note for this page or app, by name")
+        out.append("then add where it is to the playbook for this page or app, by name")
         return out.joined(separator: "\n")
     }
 
     // MARK: - the little window, in the VM
+
+    /// The choice that opens the VM's screen for the user (`show`, `vm call`).
+    static let openTheVM = "Open the VM"
 
     /// `ask`, `confirm` and the start-up options for a session in the VM open on the VM's screen (agent/vm/
     /// ask.py), and this Mac shows a notification saying so. Nil when the session is not in a VM or the VM
@@ -339,7 +350,8 @@ extension Remote {
     /// thread, which keeps turning so the kill switch still works while the user answers.
     static func askInVM(_ question: String, choices: [String], multi: Bool, withText: Bool, timeout: Double,
                         sendTitle: String, checked: Set<String>, placeholder: String?, initialText: String) -> Ask.Reply?? {
-        guard Session.stored?.vm == true, (try? connect()) != nil else { return nil }
+        // A question whose answer opens the VM is for a user who is not looking at it: it stays on this Mac.
+        guard Session.stored?.vm == true, !choices.contains(openTheVM), (try? connect()) != nil else { return nil }
         let where_ = Store.vmName.map { "the VM \($0)" } ?? "the VM"
         Site.notify("apprentice is asking in \(where_)", "\(clip(question, 120)) · `apprentice\(Store.vmName.map { " --vm \($0)" } ?? "") vm look` shows it")
         var request: [String: Any] = ["op": "ask", "question": question, "choices": choices, "multi": multi, "withText": withText,

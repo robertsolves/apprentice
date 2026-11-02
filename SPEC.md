@@ -82,7 +82,7 @@ Callers check faster routes first; everything else goes through one CLI to the d
 | Site rules | `SiteRules.swift` | Budgets, cooldowns, challenge stop, site policies, event history |
 | Vision fallback | `Capture.swift` | Capture one window, OCR it, crop for `shot` |
 | Ask | `Ask.swift` | A little window for the user: text, choices, point at it, confirm a step |
-| Routes and notes | `Routes.swift`, `Notes.swift`, `Flows.swift` | Faster-route hints, learned notes, flows |
+| Routes and playbooks | `Routes.swift`, `Playbooks.swift`, `Flows.swift` | Faster-route hints, playbooks, flows |
 | Log | `State.swift` | One folder per session for replay |
 | `run` loop | `AgentLoop.swift` | Drives apprentice with any model when no coding agent is involved |
 | VM | `VM.swift` | Optional macOS guest so browser work has its own cursor and keyboard |
@@ -114,7 +114,8 @@ Sources, cheapest and most exact first:
 
 Rules:
 
-- **Snapshot IDs.** Element numbers belong to a snapshot. Each stores its child-index path. An action re-walks that path; if the element there no longer matches and exactly one element with the same label and name can't be found, the action fails with `stale: re-read` (exit 2), never a click on the wrong thing.
+- **Snapshot IDs.** Element numbers belong to a snapshot. Each stores its child-index path. An action re-walks that path; if the element there no longer matches and exactly one element with the same label and name can't be found, the action fails with `stale: re-read` (exit 2), never a click on the wrong thing. An element now wholly out of view is refused the same way (`stale: … out of view`, exit 2), never clicked at a point outside the view: scroll to it first; a half-visible one is clicked in its visible part.
+- **Values.** Fields show their text (never a password's), checkboxes, radios and tabs `on`, `off` or `mixed`, and a popup its current choice; a popup with no name is listed by its value.
 - **Ids survive actions.** The snapshot saved after an action gives every element the id it had before (matched as the diff matches them); new elements take ids above the highest in use. An id from earlier output still names the same element, so the diff is enough and a re-read is rarely needed. `read` numbers from 1 again.
 - **Cached.** A 300 ms in-memory cache serves repeated reads. (An `AXObserver` subtree cache was planned and is not built.)
 - **Diffs after actions.** Every action re-reads and returns what changed (new, removed or changed elements), so callers rarely need a full `read`.
@@ -130,16 +131,16 @@ apprentice is a natural GUI tool. Every action is what a person does with a mous
 Rules for every action (`Borrow.run`):
 
 - Starts once the user has been idle for a moment, then brings the session window forward and pauses 0.25–0.6 s before the first move.
-- Stops the moment the user presses a key or clicks (apprentice's own events carry `Keys.tag`, so they do not count), and returns `interrupted` (exit 6).
+- Stops the moment the user presses a key, clicks or scrolls (a trackpad's momentum from before the command does not count; apprentice's own events carry `Keys.tag`, so they do not count), and returns `interrupted` (exit 6).
 - Leaves the cursor where it landed, as a person would.
 
-Text is typed key by key inside web pages and apps, with key codes from the current keyboard layout (`Keys.layout`) and Shift for capitals. It is pasted (`Keys.paste`, clipboard restored) only where no website can see it: the browser's address bar and system file dialogs.
+Text is typed key by key inside web pages and apps, with key codes from the current keyboard layout (`Keys.layout`) and Shift for capitals. It is pasted (`Keys.paste`, clipboard restored) only where no website can see it: the browser's address bar and system file dialogs. A newline in the text is typed as return in apps and shift+return on web pages, so a chat composer never sends part of the text.
 
 Upload, download and file dialogs:
 
 - `upload <id> <path>` clicks the control that opens the picker, then `choose` does the rest.
 - `choose <path>` clicks into the panel's file list, opens Go to Folder (cmd+shift+g, or "/"), enters the path, checks it, presses return, and clicks Open. For a new file it types the name into the name field.
-- `download <id> <path>` right-clicks, picks the context-menu item named in `[agent] download_menu` (Save Image As, Download Linked File… by default), and uses the save panel the same way. The element's `AXURL` is logged so the run shows what was saved.
+- `download <id> <path>` right-clicks, picks the context-menu item named in `[agent] download_menu` (Save Image As, Download Linked File… by default), and uses the save panel the same way. The element's `AXURL` is logged so the run shows what was saved. A browser that saves straight to Downloads without a panel is followed there: the new file is moved to `<path>` once it has finished arriving.
 
 ## CLI reference
 
@@ -147,12 +148,12 @@ All output is compact plain text meant for an agent to read. `--json` gives the 
 
 | Command | Does | Returns |
 | --- | --- | --- |
-| `session [--app Safari] [--new-window] [--allow a.com]` | Open or attach a session to one app window; prints policy, notes and route hints | session id, window id |
+| `session [--app Safari] [--new-window] [--allow a.com]` | Open or attach a session to one app window; prints policy, playbooks and route hints | session id, window id |
 | `open <url>` | Navigate the session window (rate-limited, policy-checked) | diff |
 | `focus <app>` | Switch the session to another app or window | window id |
 | `read [--max 80] [--filter text]` | Numbered element list; reports a challenge, or that one has cleared | snapshot |
 | `click <id> [--double\|--right]` | Click an element with the real cursor | diff |
-| `click --on "text"` / `--at x,y` | Click visible text (listed, or found by OCR) or a screen point | diff |
+| `click --on "text"` / `--at x,y` | Click visible text (listed, or found by OCR) or a screen point; several matches are listed back to pick from, never guessed | diff |
 | `type <id> "text" [--enter] [--pace fast]` | Type into a field, paced by default | diff |
 | `key <combo>` / `menu "File > New"` | Send a shortcut or pick a menu item | diff |
 | `scroll <up\|down\|left\|right> [n] [--in id \| --at x,y]` | Scroll the window, one element or a screen point (a map zooms on the point under the wheel) | diff |
@@ -170,7 +171,7 @@ All output is compact plain text meant for an agent to read. `--json` gives the 
 | `activity <domain> [--days 7]` | Actions per day and kind, rate limits, challenges and flags | timeline |
 | `flag <domain> "what you saw"` | Record when the user saw a warning or restriction | ok |
 | `log [--tail n]` / `grow` | Recent steps; improvement digest | step lines |
-| `route "task"` / `notes ["words"]` / `learn "task"` / `do <flow>` | Faster routes, notes, flows | lines |
+| `route "task"` / `playbooks ["words"]` / `learn "task"` / `do <flow>` | Faster routes, playbooks, flows | lines |
 | `run "task" --model <name>` / `replay <name>` / `mcp` | Built-in loop, replays, MCP server | summary |
 | `serve` / `stop` | Start or stop the daemon | status |
 
@@ -189,9 +190,9 @@ Exit codes (kept in sync with `usage()` and `agent/*.md`):
 | Code | Meaning |
 | --- | --- |
 | 0 | ok |
-| 2 | stale snapshot: re-read |
+| 2 | stale snapshot, or the page changed without apprentice (the user or another tool): re-read, then decide again. Reading commands take the new page in; actions are refused until then |
 | 3 | The user denied the step in the little window (`confirm`) |
-| 4 | blocked: allowlist, rate limit (`refresh limit`, `rate limit`), budget (`budget:`), a site cooling down after it throttled the account (`soft block:`), or a check only the user may complete (`challenge:`) |
+| 4 | blocked: allowlist, rate limit (`refresh limit`), budget (`budget:`), a site cooling down after it throttled the account (`soft block:`), or a check only the user may complete (`challenge:`) |
 | 5 | element or text not found, or timeout |
 | 6 | interrupted by the user during borrow mode |
 | 7 | permission missing (Accessibility or Screen Recording) |
@@ -213,10 +214,11 @@ All randomness in pacing comes from `Rand` (`Rand.swift`): one xoshiro256** gene
 - **Landing.** `Mouse.landing` draws a Gaussian point around the centre, never within 8% of an edge.
 - **Settle.** `Mouse.settle` rests 40–120 ms over the target with small micro-moves before the press, so `mousedown` never lands on the frame of the last move.
 - **Click.** The button is held 60–140 ms; the double-click gap is 70–130 ms.
+- **Drag.** The press is held 100–220 ms, then one nearly straight stroke with a drawn shape and speed profile, about 1.5× a move's time (from `move_ms` min up to 3× its max, at least 1 s), and an 80–200 ms rest before release.
 - **Idle drift.** `Mouse.linger` drifts the pointer 5–20 px every 2–5 s during a dwell.
 - **Scroll.** Up, down, left or right (the wheel's second axis). The pointer moves to the scroll point (exactly onto it with `--at`) and rests 150–400 ms, then scrolls in flicks (`Wheel.scroll`): 3–9 lines per flick in notches of 1–3, quick in the middle of a flick and slower at either end, 120–450 ms between flicks.
 - **Browse.** `browse` reads down a page or feed: each turn scrolls 4–15 lines, then reads for a log-normal pause around 3 s (at most 15) with the pointer drifting, and one turn in eight looks back up 2–6 lines. It clicks and types nothing. With `browse` set (a share of actions, at most 0.2), a profile also does this on its own: that share of commands on a web page ends with `browse_s` (10–40 s by default, at most 120) of reading down the feed from the middle of the window, then scrolls back up as far as it went, so the agent's screen ends about where its action left it. Off in every style; a site turns it on. Logged as `waits.browse`.
-- **Fidget.** With `fidget` set, that share of actions is followed by a gesture that changes nothing (`Fidget.swift`): the pointer glances across the window, traces a few lines as if reading, rests with a drift, or on a web page scrolls down a little and back. Never a click or a key. It runs once per command, after every step of it and before the re-read (`finish`), inside `Borrow.run`, so the person's own input stops it, no later step aims at a point it scrolled away, and the diff shows the screen as it was left. Never after `hover`. Its time is logged as `waits.fidget`.
+- **Fidget.** With `fidget` set, that share of actions is followed by a gesture that changes nothing (`Fidget.swift`): the pointer glances across the window, traces a few lines as if reading, rests with a drift, or on a web page scrolls down a little and back. Never a click or a key. It runs once per command, after every step of it and before the re-read (`finish`), inside `Borrow.run`, so the person's own input stops it, no later step aims at a point it scrolled away, and the diff shows the screen as it was left. Never after `hover`, and nothing scrolls after `type`, `key` or `drag` (suggestions would close, a map would zoom): no peek and no `browse` there. Its time is logged as `waits.fidget`.
 
 ### Keyboard
 
@@ -228,7 +230,7 @@ All randomness in pacing comes from `Rand` (`Rand.swift`): one xoshiro256** gene
 
 ### Cadence, bursts and dwell
 
-- **Between actions.** `Limits.beforeAction` waits `between_actions_ms` (0 by default; a few seconds in the social profiles) and allows `actions_per_min` per host.
+- **Between actions.** `Limits.beforeAction` waits `between_actions_ms` (0 by default; a few seconds in the social profiles) and holds each host to `actions_per_min`: at the cap it waits (under a minute) until the oldest action leaves the window, rather than refuse the step.
 - **Bursts.** With `burst` set, after that many quick actions the session rests `rest_s` (capped at 120 s).
 - **Dwell.** With `dwell_s` set, an action that counts against a budget (like, follow, comment…) waits until the page has been open that long, drifting the pointer meanwhile. Acting on content before it could have been read is a strong tell.
 - **Navigation.** At least `nav_min_gap_s` (5 s) between page loads on the same domain, and at most 3 loads of the same URL in 120 s; the next fails with `refresh limit`. `wait-for` never polls by reloading.
@@ -307,7 +309,7 @@ How it works:
 2. `⚠` lines flag what needs extra care: gate-list words (send, post, publish, like, follow, comment, submit, save, update, upload, pay, buy, delete, remove, confirm and more), settings, account and billing pages, return keys that may submit, uploads, and anything the caller marked `--gate`. Flagged proposals also keep a window screenshot in the run log.
 3. `approve <token>` runs exactly the saved request, paced and rate-limited as usual, and charges its budget. A step that never acts (refused by a rate limit, stopped by the user or the kill switch) gets its count back. `approve <token> --text "…"` replaces the text of a pending `type`. `deny <token>` drops it. Both are logged.
 4. A token is single-use and expires after 5 minutes, or after an hour once `confirm` hands it to the user in the chat. Up to five proposals wait at once, each answered by its own token. Reading the screen again is fine: on approval the element is checked again, and a step whose id now points at something else is refused as `stale`.
-5. A step on a password or security-code field, or one whose button or link names a `[gate] user_only` phrase (by default pay, buy, checkout, place order, donate, transfer, upgrade, captcha, "not a robot", delete or close account), runs only on the user's own approval (the `confirm` window or the menu bar); `approve` refuses it, even inside an approved flow. The `run` loop sends every `⚠` approval to `confirm`.
+5. A step on a password or security-code field, or one whose button or link names a `[gate] user_only` phrase (by default pay, buy, checkout, place order, donate, transfer, upgrade, captcha, "not a robot", delete or close account), runs only on the user's own approval (the `confirm` window or the menu bar); `approve` refuses it, even inside an approved flow. The `run` loop sends every `⚠` approval to `confirm`, and `replay --approve` does too, approving a saved step only while it names the same element as in the saved run. The `confirm` window and its chat hand-off show the proposal's `⚠` lines with the summary.
 6. The usage docs tell agents to approve only steps the task needs, and to ask the user before any `⚠` step they did not ask for.
 
 Other guardrails:
@@ -328,7 +330,7 @@ Five pieces keep permitted work on the user's own accounts inside commonly enfor
 Hourly, daily and weekly caps per action kind, on top of the per-minute cap. Sites commonly enforce limits over hours and days, not only on bursts within a minute.
 
 - The caps live in `~/.apprentice/budgets.json`, which `kit.sh` seeds from `agent/budgets.example.json`. Each domain inherits from `default` and overrides only what it sets. Only the caps in the file apply: no file means no caps, and a kind or site left out has none (the `default` entry's `default` kind caps any other gated action). A file that is not valid JSON stops budgeted actions with exit 4 until it is fixed, so a typo never lifts every cap.
-- Each kind has `hour`, `day`, an optional `week`, and `min_gap_s`. Kinds without a cap of their own borrow a close one (upvote → like; story, group post, repost → post; connect, friend request, join → follow; endorse → like). Any other gated action counts against a general cap of 120 an hour and 500 a day.
+- Each kind has `hour`, `day`, an optional `week`, and `min_gap_s`. Kinds without a cap of their own borrow a close one (upvote → like; story, group post, repost → post; connect, friend request, join → follow; endorse → like). A kind with its own cap (LinkedIn's connect with its weekly cap, Instagram's story) counts on its own; a borrowing kind shares its alias's count. Any other gated action counts against a general cap of 120 an hour and 500 a day.
 - The kind comes from the gated element's label, matched on whole words. Only a click, or a `type --enter`, has a kind. An upload is `upload`; a gated action on a settings page is `settings`.
 - The budget is checked before the proposal and charged after approval. Over a cap is exit 4 `budget: 20 likes on x.com today`. A `min_gap_s` remainder of up to 30 s is waited out; a longer one is refused with the time it is allowed again. The agent stops; it does not retry.
 - `apprentice budget [domain]` prints what is left, so an agent can plan before it starts.
@@ -450,9 +452,9 @@ An audit, made on 2026-11-01 against `78ff6d6`, of what Instagram, Facebook, Tik
 
 ### The VM
 
-A Debian guest (Tart on this Mac, or `[vm] host` for a server elsewhere) with its own screen, cursor and keyboard. With `vm on`, browser sessions run there; `session --app <name> --on linux` binds any Linux app; `apprentice vm shell` prints the plain ssh command for terminal work. Several VMs can run at once, one per agent session (`APPRENTICE_VM=<name>`, or `apprentice --vm <name> …` per command), each with its own daemon, session, snapshot, approval and pacing; budgets, cooldowns and challenges are per site and shared by all of them. Questions and approvals for a VM session open on the VM's screen, and the Mac shows a notification. `upload` copies the file into the guest and picks it in the app's own file dialog with real input; `download` brings the file back.
+A Debian guest (Tart on this Mac, or `[vm] host` for a server elsewhere) with its own screen, cursor and keyboard. With `vm on`, browser sessions run there; `session --app <name> --on linux` binds any Linux app; `apprentice vm shell` prints the plain ssh command for terminal work. Several VMs can run at once, one per agent session (`APPRENTICE_VM=<name>`, or `apprentice --vm <name> …` per command), each with its own daemon, session, snapshot, approval and pacing; budgets, cooldowns and challenges are per site and shared by all of them. Questions and approvals for a VM session open on the VM's screen, and the Mac shows a notification; a question whose answer is to open the VM (`show`, `vm call`) stays on this Mac. `upload` copies the file into the guest and picks it in the app's own file dialog with real input; `download` brings the file back.
 
-What still holds: no WebDriver, CDP or injected script; the page is read through AT-SPI, Linux's accessibility bus; input goes through XTest into the X server, so events are trusted, in the full pointer sequence, with the same pacing code; the time zone and language follow this Mac, and a local VM shares the Mac's IP. What changes: it is a second device, Linux with software WebGL and its own Chromium profile, so the first sign-in on each site looks like a new device, and a server elsewhere has an IP that is not the user's. Nothing is spoofed to hide that. Accounts whose standing matters most stay on this Mac's own browser: `[vm] local = ["site.com"]` refuses them in every VM.
+What still holds: no WebDriver, CDP or injected script; the page is read through AT-SPI, Linux's accessibility bus; input goes through XTest into the X server, so events are trusted, in the full pointer sequence, with the same pacing code; the time zone and language follow this Mac, and a local VM shares the Mac's IP. What changes: it is a second device, Linux with software WebGL and its own Chromium profile, so the first sign-in on each site looks like a new device, and a server elsewhere has an IP that is not the user's. Nothing is spoofed to hide that. Chromium there saves no passwords or payment cards (a managed policy), since the agent has a shell in the guest; sign-ins last through cookies. Accounts whose standing matters most stay on this Mac's own browser: `[vm] local = ["site.com"]` refuses them in every VM.
 
 ## Faster-route check
 
@@ -495,14 +497,15 @@ The `run` loop, for when no coding agent is involved:
 - The model replies in a tiny grammar (`click 14`, `type 16 "…"`, `scroll down`, `done`, `need_image`), parsed locally. A separate optional vision model handles `need_image`.
 - Limits: 40 steps, 15 minutes, and stop after 3 identical actions.
 
-## Learned notes
+## Playbooks
 
-Repeat tasks should not be rediscovered. The repo's `notes/` folder holds Markdown notes, and `kit.sh` links `~/.apprentice/notes` to it, so `git pull` brings in what was learned on another machine.
+Repeat tasks should not be rediscovered. The repo's `playbooks/` folder holds Markdown playbooks, and `kit.sh` links `~/.apprentice/playbooks` to it, so `git pull` brings in what was learned on another machine.
 
-- **App and site notes** (`notes/macos/finder.md`, `notes/web/<host>.md`): key facts, what works, what fails. `session` and `open` print the key facts of every matching note.
-- **Flows** (`notes/flows/*.md`): steps for one task, written with element names and `{placeholders}`, never ids, coordinates or personal paths. `do <flow>` runs one with a single plan approval and hands back the screen at the first failing step. A step that shows a warning the plan did not (a settings page, a dialog, a password field, or any warning on a step the plan did not flag) is proposed on its own (exit 8), and `#label "name"` takes a near match only when it adds no gate-list word, so "Save" never becomes "Save and send". Between steps it pauses as a person would where the agent's thinking time used to be (`Pace.lookGap`): a log-normal look around 0.9 s, about 120 ms more for each new element on screen, and one step in eight a 2–5 s hesitation; pauses of 2 s or more drift the pointer. Every step still goes through the same pacing, paths, overshoot, budgets and site rules as a single command. Profiles with `mode = "fast"` skip the pause.
-- `notes "words"` ranks notes. `learn "task"` drafts a flow from the session's approved steps; the LLM then generalizes it.
-- Notes are trusted input to the LLM, so nothing read from a screen is written into them.
+- **App and site playbooks** (`playbooks/macos/finder.md`, `playbooks/web/<host>.md`): key facts, what works, what fails. `session` and `open` print the key facts of every matching playbook.
+- **Flows** (`playbooks/flows/*.md`): steps for one task, written with element names and `{placeholders}`, never ids, coordinates or personal paths. `do <flow>` runs one with a single plan approval and hands back the screen at the first failing step. A step that shows a warning the plan did not (a settings page, a dialog, a password field, or any warning on a step the plan did not flag) is proposed on its own (exit 8), and `#label "name"` takes a near match only when it adds no gate-list word, so "Save" never becomes "Save and send". When several elements fit, the step is not run and the flow stops listing them by id (exit 5). A kill-switch press stops the flow before its next step, shell steps included (exit 6). Between steps it pauses as a person would where the agent's thinking time used to be (`Pace.lookGap`): a log-normal look around 0.9 s, about 120 ms more for each new element on screen, and one step in eight a 2–5 s hesitation; pauses of 2 s or more drift the pointer. Every step still goes through the same pacing, paths, overshoot, budgets and site rules as a single command. Profiles with `mode = "fast"` skip the pause.
+- `playbooks "words"` ranks playbooks. `learn "task"` drafts a flow from the session's approved steps; the LLM then generalizes it.
+- Playbooks are trusted input to the LLM, so nothing read from a screen is written into them.
+- Playbooks are shared with everyone through `pr` and updates, so they never hold personal information (real names, handles, emails, phone, account or order numbers, ids from URLs, profile URLs, personal file names or home paths, tokens); `{placeholders}` stand in, `commit` and `learn` refuse to commit a playbook that looks like it holds any, and `pr` refuses to offer commits that added one.
 
 ## Logging, permissions and platform notes
 

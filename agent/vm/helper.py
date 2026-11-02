@@ -149,9 +149,13 @@ def intersects(f, b):
     return f[2] > 0 and f[3] > 0 and f[0] < b[0] + b[2] and f[0] + f[2] > b[0] and f[1] < b[1] + b[3] and f[1] + f[3] > b[1]
 
 
+# apprentice's own question window (ask.py): never a session's app, so the agent cannot answer it.
+OWN = ("apprentice-ask",)
+
+
 def apps_on_bus():
     desk = Atspi.get_desktop(0)
-    return [a for a in children(desk) if a is not None]
+    return [a for a in children(desk) if a is not None and (a.get_name() or "").lower() not in OWN]
 
 
 def pid_of(app):

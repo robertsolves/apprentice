@@ -12,7 +12,12 @@ import sys
 import gi
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import GLib, Gtk  # noqa: E402
+from gi.repository import GLib  # noqa: E402
+
+# Its own name on the accessibility bus, so the helper never lets a session bind this window and
+# answer apprentice's own question with the agent's clicks (the Mac's window is not an app to bind either).
+GLib.set_prgname("apprentice-ask")
+from gi.repository import Gtk  # noqa: E402
 
 req = json.loads(sys.stdin.read() or "{}")
 result = {"timeout": True}
@@ -60,10 +65,11 @@ elif choices and not with_text:
         row.pack_start(b, False, False, 0)
     box.pack_start(row, False, False, 0)
 elif choices:
-    group = None
+    # GTK always selects one radio of a group; a hidden one holds that, so no choice is made for the user.
+    group = Gtk.RadioButton.new_with_label_from_widget(None, "")
     for c in choices:
         rb = Gtk.RadioButton.new_with_label_from_widget(group, c)
-        group = group or rb
+        rb.set_active(c in checked)
         box.pack_start(rb, False, False, 0)
         checks.append(rb)
 

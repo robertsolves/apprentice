@@ -1,7 +1,7 @@
 # Bot-detection audit
 
 **Scope:** apprentice's local macOS sessions and its Linux VM, on websites and in native apps.
-**Commit audited:** `6f958ba` (2026-11-02).
+**Commit audited:** `6f958ba` (2026-11-02); claims and line references re-checked against `cbd97ad`.
 **Method:** static read of `Sources/apprentice`, `agent/vm`, and the shell entry points, plus one-off OS probes of the CGEvent fields apprentice posts. Nothing was changed to make this list.
 **Severity:** Critical = a detector can flag it directly and reliably; High = strong signal, especially combined with others; Medium = useful in a risk score; Low = weak or only after long observation.
 **Confidence:** “confirmed” = shown by code or the probe; “likely” = strongly implied but needs a runtime test; “speculative” = plausible but unmeasured.
@@ -37,8 +37,112 @@ The important split is **who can see a signal**:
 | A18 | Accessibility reader walks up to 40,000 nodes per snapshot | native app (AX provider) | Low–Medium | confirmed |
 | A19 | Window/screen geometry fixed on the VM; VM process footprint visible in guest | page / app | Medium | confirmed |
 | A20 | No reaction time before the first pointer movement | page | Low–Medium | confirmed |
+| A21 | Characters with no key on the layout are posted on keycode 0, the “a” key (`code: "KeyA"`) | page | Medium | confirmed |
+| A22 | One tab for everything: history only grows, never back, never reload | page / server | Medium | confirmed |
+| A23 | Page never hidden, never blurred: window always in front for the whole run | page | Medium–High | confirmed |
+| A24 | No consent/cookie step; a consent wall is left standing or hit blind | server | Low | likely |
+| A25 | Power assertion named “apprentice: a task is running”; display never idle-locks | local process / user | Low–Medium | confirmed |
+| A26 | Notifications posted by `osascript`, one short-lived process each | local process | Low | confirmed |
+| A27 | Screen Recording entitlement and capture indicator during image snapshots | OS / user | Low | confirmed |
+| A28 | Guest `/tmp/apprentice-session.env` and `/etc/environment` name the rig | guest app | Medium for guest apps | confirmed |
+| A29 | Xvfb exposes only the XTEST fake input devices | guest app | Medium | likely |
+| A30 | Accessibility forced on at the session bus; launched apps inherit the helper’s environment | guest app | Low–Medium | likely |
 
 The rest of this document explains each item, what a detector can actually observe, and what can be done about it without adding fingerprint spoofing (a project non-goal).
+
+---
+
+## Checklist
+
+Every known way a page, a server, a native app or the VM can tell apprentice from a person. Work top to bottom per surface; a box is ticked only when a canary run (priority fix 14) or a VM session shows the signal gone or reduced to noise, with the commit that did it. Severities and IDs match the detail sections; an item marked **accepted** is not to be “fixed” by spoofing.
+
+**Added:** `43591b2` (2026-11-02).
+
+The top-findings table numbers its own rows A1–A30; the section IDs below are per-section (P, S, A, V, D). Rows A10–A20 alias section items — A10 = P10, A11 = S6, A12 = S6, A13 = V4, A14 = S4, A15 = S8/V6, A16 = S3/D1, A17 = P9, A18 = A5, A19 = V3, A20 = P13 — and A21–A30 are new: A21 = P16, A22 = P17, A23 = P18, A24 = S10, A25 = §3 A10, A26 = §3 A11, A27 = §3 A12, A28 = V9, A29 = V10, A30 = V11. Ticking the section item covers the alias.
+
+### Page JavaScript
+
+- [ ] **P1 · Keystroke rhythm** — High. Typing telemetry sees a uniform 50–110 ms hold, a log-normal gap (100 ms median), and a keydown/keyup pair that never overlaps; `fast` cuts the gap to ~35 ms. Fix: per-key hold distributions, overlapping keys, digraph and word gaps, one profile per account; no `fast` on a web page.
+- [ ] **P2 · Key/code mismatch for exotic characters** — Medium. `key`, `code`, `keyCode` and the inserted text can disagree for accents that need dead keys, emoji and unmappable symbols; on the VM `code` can be a spare keycode. Fix: refuse or route characters the layout cannot type, keep dead keys for accents, restore the X keymap after a temporary keycode.
+- [ ] **P3 · Shift without a Shift key event** — Low–Medium. On macOS Shift is only a flag on the letter event; a listener tracking modifier keydown/keyup sees no modifier. Fix: post real Shift down/up around capitals.
+- [ ] **P4 · Mouse paths** — High. Bézier curves from five fixed families, Fitts durations clamped at the 200 ms default (long moves all hit the cap), ~120 samples/s, one-sided bend, always lands on target. Fix: more shape families, jittered sample interval, no duration plateau at the cap, occasional genuine miss-and-correct.
+- [ ] **P5 · Per-daemon hand** — Medium–High. Speed (0.85–1.2×) and bend side are redrawn on every daemon start, so the “person” changes after an update or restart. Fix: persist the hand and timing draws per account in `~/.apprentice`.
+- [ ] **P6 · Click geometry and timing** — Low–Medium. Clicks cluster near the element centre with a 60–140 ms hold, always after a full stop, never during motion, never a miss. Fix: wider geometry and hold spread, some clicks during the settle.
+- [ ] **P7 · Linear drag** — High for drag challenges. Button down, 120 ms pause, constant 12 ms steps on a straight line, no tremor, no easing, button up. Fix: reuse the stroke generator with easing, jitter and a variable hold.
+- [ ] **P8 · Wheel units and bursts** — Medium. `deltaMode` is line, no momentum or trackpad phase; the VM replays notches with no delay so a flick arrives as one timestamp. Fix: pixel deltas with decaying momentum, occasional phase events, per-notch delays in the guest.
+- [ ] **P9 · Focus raised without a click** — Medium. `focus`/`visibilitychange` with no preceding pointerdown or keydown inside the page, then synthetic input. Fix: prefer an in-window click when the cursor is already there; keep the raise as a fallback and vary it.
+- [ ] **P10 · URL-bar-only navigation** — Medium–High server-side. Every page is a direct visit: no in-site link click, usually no referrer. Fix: make in-site links the default path and `open` the exception (first entry or a deliberate deep link).
+- [ ] **P11 · Click-select-type form entry** — Low–Medium. Tab is never used and `cmd+a` immediately precedes typing on filled fields. Fix: Tab between fields, less uniform selection.
+- [ ] **P12 · No IME composition** — Medium for CJK. Direct Unicode insertion with no `compositionstart`/`update`/`end` while `navigator.languages` says `ja-JP`/`zh-*`/`ko-KR`. Fix: a real composition path for IME locales.
+- [ ] **P13 · No reaction time** — Low–Medium. The first pointer move starts immediately when a page or element appears. Fix: draw a reaction delay after a focus or page change.
+- [ ] **P14 · Pointer perfectly still** — Low. `fidget` and `browse` default to 0 and `dwell_s` is 0, so the cursor can sit on one pixel for minutes. Fix: idle micro-motion by default on web sessions.
+- [ ] **P15 · Forced accessibility** — Medium at browser level. No standard page API, but the browser knows the AX tree is forced on permanently. **Accepted** (the tree is how the tool reads the page); scope it to web areas only where possible (A3).
+- [ ] **P16 · Unmappable characters on the “a” key** — Medium. `keyFor` falls back to keycode 0 for characters the layout has no key for, so an emoji or CJK arrives as `key: "€"`, `code: "KeyA"`, keycode 65. Fix: type only what the layout can produce, or take a dead-key/composition path.
+- [ ] **P17 · One tab, history only grows** — Medium. `open` reuses the current tab (`cmd+l`), there is no new-tab, back or reload path, so `history.length` climbs all day, navigation type is always `navigate` and the referrer is always empty. Fix: new tab per site, back within a site, occasional reload.
+- [ ] **P18 · Never hidden, never blurred** — Medium–High. Each action raises the window and nothing backgrounds the browser, so `visibilityState` stays `visible` and `hasFocus()` stays true for hours, with no `blur` or `visibilitychange`. Fix: leave the tab now and then; don’t raise a window that is already in front.
+
+### Server
+
+- [ ] **S1 · Fast default cadence** — High. `between_actions_ms = 0`, `dwell_s = 0`, `burst = 0`, `actions_per_min = 30`, `key_error_rate = 0`; only `careful`/`steady` and the per-site profile change it, and only LinkedIn/X/Reddit get those in the example config. Fix: make `steady` the web default and add a social profile covering Instagram, Facebook and TikTok.
+- [ ] **S2 · English-only budget classification** — High on non-English sites. English label lists miss “Gefällt mir”, “いいね”, icon-only hearts and custom labels, so the click gets no per-kind cap and no dwell. Fix: classify by role, accessible name, icon alt and per-locale synonyms; treat any gated control as budgeted when unsure.
+- [ ] **S3 · Narrow soft-block/challenge detection** — Medium–High. English phrases, new elements only, no localized banners; the tool keeps acting and the site escalates. Fix: scan all visible text, support localization and a user phrase list, stop on an in-place banner.
+- [ ] **S4 · No active-hours or session-length model** — Medium. Nothing stops a dense block at 03:00 local time or a session with no long break. Fix: quiet hours, maximum session length, long break after N actions, daily cap under the budget caps.
+- [ ] **S5 · No link trail** — Medium–High. A run of `open` calls is a run of top-level navigations with no click path or referrer before the like/follow. Fix: same as P10.
+- [ ] **S6 · VM is a different device** — High for high-value accounts. Linux Chromium, Xvfb 1280×800, DPR 1, software WebGL, few fonts, no battery/camera/audio, new profile per site. **Accepted** as device identity; keep important accounts on the Mac (`[vm] local`) and warn in `doctor`.
+- [ ] **S7 · Remote VM IP** — High. A server-hosted VM is a datacenter IP that does not match the account’s location while the timezone and language say otherwise. **Accepted**; document the VM as a separate device on another network.
+- [ ] **S8 · Identical fingerprints across VMs** — High for multi-account. Same image means same browser build, screen, fonts, CPU/memory and timezone offset. **Accepted for out-of-scope multi-account**; do not add fingerprint spoofing.
+- [ ] **S9 · `Sec-CH-UA` platform mismatch** — Medium. A real Chromium TLS/HTTP fingerprint that declares Linux while the account’s history is macOS. Part of S6; no spoofing.
+- [ ] **S10 · No consent/cookie step** — Low. Nothing handles a consent wall, so it is left standing for the session or hit blind on the first snapshot; a site that keys on consent state sees a visitor who never accepts. Fix: a first-class consent step with dwell and a remembered choice.
+
+### Native app / OS (macOS)
+
+- [ ] **A1 · Constant event tag** — Critical. `eventSourceUserData == 0x646B6374` on every posted event, constant across installs and readable from `NSEvent.cgEvent` or a tap. Fix: stop setting a constant; if monitors must ignore our events, compare `eventSourceUnixProcessID` with the daemon PID or use a per-run random value.
+- [ ] **A2 · Synthetic provenance** — High. **Accepted, cannot be removed.** Posting PID, private source state and zero mouse deltas identify CGEvent input in any app that looks; removing A1 removes an easy constant, not the provenance.
+- [ ] **A3 · AX attributes forced on the app** — High. `AXManualAccessibility`/`AXEnhancedUserInterface` are set on attach and window search, including native apps that need no web area. Fix: restrict to browsers/`AXWebArea` targets.
+- [ ] **A4 · Process and bundle footprint** — High for adversarial apps. `apprentice` in `NSWorkspace`/`ps`, the menu-bar item, `~/.apprentice/sock`, state files, `~/.local/bin`. **Accepted**, part of the tool’s footprint; do not hide it.
+- [ ] **A5 · Accessibility query pattern** — Low–Medium. Up to 40,000 nodes at depth 90, re-read after every action — not what a screen reader does. Fix: bound and cache the walk, avoid a full re-read when the diff is small.
+- [ ] **A6 · Window activation and event timing** — Medium. `applicationDidBecomeActive`/`windowDidBecomeKey` with no click, then a burst of synthetic events; the app can measure path and timing like a page. Fix: same as P9.
+- [ ] **A7 · Screen capture** — Low. **Accepted limitation.** ScreenCaptureKit with `showsCursor = false`; protected/DRM windows refuse. Capture is user-visible, not stealthy.
+- [ ] **A8 · VM/X11 artifacts** — Medium for guest apps. `Xvfb`, `openbox`, `x11vnc`, `--force-renderer-accessibility`, the helper process, XTEST. **Accepted**; a guest app can always see its own environment.
+- [ ] **A9 · Clipboard writes outside pages** — Low. Pasteboard writes and restores in the address bar and file dialogs are visible to a pasteboard monitor. Keep paste out of pages.
+- [ ] **A10 · Power assertion in the system state** — Low–Medium. `pmset -g assertions` shows “apprentice: a task is running” with its PID, and the display never idle-sleeps or locks for the task plus 120 s. Fix: name it plainly, shorten the grace; never call keep-awake invisible.
+- [ ] **A11 · Notifications from `osascript`** — Low. Each notification is a `display notification` shell-out, attributed to the scripting host, with a short-lived process per call. Fix: `UNUserNotificationCenter` under apprentice’s own bundle.
+- [ ] **A12 · Screen Recording and the capture indicator** — Low. Screen Recording is requested and shown in System Settings, and the capture indicator appears during image snapshots. **Accepted** (the user’s own screen); keep captures window-scoped and short.
+
+### VM (page-visible, on top of S6/S8)
+
+- [ ] **V1 · Software rendering, no hardware** — High. SwiftShader/llvmpipe WebGL, 2 vCPUs, DPR 1, no battery/camera/microphone/audio. **Accepted** as device identity.
+- [ ] **V2 · Fonts and locale** — Medium. Only DejaVu and Noto emoji installed; `document.fonts.check` fails for macOS fonts and `APPRENTICE_LANG` silently defaults to `en-US`. Fix: install the account’s real locale fonts and require `APPRENTICE_LANG` (warn in `doctor`) rather than spoofing.
+- [ ] **V3 · Fixed geometry** — Medium. Browser at 0,0 on a 1280×800 screen, DPR 1, window exactly the full screen. **Accepted**; do not fake a Retina display.
+- [ ] **V4 · Replayed input timing** — Medium (likely). ssh/TCP buffering delivers several input lines in one read and the helper plays them back to back. Fix: send a target timestamp with each op and sleep until it in the guest; batch wheel notches with their own delays.
+- [ ] **V5 · Keyboard mapping mutation** — Medium. `keycode_for` remaps a spare keycode and changes the X keymap for characters without a key. Fix: restore the mapping afterwards; prefer a real layout for the account’s language.
+- [ ] **V6 · Identical fingerprint across VMs** — High for multi-account. See S8; the easiest way to link accounts meant to be separate.
+- [ ] **V7 · WebRTC and network mismatch** — Medium. Candidates and latency show the server network while timezone and language show the Mac. **Accepted**; do not spoof.
+- [ ] **V8 · Headful under Xvfb is still detectable** — Low. Not headless, so the `HeadlessChrome` tells do not fire, but it is still a Linux device. Keep the distinction in docs; “not headless” is not “not detectable”.
+- [ ] **V9 · Guest env files name the rig** — Medium for guest apps. `/tmp/apprentice-session.env` is world-readable and `/etc/environment` carries `DISPLAY=:0` and `QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1`. Fix: `chmod 600`, keep tool names out of global environment files.
+- [ ] **V10 · Only XTEST fake input devices** — Medium, **accepted**. Xvfb has no pointer or keyboard hardware, so every event is visibly XTEST. Fix: none; do not document VM input as indistinguishable.
+- [ ] **V11 · Accessibility forced at the session bus, helper env inherited by launched apps** — Low–Medium. `IsEnabled=true` is set on the bus and `QT_LINUX_ACCESSIBILITY_ALWAYS_ON` reaches every app started from a session. Fix: launch apps with a clean environment; force a11y for Chromium only.
+
+### Detection-response gaps (no signal, but they make the next one worse)
+
+- [ ] **D1 · English-only soft-block and challenge lists** — Medium–High. Localized “try again later” banners and challenges are missed and the tool keeps acting. Fix: localize, accept user phrases, match on URL/title paths.
+- [ ] **D2 · Only new elements inspected** — Medium. `Site.inspect` compares keys against the previous snapshot and only on the same URL; a banner that replaces text or appears after navigation is missed. Fix: scan the whole visible tree on the action path.
+- [ ] **D3 · Dwell tied to URL changes and budgeted kinds** — Medium. SPA routes that do not update the AX URL, and unclassified actions, get no dwell. Fix: track in-page readiness, not only the URL.
+- [ ] **D4 · `actions_per_min` is per host, not per account** — Low–Medium. Subdomains and country domains get separate counters while the site sees the total. Fix: count per registrable domain and per account.
+- [ ] **D5 · No cap on uncategorized gated clicks** — Medium. A click matching no budget word (icon-only, “Appreciate”, “Boost”) can bypass the like cap and dwell; with no `budgets.json` there is no cap at all. Fix: fall back to the `default` cap for any gated state-changing control.
+- [ ] **D6 · No time-of-day or session-length model** — Medium. Same as S4; a site sees the shape of the session.
+
+### Do not regress
+
+- [ ] No WebDriver, CDP, remote-debugging port, extension or injected page script (`navigator.webdriver` stays false).
+- [ ] Every event goes through the system input stream (`.cghidEventTap`; XTest in the guest), so `isTrusted` stays true and the full pointer sequence is produced.
+- [ ] No AX presses, AX value setting or `postToPid`; accessibility is read-only.
+- [ ] Paste stays out of web pages and contenteditable areas.
+- [ ] CAPTCHAs and payments stay manual; no solving, no third-party solvers.
+- [ ] Keycodes come from the live layout, never a fixed US table.
+- [ ] Randomness stays in one seeded generator; no fixed coordinates or delays across installs.
+- [ ] One session, one account, one window; budgets, cooldowns and challenges shared across VMs.
+- [ ] No fingerprint spoofing, and no claim in docs that synthetic input is invisible to native apps.
 
 ---
 
@@ -139,11 +243,11 @@ Evidence: `Sources/apprentice/Fidget.swift:9-37`; `agent/vm/helper.py:424-428`.
 
 ### P9. Focus is raised programmatically, not by a click — Medium
 
-Before acting, `gate` and `Borrow.run` bring the app/window forward with AX attributes and `kAXRaiseAction`; `attach` and `locate` call `NSRunningApplication.activate()`. The page can observe `focus`/`visibilitychange` events with no preceding pointerdown or keydown inside the page, followed shortly by synthetic input.
+Before acting, `gate` and `Borrow.run` bring the app/window forward with AX attributes and `kAXRaiseAction`; `locate` (after a daemon restart) and `makeNewWindow` call `NSRunningApplication.activate()`. The page can observe `focus`/`visibilitychange` events with no preceding pointerdown or keydown inside the page, followed shortly by synthetic input.
 
 Real users also switch apps with cmd-tab, so this is not conclusive. It becomes stronger when it happens repeatedly before each action, especially while the cursor is already inside the window.
 
-Evidence: `Sources/apprentice/Commands.swift:230-245`, `:496-508`; `Sources/apprentice/Input.swift:492-516`; `Sources/apprentice/Reader.swift:166-174`.
+Evidence: `Sources/apprentice/Commands.swift:233-239` (`gate`), `:510-535` (`attach`), `:96-98` (`makeNewWindow`); `Sources/apprentice/Input.swift:492-516`; `Sources/apprentice/Reader.swift:147-153` (`Target.raise`), `:176-185` (`locate`).
 
 ### P10. Navigation is URL-bar-only — Medium–High server-side
 
@@ -151,13 +255,13 @@ Evidence: `Sources/apprentice/Commands.swift:230-245`, `:496-508`; `Sources/appr
 
 The tool has `click` and can click links by id, and the agent docs recommend in-site links, but nothing enforces or prefers it. `SPEC.md` itself calls this “agent guidance only.” Deep linking is a known signal on LinkedIn and other social sites.
 
-Evidence: `Sources/apprentice/Commands.swift:526-580`; `Sources/apprentice/Input.swift:202-221` (paste).
+Evidence: `Sources/apprentice/Commands.swift:537-574`; `Sources/apprentice/Input.swift:202-221` (paste).
 
 ### P11. Form entry is click-select-type, never Tab — Low–Medium
 
 `typeInto` clicks the field, waits 100 ms, verifies focus through AX, sends `cmd+a` only when the field already has text, types, and optionally presses Return 100 ms later. Every field is clicked; Tab is never used. `cmd+a` immediately before typing is a common automation tell, though the code avoids it on empty fields.
 
-Evidence: `Sources/apprentice/Commands.swift:644-698`.
+Evidence: `Sources/apprentice/Commands.swift:653-703`.
 
 ### P12. Typing bypasses IME composition — Medium for CJK locales
 
@@ -169,7 +273,7 @@ Evidence: `Sources/apprentice/Input.swift:118-137`.
 
 `Mouse.move` starts immediately from the current cursor position. The delay before it comes from the gate/window raise (0.25–0.6 s) or an explicit 150–400 ms pause in `scroll`/`browse`; there is no human reaction-time distribution after a page or element appears. A page can measure the time from an element becoming visible or focused to the first pointer movement, and a run that is consistently at the fast end is a signal.
 
-Evidence: `Sources/apprentice/Input.swift:252-284`; `Sources/apprentice/Commands.swift:863-913`.
+Evidence: `Sources/apprentice/Input.swift:252-284`; `Sources/apprentice/Commands.swift:872-908`.
 
 ### P14. Pointer sits perfectly still by default — Low
 
@@ -181,7 +285,31 @@ Evidence: `Sources/apprentice/Config.swift:92-94`; `Sources/apprentice/Input.swi
 
 On macOS, `enableWebAccessibility` sets `AXManualAccessibility` and `AXEnhancedUserInterface` on the app. In the VM, Chromium runs with `--force-renderer-accessibility` and `ACCESSIBILITY_ENABLED=1`. A page has no standard API to ask whether an assistive client is attached, so this is not a direct JavaScript flag. But the browser and native apps can know, and forced accessibility changes rendering/performance in ways a sophisticated detector may infer. It is also not how a normal user’s browser runs all the time.
 
-Evidence: `Sources/apprentice/AX.swift:115-118`; `agent/vm/session.sh:30`.
+Evidence: `Sources/apprentice/AX.swift:125-128`; `agent/vm/session.sh:30`.
+
+### P16. Characters with no key are posted on the “a” key — Medium
+
+`Keys.keyFor` falls back to keycode `0` for any character the current layout cannot type, and `0` is the `a` key on every layout. `typeChar` then posts that virtual key with the real character supplied as a Unicode string. A page therefore sees an impossible pair — `key: "€"` (or an emoji, or CJK on a Latin layout) arriving with `code: "KeyA"` and the keycode for `a` — while the text itself is correct, so nothing looks broken from the outside. Accented characters reached through `shifted` are fine; this is only the characters with no key at all.
+
+Evidence: `Sources/apprentice/Input.swift:34` (keycode table), `:118-137` (`typeChar`), `:151-158` (`keyFor` fallback to `(0, false)`).
+
+Severity Medium. Fix: type only what the layout can produce, use a dead-key/composition path for accents and IME scripts (P12), or fail the step instead of posting a key that does not exist for the character (priority fix 4).
+
+### P17. One tab, a history that only grows, no back and no reload — Medium
+
+`open` navigates in the current tab: `cmd+l`, `cmd+a`, paste, return in the address bar. There is no new-tab command anywhere in the code, no `cmd+[`/back and no reload; the only other window path is `--new-window`, which presses `cmd+n`. So across a day of work `history.length` climbs monotonically, `PerformanceNavigationTiming.type` is always `navigate` (never `back_forward` or `reload`), and `document.referrer` is always empty. People accumulate tabs, go back, reload after a failed load, and return through history; none of that ever happens here.
+
+Evidence: `Sources/apprentice/Commands.swift:559-575` (`open`), `:96-108` (`makeNewWindow`, `cmd+n`), `:453` (`--new-window` only).
+
+Severity Medium. Fix: a new tab for a new site (`cmd+t`), the back button for a return within a site, and the occasional reload (priority fix 15).
+
+### P18. The page is never hidden and the window never loses the front — Medium–High
+
+Every action raises the session window before acting, and nothing ever backgrounds the browser during a run: no `hide()`, no second tab, no other window. For the length of a run the page therefore sees `document.visibilityState === "visible"` and `document.hasFocus() === true` with no `visibilitychange` and no `blur` — for hours. Switching tabs, checking a message and coming back is one of the cheapest behavioural checks a site can run, and apprentice produces it never.
+
+Evidence: `Sources/apprentice/Input.swift:504-505` (`t.raise()` before every body), `Sources/apprentice/Commands.swift:237-241` (`gate` raises first); no `hide()`/`orderOut` for a browser window anywhere (`Ask.swift` panels only).
+
+Severity Medium–High. Fix: leave the page now and then (a second tab and back), and do not raise a window that is already frontmost (priority fix 15).
 
 ---
 
@@ -205,7 +333,7 @@ Only the `careful`/`steady` styles and the per-site profiles change this. The ex
 
 This is the single most likely cause of an avoidable restriction on a social site that has not been configured.
 
-Evidence: `Sources/apprentice/Config.swift:67-94`, `:106-128`; `agent/config.example.toml:9-40`; `Sources/apprentice/State.swift:345-390`; `Sources/apprentice/SiteRules.swift:76-82`.
+Evidence: `Sources/apprentice/Config.swift:67-94`, `:103-130` (`preset`); `agent/config.example.toml:5-43`; `Sources/apprentice/State.swift:370-409` (`beforeAction`); `Sources/apprentice/SiteRules.swift:76-82` (`dwell`).
 
 ### S2. Budget and dwell classification is English-label-only — High on non-English sites
 
@@ -213,7 +341,7 @@ Evidence: `Sources/apprentice/Config.swift:67-94`, `:106-128`; `agent/config.exa
 
 On a non-English site this can turn into a high-velocity like/follow run with no dwell, which is exactly the pattern the budgets were meant to prevent.
 
-Evidence: `Sources/apprentice/SiteRules.swift:147-166` (`Budgets.words` and `kind`), `:169-191` (`check`), `:194-224` (`count`); `Sources/apprentice/State.swift:389-395` (`Gate.words`).
+Evidence: `Sources/apprentice/SiteRules.swift:135-149` (`Budgets.words` and `kind`), `:157-182` (`check`), `:208-238` (`count`); `Sources/apprentice/State.swift:414-419` (`Gate.words`).
 
 ### S3. Soft-block and challenge detection is English-biased and narrow — Medium–High
 
@@ -221,15 +349,17 @@ Evidence: `Sources/apprentice/SiteRules.swift:147-166` (`Budgets.words` and `kin
 
 Challenges are slightly better: `Challenge.find` also matches language-independent URL paths (`/challenge`, `/checkpoint`, `/captcha`, …) and scans the title plus every short element name, not only new ones. But the text markers are English, so a localized in-page challenge with no matching path or title marker is still missed.
 
+What happens on a match is set by `[sites] on_soft_block` and `on_challenge` (`stop` by default, or `warn` or `off`); a user who picks `warn` or `off` widens the gap.
+
 This is not a detection signal itself; it is a detection-response gap that makes the next detection worse.
 
-Evidence: `Sources/apprentice/SiteRules.swift:49-69` (`Site.inspect`), `:333-344` (`Challenge.paths` and `find`); `Sources/apprentice/Config.swift:250-260` (`softBlockPhrases`, `challengeMarkers`).
+Evidence: `Sources/apprentice/SiteRules.swift:50-63` (`Site.inspect`), `:361-372` (`Challenge.paths` and `find`); `Sources/apprentice/Config.swift:247-251` (`softBlockPhrases`), `:254` (`onSoftBlock`), `:268-272` (`challengeMarkers`).
 
 ### S4. No active-hours, session-length or long-break model — Medium
 
 There is no notion of “this account is normally active 09:00–18:00”, no maximum session length, and no long break beyond the in-burst `rest_s` (and that only when a profile sets `burst`). An agent can run a dense block at 03:00 local time, or right after the account was created. Server-side trust and graph models use time-of-day and session shape.
 
-Evidence: `Sources/apprentice/State.swift:345-390`; `Sources/apprentice/Config.swift:80-87`.
+Evidence: `Sources/apprentice/State.swift:370-409`; `Sources/apprentice/Config.swift:80-87`.
 
 ### S5. Direct navigation has no link trail — Medium–High
 
@@ -250,13 +380,13 @@ A Mac session uses the user’s real Safari/Chrome, profile, cookies, extensions
 
 If the account normally uses a Mac, this is a different device. The first sign-in on each site will usually look like a new device, and device-trust systems may challenge it. The project already documents this; `[vm] local = ["site.com"]` keeps the most important accounts on the Mac.
 
-Evidence: `agent/vm/session.sh:6`, `:30-32`; `agent/vm/provision.sh` (package list and timezone); `Sources/apprentice/VM.swift`; `SPEC.md:453`.
+Evidence: `agent/vm/session.sh:6`, `:30-32`; `agent/vm/provision.sh` (package list and timezone); `Sources/apprentice/VM.swift`; `SPEC.md:454`.
 
 ### S7. Remote VM IP — High
 
 A local Tart VM shares the Mac’s IP, which is good. A VM on a server elsewhere (`[vm] host`) has a datacenter IP that does not match the account’s normal location, even though the timezone and language are copied from the Mac. The project explicitly does not spoof this. Treat a remote VM as a separate device on a different network, not as the user’s Mac.
 
-Evidence: `SPEC.md:453`; `agent/vm/provision.sh` (timezone only).
+Evidence: `SPEC.md:454`; `agent/vm/provision.sh` (timezone only).
 
 ### S8. Multiple VMs share an identical fingerprint — High for multi-account
 
@@ -265,6 +395,14 @@ VMs built from the same image normally share the same Chromium build, the same 1
 ### S9. HTTP/TLS fingerprints are real, but the platform is not — Medium
 
 The TLS and HTTP/2 fingerprints are a real Chromium, which is good. The `Sec-CH-UA` platform and UA say Linux, while the account may normally be on macOS/Safari. A server that compares the declared platform with the account’s device history sees a mismatch. This is not a bot signature by itself, but it is part of S6/S7.
+
+### S10. No consent step, so a consent wall is left standing — Low
+
+Nothing in the code knows what a cookie/consent banner is: the only page-state checks are challenges and soft-block phrases. A banner is dismissed only if the agent happens to target it; otherwise it stays up for the whole session while the bot acts around it, or is hit blind on the first snapshot with no read time. A site that keys on consent state sees a returning visitor who never accepts, or who accepts without ever looking, which does not match the account’s earlier human sessions.
+
+Evidence: `Sources/apprentice/SiteRules.swift:50-67` (challenge and soft-block checks, nothing else); no `consent`/`cookie`/`gdpr` handling in `Sources/apprentice/`.
+
+Severity Low, confidence likely. Fix: treat a consent wall as a first-class step with its own dwell, and let the user set the preference once per site.
 
 ---
 
@@ -292,7 +430,7 @@ if event.cgEvent?.getIntegerValueField(.eventSourceUserData) != Keys.tag { ... }
 
 The value is constant across installs, so a detector can hardcode it. Real hardware events have `eventSourceUserData == 0`.
 
-Evidence: `Sources/apprentice/Input.swift:224-232`, `:461-468`, `:531-535`; `Sources/apprentice/Remote.swift` does not set the tag in the guest, so a VM session does not have this exact tag (it has the XTest/provenance issues below instead).
+Evidence: `Sources/apprentice/Input.swift:224-232`, `:461-468` (`watchHuman`), `:501`, `:528` (`Watch`); `Sources/apprentice/Remote.swift` does not set the tag in the guest, so a VM session does not have this exact tag (it has the XTest/provenance issues below instead).
 
 ### A2. Synthetic event provenance — High
 
@@ -318,7 +456,7 @@ Evidence: `Sources/apprentice/Input.swift:227-232` (creation with `nil` source a
 
 For a browser this is necessary to read the page. For a native app it is often unnecessary, and it is a state a normal user’s app does not sit in. Restricting the call to browser sessions/web areas would remove an app-level signal.
 
-Evidence: `Sources/apprentice/AX.swift:115-118`; `Sources/apprentice/Commands.swift:501`, `Sources/apprentice/Reader.swift:171` (call sites); `agent/vm/session.sh:30`.
+Evidence: `Sources/apprentice/AX.swift:125-128`; `Sources/apprentice/Commands.swift:512`, `Sources/apprentice/Reader.swift:183` (call sites); `agent/vm/session.sh:30`.
 
 ### A4. Process and bundle footprint — High for adversarial apps
 
@@ -330,7 +468,7 @@ This is not a page signal and not something to hide; it is part of the tool’s 
 
 The reader walks up to 40,000 nodes at depth 90 per snapshot and re-reads after actions. A native app with its own accessibility provider can measure query volume and timing: a client that enumerates the whole tree every few seconds is not a typical screen reader. This is niche, but real for apps that instrument their AX server.
 
-Evidence: `Sources/apprentice/Reader.swift:112` (`visited < 40000`), `:101-140` (walker); `Sources/apprentice/Reader.swift:200-210` (snapshot cache).
+Evidence: `Sources/apprentice/Reader.swift:115` (`visited < 40000`), `:113-143` (walker), `:212-229` (snapshot cache).
 
 ### A6. Window activation and event timing — Medium
 
@@ -352,7 +490,31 @@ Evidence: `agent/vm/session.sh`; `agent/vm/helper.py:388-405`.
 
 `Keys.paste` is used in the address bar and system file dialogs, not inside web pages. A native app with a pasteboard monitor can see the clipboard being written and restored, but that is an OS-level observation, not a page one.
 
-Evidence: `Sources/apprentice/Input.swift:202-221`; `Sources/apprentice/Commands.swift:526-580`, `:999-1004`.
+Evidence: `Sources/apprentice/Input.swift:202-221`; `Sources/apprentice/Commands.swift:555` (`open`), `:1015-1020` (`choose`).
+
+### A10. Power assertions are in the global system state — Low–Medium
+
+With keep-awake on, `Awake` creates two IOPM assertions named `apprentice: a task is running` and holds them for the task plus a 120 s grace. `pmset -g assertions` shows the name and the owning process to any local user, no privileges needed. It also means the display never sleeps and the screen never locks during a three-hour session — which is not what a person at a keyboard looks like, and is the one part of the footprint that is a *behavioural* tell rather than a process one.
+
+Evidence: `Sources/apprentice/Awake.swift:35-43` (`IOPMAssertionCreateWithName`, both display and system sleep), `:14` (`grace = 120`).
+
+Severity Low–Medium. Fix: keep the assertion but name it plainly and shorten the grace period; do not describe keep-awake as invisible.
+
+### A11. Notifications are posted by `osascript` — Low
+
+`SiteRules.notify` shells out to `/usr/bin/osascript` with `display notification … sound name "Ping"`. The notification is therefore attributed to the scripting host rather than to apprentice, and every call spawns a short-lived `osascript` process that a process list or an `NSWorkspace` observer can see. It is a small thing, but it is the same “a script is driving this Mac” story as A1.
+
+Evidence: `Sources/apprentice/SiteRules.swift:64-72`.
+
+Severity Low. Fix: post through `UNUserNotificationCenter` with apprentice’s own bundle, so the notification looks like the app it is.
+
+### A12. Screen Recording permission and the capture indicator — Low
+
+`Capture.ensure` preflights and requests Screen Recording, and every `--image`/`--crop` snapshot runs a ScreenCaptureKit capture with `showsCursor = false`. macOS lists apprentice under Privacy & Security → Screen & System Audio Recording and shows its capture indicator while an image is taken. A process that can read the screen, drive the pointer and hold power assertions is the shape of a remote-control tool, which is a fair description of what this is.
+
+Evidence: `Sources/apprentice/Capture.swift:12-19` (permission), `:55-71` (`SCScreenshotManager`, `showsCursor = false`).
+
+Severity Low; accepted, it is the user’s own screen. Fix: none, but keep captures window-scoped and short, and say so in the docs.
 
 ---
 
@@ -380,7 +542,7 @@ Evidence: `agent/vm/session.sh:6`, `:30-32`.
 
 `Remote.send` writes each event line to the ssh pipe after the host’s `Pace.sleep`; `helper.py` reads lines and plays them as they arrive. On a local Tart VM this is usually fine. On a remote VM, ssh/TCP buffering can deliver several lines in one read, and the helper then plays them back-to-back. The page sees compressed event timestamps and a burst that does not match the host’s pacing. The same applies to wheel notches, which the helper plays in a tight loop.
 
-Evidence: `Sources/apprentice/Remote.swift:144-151`, `:176-227`; `agent/vm/helper.py:418-465`.
+Evidence: `Sources/apprentice/Remote.swift:144-149` (`send`), `:176-270` (`post`, `press`, `typeChar`, `act`); `agent/vm/helper.py:418-464` (`play`).
 
 Mitigation direction: include the intended timestamp in each input op and have the helper sleep until it, rather than replaying on arrival. Batch wheel notches with their own delays.
 
@@ -402,6 +564,30 @@ A remote VM’s WebRTC candidates and latency reflect the server network, not th
 
 The VM is not `--headless`, so the usual `HeadlessChrome` UA, missing `window.chrome`, zero `outerWidth` checks do not fire. The VM looks like a headful Linux Chromium, which is better than headless but still a different device. Do not assume “not headless” means “not detectable.”
 
+### V9. The guest session file and a global environment marker — Medium for guest apps
+
+`session.sh` writes the session D-Bus address to `/tmp/apprentice-session.env` with the service’s default umask, so any process in the guest can read it and join the accessibility bus. `provision.sh` then appends `DISPLAY=:0` and `QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1` to `/etc/environment`. A page sees neither; a guest-native app sees that its screen is virtual and that accessibility is being forced on for it.
+
+Evidence: `agent/vm/session.sh:22-24`; `agent/vm/provision.sh:68-69`.
+
+Severity Medium for guest apps, Low for pages. Fix: `install -m 600` (or put the file under `$HOME`), and keep tool-specific variable names out of `/etc/environment`.
+
+### V10. The only input devices are the XTEST fakes — Medium, accepted
+
+Xvfb starts with no pointer or keyboard hardware, so the X server’s device list holds only the virtual core XTEST devices, and `XTestQueryExtension` answers. Any X client can see that every event in the session comes from XTEST. This is upstream of P2 and P8 and is the VM’s version of A2: it cannot be removed without a real device.
+
+Evidence: `agent/vm/session.sh:6` (Xvfb with no input device); `agent/vm/helper.py:418` (`fake` → `xtest.fake_input`).
+
+Severity Medium; **accepted** as device identity. Fix: none. Do not describe VM input as indistinguishable from a physical keyboard.
+
+### V11. Accessibility is forced at the bus, and launched apps inherit the helper’s environment — Low–Medium
+
+`session.sh` sets `org.a11y.Status IsEnabled = true` on the session bus before Chromium starts, so every app on that bus is told a reader is present. `helper.py` sets `QT_LINUX_ACCESSIBILITY_ALWAYS_ON=1` in its own environment and `launch` starts apps with that environment inherited, so an app started from a session can read the variable and, on the bus, see a client that is not a screen reader.
+
+Evidence: `agent/vm/session.sh:16-20`; `agent/vm/helper.py:36`; `agent/vm/helper.py:483` (`launch` inherits the environment).
+
+Severity Low–Medium. Fix: launch apps with a clean environment, and force accessibility for Chromium only rather than for the whole session bus.
+
 ---
 
 ## 5. Detection-response gaps
@@ -412,31 +598,31 @@ These do not create a signal, but they make a site’s first soft signal turn in
 
 `softBlockPhrases` and the `challengeMarkers` text are English. On a localized site, a “try again later” banner in the site’s language is not recognized; a localized challenge is only recognized if its URL or title happens to match one of the built-in paths/markers. The tool keeps acting, and the site applies a longer restriction.
 
-Evidence: `Sources/apprentice/Config.swift:250-260` (lists), `:343-344` (config overrides); `Sources/apprentice/SiteRules.swift:49-69` (`Site.inspect`), `:333-344` (`Challenge.paths` and `find`).
+Evidence: `Sources/apprentice/Config.swift:247-251`, `:268-272` (lists), `:355-356` (config overrides); `Sources/apprentice/SiteRules.swift:50-63` (`Site.inspect`), `:361-372` (`Challenge.paths` and `find`).
 
 ### D2. Only new elements are inspected — Medium
 
 `Site.inspect` (the soft-block path) compares element keys against the previous snapshot and only checks elements that are new, and only when the URL did not change. A banner that replaces existing text, a message inside an element that was already present, or a soft block shown after a navigation is missed. `Challenge.find` is broader (URL paths, title, every short element name) but its text markers are still English.
 
-Evidence: `Sources/apprentice/SiteRules.swift:55-66`.
+Evidence: `Sources/apprentice/SiteRules.swift:53-55`.
 
 ### D3. Dwell is tied to URL changes and budgeted kinds — Medium
 
 `Site.dwell` measures time since `pageAt`, which is set when `Session.track` sees a URL change. An SPA route that does not update the AX URL, or an action that is not classified as budgeted, can happen without a dwell. The default profile has no dwell at all.
 
-Evidence: `Sources/apprentice/State.swift:187-193` (`track`), `:308-310` (`notePage`); `Sources/apprentice/SiteRules.swift:75-84` (`dwell`).
+Evidence: `Sources/apprentice/State.swift:212-217` (`track`), `:333-335` (`notePage`); `Sources/apprentice/SiteRules.swift:74-82` (`dwell`).
 
 ### D4. `actions_per_min` is per host, not per account — Low–Medium
 
 `Limits.beforeAction` counts actions per host. `Site.domain` normalizes common prefixes and `twitter.com`/`x.com`, but other subdomains or aliases (`business.facebook.com`, country domains) can have separate counters. A site can see the aggregate.
 
-Evidence: `Sources/apprentice/State.swift:345-390`; `Sources/apprentice/SiteRules.swift:8-20`.
+Evidence: `Sources/apprentice/State.swift:370-409`; `Sources/apprentice/SiteRules.swift:10-16` (`Site.domain`).
 
 ### D5. No cap on uncategorized gated clicks — Medium
 
-A click whose label/name does not match a budget word and does not trigger a Gate warning is classified as `nil`; it is still gated and may count as `default` only if `gated` is true. The `default` cap is 120/hour and 500/day, which is generous. On a site where “Appreciate”, “Boost” or an icon-only button is the real like, this bypasses the like budget and the dwell.
+A click whose label/name does not match a budget word and does not trigger a Gate warning is classified as `nil`; it is still gated and may count as `default` only if `gated` is true. Budgets come only from `budgets.json`: the example file's `default` cap is 120/hour and 500/day, which is generous, and with no file there is no cap at all. On a site where “Appreciate”, “Boost” or an icon-only button is the real like, this bypasses the like budget and the dwell.
 
-Evidence: `Sources/apprentice/Commands.swift:230-275`; `Sources/apprentice/SiteRules.swift:147-166`, `:169-191`, `:194-224`.
+Evidence: `Sources/apprentice/Commands.swift:233-239`; `Sources/apprentice/SiteRules.swift:101-131` (`table`, `cap`), `:145-149` (`kind`), `:157-182`, `:208-238`; `agent/budgets.example.json`.
 
 ### D6. No time-of-day or session-length model — Medium
 
@@ -480,6 +666,8 @@ Ordered by expected reduction in detection risk per unit of work. These are sugg
 12. **Treat the VM as a separate device in the docs and in `doctor`.** Keep high-value accounts on the Mac (`[vm] local`). Add a `doctor` check that warns when a Linux VM is used for an account whose other sessions are macOS, and when `APPRENTICE_LANG` is unset. Do not add fingerprint spoofing.
 13. **Fix VM input timing.** Send target timestamps with input ops and have the helper sleep until them; batch wheel notches with delays; preserve/restore the keyboard mapping after a temporary keycode.
 14. **Build a canary page.** Add a local HTML page (or a `doctor --fingerprint` command) that prints `navigator.webdriver`, UA/CH, platform, languages, screen/DPR, hardware, WebGL/WebGPU, canvas/audio hashes, focus events, and the timing/overlap of pointer, key and wheel events. Run it in a Mac session and a VM session and compare before/after changes. This is the only way to know which of the “likely” items above are real in the current browser build.
+15. **Vary the foreground and the tab.** Open a second tab now and then and come back; leave the page rather than sitting on it; do not raise a window that is already frontmost; reload occasionally (P17/P18).
+16. **Tidy the guest environment and give the app its own identity.** `chmod 600` the session env file, keep tool-specific variables out of `/etc/environment`, launch guest apps with a clean environment, and post notifications through `UNUserNotificationCenter` (A11, V9, V11).
 
 ---
 
@@ -510,6 +698,16 @@ Ordered by expected reduction in detection risk per unit of work. These are sugg
 | No active-hours/session-length model | **yes** | **yes** | yes | S4 |
 | Accessibility walk of 40k nodes | no | no | **yes** (AX provider) | A5 |
 | Screen capture | no | no | limited | A7; DRM/protected windows |
+| Character typed on keycode 0 (`code: "KeyA"`) | **yes** | no | yes | P16 |
+| One tab, growing history, no back or reload | **yes** | maybe | no | P17 |
+| Page never hidden, window always in front | **yes** | maybe | no | P18 |
+| No consent step | no | **yes** | no | S10 |
+| `pmset -g assertions` names apprentice | no | no | **yes** (local) | A10 |
+| Notification posted by `osascript` | no | no | **yes** (local) | A11 |
+| Screen Recording + capture indicator | no | no | limited | A12 |
+| Guest env files name the rig | no | no | yes (guest app) | V9 |
+| Only XTEST input devices | no | no | yes (guest X app) | V10 |
+| A11y forced on the guest session bus | no | no | yes (guest app) | V11 |
 
 ---
 
@@ -521,4 +719,4 @@ The app-level surface is the opposite: macOS makes synthetic input easy to ident
 
 On the VM, the browser is real Chromium but the device is not the user’s: Linux, software WebGL, fixed 1280×800, DPR 1, few fonts, no battery/camera/audio, a new profile per site, and (for a remote VM) a datacenter IP. Treat it as a second device and keep the accounts whose standing matters most on the Mac.
 
-The highest-value work is therefore: safer defaults (S1), label-independent budgets and detection (S2/S3/D1), persistent behavioural profiles (P5), better keystroke and drag models (P1/P7), and honest documentation of the app-level provenance limit (A1/A2). Everything else is refinement.
+The highest-value work is therefore: safer defaults (S1), label-independent budgets and detection (S2/S3/D1), persistent behavioural profiles (P5), better keystroke and drag models (P1/P7), and honest documentation of the app-level provenance limit (A1/A2). Two cheap behavioural signals sit beside those and cost almost nothing to fix: the page is never hidden and the tab set never changes (P18/P17), and the local footprint names itself in the power assertions and notifications (A10/A11). Everything else is refinement.

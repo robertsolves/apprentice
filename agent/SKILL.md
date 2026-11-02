@@ -10,12 +10,12 @@ One window at a time. Every action is real input: the cursor moves and clicks, k
 ## Before the screen
 1. Your own connectors and tools first. GitHub goes through `gh`.
 2. `apprentice route "<task>"`: use a faster route if it names one.
-3. `apprentice do --explain "<task>"` picks the best flow for your model (or `apprentice notes "<words>"`). Run it with `apprentice do <flow> --key value`: one approval, and it hands over with the screen if a step fails, or proposes that step alone (exit 8) if it shows a risk the plan did not. Flows are kept per model; yours is detected from your agent.
-4. No note? Search the app's or site's own help docs for how it is done, then work on screen.
+3. `apprentice do --explain "<task>"` picks the best flow for your model (or `apprentice playbooks "<words>"`). Run it with `apprentice do <flow> --key value`: one approval, and it hands over with the screen if a step fails, or proposes that step alone (exit 8) if it shows a risk the plan did not. Flows are kept per model; yours is detected from your agent.
+4. No playbook? Search the app's or site's own help docs for how it is done, then work on screen.
 
 ## Loop
 ```
-apprentice session --app Safari --task "<the user's task>"   # first one asks for options; prints policy and notes
+apprentice session --app Safari --task "<the user's task>"   # first one asks for options; prints policy and playbooks
 apprentice read                        # numbered list
 apprentice click 14
 apprentice type 16 "new bio" --enter
@@ -31,13 +31,13 @@ Changing commands exit 8 with `approve? …` and a token; nothing has happened. 
 - Use the little window for every decision that is their, not only when stuck: choosing between options, anything risky or hard to undo, unclear instructions, and before giving up. It pings when it opens.
 - `apprentice ask "question"` (`--choices "A|B"`, `--multi`, `--text`); `apprentice show "what"` has them point at it and returns the element there. Keep questions short and give choices when you can.
 - Exit 9 means they are away or did not answer the window: ask the same question in the chat (your own question tool if you have one), attach the screenshot it names if you can send files, and carry on with their answer. Away, they cannot point at things. When they say they are away or back, run `apprentice away on` or `off`. When they ask to be reached on their phone, run `apprentice phone` and give them the link it prints.
-- Their answer is their instruction. When it unblocks you, do both: put it in that page's or app's note, and file `apprentice bug "…" --fix "…"` with the code change that would have avoided asking (a better read, a generic command). Asking once is fine; asking twice for the same thing means the tool should change.
+- Their answer is their instruction. When it unblocks you, do both: put it in that page's or app's playbook, and file `apprentice bug "…" --fix "…"` with the code change that would have avoided asking (a better read, a generic command). Asking once is fine; asking twice for the same thing means the tool should change.
 - After a task works: `apprentice learn "<task>"`, then generalize the draft (`{placeholders}`, drop dead steps, add Fails).
-- Never copy screen text into notes.
+- Playbooks are shared with everyone: never put screen text or personal details in one (names, handles, emails, numbers, ids, home paths, tokens); use `{placeholders}`. `commit` refuses one that has them; `apprentice playbooks --check` finds them first. Pass on the use-at-your-own-risk line the first `session` prints.
 
 ## Fixing apprentice as you go
 apprentice runs from its own local git clone (`apprentice repo` prints where). It improves itself as it is used:
-- When a note is missing or wrong, edit it in `<repo>/notes/`, then `apprentice commit "what and why"`.
+- When a playbook is missing or wrong, edit it in `<repo>/playbooks/`, then `apprentice commit "what and why"`.
 - When apprentice itself misbehaves, read its source, find the cause and make the smallest generic fix (no code for one app or site; read `<repo>/CLAUDE.md` first). Then `apprentice commit "…"`: it rebuilds and restarts apprentice, so the fix is live for your next command. If the build fails, fix it and commit again. If the fix is too big or unclear, file `apprentice bug "summary" --repro "…" --cause "file:line" --fix "…"` instead.
 - One small change per commit. `bug` and `learn` commit on their own.
 - apprentice updates itself. Pass on any `apprentice:` update line `session` prints; never run `apprentice update` yourself.
@@ -53,4 +53,4 @@ apprentice runs from its own local git clone (`apprentice repo` prints where). I
 - Stay in the session window. No secrets in commands; password fields are typed into, never read.
 - Never change the user's settings (`policy`, `awake`, `settings`); ask them if one is in the way.
 
-Exit codes: 0 ok · 2 stale · 3 the user denied · 4 blocked (allowlist, rate limit, budget, cooling, challenge) · 5 not found/timeout · 6 interrupted · 7 permission missing · 8 approval needed · 9 ask the user in the chat.
+Exit codes: 0 ok · 2 stale or the page changed (read, then decide again) · 3 the user denied · 4 blocked (allowlist, refresh limit, budget, cooling, challenge) · 5 not found/timeout · 6 interrupted · 7 permission missing · 8 approval needed · 9 ask the user in the chat.

@@ -1,9 +1,10 @@
 import Foundation
 
-/// Learned notes: Markdown files about apps, sites and flows, kept in the repo's `notes/`
-/// (linked to ~/.apprentice/notes by kit.sh), so `git pull` brings in what was learned elsewhere.
-enum Notes {
-    struct Note {
+/// Playbooks: what was learned about apps, sites and flows, as Markdown kept in the repo's `playbooks/`
+/// (linked to ~/.apprentice/playbooks by kit.sh), so `git pull` brings in what was learned elsewhere.
+/// Playbooks are shared, so they stay generic: `leaks` keeps personal details out of every commit of them.
+enum Playbooks {
+    struct Playbook {
         var url: URL
         var path: String
         var meta: [String: String]
@@ -27,23 +28,25 @@ enum Notes {
     }
 
     static var dir: URL {
-        if let custom = ProcessInfo.processInfo.environment["APPRENTICE_NOTES"], !custom.isEmpty {
+        let env = ProcessInfo.processInfo.environment
+        // APPRENTICE_NOTES is the old name, still honoured.
+        if let custom = env["APPRENTICE_PLAYBOOKS"] ?? env["APPRENTICE_NOTES"], !custom.isEmpty {
             return URL(fileURLWithPath: (custom as NSString).expandingTildeInPath)
         }
-        return Store.dir.appendingPathComponent("notes")
+        return Store.dir.appendingPathComponent("playbooks")
     }
 
-    /// Parsed notes by path, kept while the file's modification date stays the same: `session` reads the
-    /// notes three times, and parsing a few hundred files each time adds up.
-    private static var cache: [String: (Date, Note)] = [:]
+    /// Parsed playbooks by path, kept while the file's modification date stays the same: `session` reads the
+    /// playbooks three times, and parsing a few hundred files each time adds up.
+    private static var cache: [String: (Date, Playbook)] = [:]
     private static let cacheLock = NSLock()
 
-    static func all() -> [Note] {
+    static func all() -> [Playbook] {
         let root = dir.resolvingSymlinksInPath()
         guard let walk = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else { return [] }
         cacheLock.lock()
         defer { cacheLock.unlock() }
-        var out: [Note] = []
+        var out: [Playbook] = []
         for case let url as URL in walk where url.pathExtension == "md" && url.lastPathComponent != "README.md" {
             let stamp = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
             if let (seen, note) = cache[url.path], seen == stamp { out.append(note); continue }
@@ -56,7 +59,7 @@ enum Notes {
         return out.sorted { $0.path < $1.path }
     }
 
-    static func parse(_ text: String, url: URL, path: String) -> Note {
+    static func parse(_ text: String, url: URL, path: String) -> Playbook {
         var meta: [String: String] = [:]
         var lines = text.components(separatedBy: .newlines)
         if lines.first == "---", let end = lines.dropFirst().firstIndex(of: "---") {
@@ -67,13 +70,13 @@ enum Notes {
             lines = Array(lines[(end + 1)...])
         }
         let title = lines.first { $0.hasPrefix("# ") }.map { String($0.dropFirst(2)) } ?? url.deletingPathExtension().lastPathComponent
-        return Note(url: url, path: path, meta: meta, title: title, body: lines.joined(separator: "\n"))
+        return Playbook(url: url, path: path, meta: meta, title: title, body: lines.joined(separator: "\n"))
     }
 
-    /// App and site notes for this window; flows are left to `notes <query>`. `*` matches every session.
-    /// `system` is where the session runs, "macos" or "linux" (the VM): a note with `system:` in its front
+    /// App and site playbooks for this window; flows are left to `playbooks <query>`. `*` matches every session.
+    /// `system` is where the session runs, "macos" or "linux" (the VM): a playbook with `system:` in its front
     /// matter only shows there, so the VM does not get the Mac's general facts.
-    static func matching(app: String?, bundle: String?, host: String?, system: String = "macos") -> [Note] {
+    static func matching(app: String?, bundle: String?, host: String?, system: String = "macos") -> [Playbook] {
         let keys = [app, bundle].compactMap { $0?.lowercased() }
         let h = host?.lowercased()
         return all().filter { $0.meta["scope"] != "flow" && ($0.meta["system"].map { $0 == system } ?? true) }.filter { note in
@@ -88,29 +91,29 @@ enum Notes {
         guard !notes.isEmpty else { return [] }
         var out: [String] = []
         for note in notes {
-            out.append("notes · \(note.path)")
+            out.append("playbook · \(note.path)")
             out += note.keyFacts.prefix(6).map { "  - \($0)" }
         }
-        out.append("more: apprentice notes \"<words>\"")
+        out.append("more: apprentice playbooks \"<words>\"")
         return out
     }
 
-    /// Ranks notes by how many query words they contain and shows the matching lines.
+    /// Ranks playbooks by how many query words they contain and shows the matching lines.
     static func search(_ query: String) -> String {
         let root = dir.resolvingSymlinksInPath()
         guard FileManager.default.fileExists(atPath: root.path) else {
-            return "no notes at \(dir.path): run ./kit.sh to link the repo's notes/, or set APPRENTICE_NOTES"
+            return "no playbooks at \(dir.path): run ./kit.sh to link the repo's playbooks/, or set APPRENTICE_PLAYBOOKS"
         }
         let notes = all()
         let words = query.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init).filter { $0.count > 1 }
         if words.isEmpty {
-            return (["notes in \(root.path)"] + notes.map { "\($0.path) · \($0.title)" }).joined(separator: "\n")
+            return (["playbooks in \(root.path)"] + notes.map { "\($0.path) · \($0.title)" }).joined(separator: "\n")
         }
-        let ranked = notes.map { note -> (Note, Int) in
+        let ranked = notes.map { note -> (Playbook, Int) in
             let text = (note.path + " " + note.title + " " + (note.meta["tags"] ?? "") + " " + note.body).lowercased()
             return (note, words.filter { text.contains($0) }.count)
         }.filter { $0.1 > 0 }.sorted { $0.1 > $1.1 }
-        guard !ranked.isEmpty else { return "no notes match \"\(query)\": work it out on screen, then `apprentice learn`" }
+        guard !ranked.isEmpty else { return "no playbook matches \"\(query)\": work it out on screen, then `apprentice learn`" }
         var out: [String] = []
         for (note, _) in ranked.prefix(5) {
             out.append("\(note.path) · \(note.title)")
@@ -119,23 +122,23 @@ enum Notes {
             }
             out += hits.prefix(6).map { "  \($0.trimmingCharacters(in: .whitespaces))" }
         }
-        out.append("full note: cat \(root.path)/<path>")
+        out.append("full playbook: cat \(root.path)/<path>")
         return out.joined(separator: "\n")
     }
 
-    /// Note text for the `run` loop: the window's notes plus the best flow for this task and model, kept
-    /// under a budget so a long note cannot crowd out the screen.
+    /// Playbook text for the `run` loop: the window's playbooks plus the best flow for this task and model, kept
+    /// under a budget so a long playbook cannot crowd out the screen.
     static func context(task: String, session: Session?, model: String? = Store.model, budget: Int = 3000) -> String {
         var parts = hintLines(app: session?.app, bundle: session?.bundle, host: hostOf(session?.url))
         if let best = rank(task: task, model: model, session: session).first {
             parts.append("flow · \(best.note.path) (\(best.why))\n\(best.note.body.trimmingCharacters(in: .whitespacesAndNewlines))")
         }
         let text = parts.joined(separator: "\n")
-        return text.count > budget ? String(text.prefix(budget)) + "\n… (cut; full notes: apprentice notes \"<words>\")" : text
+        return text.count > budget ? String(text.prefix(budget)) + "\n… (cut; full playbooks: apprentice playbooks \"<words>\")" : text
     }
 
     struct Ranked {
-        var note: Note
+        var note: Playbook
         var score: Int
         var why: String
     }
@@ -179,13 +182,13 @@ enum Notes {
         return out.joined(separator: "\n")
     }
 
-    static func flow(named name: String) -> Note? {
+    static func flow(named name: String) -> Playbook? {
         let flows = all().filter { $0.meta["scope"] == "flow" }
         return flows.first { $0.url.deletingPathExtension().lastPathComponent == name || $0.path == name }
     }
 
     /// Numbered lines under "## Steps", without their numbers.
-    static func steps(_ note: Note) -> [String] {
+    static func steps(_ note: Playbook) -> [String] {
         var out: [String] = []
         var inside = false
         for line in note.body.components(separatedBy: .newlines) {
@@ -198,10 +201,10 @@ enum Notes {
 
     // MARK: - bug
 
-    /// The repo that holds the notes (kit.sh links ~/.apprentice/notes into it).
+    /// The repo that holds the playbooks (kit.sh links ~/.apprentice/playbooks into it).
     static var repo: URL { dir.resolvingSymlinksInPath().deletingLastPathComponent() }
 
-    /// Field reports go to the repo's bugs.md when the notes are the repo's own; notes pointed
+    /// Field reports go to the repo's bugs.md when the playbooks are the repo's own; playbooks pointed
     /// anywhere else keep their reports beside them (L1).
     static var bugFile: URL {
         let isRepo = FileManager.default.fileExists(atPath: repo.appendingPathComponent("Package.swift").path)
@@ -228,8 +231,8 @@ enum Notes {
         if let c = a.value("cause") { entry += "- Cause: \(c)\n" }
         if let f = a.value("fix") { entry += "- Suggested fix: \(f)\n" }
         try (text + entry).write(to: file, atomically: true, encoding: .utf8)
-        let hash = Repo.commit("Field report F\(count): \(summary)", paths: [file.path])
-        return "filed F\(count) in \(file.path)" + (hash.map { " (commit \($0))" } ?? "")
+        let hash = try? Repo.commit("Field report F\(count): \(summary)", paths: [file.path])
+        return "filed F\(count) in \(file.path)" + ((hash ?? nil).map { " (commit \($0))" } ?? "")
     }
 
     private static func lastError() -> String? {
@@ -239,6 +242,89 @@ enum Notes {
             return "\(r["failed"] ?? "?") → exit \(r["code"] ?? "?"): \(error.split(separator: "\n").first ?? "")"
         }
         return nil
+    }
+
+    // MARK: - privacy
+
+    /// What in playbook text looks personal: an email, phone or account number, a handle, an id or query in
+    /// a URL, a home path, an address, a token, or the user's own name. Playbooks reach everyone through
+    /// `pr` and updates, so `commit`, `learn` and `pr` refuse text with any of these; `{placeholders}` pass.
+    static func leaks(_ text: String, identity: [String] = identity) -> [String] {
+        var out: [String] = []
+        func hits(_ pattern: String, _ what: String, options: NSRegularExpression.Options = [], skip: (String) -> Bool = { _ in false }) {
+            guard let re = try? NSRegularExpression(pattern: pattern, options: options) else { return }
+            for m in re.matches(in: text, range: NSRange(text.startIndex..., in: text)) {
+                guard let r = Range(m.range, in: text) else { continue }
+                let found = String(text[r])
+                if !skip(found) { out.append("\(what): \(found)") }
+            }
+        }
+        let sample = ["example.com", "example.org", "example.net"]
+        hits(#"[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}"#, "an email address",
+             skip: { e in sample.contains { e.lowercased().hasSuffix("@" + $0) } })
+        hits(#"(?<![\w.@/{])@[A-Za-z0-9_][A-Za-z0-9_.]+"#, "a handle")
+        // Eight or more digits, however they are grouped, is a phone, card or account number; a date is not.
+        hits(#"(?<![\w.])\+?\d(?:[ ().-]{0,2}\d){7,}(?![\w.])"#, "a phone, card or account number",
+             skip: { $0.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil })
+        hits(#"(?<![\w.-])\d{6,}(?![\w.-])"#, "a long number (an id?)")
+        hits(#"https?://[^\s`"'<>)\]]+"#, "a URL with an id or a query", skip: { !urlIsPersonal($0) })
+        hits(#"(?:/Users|/home)/(?!\{|Shared\b)[^/\s`"']+"#, "a home folder")
+        hits(#"(?<![\w.])(?!127\.)(?!0\.0\.0\.0)(?:\d{1,3}\.){3}\d{1,3}(?![\w.])"#, "an IP address")
+        hits(#"\b(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|xox[abpr]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|eyJ[A-Za-z0-9_-]{20,})"#, "a token")
+        hits(#"(?<![\w-])(?=[A-Za-z0-9_-]*\d)(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9_-]{32,}(?![\w-])"#, "a token or long id")
+        for word in identity where word.count >= 3 {
+            let escaped = NSRegularExpression.escapedPattern(for: word)
+            hits(#"(?<![\w])"# + escaped + #"(?![\w])"#, "your own name or account", options: .caseInsensitive)
+        }
+        var seen = Set<String>()
+        return out.filter { seen.insert($0).inserted }
+    }
+
+    /// A URL is personal when its query carries values or a path segment looks like an id or a handle
+    /// (`/@name`, five or more digits, a long mixed token). Hosts and plain paths like `/new` pass.
+    static func urlIsPersonal(_ url: String) -> Bool {
+        guard let c = URLComponents(string: url) else { return true }
+        if let items = c.queryItems, items.contains(where: { ($0.value ?? "").isEmpty == false && !($0.value ?? "").hasPrefix("{") }) { return true }
+        return c.path.split(separator: "/").contains { seg in
+            guard !seg.hasPrefix("{") else { return false }
+            let digits = seg.filter(\.isNumber).count
+            return seg.hasPrefix("@") || seg.hasPrefix("~") || digits >= 5 || (seg.count >= 16 && digits > 0 && seg.contains(where: \.isLetter))
+        }
+    }
+
+    /// The user's own name, login and git identity, and this Mac's name: none of them may be in a playbook.
+    static var identity: [String] {
+        var words = NSFullUserName().split(whereSeparator: { !$0.isLetter }).map(String.init)
+        words.append(NSUserName())
+        for key in ["user.name", "user.email"] {
+            let value = Repo.git("config", key).out
+            words += key == "user.email" ? [value] : value.split(whereSeparator: { !$0.isLetter }).map(String.init)
+        }
+        if let host = Host.current().localizedName { words.append(host) }
+        // A login like "admin" or a name like "User" says nothing about anyone.
+        let generic: Set<String> = ["admin", "user", "root", "mac", "macbook", "imac", "pro", "air", "the", "and"]
+        return Array(Set(words.filter { $0.count >= 3 && !generic.contains($0.lowercased()) }))
+    }
+
+    /// `leaks` for the playbook lines a change adds (`git diff` or `git log -p` output, "+" lines only), so a
+    /// commit is judged on what it brings in. Names each file with what it found.
+    static func leaks(inPatch patch: String) -> [String] {
+        var file = "", added: [String: [String]] = [:], order: [String] = []
+        for line in patch.components(separatedBy: "\n") {
+            if line.hasPrefix("+++ ") { file = String(line.dropFirst(4)).replacingOccurrences(of: "b/", with: "", options: .anchored); continue }
+            guard line.hasPrefix("+"), !file.isEmpty, file != "/dev/null" else { continue }
+            if added[file] == nil { order.append(file) }
+            added[file, default: []].append(String(line.dropFirst()))
+        }
+        return order.flatMap { f in leaks(added[f]!.joined(separator: "\n")).map { "\(f): \($0)" } }
+    }
+
+    /// `playbooks --check`: every playbook, whole, through `leaks`, so a personal detail is found before a
+    /// commit or a PR refuses it.
+    static func checkAll() throws -> String {
+        let found = all().flatMap { p in leaks(p.body + "\n" + p.title + "\n" + p.meta.values.joined(separator: "\n")).map { "\(p.path): \($0)" } }
+        guard !found.isEmpty else { return "\(all().count) playbooks checked: nothing personal found" }
+        throw Fail(5, "these look personal, and playbooks are shared:\n" + found.map { "  - \($0)" }.joined(separator: "\n"))
     }
 
     // MARK: - learn
@@ -264,30 +350,55 @@ enum Notes {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try text.write(to: url, atomically: true, encoding: .utf8)
         let path = url.resolvingSymlinksInPath().path
-        let hash = Repo.commit("Draft flow \(slug): \(task)", paths: [path])
-        return "wrote \(path)" + (hash.map { " (commit \($0))" } ?? "")
+        let found = leaks(text + "\n" + slug)
+        guard found.isEmpty else {
+            // Written for the LLM to generalize, never committed as it is: a commit could reach everyone.
+            return "wrote \(path), not committed: it looks personal, and playbooks are shared:\n"
+                + found.map { "  - \($0)" }.joined(separator: "\n")
+                + "\nreplace each with a {placeholder} or a generic name, then `apprentice commit \"…\"`\n\n" + text
+        }
+        let hash = try? Repo.commit("Draft flow \(slug)", paths: [path])
+        return "wrote \(path)" + ((hash ?? nil).map { " (commit \($0))" } ?? "")
             + "\nedit it now: generalize names, drop dead steps, add Fails; then `apprentice commit \"…\"`\n\n" + text
+    }
+
+    /// Screen text kept to one plain line inside one backticked step: a name with a newline or a
+    /// backtick in it would otherwise add a step of its own (a `sh:` one, say) to a playbook, which is trusted.
+    static func oneLine(_ s: String, max: Int = 80) -> String {
+        let flat = s.map { $0.isNewline || $0 == "`" || $0 == "\t" ? " " : $0 }
+        let text = String(flat).split(separator: " ", omittingEmptySubsequences: true).joined(separator: " ")
+        return String(text.prefix(max))
+    }
+
+    /// The site a step opened, without the page: a path or query can name a person, an account or an
+    /// order, so `learn` keeps the host and leaves `{path}` for the LLM to generalize.
+    static func genericURL(_ url: String) -> String {
+        guard var c = URLComponents(string: url), c.host != nil else { return url }
+        let hadMore = !(c.path.isEmpty || c.path == "/") || c.query != nil || c.fragment != nil
+        c.query = nil; c.fragment = nil; c.path = ""
+        return (c.string ?? url) + (hadMore ? "/{path}" : "/")
     }
 
     static func stepLines(_ session: Session) -> [String] {
         let rows = Sessions.rows(Store.runFolder(session))
         guard !rows.isEmpty else { return [] }
-        var out = ["`session --app \"\(session.app)\"`"]
+        var out = ["`session --app \"\(oneLine(session.app))\"`"]
         for r in rows {
             guard let cmd = r["cmd"] as? String, actions.contains(cmd), r["diff"] != nil else { continue }
             func el(_ prefix: String = "") -> String {
-                let label = r[prefix + "label"] as? String ?? "element"
+                let label = oneLine(r[prefix + "label"] as? String ?? "element")
                 if label.hasPrefix("focused") { return "focused" }
-                let name = (r[prefix + "name"] as? String ?? "").replacingOccurrences(of: "\"", with: "\\\"")
+                let name = oneLine(r[prefix + "name"] as? String ?? "")
+                    .replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
                 return "#\(label) \"\(name)\""
             }
             var line: String
             switch cmd {
-            case "open": line = "open \(r["url"] as? String ?? "{url}")"
+            case "open": line = "open \(genericURL(oneLine(r["url"] as? String ?? "{url}", max: 300)))"
             case "click": line = "click \(el())"
             case "type": line = "type \(el()) \"{text}\""
-            case "key": line = "key \(r["combo"] as? String ?? "")"
-            case "menu": line = "menu \"\(r["menu"] as? String ?? "")\""
+            case "key": line = "key \(oneLine(r["combo"] as? String ?? ""))"
+            case "menu": line = "menu \"\(oneLine(r["menu"] as? String ?? ""))\""
             case "scroll": line = "scroll \(r["direction"] as? String ?? "down") \(r["count"] ?? 3)"
             case "hover": line = "hover \(el())"
             case "browse": line = "browse \(r["seconds"] ?? 30)"
@@ -297,7 +408,7 @@ enum Notes {
             case "choose": line = "choose \"{path}\""
             default: line = "download \(el()) \"{path}\""
             }
-            if let flags = r["flags"] as? String, !flags.isEmpty { line += " " + flags }
+            if let flags = r["flags"] as? String, !flags.isEmpty { line += " " + oneLine(flags) }
             line = "`\(line)`"
             if r["diff"] as? String == "+0 -0 ~0" { line += " — no visible change: drop it if it was not needed" }
             out.append(line)

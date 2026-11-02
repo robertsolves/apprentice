@@ -1,7 +1,7 @@
 import Foundation
 
 /// `grow`: what the logs say apprentice should learn next. Repeated errors are candidate code fixes,
-/// questions the user answered are candidate notes, and open field reports are fixes waiting for review.
+/// questions the user answered are candidate playbooks, and open field reports are fixes waiting for review.
 /// Claude Code runs it at the start of work in this repo (CLAUDE.md).
 enum Grow {
     static func digest(days: Int) -> String {
@@ -36,7 +36,7 @@ enum Grow {
         let top = errors.sorted { $0.value.count > $1.value.count }
         out.append(top.isEmpty ? "errors: none" : "errors (most frequent first; each repeated one is a candidate code fix):")
         out += top.prefix(10).map { "  \($0.value.count)× \($0.key)" }
-        out.append(asked.isEmpty ? "questions to the user: none" : "questions to the user (each is a gap in the notes or the tool):")
+        out.append(asked.isEmpty ? "questions to the user: none" : "questions to the user (each is a gap in the playbooks or the tool):")
         out += asked.suffix(10).map { "  \($0)" }
         if !learning.isEmpty {
             out.append("learning: " + learning.sorted { $0.key < $1.key }.map { "\($0.value)× \($0.key)" }.joined(separator: " · "))
@@ -48,12 +48,12 @@ enum Grow {
             out.append("flows run:")
             out += flows.sorted { $0.value > $1.value }.map { "  \($0.value)× \($0.key.dropFirst("run flow ".count))" }
         }
-        let bugs = Notes.bugFile
+        let bugs = Playbooks.bugFile
         let reports = ((try? String(contentsOf: bugs, encoding: .utf8)) ?? "").components(separatedBy: "\n")
             .filter { $0.hasPrefix("### F") }
         out.append(reports.isEmpty ? "field reports: none" : "field reports in \(bugs.path):")
         out += reports.suffix(10).map { "  \($0.dropFirst(4))" }
-        out.append("next: propose code changes for the top errors and reports; turn answered questions into notes or generic features")
+        out.append("next: propose code changes for the top errors and reports; turn answered questions into playbooks or generic features")
         return out.joined(separator: "\n")
     }
 

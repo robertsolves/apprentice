@@ -259,7 +259,7 @@ enum Ask {
 /// `show "what"`: when the LLM cannot find something, the person points at it. The window never takes
 /// focus, so menus and dropdowns in the app stay open: press Start, move the cursor onto the thing and
 /// hold still; after 5 s without movement the spot is captured. The reply names the element there and
-/// its id in a fresh list, so the LLM can act on it now and write it into the notes by name.
+/// its id in a fresh list, so the LLM can act on it now and write it into the playbook by name.
 extension Ask {
     static func pointAt(_ a: Args) throws -> String {
         let what = a.pos.joined(separator: " ")
@@ -297,7 +297,7 @@ extension Ask {
             }
         }
         }
-        out.append("then add where it is to the note for this page or app, by name")
+        out.append("then add where it is to the playbook for this page or app, by name")
         return out.joined(separator: "\n")
     }
 
@@ -394,10 +394,12 @@ extension Ask {
         guard let p = Approvals.find(token) else { throw Fail(5, "no pending action \(token): run the command again") }
         let approve = "Approve", deny = "Deny"
         let why = a.value("why").map { "\n\nWhy: \($0)" } ?? ""
+        // The user decides on what the agent saw: the ⚠ lines (irreversible, a payment, a password field) go with it.
+        let flags = (p.warnings ?? []).map { "⚠ \($0)" }
         let remote = p.needsUser
-            ? ["question: approve this step? \(p.summary)\(why.replacingOccurrences(of: "\n\n", with: " "))",
+            ? ["question: approve this step? \(p.summary)\(why.replacingOccurrences(of: "\n\n", with: " "))"] + flags + [
                "\(p.warnings?.first(where: Gate.forUser.contains) ?? Gate.credential): only the user can approve it, at the Mac: when they are back, run `apprentice confirm \(token)` again. A yes in the chat cannot run it. The step stays open for an hour."]
-            : ["question: approve this step? \(p.summary)\(why.replacingOccurrences(of: "\n\n", with: " "))",
+            : ["question: approve this step? \(p.summary)\(why.replacingOccurrences(of: "\n\n", with: " "))"] + flags + [
                "if they say yes in the chat: `apprentice approve \(token)`; if no: `apprentice deny \(token)`. Nothing is done until then; the step stays open for an hour."]
         // The user may answer from the chat or their phone long after the usual five minutes.
         func handBack() -> Fail {
@@ -409,7 +411,7 @@ extension Ask {
         let timeout = windowTime(a.value("timeout").flatMap(Double.init) ?? 600)
         Daemon.serial { Approvals.extend(token, by: timeout + 60) }
         let reply = DispatchQueue.main.sync {
-            show("Approve this step?\n\n\(p.summary)\(why)", choices: [approve, deny], multi: false, withText: true,
+            show("Approve this step?\n\n\(([p.summary] + flags).joined(separator: "\n"))\(why)", choices: [approve, deny], multi: false, withText: true,
                  timeout: timeout, placeholder: "Anything to add (optional)", caller: caller)
         }
         // An approval in the second after the agent gave up would run a step nobody is watching.

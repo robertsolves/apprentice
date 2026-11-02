@@ -120,13 +120,18 @@ final class Walker {
         let onscreen = i.frame.map { $0.width > 0 && $0.height > 0 && $0.intersects(bounds) } ?? false
         if let (label, kind) = classify(i.role, i.subrole) {
             let name = elementName(i, kind)
-            let keep = !name.isEmpty || kind == .input
+            var value: String?
+            if kind == .input, label != "password" { value = clip(i.value.flatMap(stringify) ?? "", 40) }
+            if label == "checkbox" || label == "radio" || label == "tab" {
+                // 2 is a tri-state box's mixed state, which a click does not simply turn on.
+                let v = i.value.flatMap(stringify)
+                value = v == "1" ? "on" : v == "2" ? "mixed" : "off"
+            }
+            // A popup (a <select>, a sort menu) shows its choice as its value and often has no name of its
+            // own: without the value it would be dropped, and the agent could neither see nor change it.
+            if label == "popup", let v = i.value.flatMap(stringify), !v.isEmpty { value = clip(v, 40) }
+            let keep = !name.isEmpty || kind == .input || (label == "popup" && value != nil)
             if keep, onscreen || includeOffscreen, let f = i.frame {
-                var value: String?
-                if kind == .input, label != "password" { value = clip(i.value.flatMap(stringify) ?? "", 40) }
-                if label == "checkbox" || label == "radio" || label == "tab" {
-                    value = i.value.flatMap(stringify) == "1" ? "on" : "off"
-                }
                 out.append(Element(
                     id: 0, path: path, label: label, name: name, value: value,
                     frame: [f.minX, f.minY, f.width, f.height].map { Double($0) },
@@ -294,6 +299,12 @@ func resolve(_ id: Int, _ t: Target) throws -> (AXUIElement?, Element) {
     guard let e = snap.elements.first(where: { $0.id == id }) else { throw Fail(5, "no element \(id) in snap \(snap.snap)") }
     // OCR elements have no AX path; the caller clicks their box directly.
     if e.path.isEmpty { return (nil, e) }
+    // An element now wholly outside the view would be clicked or typed into at a point on whatever
+    // lies there instead (another window, the Dock): the agent scrolls to it first.
+    func inView(_ found: Element) throws -> Element {
+        guard t.bounds.width > 0, t.bounds.height > 0, !found.rect.intersects(t.bounds) else { return found }
+        throw Fail(2, "stale: element \(e.short) is out of view now: scroll it into view, then retry")
+    }
     if let el = walkPath(t.root, e.path) {
         let i = info(el)
         if let (label, kind) = classify(i.role, i.subrole), label == e.label, elementName(i, kind) == e.name {
@@ -301,7 +312,7 @@ func resolve(_ id: Int, _ t: Target) throws -> (AXUIElement?, Element) {
             // be clicked at its old coordinates.
             var live = e
             if let f = i.frame { live.frame = [f.minX, f.minY, f.width, f.height].map(Double.init) }
-            return (el, live)
+            return (el, try inView(live))
         }
     }
     let fresh = Walker(bounds: t.bounds, includeOffscreen: true)
@@ -310,7 +321,7 @@ func resolve(_ id: Int, _ t: Target) throws -> (AXUIElement?, Element) {
     if matches.count == 1, let el = walkPath(t.root, matches[0].path) {
         var moved = matches[0]
         moved.id = e.id
-        return (el, moved)
+        return (el, try inView(moved))
     }
     throw Fail(2, "stale: element \(e.short) changed, re-read")
 }

@@ -72,7 +72,7 @@ enum VM {
     /// pointing at something). The little window says so on this Mac and opens the VM when they agree.
     static func call(_ what: String) throws -> Response {
         guard !what.isEmpty else { throw Fail(5, "vm call \"what the user should do there\"") }
-        let open = "Open the VM", later = "Later"
+        let open = Remote.openTheVM, later = "Later"
         let reply = try Wire.sendLocal(Request(cmd: "ask", args: [
             "apprentice needs you in the Linux VM: \(what).", "--choices", "\(open)|\(later)",
         ]))

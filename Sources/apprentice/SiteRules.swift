@@ -156,16 +156,15 @@ enum Budgets {
     /// remainder is waited out and the action is counted.
     static func check(_ host: String, _ raw: String, record: Bool) throws {
         let domain = Site.domain(host)
-        // An upvote is a like and a repost is a post, so the alias shares its counter: counted apart,
-        // the two together got twice the cap the alias promises.
-        let kind = alias[raw] ?? raw
         // A project folder adds its own count and caps; the account-wide ones below always apply too.
         let project = Project.dir
         let caps = try load(path)
+        let kind = counter(domain, raw, table: caps)
         let projectCaps = try project.map { try Budgets.projectCaps($0, fallback: caps) }
+        let projectKind = projectCaps.map { counter(domain, raw, table: $0) } ?? kind
         if let project, let projectCaps {
             var l = Project.limits(project)
-            _ = try count(&l, domain, kind, cap(domain, kind, table: projectCaps), record: false, scope: "in this project")
+            _ = try count(&l, domain, projectKind, cap(domain, projectKind, table: projectCaps), record: false, scope: "in this project")
         }
         // Only a recorded step changes the shared counts, so only it takes the lock and writes them.
         let wait: Double
@@ -176,7 +175,7 @@ enum Budgets {
             wait = try count(&l, domain, kind, cap(domain, kind, table: caps), record: false, scope: nil)
         }
         if record, let project, let projectCaps {
-            _ = try? Project.update(project) { try count(&$0, domain, kind, cap(domain, kind, table: projectCaps), record: true, scope: "in this project") }
+            _ = try? Project.update(project) { try count(&$0, domain, projectKind, cap(domain, projectKind, table: projectCaps), record: true, scope: "in this project") }
         }
         if wait > 0 { Timing.measure("gap") { Pace.sleep(wait) } }
     }
@@ -184,14 +183,27 @@ enum Budgets {
     /// Takes back the count of an approved step that never ran: refused by a rate limit, or stopped by the
     /// user or the kill switch before it acted. It was counted at approval so other VMs' daemons see it.
     static func refund(_ host: String, _ raw: String) {
-        let domain = Site.domain(host), kind = alias[raw] ?? raw
-        func drop(_ l: inout Limits) {
+        let domain = Site.domain(host), caps = table()
+        func drop(_ l: inout Limits, _ kind: String) {
             guard var times = l.kinds?[domain]?[kind], let last = times.indices.max(by: { times[$0] < times[$1] }) else { return }
             times.remove(at: last)
             l.kinds?[domain]?[kind] = times
         }
-        Limits.update { drop(&$0) }
-        if let project = Project.dir { Project.update(project) { drop(&$0) } }
+        Limits.update { drop(&$0, counter(domain, raw, table: caps)) }
+        if let project = Project.dir {
+            let kind = counter(domain, raw, table: projectTable(project, fallback: caps))
+            Project.update(project) { drop(&$0, kind) }
+        }
+    }
+
+    /// The counter a kind is charged to. A kind with a cap of its own (LinkedIn's connect, with its weekly
+    /// cap; Instagram's story) counts apart; one without shares its alias's counter, since counted apart
+    /// an upvote and a like together got twice the cap the alias promises.
+    static func counter(_ domain: String, _ raw: String, table t: [String: [String: Cap]]) -> String {
+        guard let shared = alias[raw] else { return raw }
+        let site = t.keys.filter { $0 != "default" && Site.matches(domain, $0) }.max { $0.count < $1.count }
+        let own = (site.flatMap { t[$0]?[raw] } ?? t["default"]?[raw]) != nil
+        return own ? raw : shared
     }
 
     /// A project's own budgets.json, else the account-wide caps.

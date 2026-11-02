@@ -1,4 +1,0 @@
-interface:
-  display_name: "command-authoring"
-  short_description: "Create or rename an agent command following project conventions"
-  default_prompt: "Use $command-authoring to create or rename an agent command the way this project's commands are built."

@@ -55,7 +55,7 @@ enum AgentLoop {
         }
 
         Store.log(["task": task, "via": "run"])
-        let notes = Notes.context(task: task, session: Session.stored)
+        let notes = Playbooks.context(task: task, session: Session.stored)
         var transcript: [[String: Any]] = []
         var used: [[String: Any]] = []
         // A run that ends early (a busy model, a stop) still keeps the steps it finished (G2).
@@ -75,7 +75,7 @@ enum AgentLoop {
             if Date().timeIntervalSince(started) > 900 { throw Fail(5, "run limit: 15 minutes") }
             let screen = try call(Request(cmd: "read", args: ["--max", "60"]))
 
-            let known = notes.isEmpty ? "" : "Notes from earlier runs (yours, not the screen's):\n\(notes)\n\n"
+            let known = notes.isEmpty ? "" : "Playbooks from earlier runs (yours, not the screen's):\n\(notes)\n\n"
             let current: [String: Any] = ["role": "user", "content": "Task: \(task)\n\n\(known)\(screen)"]
             var messages: [[String: Any]] = [["role": "system", "content": systemPrompt]]
             messages.append(contentsOf: transcript)
@@ -97,7 +97,7 @@ enum AgentLoop {
                 print("done · \(step - 1) steps · \(summary)")
                 save(a, used)
                 // A draft only: it is never overwritten, and a person or agent generalizes it before committing.
-                if !used.isEmpty, let out = try? Notes.learn(Args.parse([task])) {
+                if !used.isEmpty, let out = try? Playbooks.learn(Args.parse([task])) {
                     print(out.split(separator: "\n").first ?? "")
                 }
                 return
@@ -133,7 +133,12 @@ enum AgentLoop {
                 }
                 print("step \(step) · \(yes ? "approve" : "deny") \(p.summary) → \(result.out.split(separator: "\n").prefix(2).joined(separator: " · "))")
                 if result.code == 4 || result.code == 6 { throw Fail(result.code, result.out) }
-                if yes, result.code == 0 { used.append(["cmd": p.cmd, "args": p.args]) }
+                if yes, result.code == 0 {
+                    // The element it named, so a replay approves the same step only while it still names it.
+                    var row: [String: Any] = ["cmd": p.cmd, "args": p.args]
+                    if let e = p.element { row["element"] = e }
+                    used.append(row)
+                }
                 turn(reply, "Result: \(result.out)")
                 continue
             }
@@ -383,7 +388,9 @@ enum AgentLoop {
 }
 
 enum Replay {
-    /// `approve` approves each saved step as it comes; the caller decided that by passing --approve.
+    /// `approve` approves each saved step as it comes; the caller decided that by passing --approve. It
+    /// stops at a step whose id now names another element than the saved run's, and a ⚠ step still goes
+    /// to the user (`confirm`), as in `run`.
     static func run(_ name: String, from first: Int = 1, approve: Bool = false) throws {
         guard !name.isEmpty else { throw Fail(5, "replay <name> [--from n] [--approve]") }
         let file = Store.dir.appendingPathComponent("replays/\(name).json")
@@ -402,7 +409,20 @@ enum Replay {
                     print(result.out)
                     throw Fail(8, "replay paused at step \(step): approve it, then run `apprentice replay \(name) --from \(step + 1)`, or pass --approve to approve each saved step")
                 }
-                result = try Wire.send(Request(cmd: "approve", args: [p.token]))
+                if let want = item["element"] as? String, p.element != want {
+                    print(result.out)
+                    throw Fail(8, "replay paused at step \(step): it now names \(p.element ?? "no element") where the saved run had \(want), so it was not approved. Approve it yourself if it is right, then run `apprentice replay \(name) --from \(step + 1)`")
+                }
+                let flagged = !(p.warnings ?? []).isEmpty
+                result = try Wire.send(Request(cmd: flagged ? "confirm" : "approve",
+                                               args: flagged ? [p.token, "--why", "replay \(name), step \(step)"] : [p.token]))
+                // Exit 9: they are away from the Mac, or did not answer the window. Ask in this terminal.
+                if flagged, result.code == 9, isatty(STDIN_FILENO) != 0 {
+                    print("approve this step? \(p.summary) [y/N] ", terminator: "")
+                    let ok = (readLine() ?? "").lowercased().hasPrefix("y")
+                    result = try Wire.send(Request(cmd: ok ? "approve" : "deny", args: [p.token]))
+                    if !ok { result = Response(code: 3, out: "denied: \(p.summary)") }
+                }
             }
             print("replay \(step) · \(cmd) \(args.joined(separator: " ")) → \(result.out.split(separator: "\n").first ?? "")")
             step += 1

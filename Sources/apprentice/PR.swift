@@ -22,6 +22,20 @@ enum PR {
         guard files.contains(where: { !records.contains($0) && !$0.hasPrefix("sessions/") }) else {
             throw Fail(5, "the commits change only field reports and session copies; a PR needs a fix to review")
         }
+        // A PR is public: session copies go out scrubbed only, whatever `[storage] sessions` kept locally.
+        let added = Repo.git("log", "-p", "--format=", range, "--", "sessions/").out
+        if added.range(of: #"(?m)^\+.*[{,]"(url|name)":"#, options: .regularExpression) != nil {
+            throw Fail(5, "the commits carry full session copies (URLs, element names: [storage] sessions = \"full\"), and a PR offers only scrubbed ones. Set [storage] sessions = \"scrubbed\" in \(Config.path.path), put the fix on a branch without them (git -C \(Repo.root.path) switch -c fix/<name> \(remote)/\(base), then git cherry-pick the fix commits) and run `apprentice pr` there")
+        }
+        // Playbooks go out to everyone, history and all: every line the commits add is checked, not just the
+        // last version, since a push carries each commit.
+        let playbooks = Repo.git("log", "-p", "-U0", "--no-ext-diff", "--format=", range, "--", "playbooks/").out
+        let found = Playbooks.leaks(inPatch: playbooks)
+        guard found.isEmpty else {
+            throw Fail(5, "nothing was offered: the commits add playbook lines that look personal, and a PR is public:\n"
+                + found.prefix(20).map { "  - \($0)" }.joined(separator: "\n")
+                + "\nreplace each with a {placeholder} or a generic name, commit, then fold the commits into one so the old lines leave the history: git -C \(Repo.root.path) reset --soft \(remote)/\(base) && apprentice commit \"…\"")
+        }
         let test = Repo.run(Wire.binaryPath(), ["selftest"], in: Store.dir)
         guard test.code == 0 else {
             throw Fail(5, "selftest fails, so nothing was offered:\n\(test.out.split(separator: "\n").suffix(10).joined(separator: "\n"))")
@@ -30,7 +44,7 @@ enum PR {
         let title = a.value("title") ?? subjects[0]
         var branch = Repo.git("branch", "--show-current").out
         if branch == base || branch.isEmpty {
-            branch = "fix/" + Notes.slugify(title)
+            branch = "fix/" + Playbooks.slugify(title)
             // A branch of its own at this commit, so the PR never names the user's main.
             Repo.git("branch", "-f", branch, "HEAD")
         }
@@ -110,7 +124,8 @@ enum PR {
             throw Fail(5, "no fork remote: fork the repo on GitHub, then `git -C \(Repo.root.path) remote add fork git@github.com:<you>/apprentice.git`; or `apprentice pr --local`")
         }
         let url = Repo.git("remote", "get-url", "--push", name).out
-        guard name != Repo.upstream, url != upstreamURL, url != "no-push" else { throw Fail(5, "\(name) is the upstream itself; pr pushes only to a fork") }
+        let same = github(url).map { $0.lowercased() } == github(upstreamURL).map { $0.lowercased() } && github(url) != nil
+        guard name != Repo.upstream, url != upstreamURL, url != "no-push", !same else { throw Fail(5, "\(name) is the upstream itself; pr pushes only to a fork") }
         return (name, url)
     }
 

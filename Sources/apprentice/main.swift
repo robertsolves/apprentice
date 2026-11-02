@@ -39,7 +39,7 @@ func usage() {
       apprentice drag <id> <id> | --by dx,dy [--in id | --at x,y]   drag one onto another, or pan a map
       apprentice upload <id> <path> [--tier 3]
       apprentice choose <path>                  drive the open or save dialog on the window
-      apprentice do <flow> [--key value ...]    run a flow from notes/flows with one approval
+      apprentice do <flow> [--key value ...]    run a flow from playbooks/flows with one approval
       apprentice download <id> <path>
       apprentice approve <token> [--text "edited text"] | deny <token> | pending
       apprentice wait-for "text" [--timeout 10]
@@ -69,7 +69,7 @@ func usage() {
       apprentice log [--tail n] | --session [<id>]   recent steps, or one whole session
       apprentice sessions [--limit 10]          recent sessions: app, sites, steps, errors, model, task
       apprentice route "task"
-      apprentice notes ["words"]                      learned app, site and flow notes
+      apprentice playbooks ["words"] [--check]        learned app, site and flow playbooks; --check looks for anything personal
       apprentice learn "task" [--name slug] [--model m] [--force]  draft a flow from this session's steps
       apprentice do --explain "task"            which flow a task would pick for this model, and why
       apprentice run "task" --model <name> [--base-url url] [--screen-anyway] [--save name]
@@ -98,7 +98,7 @@ let rest = Array(argv.dropFirst())
 
 /// Commands answered in this process log their own row, so `log --session` and `grow` see `learn`, `bug`,
 /// `route` and the rest beside the daemon's commands.
-let loggedHere: Set<String> = ["route", "notes", "learn", "bug", "commit", "update", "settings", "repo", "policy", "budget",
+let loggedHere: Set<String> = ["route", "playbooks", "notes", "learn", "bug", "commit", "update", "settings", "repo", "policy", "budget",
                                "activity", "flag", "grow", "sessions", "project", "doctor", "pr", "vm", "replay", "phone"]
 if loggedHere.contains(command) { Timing.begin() }
 
@@ -135,10 +135,11 @@ case "stop":
     let (stopped, how) = Wire.stopDaemon()
     print(how)
     exit(stopped ? 0 : 5)
-case "route", "notes":
+case "route", "playbooks", "notes":
     // Flags are not part of the query; --json works here as everywhere (E1).
     let a = Args.parse(rest)
-    let out = command == "route" ? Routes.answer(a.pos.joined(separator: " ")) : Notes.search(a.pos.joined(separator: " "))
+    if command != "route", a.has("check") { attempt { print(try Playbooks.checkAll()) } }
+    let out = command == "route" ? Routes.answer(a.pos.joined(separator: " ")) : Playbooks.search(a.pos.joined(separator: " "))
     if a.has("json") {
         print(String(data: Wire.json(Response(code: 0, out: out)), encoding: .utf8) ?? "{}")
     } else {
@@ -146,9 +147,9 @@ case "route", "notes":
     }
     done(0)
 case "learn":
-    attempt { print(try Notes.learn(Args.parse(rest))) }
+    attempt { print(try Playbooks.learn(Args.parse(rest))) }
 case "bug":
-    attempt { print(try Notes.fileBug(Args.parse(rest))) }
+    attempt { print(try Playbooks.fileBug(Args.parse(rest))) }
 case "commit":
     attempt { print(try Repo.commitCommand(Args.parse(rest))) }
 case "update":

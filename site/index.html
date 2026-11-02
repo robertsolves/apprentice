@@ -296,29 +296,29 @@
 
       <figure class="term" aria-label="Example: asking your agent to do something on screen">
         <div class="bar"><i></i><i></i><i></i></div>
-<pre><span class="u">you</span>    <span class="c">Book the 7am spin class on my gym's website for Thursday.</span>
+<pre><span class="u">you</span>    <span class="c">Download my January internet bill and put it in ~/Documents/Bills.</span>
 
-<span class="a">agent</span>  <span class="d">$ apprentice read --filter spin</span>
-       14 link "Spin · Thu 7:00 AM · 3 spots"
+<span class="a">agent</span>  <span class="d">$ apprentice read --filter bill</span>
+       14 link "Internet · January · $84.20"
        <span class="d">$ apprentice click 14</span>
-       approve? click 14 link "Spin · Thu 7:00 AM · 3 spots"
+       approve? click 14 link "Internet · January · $84.20"
        <span class="d">$ apprentice approve 2c7e</span>
        ok · snap 3 · +1 -0 ~0
-       + 22 button "Book"
+       + 22 button "Download"
        <span class="d">$ apprentice click 22</span>
-       approve? click 22 button "Book"
-       <span class="w">⚠ may be irreversible: button "Book"</span>
-       <span class="d">$ apprentice approve 9f1b</span>          <span class="d"># you asked to book it</span>
+       approve? click 22 button "Download"
+       <span class="w">⚠ downloads a file</span>
+       <span class="d">$ apprentice approve 9f1b</span>          <span class="d"># you asked to download it</span>
        ok · snap 4 · +2 -0 ~0
-       + 23 text "This uses 1 credit from your class pack."
-       + 24 button "Confirm"
+       + 23 dialog "Save to ~/Downloads"
+       + 24 button "~/Documents/Bills"
        <span class="d">$ apprentice click 24</span>  →  ⚠ inside a dialog
-       <span class="d">$ apprentice confirm 4d0a --why "uses a class credit"</span>
+       <span class="d">$ apprentice confirm 4d0a --why "you asked for ~/Documents/Bills"</span>
 
 <span class="u">you</span>    <span class="k">Approve</span>  <span class="d">(in apprentice's window on your screen)</span>
 
-<span class="a">agent</span>  Booked: Spin, Thursday 7:00 AM.</pre>
-        <figcaption>The <code>$ apprentice</code> lines are the commands your agent runs and their real output format. Its own words will vary. You asked to book, so it approves that step itself; spending a credit you didn't mention goes to you.</figcaption>
+<span class="a">agent</span>  Saved: Internet, January, $84.20.</pre>
+        <figcaption>The <code>$ apprentice</code> lines are the commands your agent runs and their real output format. Its own words will vary. You asked to download it, so it approves that step itself; picking a folder you didn't mention goes to you.</figcaption>
       </figure>
     </div>
   </div>
@@ -328,16 +328,16 @@
       <h2>What you can ask</h2>
       <p class="sub">Anything you'd do yourself with the mouse and keyboard, one task at a time. Say it to your agent in plain words.</p>
       <div class="asks">
-        <div class="ask">“Download last month's invoice from the Stripe dashboard and put it in ~/Documents/Invoices.”</div>
-        <div class="ask">“Reply to the latest email from my accountant in Mail: I'll send the receipts on Friday.”</div>
-        <div class="ask">“Book the 7am spin class on my gym's website for Thursday.”</div>
-        <div class="ask">“Go through my LinkedIn notifications and tell me which ones need a reply.”</div>
-        <div class="ask">“Fill in the contact form on the council website with my details from contacts.md.”</div>
-        <div class="ask">“Turn on Night Shift from 10pm in System Settings.”</div>
+        <div class="ask">“Download my January internet bill and put it in ~/Documents/Bills.”</div>
+        <div class="ask">“Forward the invoice from Acme to my accountant.”</div>
+        <div class="ask">“Move my dentist appointment from Tuesday to Thursday.”</div>
+        <div class="ask">“Fill in the passport renewal form with my details from contacts.md.”</div>
+        <div class="ask">“Turn on Do Not Disturb from 10pm until 8am.”</div>
         <div class="ask">“Post this changelog to the #updates channel in our Discord.”</div>
-        <div class="ask">“In the Linux VM, open the report in LibreOffice and save it as a PDF.”</div>
+        <div class="ask">“Reorder the coffee beans I bought last month.”</div>
+        <div class="ask">“Rename the screenshots in ~/Downloads to YYYY-MM-DD and move them to ~/Pictures/Screenshots.”</div>
         <div class="ask">“Do the weekly Shopify stock check like last time.”</div>
-        <div class="ask">“Set up my phone so you can reach me when I'm away.”</div>
+        <div class="ask">“In the Linux VM, open the staging site in Chromium and check the login page loads.”</div>
       </div>
     </div>
   </section>
@@ -381,9 +381,16 @@
         apprentice works today, but it's early and it will trip over some apps and sites. Every report and fix
         makes the next run smoother for everyone, so we're asking anyone who tries it to pitch in.
       </p>
+      <p class="sub" id="risk">
+        <strong>Use it at your own risk.</strong> apprentice drives your Mac with the real cursor and keyboard, it can
+        make mistakes, and some sites forbid automation in their terms. You are responsible for what it does on your
+        accounts, and it comes with no warranty. Playbooks are shared with everyone, so never put anything personal
+        in one: apprentice refuses to commit or offer a playbook that looks like it holds a name, handle, email,
+        number or private link.
+      </p>
       <div class="grid">
         <div class="card"><h3>Report what breaks</h3><p>Open an <a href="https://github.com/robertsolves/apprentice/issues">issue</a>, or ask your agent to run <code>apprentice bug</code> and it writes the report for you.</p></div>
-        <div class="card"><h3>Teach it an app or site</h3><p>Notes in <code>notes/</code> tell agents how an app works. <code>apprentice learn</code> drafts one from a run that went well.</p></div>
+        <div class="card"><h3>Teach it an app or site</h3><p>Playbooks in <code>playbooks/</code> tell agents how an app works. <code>apprentice learn</code> drafts one from a run that went well.</p></div>
         <div class="card"><h3>Send a fix</h3><p>Fix it in your local clone, then <code>apprentice pr</code> offers it upstream. See <a href="https://github.com/robertsolves/apprentice/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a>.</p></div>
       </div>
     </div>
@@ -421,7 +428,7 @@
 
   <footer>
     <div class="wrap">
-      <span>apprentice · by <a href="https://github.com/robertsolves">robertsolves</a></span>
+      <span>apprentice · by <a href="https://github.com/robertsolves">robertsolves</a> · beta, <a href="#risk">use at your own risk</a></span>
       <span>
         <a href="https://github.com/robertsolves/apprentice">Source</a> ·
         <a href="https://github.com/robertsolves/apprentice/issues">Issues</a> ·

@@ -353,6 +353,8 @@ enum Remote {
             return matches.count == 1 ? matches[0] : nil
         }() {
             same.id = e.id
+            // As on the Mac: an element now wholly out of view is never clicked at a point outside it.
+            if same.offscreen { throw Fail(2, "stale: element \(e.short) is out of view now: scroll it into view, then retry") }
             return same
         }
         throw Fail(2, "stale: element \(e.short) changed, re-read")
@@ -366,6 +368,10 @@ enum Remote {
         let now = try snapshot()
         let page = Page(url: now.url, title: now.title, scope: now.scope)
         if let was = session.url, let url = now.url, was != url {
+            // As on the Mac: reading takes the new page in, an action is refused until the caller has read it.
+            guard Commands.reads.contains(Approvals.request.cmd) else {
+                throw Fail(2, "stale: the page changed to \(url) without apprentice. The user may be using the VM. Nothing was done: `read` the page and decide again")
+            }
             Commands.notice = "note: the page changed to \(url) without apprentice. The user may be using the VM; check before acting."
         }
         session.track(now.url)
@@ -414,18 +420,20 @@ enum Remote {
         s.save()
         SnapStore.clear()
         Store.remove("pending.json")
+        let firstThisRun = !Commands.optionsAsked
         if !Commands.optionsAsked, Config.current.askOnStart, !a.has("no-options"), !Ask.away {
-            Commands.optionsAsked = true
             s = Commands.startOptions(s)
         }
+        Commands.optionsAsked = true
         var out = "\(focusing ? "focus" : "session \(s.id ?? "-")") · Chromium in the Linux VM (its own cursor and keyboard)"
+        if firstThisRun { out += "\n⚠ " + Commands.riskWarning + " Tell the user this once." }
         if let url = s.url { out += " · \(url)" }
         let hints = Routes.hintLines(for: hostOf(s.url)) + Policies.lines(for: hostOf(s.url))
         if !hints.isEmpty { out += "\n" + hints.joined(separator: "\n") }
         out += "\n" + Config.policyLine
         if Awake.enabled { out += "\n" + Awake.status }
         if let update = Repo.updateLine() { out += "\n" + update }
-        out += Commands.notesLines(s)
+        out += Commands.playbookLines(s)
         Store.log(["cmd": "session", "app": "Chromium", "vm": true, "url": s.url ?? ""])
         return out
     }
@@ -455,7 +463,10 @@ enum Remote {
         var app = find()
         if app == nil {
             guard launch else { throw Fail(5, "\(wanted) is not running in the VM: start it with `apprentice session --app \"\(wanted)\" --on linux`") }
-            let pid = (try query(["op": "launch", "cmd": wanted]))["pid"] as? Int
+            let pid: Int?
+            do { pid = (try query(["op": "launch", "cmd": wanted]))["pid"] as? Int } catch let fail as Fail where fail.message.hasPrefix("in the VM") {
+                throw Fail(5, "could not start \(wanted) in the VM (\(fail.message.dropFirst("in the VM: ".count))). Is it installed? `apprentice vm shell` gives the ssh command to check or install it")
+            }
             // A program can hand its window to a process of its own, so a name match counts too.
             app = poll(timeout: 15, interval: 0.4) { find(pid: pid) }
             guard app != nil else {
@@ -485,7 +496,7 @@ enum Remote {
             if Awake.enabled { out += "\n" + Awake.status }
             if let update = Repo.updateLine() { out += "\n" + update }
         }
-        out += Commands.notesLines(s)
+        out += Commands.playbookLines(s)
         Store.log(["cmd": Approvals.request.cmd, "app": app.name, "vm": true])
         return out
     }
@@ -540,9 +551,14 @@ enum Remote {
             let needle = words.lowercased()
             let snap = try snapshot()
             SnapStore.save(snap)
-            guard let hit = snap.elements.first(where: { $0.name.lowercased() == needle })
-                ?? snap.elements.first(where: { $0.name.lowercased().contains(needle) && !Element.fieldLabels.contains($0.label) })
-            else { throw Fail(5, "no \"\(words)\" in the list (the VM has no OCR yet): try `read --filter`") }
+            let exact = snap.elements.filter { $0.name.lowercased() == needle }
+            let candidates = exact.isEmpty
+                ? snap.elements.filter { $0.name.lowercased().contains(needle) && !Element.fieldLabels.contains($0.label) } : exact
+            if candidates.count > 1 {
+                throw Fail(5, "\(candidates.count) elements match \"\(words)\", so nothing was clicked. Pick one with `click <id>`:\n"
+                    + candidates.prefix(12).map(\.line).joined(separator: "\n"))
+            }
+            guard let hit = candidates.first else { return try clickOCR(words, session, page, old, a, verb: verb) }
             e = hit
             extra = ["→ \"\(words)\""]
         } else {
@@ -554,6 +570,28 @@ enum Remote {
         try act { try Commands.realClick(e.rect, right: right, double: double) }
         return try done("click", session, page, old, navigates: e.label == "link", extra: extra,
                         log: ["id": e.id, "label": e.label, "name": e.name])
+    }
+
+    /// `click --on` for text the list leaves out (a menu or dropdown drawn on its own layer): found by
+    /// OCR of the guest's screen, inside the session window, as `click --on` falls back on this Mac.
+    private static func clickOCR(_ words: String, _ session: Session, _ page: Page, _ old: Snapshot?, _ a: Args, verb: String) throws -> String {
+        let needle = words.lowercased()
+        let image = try screen()
+        let full = CGRect(x: 0, y: 0, width: image.width, height: image.height)
+        let area = bounds.insetBy(dx: -1, dy: -90)
+        let lines = Capture.ocr(image, windowFrame: full, merge: false).filter { area.contains(CGPoint(x: $0.box.midX, y: $0.box.midY)) }
+        let exact = lines.filter { $0.text.lowercased() == needle }
+        let found = exact.isEmpty ? lines.filter { $0.text.lowercased().contains(needle) } : exact
+        if found.count > 1 {
+            throw Fail(5, "\(found.count) places on screen show \"\(words)\", so nothing was clicked. Pick one with `click --at x,y`:\n"
+                + found.prefix(12).map { "at \(Int($0.box.midX)),\(Int($0.box.midY)) · \"\(clip($0.text, 60))\"" }.joined(separator: "\n"))
+        }
+        guard let line = found.first else { throw Fail(5, "no \"\(words)\" on screen, in the list or by OCR") }
+        try gate(session, page, nil, "\(verb) \"\(words)\" (found by OCR: \"\(clip(line.text, 60))\")",
+                 warn: Gate.matches(words) ? ["may be irreversible: \"\(words)\""] : [], force: a.has("gate"))
+        try beforeAction(session, url: page.url)
+        try act { try Commands.realClick(line.box, right: a.has("right"), double: a.has("double")) }
+        return try done("click", session, page, old, extra: ["→ \"\(words)\""], log: ["on": words])
     }
 
     private static func focused() throws -> [String: Any] { try query(["op": "focus"].merging(target) { $1 }) }
@@ -601,13 +639,18 @@ enum Remote {
             let secret = f["secret"] as? Bool == true || e.label == "password" || e.name.lowercased().contains("password")
             // A terminal takes typing at its prompt: ctrl+a there moves the cursor, it selects nothing.
             let terminal = e.label.hasSuffix("terminal") || f["label"] as? String == "terminal"
-            if let before, !before.isEmpty, !terminal { try Keys.press("cmd+a") }
-            try Keys.type(text, fast: fast, corrections: !secret)
+            // As on the Mac, only a field known to be empty is typed into as it is: text it does not show is replaced.
+            if before != "", !terminal { try Keys.press("cmd+a") }
+            // The VM session is Chromium: a line break is shift+return, so a chat composer never sends half the text.
+            try Keys.type(text, fast: fast, corrections: !secret, newline: "shift+return")
             if !text.isEmpty, !secret, !terminal {
                 Pace.sleep(0.2)
                 let after = (try? focused())?["value"] as? String
                 if let after, after.isEmpty {
                     throw Fail(5, "the keys did not arrive: \(e.short) is still empty after typing; check with `read`")
+                }
+                if let after, let before, !before.isEmpty, after == before, before != text {
+                    throw Fail(5, "the keys did not arrive: \(e.short) still shows what it had before; check with `read`")
                 }
                 let squash = { (s: String) in s.filter { !$0.isWhitespace } }
                 if let after, !squash(after).contains(squash(text)) {
@@ -712,15 +755,18 @@ enum Remote {
         guard arrived != nil else {
             throw Fail(5, "the browser did not go to \(hostname): it shows \((try? snapshot())?.url ?? "no page"). Check it with `read`")
         }
-        let notes = hostname == hostOf(page.url) ? [] : Notes.hintLines(app: nil, bundle: nil, host: hostname, system: "linux")
-        let extra = ["→ \(raw)"] + Routes.hintLines(for: hostname) + Policies.lines(for: hostname) + notes
+        let playbooks = hostname == hostOf(page.url) ? [] : Playbooks.hintLines(app: nil, bundle: nil, host: hostname, system: "linux")
+        let extra = ["→ \(raw)"] + Routes.hintLines(for: hostname) + Policies.lines(for: hostname) + playbooks
         return try done("open", session, page, old, navigates: true, extra: extra, log: ["url": raw])
     }
 
     /// `menu "File > Save"`: opens each menu in turn by its name and picks the last item, with one
     /// approval for the whole path. Open menus are the app's popup windows, which `snapshot` reads too.
     static func menu(_ a: Args) throws -> String {
-        let parts = (a.pos.first ?? "").split(separator: ">").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let parts = a.pos.joined(separator: " ").split(separator: ">").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        func norm(_ s: String) -> String {
+            s.replacingOccurrences(of: "…", with: "").replacingOccurrences(of: "...", with: "").trimmingCharacters(in: .whitespaces).lowercased()
+        }
         guard !parts.isEmpty else { throw Fail(5, "menu \"File > New\"") }
         let (session, page, old) = try prepare()
         let path = parts.joined(separator: " > ")
@@ -729,14 +775,22 @@ enum Remote {
         let kinds: Set<String> = ["menu", "menuitem", "menubutton", "button"]
         try act {
             for (n, part) in parts.enumerated() {
-                let needle = part.lowercased()
-                let hit = poll(timeout: n == 0 ? 0.5 : 2, interval: 0.2) { () -> Element? in
+                let needle = norm(part)
+                let hits = poll(timeout: n == 0 ? 0.5 : 2, interval: 0.2) { () -> [Element]? in
                     let items = ((try? snapshot())?.elements ?? []).filter { kinds.contains($0.label) }
-                    return items.first { $0.name.lowercased() == needle } ?? items.first { $0.name.lowercased().hasPrefix(needle) }
-                }
-                guard let hit else {
+                    let exact = items.filter { norm($0.name) == needle }
+                    let found = exact.isEmpty ? items.filter { norm($0.name).hasPrefix(needle) } : exact
+                    return found.isEmpty ? nil : found
+                } ?? []
+                guard hits.count == 1, let hit = hits.first else {
                     if n > 0 { try? Keys.press("escape") }
-                    throw Fail(5, "no menu item \"\(part)\" in \(session.app)" + (n > 0 ? " under \(parts[..<n].joined(separator: " > "))" : "") + ": check with `read`")
+                    let under = n > 0 ? " under \(parts[..<n].joined(separator: " > "))" : ""
+                    // Several items start with the name: which one is the caller's choice, not a guess.
+                    if hits.count > 1 {
+                        throw Fail(5, "\(hits.count) menu items\(under) start with \"\(part)\", so nothing was picked. Name one in full:\n"
+                            + hits.prefix(12).map(\.line).joined(separator: "\n"))
+                    }
+                    throw Fail(5, "no menu item \"\(part)\" in \(session.app)\(under): check with `read`")
                 }
                 try Commands.realClick(hit.rect)
                 Pace.sleep(Rand.uniform(0.15...0.3))

@@ -2,6 +2,12 @@ import AppKit
 import ApplicationServices
 import Carbon
 
+// TODO(/interview-code): post the modifier keys themselves (a flagsChanged press of Shift before a
+// capital, of cmd before cmd+a, released after), as a real keyboard does. Today a page sees a keydown
+// with shiftKey or metaKey set but never a "Shift" or "Meta" keydown before it, a keystroke tell
+// (SPEC "What it does not leak" claims shiftKey matches a real keyboard). Touches every key apprentice
+// sends, so it needs a run on real hardware and in the VM (Remote.typeChar) before it lands.
+
 enum Pace {
     static func gaussian() -> Double { Rand.gaussian() }
 
@@ -111,13 +117,17 @@ enum Keys {
             guard let e = CGEvent(keyboardEventSource: nil, virtualKey: code, keyDown: down) else { continue }
             e.flags = flags
             post(e)
-            Pace.sleep(down ? Rand.uniform(0.03...0.07) : 0.02)
+            // Held as long as a typed key (50–110 ms): return, delete and tab land in page forms too.
+            Pace.sleep(down ? Rand.uniform(0.05...0.11) : 0.02)
         }
     }
 
-    static func typeChar(_ ch: Character) {
-        if ch == "\n" {
-            try? press("return")
+    /// `newline` is the key a line break in the text is typed with: plain return in apps, or shift+return
+    /// where return would send (a chat composer on a web page), so text with line breaks never goes out
+    /// in pieces.
+    static func typeChar(_ ch: Character, newline: String = "return") {
+        if ch == "\n" || ch == "\r\n" || ch == "\r" {
+            try? press(newline)
             return
         }
         if Remote.active { return Remote.typeChar(ch) }
@@ -162,7 +172,7 @@ enum Keys {
     /// with backspace, never in a password field (`corrections: false`) or with `fast`.
     /// Throws exit 6 when the person or the kill switch stops it partway, so nothing after it (such as
     /// a return that would send a half-typed message) runs (D8).
-    static func type(_ text: String, fast: Bool = false, corrections: Bool = false) throws {
+    static func type(_ text: String, fast: Bool = false, corrections: Bool = false, newline: String = "return") throws {
         let began = Date()
         defer { Timing.add("type", Date().timeIntervalSince(began)) }
         Pace.sleep(Rand.uniform(0.08...0.2))
@@ -186,7 +196,7 @@ enum Keys {
                 try press("delete")
                 Pace.sleep(Rand.uniform(0.08...0.2))
             }
-            typeChar(ch)
+            typeChar(ch, newline: newline)
             Pace.sleep(Pace.keyGap(after: prev) * (fast ? 0.35 : 1))
             // A pause to think now and then, at the end of a word.
             if !fast, ch == " " || ch.isPunctuation, sent >= nextPause {
@@ -304,7 +314,8 @@ enum Mouse {
     /// One curved stroke, with a shape and speed profile drawn for it. Speed peaks early and tails off
     /// into the end, the samples are a little uneven in time as a real mouse reports them, and a long
     /// stroke now and then hesitates once on the way.
-    private static func stroke(from start: CGPoint, to end: CGPoint, duration: Double, bend: CGFloat) {
+    private static func stroke(from start: CGPoint, to end: CGPoint, duration: Double, bend: CGFloat,
+                               type: CGEventType = .mouseMoved) {
         let dx = end.x - start.x, dy = end.y - start.y
         let dist = max(hypot(dx, dy), 1)
         let normal = CGPoint(x: -dy / dist, y: dx / dist)
@@ -341,14 +352,14 @@ enum Mouse {
                 p.x += normal.x * w + Rand.uniform(-jitter...jitter)
                 p.y += normal.y * w + Rand.uniform(-jitter...jitter)
             }
-            post(p)
+            post(p, type)
             Pace.sleep(duration / Double(steps) * Rand.uniform(0.7...1.3))
             if n == pauseAt { Pace.sleep(Rand.uniform(0.06...0.2)) }
         }
     }
 
-    private static func post(_ p: CGPoint) {
-        if let e = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: p, mouseButton: .left) {
+    private static func post(_ p: CGPoint, _ type: CGEventType = .mouseMoved) {
+        if let e = CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: p, mouseButton: .left) {
             Keys.post(e)
         }
         Borrow.noteMove(p)
@@ -388,28 +399,27 @@ enum Mouse {
     }
 
     /// Throws exit 6 when the person takes over mid-drag; the drag is cancelled, not dropped where they are.
+    /// The press is held a moment before moving, then the pointer travels one stroke with a drawn shape,
+    /// speed profile and uneven samples, as `move` does: a straight line at one steady speed is a tell.
+    /// Slower than a free move, since a drop target needs the pointer to arrive; nearly straight, so the
+    /// path stays inside the window.
     static func drag(from start: CGPoint, to end: CGPoint) throws {
         guard let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: start, mouseButton: .left) else { return }
         Keys.post(down)
-        Pace.sleep(0.12)
-        let steps = max(Int(hypot(end.x - start.x, end.y - start.y) / 6), 12)
-        for n in 1...steps {
-            if KillSwitch.tripped || Borrow.interrupted {
-                try? Keys.press("esc")
-                if let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: start, mouseButton: .left) {
-                    Keys.post(up)
-                }
-                throw Fail(6, "interrupted: the drag was cancelled before the drop")
+        Pace.sleep(Rand.uniform(0.1...0.22))
+        let p = Config.current.pace
+        let dist = max(hypot(end.x - start.x, end.y - start.y), 1)
+        let fitts = (0.12 + 0.11 * log2(dist / 20 + 1)) * hand.speed * Rand.logNormal(median: 1, sigma: 0.12) * 1.5
+        let duration = min(max(fitts, p.moveMin), max(p.moveMax * 3, 1))
+        stroke(from: start, to: end, duration: duration, bend: 0.1, type: .leftMouseDragged)
+        if KillSwitch.tripped || Borrow.interrupted {
+            try? Keys.press("esc")
+            if let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: start, mouseButton: .left) {
+                Keys.post(up)
             }
-            let t = CGFloat(n) / CGFloat(steps)
-            let p = CGPoint(x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t)
-            if let move = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDragged, mouseCursorPosition: p, mouseButton: .left) {
-                Keys.post(move)
-            }
-            Borrow.noteMove(p)
-            Pace.sleep(0.012)
+            throw Fail(6, "interrupted: the drag was cancelled before the drop")
         }
-        Pace.sleep(0.12)
+        Pace.sleep(Rand.uniform(0.08...0.2))
         if let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: end, mouseButton: .left) {
             Keys.post(up)
         }
@@ -477,6 +487,16 @@ enum Borrow {
         return lastWasOurs ? Date().timeIntervalSince(lastHumanEvent) : idle
     }
 
+    /// What stops a command: the person's keys, clicks and scrolls. A scroll moves what the next click
+    /// aims at, so it counts as much as a click. The tail of a trackpad flick from before the command
+    /// (momentum) is not them acting now.
+    static let interruptions: NSEvent.EventTypeMask = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
+
+    static func isPersons(_ event: NSEvent) -> Bool {
+        if event.cgEvent?.getIntegerValueField(.eventSourceUserData) == Keys.tag { return false }
+        return event.type != .scrollWheel || event.momentumPhase.isEmpty
+    }
+
     static func waitIdle(_ seconds: Double = 1) throws {
         let deadline = Date().addingTimeInterval(30)
         try Timing.measure("idle") {
@@ -497,8 +517,8 @@ enum Borrow {
         lastPosted = nil
         // Monitors belong to the main run loop, which stays free while commands run on their own queue.
         let monitor = DispatchQueue.main.sync {
-            NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown]) { event in
-                if event.cgEvent?.getIntegerValueField(.eventSourceUserData) != Keys.tag { interrupted = true }
+            NSEvent.addGlobalMonitorForEvents(matching: interruptions) { event in
+                if isPersons(event) { interrupted = true }
             }
         }
         // `gate` usually brought the window forward already; raising again only costs time.
@@ -524,8 +544,8 @@ enum Watch {
         try Borrow.waitIdle(1)
         Borrow.interrupted = false
         monitor = DispatchQueue.main.sync {
-            NSEvent.addGlobalMonitorForEvents(matching: [.keyDown, .leftMouseDown, .rightMouseDown]) { event in
-                if event.cgEvent?.getIntegerValueField(.eventSourceUserData) != Keys.tag { Borrow.interrupted = true }
+            NSEvent.addGlobalMonitorForEvents(matching: Borrow.interruptions) { event in
+                if Borrow.isPersons(event) { Borrow.interrupted = true }
             }
         }
     }

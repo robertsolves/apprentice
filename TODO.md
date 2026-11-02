@@ -2,6 +2,8 @@
 
 ## The VM
 
+- An agent with ssh into the VM could fake input (xdotool) and click a `confirm` window shown on the VM's screen. Show the approve/deny `confirm` on this Mac for VM sessions too, and keep only `ask` on the VM. (From /interview-code, 2026-11-02.)
+- VM `click --on` by OCR and `helper.py` skipping `apprentice-ask` on the accessibility bus are untested on a real VM.
 It runs: Debian guests under Tart (2 GB disk, 2 GB memory each) or on a server (`[vm] host`), any number at once (`APPRENTICE_VM`), driven from `Remote.swift` with the same commands as the Mac, uploads, downloads, `shot`, `ocr`, `show` and questions on the VM's screen included. Still open:
 
 - **Working with the Mac off.** Asked for 2026-11-01: keep the settings in a server VM, synced with the Mac when it is on, so a Claude task, command or MCP server can drive the web while the Mac is off. Today the brain (approvals, budgets, pacing, logs) is the Mac's Swift daemon, so this needs it on Linux: either a Linux build of the parts that are not AppKit (`Remote`, `SiteRules`, `State`, `Config`, the wire), or a small daemon in the guest that speaks the same wire. Approvals would go to the chat (exit 9), since nobody is at a window.
@@ -14,10 +16,12 @@ It runs: Debian guests under Tart (2 GB disk, 2 GB memory each) or on a server (
 
 ## Code structure
 
+- The `run` loop's limits (40 steps, 15 min) and the 120 s timeout for flow `sh:` steps are hard-coded; move them to `[run]`/`[flow]` in `config.toml`.
+- `main.swift` `usage()`: the `budget` line should mention this week's caps.
 From a `/simplify` pass on 2026-11-02; the small shared helpers landed, these were left because they change behaviour or reach across many files:
 
 - **Each action command has a Mac body and a VM body** (`Commands.swift` open…hover against `Remote.swift`, and `Remote+More.swift`). They have drifted: VM `type` lacks the "still shows what it had before" check, `click --on` falls back to OCR only on the Mac, `menu` reads `a.pos.joined` on the Mac but `a.pos.first` in the VM. A `Surface` (prepare, resolve, act, settle, bounds, focused field) with a local and a Remote side would let each command be written once.
-- **Command properties are scattered** across about ten sets and `cmd ==` checks (`Site.inspect`, `Fidget`, `approveStep`, `Commands.asides`, `Daemon.queue(for:)`, `Remote.commands`, `Notes.actions`, `Grow.Pace.actions`, `loggedHere`). One table keyed by command name (looks, sends, navigates, fidgets, queue, vm, budget kind). `Notes.actions` and `Grow.Pace.actions` already disagree on `download` and `do`.
+- **Command properties are scattered** across about ten sets and `cmd ==` checks (`Site.inspect`, `Fidget`, `approveStep`, `Commands.asides`, `Daemon.queue(for:)`, `Remote.commands`, `Playbooks.actions`, `Grow.Pace.actions`, `loggedHere`). One table keyed by command name (looks, sends, navigates, fidgets, queue, vm, budget kind). `Playbooks.actions` and `Grow.Pace.actions` already disagree on `download` and `do`.
 - **Session binding and the banner are written three times** (`Commands.attach`/`session`, `Remote.session`, `Remote.appSession`).
 - **"Chromium" is hard-coded as the VM's browser** in about six places (`State.swift` `isBrowser`, `Remote.inBrowser`, `Remote.session`, the `open` error); one `VM.browser` constant, and `session.isBrowser` instead of `inBrowser`.
 - The VM challenge hint is added by matching `fail.message.contains("challenge")` (`Remote.swift`); `Challenge.start` has the session and could add it itself.
@@ -28,6 +32,7 @@ From a `/simplify` pass on 2026-11-02; the small shared helpers landed, these we
 
 ## Pacing
 
+- Modifier keys are never posted on their own, so a page sees `shiftKey`/`metaKey` with no Shift/Meta keydown first (TODO at the top of `Input.swift`). Needs testing on real hardware and in the VM.
 - Try `browse`, fidgets and the new path shapes live, on this Mac and in the VM, and tune the ranges in `Fidget.swift` and `Mouse.stroke` from what they look like (only `selftest` has run them so far).
 - Log the active pace style and profile on each row, so FEATURES.md can tell whether `careful` sites see fewer soft blocks.
 - `run`'s tiny grammar has no `browse` yet.
@@ -43,8 +48,11 @@ From a `/simplify` pass on 2026-11-02; the small shared helpers landed, these we
 
 - Fixes stay in each Mac's clone. To share them, point another Mac's `upstream` at this clone (any git URL works). If that turns out to be common, add `apprentice share`.
 
+- **Scan more of what `pr` shares for personal details.** `Playbooks.leaks` guards only `playbooks/`. Field reports in `BUGS.md` (filed by `bug` with the last error) and commit messages outside playbook commits also reach upstream through `pr`; run them through the same check there. Name parts of the user's identity that are common words (Will, Mark) can trip the check; consider an allowlist in config if that happens.
+
 ## Tests
 
+- Selftest checks from /interview-code: a kind with its own budget cap counts apart from its alias; `Limits.beforeAction` at the per-minute cap waits; scrubbed rows drop `menu` and local paths; `PR.forkRemote` refuses the upstream in ssh form; `Playbooks.oneLine` strips newlines and backticks; `tokenize` round-trips a name ending in a backslash.
 `apprentice selftest` covers TOML, args, pace limits, the wire format, VM routing, `diff`, the approval gate, shared site limits and the automatic update (against throwaway git repos), in a temporary home of its own. Still to add: the VM's helper (`agent/vm/helper.py`) has no tests of its own; it is checked against a live VM by hand.
 
 ## Releases

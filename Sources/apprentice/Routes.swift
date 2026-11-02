@@ -36,9 +36,9 @@ enum Routes {
 
     static func custom() -> [RouteEntry] { parse(customPath) }
 
-    /// Flows that ran to the end, per model, in the clone's notes: `do` adds one the first time a model
+    /// Flows that ran to the end, per model, in the clone's playbooks: `do` adds one the first time a model
     /// gets through a flow, so `route` can point that model straight at it next time.
-    static var learnedPath: URL { Notes.dir.appendingPathComponent("routes-learned.toml") }
+    static var learnedPath: URL { Playbooks.dir.appendingPathComponent("routes-learned.toml") }
 
     static func learned() -> [RouteEntry] { parse(learnedPath) }
 
@@ -74,7 +74,7 @@ enum Routes {
     }
 
     /// Records that `flow` ran to the end for `model`, once per flow and model, and commits it.
-    static func learn(from flow: Notes.Note, model: String?) -> String? {
+    static func learn(from flow: Playbooks.Playbook, model: String?) -> String? {
         let name = flow.url.deletingPathExtension().lastPathComponent
         let m = model ?? "any"
         guard !learned().contains(where: { $0.label == name && ($0.model ?? "any") == m }) else { return nil }
@@ -93,7 +93,7 @@ enum Routes {
 
         """
         guard (try? text.write(to: learnedPath, atomically: true, encoding: .utf8)) != nil else { return nil }
-        Repo.commit("Learned route: \(name) works for \(m)", paths: [learnedPath.resolvingSymlinksInPath().path])
+        try? Repo.commit("Learned route: \(name) works for \(m)", paths: [learnedPath.resolvingSymlinksInPath().path])
         return "learned: `route` now points \(m) at this flow for its tasks"
     }
 

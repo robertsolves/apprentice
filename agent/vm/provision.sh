@@ -28,6 +28,11 @@ install -m 755 "$src/session.sh" /opt/apprentice/session.sh
 install -m 644 "$src/helper.py" /opt/apprentice/helper.py
 install -m 644 "$src/ask.py" /opt/apprentice/ask.py
 
+# Credentials and payment details stay the user's: the agent has a shell in this guest as the same user,
+# so Chromium here saves no passwords or cards for it to read back or fill in. Sign-ins live on in cookies.
+install -d /etc/chromium/policies/managed
+printf '{"PasswordManagerEnabled": false, "AutofillCreditCardEnabled": false}\n' > /etc/chromium/policies/managed/apprentice.json
+
 home="$(getent passwd "$user" | cut -d: -f6)"
 install -d -o "$user" "$home/.vnc"
 su "$user" -c "x11vnc -storepasswd '$password' '$home/.vnc/passwd' >/dev/null 2>&1"

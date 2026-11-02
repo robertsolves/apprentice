@@ -19,12 +19,12 @@ Of particular interest:
 - Ways around the approval gate: an action that runs without an approved
   token, or a ⚠ step that isn't flagged.
 - Prompt injection: text on a screen or page that makes apprentice, or the
-  agent through its docs, act without approval or write into `notes/`.
+  agent through its docs, act without approval or write into `playbooks/`.
 - Bypasses of the allowlist, site budgets, cooldowns or challenge stops.
 - The daemon socket (`~/.apprentice/sock`) or the VM's ssh helper accepting
   commands from another user or host.
 - Leaks of typed text, passwords, API keys or blocked apps into logs, step
-  files, notes or screenshots.
+  files, playbooks or screenshots.
 - The self-update path running code that didn't come from `upstream`.
 
 apprentice needs Accessibility and Screen Recording to work; holding those
