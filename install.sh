@@ -6,7 +6,24 @@
 # The clone is your own copy. apprentice commits its fixes there and they stay there; `upstream` is only
 # fetched, and apprentice updates itself from it (set [update] auto = false in config.toml to only be told).
 # An existing install is updated in place wherever it lives.
+#
+# Which version: the latest release by default (the newest vX.Y.Z tag upstream; main if there is none yet).
+#   install.sh --version 0.2.0   a specific release (v0.2.0 works too); auto-update is turned off so it stays
+#   install.sh --main            the tip of main, the development version, which keeps itself up to date
+# Your own commits in the clone are kept on top of whichever version you pick.
 set -euo pipefail
+
+want=latest
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --version) [ $# -ge 2 ] || { echo "--version needs a version, e.g. --version 0.2.0" >&2; exit 2; }; want="${2#v}"; shift 2 ;;
+    --version=*) want="${1#--version=}"; want="${want#v}"; shift ;;
+    --main) want=main; shift ;;
+    --latest) want=latest; shift ;;
+    -h|--help) awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "${BASH_SOURCE[0]:-$0}"; exit 0 ;;
+    *) echo "unknown option: $1 (try --version X.Y.Z, --main or --help)" >&2; exit 2 ;;
+  esac
+done
 
 url="${APPRENTICE_UPSTREAM:-https://github.com/robertsolves/apprentice.git}"
 
@@ -59,11 +76,38 @@ if [ "$branch" != "$base" ]; then
   echo "$dir is on ${branch:-a detached HEAD}, not $base; left as it is"
 else
   echo "updating $dir from $remote…"
-  git -C "$dir" fetch -q "$remote" || echo "warning: could not fetch $remote; installing what is here"
-  git -C "$dir" rebase -q --autostash "$remote/$base" 2>/dev/null || {
+  git -C "$dir" fetch -q --tags "$remote" || echo "warning: could not fetch $remote; installing what is here"
+  # The target: a release tag (the newest stable one, or the one asked for), else the tip of the base branch.
+  target="$remote/$base"
+  pinned=0
+  case "$want" in
+    main) ;;
+    latest)
+      tag="$(git -C "$dir" tag -l 'v[0-9]*.[0-9]*.[0-9]*' | grep -Ev -- '-' | sort -V | tail -1)"
+      if [ -n "$tag" ]; then target="refs/tags/$tag"; else echo "no release yet; installing $base"; fi ;;
+    *)
+      git -C "$dir" rev-parse -q --verify "refs/tags/v$want" >/dev/null ||
+        die "there is no release v$want. Releases: $(git -C "$dir" tag -l 'v[0-9]*' | sort -V | tr '\n' ' ')"
+      target="refs/tags/v$want"; pinned=1 ;;
+  esac
+  echo "installing ${target#refs/tags/}"
+  # Replays only your own commits (the ones upstream's branch does not have) on the target, so this moves
+  # forward or back between releases.
+  git -C "$dir" rebase -q --autostash --onto "$target" "$remote/$base" 2>/dev/null || {
     git -C "$dir" rebase --abort 2>/dev/null || true
-    die "your commits in $dir conflict with $remote; nothing changed. Resolve by hand: git -C $dir rebase $remote/$base"
+    die "your commits in $dir conflict with ${target#refs/tags/}; nothing changed. Resolve by hand: git -C $dir rebase --onto $target $remote/$base"
   }
+  # A chosen version stays: otherwise the daemon would move it to main at its next check.
+  if [ "$pinned" = 1 ]; then
+    cfg="$HOME/.apprentice/config.toml"
+    mkdir -p "$HOME/.apprentice"
+    if ! grep -qs '^\[update\]' "$cfg"; then
+      printf '\n[update]\nauto = false\n' >> "$cfg"
+      echo "auto-update is off so v$want stays; run install.sh again (no --version) for the latest release"
+    else
+      echo "note: set [update] auto = false in $cfg to keep v$want"
+    fi
+  fi
 fi
 # apprentice commits its own fixes, so the clone needs an author.
 git -C "$dir" config user.name >/dev/null || git -C "$dir" config user.name "apprentice"
