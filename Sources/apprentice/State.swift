@@ -421,9 +421,11 @@ enum Gate {
     /// The warning only the user can approve: `approve` refuses it unless it comes from `confirm` or the menu.
     static let credential = "a password or security-code field"
 
-    static func matches(_ text: String) -> Bool {
-        let tokens = text.lowercased().split(whereSeparator: { !$0.isLetter })
-        return tokens.contains { words.contains(String($0)) }
+    static func matches(_ text: String) -> Bool { !wordsIn(text).isEmpty }
+
+    /// The gate-list words in `text`.
+    static func wordsIn(_ text: String) -> Set<String> {
+        Set(text.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init)).intersection(words)
     }
 
     static func sensitivePage(_ url: String?) -> Bool {
@@ -524,6 +526,14 @@ enum Approvals {
 
     /// Set while an approved `do` runs its steps: the plan was approved as a whole.
     static var planActive = false
+    /// Whether the plan showed the step now running with a `⚠` line.
+    static var planFlagged = false
+
+    /// What the approved plan covers of a step's live warnings. A step the plan did not flag, or one on a
+    /// password field, is proposed on its own, so a flow never runs a risk the approver did not see.
+    static func planCovers(_ warnings: [String]) -> Bool {
+        warnings.isEmpty || (planFlagged && !warnings.contains(Gate.credential))
+    }
 
     static var approved: Bool {
         if planActive { return true }
@@ -533,7 +543,7 @@ enum Approvals {
 
     /// Returns when the current request was approved; otherwise saves a proposal and throws exit 8.
     static func check(_ summary: String, details: [String], warnings: [String], element: String? = nil) throws {
-        if approved {
+        if approved, !planActive || planCovers(warnings) {
             // The id may point at something else after a fresh read: then the approval does not apply.
             if let want = granted?.element, let element, want != element {
                 throw Fail(2, "stale: the screen changed and the id now points at something else. Run the command again")

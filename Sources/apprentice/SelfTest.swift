@@ -238,6 +238,18 @@ enum SelfTest {
             check(f.code == 8 && Approvals.find(secret) != nil, "only the user approves a password field; it stays pending")
         } catch {}
         Approvals.drop(secret)
+        Approvals.planActive = true
+        Approvals.planFlagged = false
+        check((try? Approvals.check("click 9", details: [], warnings: [])) != nil, "a plan runs its plain steps")
+        check((try? Approvals.check("click 9", details: [], warnings: ["inside a dialog"])) == nil,
+              "a plan stops at a warning it did not show")
+        Approvals.planFlagged = true
+        check(Approvals.planCovers(["may be irreversible: button \"Save\""]) && !Approvals.planCovers([Gate.credential]),
+              "a flagged step runs, a password field never does")
+        Approvals.planActive = false
+        Approvals.planFlagged = false
+        Approvals.drop(Approvals.pending?.token ?? "")
+        check(!Gate.wordsIn("Save and send").isSubset(of: Gate.wordsIn("Save")), "a near match that sends is not the step's button")
         Approvals.request = Request(cmd: "")
     }
 

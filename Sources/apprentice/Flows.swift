@@ -32,14 +32,18 @@ extension Commands {
             throw Fail(4, "blocked: \(note.path) runs shell commands and the policy is UI only")
         }
         for i in shell { warn.append("step \(i + 1) runs a shell command on this Mac: \(shellCommand(steps[i]) ?? "")") }
-        for (i, step) in steps.enumerated() where !shell.contains(i) && (Gate.matches(step) || step.hasPrefix("upload") || step.hasPrefix("choose")) {
-            warn.append("step \(i + 1) may be irreversible: \(step)")
-        }
+        // Steps start with a backtick, so the command is the word after it.
+        let flagged = Set(steps.indices.filter { i in
+            let body = steps[i].drop { $0 == "`" }
+            return shell.contains(i) || Gate.matches(steps[i]) || ["upload", "choose", "key"].contains { body.hasPrefix($0) }
+                || steps[i].contains("--enter") || steps[i].contains("--gate")
+        })
+        for i in flagged.sorted() where !shell.contains(i) { warn.append("step \(i + 1) may be irreversible: \(steps[i])") }
         try Approvals.check("run flow \(note.path) (\(steps.count) steps)",
                             details: steps.enumerated().map { "\($0.offset + 1). \($0.element)" }, warnings: warn)
 
         Approvals.planActive = true
-        defer { Approvals.planActive = false }
+        defer { Approvals.planActive = false; Approvals.planFlagged = false }
         var out = ["flow \(note.path) · \(steps.count) steps"]
         var lastResult: String?
         // A flow of shell steps alone needs no window, so a failure hands back without reading one.
@@ -47,6 +51,7 @@ extension Commands {
         func handBack() -> String { screenless ? "" : ((try? screen()) ?? "") }
         for (i, step) in steps.enumerated() {
             let n = i + 1
+            Approvals.planFlagged = flagged.contains(i)
             if let lastResult, !shell.contains(i) { look(after: lastResult) }
             guard step.hasPrefix("`") else {
                 out.append("\(n) · needs you: \(step)")
@@ -74,10 +79,16 @@ extension Commands {
                 let result = try dispatch(Request(cmd: cmd, args: tokens))
                 lastResult = result
                 out.append("\(n) ✓ \(step) → \(result.split(separator: "\n").first ?? "")")
+            } catch let f as Fail where f.code == 8 {
+                // The step showed a warning the plan did not: it is proposed on its own.
+                out.append("\(n) ⚠ \(step) needs its own approval: it shows something the plan did not")
+                out.append(f.message)
+                out.append("stopped: steps \(n)…\(steps.count) were not run. Approve or confirm this step, then take over from step \(n + 1).")
+                throw Fail(8, out.joined(separator: "\n"))
             } catch let f as Fail {
                 out.append("\(n) ✗ \(step) → \(f.message.split(separator: "\n").first ?? "")")
                 out.append("stopped: steps \(n)…\(steps.count) were not run. Take over from here:")
-                throw Fail(f.code == 8 ? 5 : f.code, (out + [handBack()]).joined(separator: "\n"))
+                throw Fail(f.code, (out + [handBack()]).joined(separator: "\n"))
             }
         }
         if let learned = Routes.learn(from: note, model: Store.model) { out.append(learned) }
@@ -155,6 +166,10 @@ extension Commands {
                 guard let hit = same.first(where: { $0.name.lowercased() == name })
                         ?? same.first(where: { !name.isEmpty && $0.name.lowercased().contains(name) }) else {
                     throw Fail(5, "no \(label) \"\(tokens[i + 1])\" on screen")
+                }
+                // A near match must not do more than the step says: "Save" never becomes "Save and send".
+                guard Gate.wordsIn(hit.name).isSubset(of: Gate.wordsIn(name)) else {
+                    throw Fail(5, "no \(label) \"\(tokens[i + 1])\" on screen; the closest, \(label) \"\(hit.name)\", may do more than the step says")
                 }
                 out.append(String(hit.id))
                 i += 2
