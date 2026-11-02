@@ -1,0 +1,46 @@
+# Builds and self-tests on every PR and every push to main. The build is the
+# universal (arm64 + x86_64) release build that release.yml ships, so a broken
+# release shows up on the PR instead of at tag time.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-selftest:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - run: swift --version
+
+      - name: Build (universal, release)
+        run: swift build -c release --arch arm64 --arch x86_64
+
+      - name: Check the binary is universal
+        run: |
+          BIN="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/apprentice"
+          ARCHS="$(lipo -archs "$BIN")"
+          echo "archs: $ARCHS"
+          case "$ARCHS" in *arm64*x86_64*|*x86_64*arm64*) ;; *) echo "::error::not universal"; exit 1 ;; esac
+          echo "BIN=$BIN" >> "$GITHUB_ENV"
+
+      # The built-in checks need no Accessibility or Screen Recording grant.
+      # A throwaway HOME keeps them off the runner's own state.
+      - name: Self-test
+        run: HOME="$RUNNER_TEMP/home" "$BIN" selftest
+
+      - name: Check the scripts parse
+        run: |
+          for f in install.sh kit.sh $(git ls-files 'agent/*.sh'); do bash -n "$f"; done
+          python3 -m py_compile $(git ls-files 'agent/*.py')

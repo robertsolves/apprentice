@@ -1,0 +1,188 @@
+# Builds the universal (arm64 + x86_64) apprentice binary and attaches it to a
+# GitHub Release.
+#
+#   git tag v0.2.0 && git push origin v0.2.0     → public release
+#   Actions ▸ Release ▸ Run workflow (version)    → DRAFT release, for testing
+#
+# The tag must match the version string in Sources/apprentice, so bump that in
+# the same commit you tag.
+#
+# Signing + notarization run only when the Apple secrets below are set. Without
+# them the release still ships, unsigned, with Gatekeeper instructions in the
+# notes. Secrets:
+#   MACOS_CERT_P12_BASE64   base64 of a "Developer ID Application" .p12
+#   MACOS_CERT_PASSWORD     password of that .p12
+#   APPLE_ID                Apple ID email used for notarization
+#   APPLE_APP_PASSWORD      app-specific password for that Apple ID
+#   APPLE_TEAM_ID           10-char team id
+#
+# Asset names carry no version so the landing page can link to
+# releases/latest/download/apprentice-macos.zip forever.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version without the leading v (e.g. 0.2.0). Creates a DRAFT release.'
+        required: true
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      HAS_SIGNING: ${{ secrets.MACOS_CERT_P12_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve version
+        id: v
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+            DRAFT=true
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+            DRAFT=false
+          fi
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-+].*)?$ ]]; then
+            echo "::error::'$VERSION' is not a semver version"; exit 1
+          fi
+          # `apprentice version` must say what the release says.
+          if ! grep -rqF "\"$VERSION\"" Sources/apprentice; then
+            echo "::error::Sources/apprentice has no \"$VERSION\"; bump the version string before tagging"; exit 1
+          fi
+          {
+            echo "version=$VERSION"
+            echo "tag=v$VERSION"
+            echo "draft=$DRAFT"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        run: |
+          swift build -c release --arch arm64 --arch x86_64
+          mkdir -p dist
+          cp "$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/apprentice" dist/apprentice
+          lipo -archs dist/apprentice
+
+      - name: Self-test
+        run: HOME="$RUNNER_TEMP/home" dist/apprentice selftest
+
+      - name: Import signing certificate
+        if: env.HAS_SIGNING == 'true'
+        env:
+          P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+          P12_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PW="$(uuidgen)"
+          echo "$P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PW" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -P "$P12_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PW" "$KEYCHAIN" >/dev/null
+          # Prepend ours to the search list, keeping the existing keychains.
+          read -r -a EXISTING <<< "$(security list-keychains -d user | tr -d '"' | xargs)"
+          security list-keychains -d user -s "$KEYCHAIN" "${EXISTING[@]}"
+          rm "$RUNNER_TEMP/cert.p12"
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | grep 'Developer ID Application' | head -1 | awk -F'"' '{print $2}')"
+          if [ -z "$IDENTITY" ]; then echo "::error::No 'Developer ID Application' identity in the .p12"; exit 1; fi
+          echo "IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+
+      # A fixed identifier keeps Accessibility and Screen Recording grants
+      # across releases signed by the same Developer ID.
+      - name: Sign (hardened runtime)
+        if: env.HAS_SIGNING == 'true'
+        run: |
+          codesign --force --timestamp --options runtime --identifier apprentice \
+            --sign "$IDENTITY" dist/apprentice
+          codesign --verify --strict --verbose=2 dist/apprentice
+
+      - name: Package zip
+        run: ditto -c -k --sequesterRsrc dist apprentice-macos.zip
+
+      # A bare binary can't be stapled; Gatekeeper looks the ticket up online.
+      - name: Notarize
+        if: env.HAS_SIGNING == 'true'
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          OUT="$(xcrun notarytool submit apprentice-macos.zip \
+            --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" \
+            --wait --output-format json)"
+          echo "$OUT"
+          STATUS="$(echo "$OUT" | jq -r .status)"
+          if [ "$STATUS" != "Accepted" ]; then
+            xcrun notarytool log "$(echo "$OUT" | jq -r .id)" \
+              --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
+            exit 1
+          fi
+
+      - name: Checksums
+        run: |
+          shasum -a 256 apprentice-macos.zip > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Write release notes
+        run: |
+          {
+            if [ "$HAS_SIGNING" = "true" ]; then
+              echo "Signed and notarized universal binary (Apple Silicon + Intel), macOS 14+."
+            else
+              echo "Universal binary (Apple Silicon + Intel), macOS 14+."
+            fi
+            echo
+            echo "**Install (recommended):** clone and build, which also connects your coding agents, links the notes and keeps apprentice updated:"
+            echo
+            echo '```sh'
+            echo "git clone https://github.com/${{ github.repository }}.git ~/.apprentice/src && ~/.apprentice/src/install.sh"
+            echo '```'
+            echo
+            echo "\`apprentice-macos.zip\` is the bare binary, for when you want it without building from source. It has no agent docs, notes or self-update."
+            if [ "$HAS_SIGNING" != "true" ]; then
+              echo
+              echo "> [!IMPORTANT]"
+              echo "> The binary is **not notarized**, so macOS blocks it on first run. Clear the quarantine flag:"
+              echo "> \`xattr -d com.apple.quarantine ./apprentice\`"
+            fi
+            echo
+            echo "Found a bug? [Open an issue](https://github.com/${{ github.repository }}/issues/new)."
+          } > NOTES.md
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ steps.v.outputs.tag }}"
+          # A leftover *draft* for this tag (e.g. from a test dispatch) would
+          # block the create; drafts were never public, so replace them. A
+          # published release is never touched: that fails the job instead.
+          if IS_DRAFT="$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            if [ "$IS_DRAFT" = "true" ]; then
+              echo "Replacing unpublished draft $TAG"
+              gh release delete "$TAG" --yes
+            else
+              echo "::error::Release $TAG is already published"; exit 1
+            fi
+          fi
+          FLAGS=(--title "apprentice $TAG" --notes-file NOTES.md --generate-notes --target "$GITHUB_SHA")
+          if [ "${{ steps.v.outputs.draft }}" = "true" ]; then FLAGS+=(--draft); fi
+          case "$TAG" in *-*) FLAGS+=(--prerelease) ;; esac
+          gh release create "$TAG" "${FLAGS[@]}" apprentice-macos.zip SHA256SUMS.txt
+
+      - name: Clean up keychain
+        if: always() && env.HAS_SIGNING == 'true'
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true

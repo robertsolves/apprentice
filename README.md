@@ -2,7 +2,7 @@
 
 # apprentice
 
-apprentice lets a coding agent or a hosted model work one macOS app or website for you, the way a careful person would. It reads the window as a short numbered list, moves the real cursor and presses real keys. It proposes every change and waits for approval. When it is unsure it asks you, and it writes down what it learns so the next run is quicker.
+apprentice lets a coding agent or a hosted model use macOS, Linux and the web for you the way a careful person would, not a bot. It reads the window as a short numbered list, moves the real cursor and presses real keys. It proposes every change and waits for approval. When it is unsure it asks you, and it writes down what it learns so the next run is quicker.
 
 ```
 $ apprentice session --app Safari
@@ -155,6 +155,12 @@ swift build                  # .build/debug/apprentice
 apprentice grow              # repeated errors, questions asked, open field reports
 ```
 
-`CLAUDE.md` describes the architecture and the rules for changing it. `SPEC.md` is the design spec. `bugs.md` holds the bug audit and the field reports the tool files about itself. There is no test target yet.
+`CLAUDE.md` describes the architecture and the rules for changing it. `SPEC.md` is the design spec. `BUGS.md` holds the field reports the tool files about itself, and `TODO.md` the deferred work. There is no test target; `apprentice selftest` runs the built-in checks, and CI ([`ci.yml`](.github/workflows/ci.yml)) builds the universal release binary and runs them on every PR and push to `main`.
 
 The source has no package dependencies. It keeps two rules: no app- or site-specific code paths, since app knowledge belongs in `notes/`; and no input other than a real cursor and keyboard.
+
+## Releasing
+
+Bump the version string in `Sources/apprentice`, commit, then push a `v*` tag (`git tag v0.2.0 && git push origin v0.2.0`). [`release.yml`](.github/workflows/release.yml) builds the universal binary, runs the self-test, signs and notarizes it when the Apple secrets are configured, and attaches `apprentice-macos.zip` and `SHA256SUMS.txt` to a GitHub Release. The release fails if the tag and the version string disagree. *Actions ▸ Release ▸ Run workflow* does the same as a draft, for testing. Pushes to `main` that touch `site/` redeploy the landing page ([`pages.yml`](.github/workflows/pages.yml)).
+
+Installs made with `install.sh` update from `main`, not from releases.
