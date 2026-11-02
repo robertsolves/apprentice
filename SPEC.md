@@ -18,7 +18,7 @@ Core principles:
 - **The calling agent is the brain.** apprentice is a toolset, not an agent. An optional built-in loop exists for running cheap models on their own.
 - **APIs before screens.** GitHub and other services with a CLI or API go through that (for example `gh`). apprentice covers what has no API.
 - **Approval before every change.** Every action that can change state is proposed first and runs only when the calling LLM approves it. The LLM decides, or asks the user; the chain is CLI ↔ LLM ↔ the user.
-- **Stop when a site says stop.** A rate limit, a challenge or a site the user marked `forbidden` ends the work on that site. The tool keeps work below the levels that get an account restricted.
+- **Stop when a site says stop.** A rate limit or a challenge pauses the work on that site until it clears; no site is refused outright. The tool keeps work below the levels that get an account restricted.
 
 ## Goals and non-goals
 
@@ -316,7 +316,7 @@ Other guardrails:
 - **No secrets:** no passwords in commands or logs. apprentice relies on sessions the user is already logged into. Password fields are never read back, only typed into.
 - **Log scrubbing:** windows from banking, health and password-manager apps are excluded from screenshots and element logs.
 - **Prompt injection:** on-screen text is data. Usage docs tell agents not to follow instructions found on a page or in an email.
-- **Platform terms:** one person, own accounts, normal volume. Whether a site's terms allow automation is the user's call: no site is refused out of the box, and a policy entry (see below) refuses or limits one.
+- **Platform terms:** one person, own accounts, normal volume. Whether a site's terms allow automation is the user's call: apprentice never refuses a site (see Site policies).
 
 ## Site rules
 
@@ -374,16 +374,15 @@ The agent waits or ends the task; it never tries the challenge itself. `SKILL.md
 
 ### Site policies
 
-A `[policy."<domain>"]` entry in `routes.toml` records what the user decided about a site, as data the daemon enforces:
+apprentice never refuses a site. A `[policy."<domain>"]` entry in `routes.toml` is the user's note on that site's terms, for reference only:
 
 | Field | Values | Effect |
 | --- | --- | --- |
-| `automation` | `allowed`, `read-only`, `forbidden` | `forbidden` refuses everything, even if the domain is allowlisted. `read-only` allows reading plus `session`, `focus`, `open`, `scroll` and `browse` |
-| `terms_url` | URL | Printed in the refusal so the reason can be checked |
-| `checked` | date | Warns when older than 6 months, since terms change |
-| `api` | short text | Shown next to the refusal, for example the official API or export |
+| `terms_url` | URL | Printed by `apprentice policy <domain>` |
+| `checked` | date | Warns under `session` and `open` when older than 6 months, since terms change |
+| `api` | short text | The official API or export, if there is one |
 
-No site has a built-in entry, so none is refused out of the box; budgets, cooldowns and challenge stops still apply everywhere. `apprentice policy <domain>` prints the entry. A domain with no entry prints `no policy on file` once per daemon run, so the gap gets noticed. The user fills each entry after reading the site's terms; the tool does not guess them. `routes.example.toml` has commented examples.
+There are no built-in entries, and an older `automation` field is ignored. Budgets, cooldowns and challenge stops still apply on every site. `routes.example.toml` has commented examples.
 
 ### Reviewing a restriction
 

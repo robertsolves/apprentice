@@ -3,17 +3,18 @@ import Darwin
 
 signal(SIGPIPE, SIG_IGN)
 
-// The self-test works in a folder of its own, never the user's ~/.apprentice.
-if CommandLine.arguments.count > 1, CommandLine.arguments[1] == "selftest" {
-    setenv("APPRENTICE_HOME", NSTemporaryDirectory() + "apprentice-selftest-\(getpid())", 1)
-    unsetenv("APPRENTICE_VM")
-}
-
 // `apprentice --vm <name> …` is APPRENTICE_VM for one command: the agent session's own browser VM.
 var argvRaw = CommandLine.arguments
 if argvRaw.count > 2, argvRaw[1] == "--vm" {
     setenv("APPRENTICE_VM", argvRaw[2], 1)
     argvRaw.removeSubrange(1...2)
+}
+
+// The self-test works in a folder of its own, never the user's ~/.apprentice. This runs after the `--vm`
+// strip so `apprentice --vm x selftest` is caught too.
+if argvRaw.count > 1, argvRaw[1] == "selftest" {
+    setenv("APPRENTICE_HOME", NSTemporaryDirectory() + "apprentice-selftest-\(getpid())", 1)
+    unsetenv("APPRENTICE_VM")
 }
 
 let version = Build.version
@@ -54,7 +55,7 @@ func usage() {
       apprentice pr [--title t] [--draft] [--fork remote] [--local]   offer the clone's local commits upstream as a pull request
       apprentice settings [local]               where the settings are; local moves an old synced copy back
       apprentice repo                           the clone apprentice runs from
-      apprentice policy [domain]                may the LLM use shell commands for macOS tasks? With a domain: may apprentice work there?
+      apprentice policy [domain]                may the LLM use shell commands for macOS tasks? With a domain: notes on its terms
       apprentice budget [domain]                what is left of today's and this hour's caps per site and kind
       apprentice project [init | status]        a project's own .apprentice/ folder: its own site counts and tighter caps, on top of the account-wide ones
       apprentice cool [--clear domain]          sites cooling down after a rate limit; clearing asks the user

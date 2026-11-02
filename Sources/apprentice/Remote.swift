@@ -692,7 +692,6 @@ enum Remote {
             throw Fail(4, "blocked by allowlist: \(hostname) is not in \(session.allow.joined(separator: ","))")
         }
         try keepLocal(raw)
-        try Policies.check(hostname, cmd: "open")
         try Cooldown.check(hostname)
         try gate(session, page, nil, "open \(raw)")
         Config.activate(Config.profileKey(session: session, url: raw))

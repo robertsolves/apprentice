@@ -169,7 +169,6 @@ func allowCheck(_ s: Session, _ url: String?) throws {
     guard s.allows(url: url) else {
         throw Fail(4, "blocked by allowlist: \(hostOf(url) ?? s.app) is not in \(s.allow.joined(separator: ","))")
     }
-    try Policies.check(hostOf(url), cmd: Approvals.request.cmd)
 }
 
 /// Pacing and per-host rate limits, charged to `url`: the page acted on, or the page `open` goes to.
@@ -533,7 +532,6 @@ enum Commands {
         guard session.allows(url: raw) else {
             throw Fail(4, "blocked by allowlist: \(hostname) is not in \(session.allow.joined(separator: ","))")
         }
-        try Policies.check(hostname, cmd: "open")
         try Cooldown.check(hostname)
         try gate(session, target, nil, "open \(raw)")
         // The profile for the page being opened sets the navigation gap and reload cap, not the

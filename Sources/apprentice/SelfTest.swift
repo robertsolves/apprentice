@@ -13,6 +13,11 @@ enum SelfTest {
     }
 
     static func run() -> Never {
+        // Several checks write and delete the live state folder: never run against anything but a throwaway one.
+        guard Store.dir.path.hasPrefix(NSTemporaryDirectory()) || Store.dir.path.hasPrefix("/tmp/") || Store.dir.path.hasPrefix("/private/") else {
+            print("selftest: refusing to run, state folder \(Store.dir.path) is not a temporary one")
+            exit(1)
+        }
         toml()
         args()
         pace()
@@ -258,23 +263,19 @@ enum SelfTest {
         check(runs("example.com", "post") && !runs("example.com", "repost"), "a repost shares the post budget")
     }
 
-    /// No site is refused out of the box; routes.toml entries apply whatever the subdomain.
+    /// A policy entry is a note on the site's terms: no site is ever refused, even with an old
+    /// `automation = "forbidden"` line.
     private static func policies() {
-        func allowed(_ host: String?, _ cmd: String) -> Bool { (try? Policies.check(host, cmd: cmd)) != nil }
         let path = Routes.customPath
         defer { try? FileManager.default.removeItem(at: path) }
-        try? FileManager.default.removeItem(at: path)
-        check(allowed("www.instagram.com", "click") && allowed("tiktok.com", "click"), "no site is forbidden without an entry")
         try? """
-        [policy."news.example"]
-        automation = "read-only"
         [policy."blocked.example"]
         automation = "forbidden"
+        terms_url = "https://blocked.example/terms"
         """.write(to: path, atomically: true, encoding: .utf8)
-        check(!allowed("www.blocked.example", "read") && !allowed("m.blocked.example", "click"), "a forbidden site refuses every command")
-        check(allowed("notblocked.example", "click") && allowed(nil, "click"), "other sites and no page are not refused")
-        check(allowed("www.news.example", "read") && allowed("news.example", "scroll"), "a read-only site can be read")
-        check(!allowed("news.example", "click") && !allowed("news.example", "type"), "a read-only site refuses changes")
+        let page = Page(url: "https://www.blocked.example/feed", title: "Feed", scope: "web")
+        check((try? Site.guardPage(page, cmd: "click", read: { Snapshot(snap: 1, scope: "web", url: page.url, title: "Feed", total: 0, elements: []) })) != nil, "a policy entry never refuses a site")
+        check(Policies.describe("www.blocked.example").contains("https://blocked.example/terms"), "policy prints the terms on file")
     }
 
     /// The ⚠ lines: what a step is, never what the agent says it is.

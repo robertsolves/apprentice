@@ -32,11 +32,10 @@ enum Site {
     /// Commands that only look. They still run while a site cools down or shows a challenge.
     static let looking: Set<String> = ["read", "ocr", "shot", "wait-for", "log", "pending", "deny"]
 
-    /// The checks every command on a page passes before it acts: the site's policy, then its
-    /// cooldown and any challenge still on screen.
+    /// The checks every command on a page passes before it acts: the site's cooldown and any
+    /// challenge still on screen.
     static func guardPage(_ page: Page, cmd: String, read: () -> Snapshot) throws {
         guard let host = hostOf(page.url) else { return }
-        try Policies.check(host, cmd: cmd)
         if looking.contains(cmd) { return }
         // `open` may leave a cooling site; it checks the site it goes to itself.
         if cmd != "open" { try Cooldown.check(host) }
@@ -379,23 +378,21 @@ enum Challenge {
 
 // MARK: - Policies
 
-/// A `[policy."<domain>"]` entry in routes.toml: whether the site's terms allow automated use.
+/// A `[policy."<domain>"]` entry in routes.toml: the user's note on a site's terms. It informs, and
+/// never refuses a site.
 struct SitePolicy {
     var domain: String
-    var automation: String
     var terms: String?
     var checked: String?
     var api: String?
 }
 
 enum Policies {
-    /// Only the user's own entries: no site is refused out of the box (`SPEC.md`).
     static func all() -> [SitePolicy] {
         var out: [String: SitePolicy] = [:]
         for (section, v) in Toml.load(Routes.customPath) where section.hasPrefix("policy.") {
             let domain = String(section.dropFirst("policy.".count)).lowercased()
-            out[domain] = SitePolicy(domain: domain, automation: v["automation"].map(Toml.unquote) ?? "allowed",
-                                     terms: v["terms_url"].map(Toml.unquote), checked: v["checked"].map(Toml.unquote),
+            out[domain] = SitePolicy(domain: domain, terms: v["terms_url"].map(Toml.unquote), checked: v["checked"].map(Toml.unquote),
                                      api: v["api"].map(Toml.unquote))
         }
         return Array(out.values)
@@ -406,32 +403,9 @@ enum Policies {
         return all().filter { Site.matches(host, $0.domain) }.max { $0.domain.count < $1.domain.count }
     }
 
-    /// While a site is read-only, reaching and reading its pages is still allowed.
-    static let readOnly: Set<String> = Site.looking.union(["session", "focus", "open", "scroll", "browse"])
-
-    static func check(_ host: String?, cmd: String) throws {
-        guard let p = find(host) else { return }
-        let why = [p.terms.map { "terms: \($0)" }, p.api.map { "instead: \($0)" }].compactMap { $0 }.joined(separator: " · ")
-        switch p.automation {
-        case "forbidden":
-            throw Fail(4, "policy: \(p.domain) does not allow automated use, so apprentice will not work there. \(why)")
-        case "read-only" where !readOnly.contains(cmd):
-            throw Fail(4, "policy: \(p.domain) is read-only for apprentice; \(cmd) changes something. \(why)")
-        default: return
-        }
-    }
-
-    private static var mentioned: Set<String> = []
-
-    /// Printed under `session` and `open`: a missing entry once per daemon run, and an old one.
+    /// Printed under `session` and `open`: a warning when the entry is old.
     static func lines(for host: String?) -> [String] {
-        guard let host else { return [] }
-        let domain = Site.domain(host)
-        guard let p = find(host) else {
-            guard !mentioned.contains(domain) else { return [] }
-            mentioned.insert(domain)
-            return ["policy: no entry on file for \(domain). The user can add one to routes.toml after reading the site's terms"]
-        }
+        guard let p = find(host) else { return [] }
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
         if let checked = p.checked.flatMap(f.date(from:)), Date().timeIntervalSince(checked) > 182 * 86_400 {
@@ -443,7 +417,7 @@ enum Policies {
     /// `apprentice policy <domain>`.
     static func describe(_ host: String) -> String {
         guard let p = find(host) else { return "policy · \(Site.domain(host)) · no policy on file. Add `[policy.\"\(Site.domain(host))\"]` to \(Routes.customPath.path)" }
-        var out = ["policy · \(p.domain) · automation \(p.automation)"]
+        var out = ["policy · \(p.domain)"]
         if let t = p.terms { out.append("terms: \(t)") }
         if let c = p.checked { out.append("checked: \(c)") }
         if let a = p.api { out.append("instead: \(a)") }

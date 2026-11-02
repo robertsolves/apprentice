@@ -2,7 +2,7 @@
 
 Every feature apprentice has, with how to tell from the logs whether it earns its place. Review this list every few weeks: a feature nobody uses, or one that never changes an outcome, is a candidate to take out. A feature that can't be measured yet says so; adding the log field is the first step.
 
-Scope: every command `apprentice help` prints, every option those commands take, and every part of `Sources/apprentice` an agent or the user can reach. The coverage map and command index at the end are the check that nothing is missing: every file and every command appears in exactly one place.
+Scope: every command the CLI accepts (including `version` and `help`, which `usage()` does not print), every option those commands take, and every part of `Sources/apprentice` an agent or the user can reach. The coverage map and command index at the end are the check that nothing is missing: every file and every command appears in exactly one place.
 
 Where the numbers come from:
 
@@ -18,7 +18,7 @@ Verdicts: **keep** (used and pays off), **watch** (too new or too little data), 
 
 | Feature | Where | How to measure | Keep if | Verdict |
 | --- | --- | --- | --- | --- |
-| `session`: attach one window (`--app`, `--new-window`, `--allow`, `--task`, `--no-options`) | `Commands.swift` `session`, `attach` | `session` rows per run, `app`, `task`; sessions with no action after them | Every run starts with one, and few sessions are abandoned | keep |
+| `session`: attach one window (`--app`, `--on mac\|linux`, `--new-window`, `--allow`, `--task`, `--no-options`) | `Commands.swift` `session`, `attach` | `session` rows per run, `app`, `task`; sessions with no action after them | Every run starts with one, and few sessions are abandoned | keep |
 | `focus`: switch app or window, keeping the session id, allowlist and UI-only choice | `Commands.swift` `focus`, `attach(keep:)` | `focus` rows, and whether the allowlist survived | Used mid-task instead of a second `session` | watch |
 | Web accessibility switched on for the attached browser | `Commands.swift` `attach` | Reads on Safari and Chrome returning elements rather than needing `ocr` | Web reads come from the tree, not OCR | keep |
 | Session header with URL, title, policy and site notes | `Commands.swift` `session`, `notesLines`, `Remote.swift` `session` | `url` and `app` on session rows; notes printed then followed | The agent uses the header instead of re-reading | keep |
@@ -45,13 +45,13 @@ Verdicts: **keep** (used and pays off), **watch** (too new or too little data), 
 | --- | --- | --- | --- | --- |
 | `click` (id, `--on`, `--at`, `--double`, `--right`, `--gate`) | `Commands.swift` `click`, `realClick` | Rows by form; `stale` errors | Each form is used | keep |
 | `type` (`--enter`, `--pace`, `--tier`, address bars pasted) | `Commands.swift` `type`, `typeInto`, `Input.swift` `Keys.paste` | `type` rows, `waits.type` | Typing is paced without slowing short fields | keep |
-| `--tier` on `type`, `key`, `menu`, `upload` | `Commands.swift` `Args` | Nothing: the flag is parsed and never read | Either it comes back as a real fallback tier or it goes | cut? |
+| `--tier` on `type`, `key`, `menu`, `upload` | `Commands.swift` `Args` | Nothing today: no behaviour depends on it, so there is nothing to measure | Either it comes back as a real fallback tier or it goes | cut? |
 | `key` and `menu` | `Commands.swift` `key`, `menu` | Rows per command and per combo | Shortcuts and menu items both used | keep |
 | `scroll` (`--in id`) | `Commands.swift` `scroll` | `scroll` rows | Used on page and on an element | keep |
 | `hover`, `drag` | `Commands.swift` `hover`, `drag` | Rows per command | Each is used in real runs | keep |
 | `browse` (read down a feed) | `Commands.swift` `browse`, `Fidget.swift` `Wheel.browse` | `browse` rows, `down`/`up` lines; soft blocks on the same host after one | Agents use it before acting on a feed, and no soft block follows it | watch |
 | `open` (navigate at a polite pace) | `Commands.swift` `open` | `open` rows, navigation-limit errors | It is used instead of clicking through to a URL | keep |
-| `upload`, `download`, `choose` (system dialogs; `[agent] download_menu`) | `Commands.swift` `upload`, `download`, `choose` | Rows and their errors (grow lists repeats) | Error rate keeps falling | keep, fix repeat errors |
+| `upload`, `download`, `choose` (system dialogs; `[agent] download_menu`) | `Commands.swift` `upload`, `download`, `choose` | Rows and their errors (grow lists repeats) | Error rate keeps falling; a repeat is a fix, not a cut | keep |
 | `do <flow>` on the VM (`choose` and dialog driving) | `Remote+More.swift` `confirmDialog` | `choose` rows with `vm: true` | File dialogs work the same on both screens | watch |
 
 ## Pacing and human input
@@ -59,7 +59,7 @@ Verdicts: **keep** (used and pays off), **watch** (too new or too little data), 
 | Feature | Where | How to measure | Keep if | Verdict |
 | --- | --- | --- | --- | --- |
 | Shared fast generator | `Rand.swift` | Not measured; `selftest` checks range, seeding and weights | Cheap; one place to change randomness | keep |
-| Pointer paths: five shapes, three speed profiles, per-run hand, overshoot and two-step correction, settle, Gaussian landing | `Input.swift` `Mouse` | `waits.move`; challenges and soft blocks per site in `events.jsonl` | No challenges traced to pointer motion | keep |
+| Pointer paths: five shapes, three speed profiles, a hand drawn once per daemon, overshoot and two-step correction, settle, Gaussian landing | `Input.swift` `Mouse` | `waits.move`; challenges and soft blocks per site in `events.jsonl` | No challenges traced to pointer motion | keep |
 | Scroll flicks | `Fidget.swift` `Wheel` | `scroll` rows; soft blocks after scrolls | No challenge traced to scrolling | watch |
 | Fidgets after actions | `Fidget.swift` | `waits.fidget`; challenges per site before and after turning `fidget` on | Sites with fidgets on see fewer challenges for the seconds they cost | watch |
 | Pace styles (`fastest` … `careful`) and `[pace.styles]` | `Config.swift` `PaceConfig.preset` | Which style each row ran under (add it to rows) | Each style is used; `careful` sites stay free of soft blocks | watch |
@@ -79,14 +79,14 @@ Verdicts: **keep** (used and pays off), **watch** (too new or too little data), 
 | Approval gate, tokens, `approve` / `deny` / `pending`, `approve --text` | `State.swift` `Approvals`, `gate()` | `proposed` rows against `approved`/`denied`; grow's approval wait | Part of the product | keep |
 | Token lifecycle: single use, 5 minutes, refused after a re-read | `State.swift` `Approvals` | Expired and stale-token errors | Tokens are never acted on twice | keep |
 | `confirm` for ⚠ steps | `Ask.swift` `confirm` | Confirms, denies, time to answer | The user denies sometimes (it catches things) | keep |
-| Gate words, ⚠ lines and `--gate` forcing a warning | `State.swift` `Gate`, `Commands.swift` | ⚠ proposals vs denied ones | Warnings line up with what the user cares about | keep; prune words that never matter |
+| Gate words, ⚠ lines and `--gate` forcing a warning | `State.swift` `Gate`, `Commands.swift` | ⚠ proposals vs denied ones | Warnings line up with what the user cares about; words that never fire can be pruned | keep |
 | Gate screenshots kept with the row | `Commands.swift` `gate`, `Sessions.capShots` | `shots/gate-*.png` counts | They get looked at when a step is questioned | watch |
 | Shell policy (`[agent] ui_only`, `policy`) | `Commands.swift` `policy`, `AgentLoop.swift`, `Flows.swift` | Policy blocks, `sh:` steps refused | UI-only runs never touch the shell | keep |
 | Per-site budgets (hour, day, week, `min_gap_s`, kind borrowing) | `SiteRules.swift` `Budgets` | Budget stops (grow lists them) | Part of the product | keep |
 | Project budgets and counts (`.apprentice/` on top of the account) | `Project.swift`, `SiteRules.swift` `projectTable` | `project status` use; project-limit refusals | Projects that need tighter caps use it | watch |
 | Cooldowns, soft-block detection | `SiteRules.swift` `Cooldown` | `events.jsonl` soft blocks; false alarms | Real blocks caught, few false ones | keep |
 | Challenge hand-off | `SiteRules.swift` `Challenge` | `events.jsonl` challenges | Part of the product | keep |
-| Site policies (user-set, none built in) | `SiteRules.swift` `Policies` | Policy refusals | Part of the product | keep |
+| Site policies (terms notes, never refuse) | `SiteRules.swift` `Policies` | Policy refusals | Part of the product | keep |
 | Allowlist per session | `allowCheck` | Allowlist refusals | Used in the start-up window | keep |
 | Kill switch | `Daemon.swift` `KillSwitch` | Not logged: add a row when it trips | It gets used, or stays as insurance | keep |
 | Privacy scrubbing | `State.swift` `Privacy` | Not measured | Required | keep |
@@ -114,9 +114,9 @@ Verdicts: **keep** (used and pays off), **watch** (too new or too little data), 
 | `sh:` steps inside flows | `Flows.swift` `shellCommand`, `runShell` | `cmd: sh` rows with the flow path | Tool flows run without the screen | watch |
 | `do --explain` (which flow this model picks, and why) | `Notes.explain` | `--explain` calls | Agents check before running a flow blind | watch |
 | `learn` | `Notes.learn` | Flows drafted that later ran | Drafts turn into used flows | watch |
-| Routes (`route`) and route hints on `session` / `open` | `Routes.swift` | `route` calls, hints followed | Agents take the route | cut? if never hit |
-| `run` loop (`--model`, `--base-url`, `--screen-anyway`, `--save`) | `AgentLoop.swift` | `run` sessions, steps, stops | Someone runs tasks without a coding agent | cut? if unused |
-| `replay <name> [--from n] [--approve]` | `AgentLoop.swift` `Replay` | `replay` runs, checks failed | Saved runs get replayed | cut? if unused |
+| Routes (`route`) and route hints on `session` / `open` | `Routes.swift` | `route` calls, hints followed | Agents take the route; no calls in the log means cut it | cut? |
+| `run` loop (`--model`, `--base-url`, `--screen-anyway`, `--save`) | `AgentLoop.swift` | `run` sessions, steps, stops | Someone runs tasks without a coding agent; no uses means cut it | cut? |
+| `replay <name> [--from n] [--approve]` | `AgentLoop.swift` `Replay` | `replay` runs, checks failed | Saved runs get replayed; none means cut it | cut? |
 | Model and agent detection (`APPRENTICE_MODEL`, transcripts, configs, MCP) | `Agent.swift` | `model` on rows; `models` in grow | Flows are picked per model and it is the right model | keep |
 | `grow`, `bug`, `commit`, self-update | `Grow.swift`, `Repo.swift` | Fixes made from grow items; failed updates | The tool keeps improving from use | keep |
 | `pr`: local commits offered upstream from a fork, `--local`, session-copy disclosure | `PR.swift` | `pr` runs and PRs opened | Fixes reach upstream without force-pushing | watch |
@@ -141,10 +141,10 @@ Verdicts: **keep** (used and pays off), **watch** (too new or too little data), 
 | `vm call`, `vm look`, `vm shell` | `VM.swift` | Calls per challenge; `shell` use | The user passes checks through it, agents work by ssh first | watch |
 | One VM per job (`APPRENTICE_VM`, `--vm <name>`) | `VM.swift`, `main.swift`, `Remote.swift` | `vm` names on rows; cross-VM budget counts | Agents run side by side without collisions | watch |
 | Uploads and downloads across the Mac and the VM | `Remote+More.swift` `upload`, `download`, `push`, `pull` | Transfer rows and their errors | Transfers work without the shared folder | keep |
-| Event-driven settle in the VM | `Remote.swift` `settled`, `helper.py` `quiet` | `waits.settle` on `vm` rows, before and after | Median settle well under the old 1.3 s, no rise in actions on a half-loaded page | watch |
-| Polling settle on this Mac | `Reader.swift` `settle` | `waits.settle` on non-`vm` rows (no data yet) | It stays under ~0.5 s; if not, add AXObserver events | watch |
+| Event-driven settle in the VM | `Remote.swift` `settled`, `helper.py` `quiet` | `waits.settle` on `vm` rows, before and after | Median settle near the helper's 250 ms quiet window (SPEC), and no rise in actions on a half-loaded page | watch |
+| Polling settle on this Mac | `Reader.swift` `settle` | `waits.settle` on non-`vm` rows (no data yet) | Two reads 150 ms apart agree; if waits grow, add AXObserver events | watch |
 | VM questions and `show` on the VM's screen | `Remote+More.swift` `askInVM`, `show` | Exit-9 and `show` rows with `vm: true` | Challenges get answered while the Mac stays free | watch |
-| MCP server (same commands as tools) | `MCP.swift` | Sessions started through `mcp` (add a field); tool calls by name | An agent without a shell uses it | watch |
+| MCP server: 32 tools for reading and acting (no `sessions`, `wait-for`, `grow`, `run`, `replay`, `vm`, `doctor`, `pr`, `project` or `serve`) | `MCP.swift` | Sessions started through `mcp` (add a field); tool calls by name | An agent without a shell uses it | watch |
 | Daemon: `serve`, `stop`, auto-start, one queue per window, `ping` | `Daemon.swift`, `Wire.swift` | `stop` rows; daemon restarts in `doctor` | Commands never interleave on one window | keep |
 | Wire protocol over a unix socket, 0700 state folder | `Wire.swift`, `State.swift` `Store` | `doctor`'s state check | Permissions hold; no TCP port | keep |
 | Exit codes 0–9 and compact text output | `main.swift`, `Wire.swift` | `code` on rows; agent misuse from bad exit handling | Agents branch on codes, not prose | keep |
@@ -175,7 +175,7 @@ Every source file, and where its features are listed above. Nothing in `Sources/
 | `Grow.swift` | `grow` digest and pace summary |
 | `Input.swift` | Pointer paths, keys, borrow mode, watching for the person, paste |
 | `MCP.swift` | MCP server and its tools |
-| `Notes.swift` | Notes, `learn`, `bug`, flow ranking, `context` |
+| `Notes.swift` | Notes, `learn`, `bug`, flow ranking, `context(task:)` |
 | `Notify.swift` | `phone`, away-mode pushes, question screenshots |
 | `PR.swift` | `pr`, `pr --local`, session-copy disclosure |
 | `Project.swift` | `project init`, `project status`, project limits |
@@ -197,7 +197,7 @@ Every source file, and where its features are listed above. Nothing in `Sources/
 
 ## Command index
 
-Every command in `apprentice help`, and the section that scopes it.
+Every command the CLI accepts, and the section that scopes it. `help` and `version` are accepted without being printed by `usage()`.
 
 | Command | Section |
 | --- | --- |
@@ -218,18 +218,18 @@ Every command in `apprentice help`, and the section that scopes it.
 | `away on\|off\|status` / `phone [on\|off\|test]` | Talking to the user |
 | `awake on\|off\|status` | Talking to the user |
 | `do <flow> [--key value]` / `do --explain` | Learning and reuse |
-| `notes ["words"]` / `learn "task"` / `route "task"` | Learning and reuse |
+| `notes ["words"]` / `learn "task" [--name] [--model] [--force]` / `route "task"` | Learning and reuse |
 | `run "task" [--model] [--base-url] [--screen-anyway] [--save]` / `replay <name>` | Learning and reuse |
-| `grow [--days]` / `bug "summary"` / `commit "why"` / `pr` | Learning and reuse |
+| `grow [--days]` / `bug "summary" [--repro] [--cause] [--fix]` / `commit "why"` / `pr [--title] [--draft] [--fork] [--local]` | Learning and reuse |
 | `policy [domain]` / `budget [domain]` / `cool [--clear]` | Safety |
-| `activity <domain>` / `flag <domain> "note"` | Logs, sessions and review |
+| `activity <domain> [--days]` / `flag <domain> "note"` | Logs, sessions and review |
 | `log [--tail] \| --session [<id>]` / `sessions [--limit]` | Logs, sessions and review |
 | `settings [local]` / `repo` / `version` / `selftest` | Platforms and integration |
 | `project [init\|status]` | Platforms and integration |
 | `update [--check] [--build]` | Learning and reuse |
 | `serve [--background]` / `stop` | Platforms and integration |
 | `mcp` | Platforms and integration |
-| `vm setup\|install\|up\|down\|on\|off\|look\|call\|shell\|status` | Platforms and integration |
+| `vm setup\|install\|up\|down\|on\|off\|look\|call\|shell\|list\|status` | Platforms and integration |
 | `uninstall [--all] [--yes]` | Platforms and integration |
 | `--vm <name> …` (before any command) | Platforms and integration |
 | `--json` (on any command) | Logs, sessions and review |
@@ -246,6 +246,6 @@ These features can't be measured yet:
 - Phone pushes: whether they arrived, and whether the user answered from the phone.
 - `pr`, `project`, `settings`, `doctor`, `uninstall` and `selftest` calls, apart from their `client` rows.
 - `sh:` flow steps against screen steps in the same flow.
-- Whether the `--tier` flag does anything at all: today it is parsed and ignored, so either implement it or delete it from `usage()`.
+- Whether the `--tier` flag does anything at all: it is accepted and then unused (the only read, `Commands.swift:1197`, prints a `tier` field nothing writes), so either implement it or delete it from `usage()`.
 
 Adding one log field each, and a grow line that totals them, makes the next review possible.

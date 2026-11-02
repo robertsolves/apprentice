@@ -37,7 +37,7 @@ enum MCP {
         tool("show", "Ask the user to point at something on screen; returns the element there", ["what": ["type": "string"]], ["what"]),
         tool("away", "The user is away (on) or back (off): questions go to the chat while away", ["state": ["type": "string"]], ["state"]),
         tool("phone", "Set up push notifications to the user's phone (on), stop them (off) or send a test; returns links to tap", ["state": ["type": "string"]]),
-        tool("policy", "Whether quick macOS tasks may use shell commands; with a domain, whether apprentice may work on that site", ["domain": ["type": "string"]]),
+        tool("policy", "Whether quick macOS tasks may use shell commands; with a domain, the user's notes on that site's terms", ["domain": ["type": "string"]]),
         tool("budget", "What is left of today's and this hour's action caps per site and kind", ["domain": ["type": "string"]]),
         tool("choose", "In an open or save dialog, go to a path: picks a file or fills in a new name", ["path": ["type": "string"]], ["path"]),
         tool("do", "Run a flow from notes/flows with one approval. vars: {\"name\": \"value\"} fills {name}", ["flow": ["type": "string"], "vars": ["type": "object"]], ["flow"]),

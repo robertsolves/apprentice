@@ -15,7 +15,11 @@ extension Commands {
         guard let note = Notes.flow(named: name) else { throw Fail(5, "no flow \"\(name)\": find one with `apprentice notes \"<words>\"`") }
         var missing = Set<String>()
         let raw = Notes.steps(note)
-        let steps = raw.map { fill($0, a.flags, &missing) }
+        // `sh:` steps are the shell's own text: only the keys the caller passed are substituted, so `${HOME}`,
+        // `awk '{print $1}'` and `{a,b}` reach the shell untouched. `real` runs; `steps` is what is shown, with
+        // the values of secret-looking keys hidden so they never reach the chat or the log.
+        let real = raw.map { fill($0, a.flags, &missing, onlyKnown: $0.hasPrefix("`sh:")) }
+        let steps = raw.map { fill($0, a.flags, &missing, onlyKnown: $0.hasPrefix("`sh:"), hide: true) }
         guard !steps.isEmpty else { throw Fail(5, "\(note.path) has no steps") }
         guard missing.isEmpty else {
             throw Fail(5, "\(note.path) needs " + missing.sorted().map { "--\($0) \"…\"" }.joined(separator: " "))
@@ -23,7 +27,7 @@ extension Commands {
         var warn: [String] = []
         let status = note.meta["status"] ?? "draft"
         if status != "verified" { warn.append("the flow is \(status): some steps are unconfirmed") }
-        let shell = steps.indices.filter { shellCommand(steps[$0]) != nil }
+        let shell = real.indices.filter { shellCommand(real[$0]) != nil }
         if !shell.isEmpty, Session.stored?.uiOnly ?? Config.current.uiOnly {
             throw Fail(4, "blocked: \(note.path) runs shell commands and the policy is UI only")
         }
@@ -48,7 +52,7 @@ extension Commands {
                 out.append("\(n) · needs you: \(step)")
                 throw Fail(5, (out + [handBack()]).joined(separator: "\n"))
             }
-            if let command = shellCommand(step) {
+            if let command = shellCommand(real[i]) {
                 let r = runShell(command)
                 guard r.code == 0 else {
                     out.append("\(n) ✗ \(step) → exit \(r.code): \(r.out.split(separator: "\n").last ?? "")")
@@ -162,19 +166,26 @@ extension Commands {
         return out
     }
 
-    static func fill(_ step: String, _ vars: [String: String], _ missing: inout Set<String>) -> String {
+    static func fill(_ step: String, _ vars: [String: String], _ missing: inout Set<String>,
+                     onlyKnown: Bool = false, hide: Bool = false) -> String {
         var s = step
+        var skip = 0  // characters already passed over (braces that are not placeholders)
         // A value that brings its own placeholder back would substitute for ever and wedge the
         // daemon; the count bounds that, and anything left stays visible as a marker.
         for _ in 0..<200 {
-            guard let open = s.range(of: "{"), let close = s.range(of: "}", range: open.upperBound..<s.endIndex) else { break }
+            guard let open = s.range(of: "{", range: s.index(s.startIndex, offsetBy: min(skip, s.count))..<s.endIndex),
+                  let close = s.range(of: "}", range: open.upperBound..<s.endIndex) else { break }
             let key = s[open.upperBound..<close.lowerBound].lowercased().replacingOccurrences(of: " ", with: "-")
-            guard let value = vars[key] else {
+            let dollar = open.lowerBound > s.startIndex && s[s.index(before: open.lowerBound)] == "$"
+            guard let value = vars[key], !dollar else {
+                // A brace the caller gave no value for is shell text in an `sh:` step, a missing variable elsewhere.
+                if onlyKnown || dollar { skip = s.distance(from: s.startIndex, to: close.upperBound); continue }
                 missing.insert(key)
                 s.replaceSubrange(open.lowerBound..<close.upperBound, with: "‹\(key)›")
                 continue
             }
-            s.replaceSubrange(open.lowerBound..<close.upperBound, with: value)
+            let secret = hide && ["password", "token", "secret"].contains { key.contains($0) }
+            s.replaceSubrange(open.lowerBound..<close.upperBound, with: secret ? "‹hidden›" : value)
         }
         return s
     }

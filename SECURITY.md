@@ -20,8 +20,7 @@ Of particular interest:
   token, or a ⚠ step that isn't flagged.
 - Prompt injection: text on a screen or page that makes apprentice, or the
   agent through its docs, act without approval or write into `notes/`.
-- Bypasses of the allowlist, site budgets, cooldowns, challenge stops or
-  site policies set in `routes.toml`.
+- Bypasses of the allowlist, site budgets, cooldowns or challenge stops.
 - The daemon socket (`~/.apprentice/sock`) or the VM's ssh helper accepting
   commands from another user or host.
 - Leaks of typed text, passwords, API keys or blocked apps into logs, step
