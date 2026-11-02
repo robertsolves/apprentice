@@ -114,7 +114,6 @@ struct ListColumn<Rows: View>: View {
             Divider()
             rows()
         }
-        .frame(minWidth: 240, idealWidth: 280)
     }
 }
 
@@ -133,7 +132,7 @@ struct ProjectsView: View {
     @State private var selected: String?
 
     var body: some View {
-        HSplitView {
+        SplitPane(id: "projects") {
             ListColumn(count: "\(model.projects.count) project\(model.projects.count == 1 ? "" : "s")", newTitle: "New",
                        new: { model.newProject = .empty }) {
                 if model.projects.isEmpty {
@@ -150,7 +149,7 @@ struct ProjectsView: View {
                     .scrollContentBackground(.hidden)
                 }
             }
-
+        } right: {
             Group {
                 if let id = selected, let project = model.projects.first(where: { $0.id == id }) {
                     ProjectDetail(model: model, project: project).id(project.id)
@@ -170,7 +169,6 @@ struct ProjectsView: View {
                     }
                 }
             }
-            .frame(minWidth: 440)
         }
         .background(Theme.canvas)
     }
@@ -376,7 +374,7 @@ struct PipelinesView: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
-        HSplitView {
+        SplitPane(id: "pipelines") {
             ListColumn(count: "\(model.pipelines.count) pipeline\(model.pipelines.count == 1 ? "" : "s")", newTitle: "New",
                        new: { model.editPipeline(Pipelines.Pipeline(name: "")) }) {
                 if model.pipelines.isEmpty {
@@ -396,7 +394,7 @@ struct PipelinesView: View {
                     .scrollContentBackground(.hidden)
                 }
             }
-
+        } right: {
             Group {
                 if let draft = model.pipelineDraft {
                     PipelineEditor(model: model, original: draft).id(draft.id + "\(model.pipelineEdits)")
@@ -412,7 +410,6 @@ struct PipelinesView: View {
                     }
                 }
             }
-            .frame(minWidth: 480)
         }
         .background(Theme.canvas)
     }

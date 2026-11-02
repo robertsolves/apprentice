@@ -61,12 +61,14 @@ extension Commands {
             }
             if let lastResult, !shell.contains(i) { look(after: lastResult) }
             guard step.hasPrefix("`") else {
+                Skills.noteFailure(flow: note, step: n)
                 out.append("\(n) · needs you: \(step)")
                 throw Fail(5, (out + [handBack()]).joined(separator: "\n"))
             }
             if let command = shellCommand(real[i]) {
                 let r = runShell(command)
                 guard r.code == 0 else {
+                    Skills.noteFailure(flow: note, step: n)
                     out.append("\(n) ✗ \(step) → exit \(r.code): \(r.out.split(separator: "\n").last ?? "")")
                     out.append("stopped: steps \(n)…\(steps.count) were not run. Take over from here:")
                     throw Fail(5, (out + [handBack()]).joined(separator: "\n"))
@@ -90,6 +92,7 @@ extension Commands {
                 out.append("\(n) ✓ \(step) → \(result.split(separator: "\n").first ?? "")")
             } catch let amb as Ambiguous {
                 // The matches are listed in full; their ids are those of the snapshot just saved, so no re-read.
+                Skills.noteFailure(flow: note, step: n)
                 out.append("\(n) ✗ \(step) → several matches")
                 out.append("stopped: steps \(n)…\(steps.count) were not run. Take over from here:")
                 throw Fail(5, (out + [amb.message]).joined(separator: "\n"))
@@ -100,13 +103,17 @@ extension Commands {
                 out.append("stopped: steps \(n)…\(steps.count) were not run. Approve or confirm this step, then take over from step \(n + 1).")
                 throw Fail(8, out.joined(separator: "\n"))
             } catch let f as Fail {
+                // What the agent does next, to the end of the session, can repair the flow (`Skills.repairFlow`).
+                Skills.noteFailure(flow: note, step: n)
                 out.append("\(n) ✗ \(step) → \(f.message.split(separator: "\n").first ?? "")")
                 out.append("stopped: steps \(n)…\(steps.count) were not run. Take over from here:")
                 throw Fail(f.code, (out + [handBack()]).joined(separator: "\n"))
             }
         }
         if let learned = Routes.learn(from: note, model: Store.model) { out.append(learned) }
-        out.append("done · if anything needed fixing, update \(note.path)")
+        Skills.clearFailure()
+        Skills.touch(note.url)
+        out.append("done · if anything needed fixing, update \(note.path)" + (note.origin == .learned ? " (a learned skill: tidy it if a step was off)" : ""))
         return out.joined(separator: "\n")
     }
 

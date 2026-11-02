@@ -51,7 +51,7 @@ func usage() {
       apprentice drag <id> <id> | --by dx,dy [--in id | --at x,y]   drag one onto another, or pan a map
       apprentice upload <id> <path> [--tier 3]
       apprentice choose <path>                  drive the open or save dialog on the window
-      apprentice do <flow> [--key value ...]    run a flow from playbooks/flows with one approval
+      apprentice do <flow> [--key value ...]    run a skill's saved steps (its flow) with one approval
       apprentice download <id> <path>
       apprentice approve <token> [--text "edited text"] | deny <token> | pending
       apprentice wait-for "text" [--timeout 10]
@@ -87,23 +87,23 @@ func usage() {
       apprentice log [--tail n] | --session [<id>]   recent steps, or one whole session
       apprentice sessions [--limit 10]          recent sessions: app, sites, steps, errors, model, task
       apprentice route "task"
-      apprentice playbooks ["words"] [--check]        learned app, site and flow playbooks; --check looks for anything personal
+      apprentice skills ["words"] | <name> | list | --paths | forget <path> | share <path> | --check   what agents know: built in, learned by apprentice (unreviewed hints) and yours; --check looks for anything personal (`playbooks` is the old name)
       apprentice prefs ["words"]                what the user uses (their gym's site, their handles): this device's, then its parent's
       apprentice remember <key> "<value>" --from you|task [--on mac]   save one on this device: the user's words, or the site or app the task ran on
       apprentice forget <key> [--on mac]        drop one from this device; a parent's value then applies
-      apprentice learn "task" [--name slug] [--model m] [--force]  draft a flow from this session's steps
+      apprentice learn "task" [--name slug] [--model m] [--force] | --fact "one line" [--for site-or-app]   save this session's steps, or one fact, as a learned skill on this Mac
       apprentice do --explain "task"            which flow a task would pick for this model, and why
       apprentice run "task" --model <name> [--base-url url] [--screen-anyway] [--save name]
       apprentice replay <name> [--from n] [--approve]
       apprentice mcp
       apprentice vm setup | install | up | down | on | off | look | call "what" | shell | status | list   a small Linux VM with its own screen, cursor and keyboard: its browser and Linux apps (--on linux); shell prints the ssh command for its terminal
-      apprentice app                            the window: projects, terminal tabs where agents run, pipelines, schedules, playbooks, VMs and settings
+      apprentice app                            the window: projects, terminal tabs where agents run, pipelines, schedules, skills, VMs and settings
       apprentice schedule add|list|show|pause|resume|rm|now|agent   prompts and tasks that run later or again
       apprentice away on|off|status|wait|add|list|cancel   work that runs only while you are away, and stops when you are back
       apprentice serve [--background] | stop
       apprentice uninstall [--all] [--keep-vms] [--yes]   list, then remove, everything apprentice installed (--all: the clone too; --keep-vms: the VMs stay)
 
-    output is compact text for an agent. add --json for the raw reply from the commands that go through the daemon, and from `route` and `playbooks`.
+    output is compact text for an agent. add --json for the raw reply from the commands that go through the daemon, and from `route` and `skills`.
     open, click, type, key, menu, drag, upload, download, choose and do only propose: they exit 8 with a token,
     and act once you run `apprentice approve <token>`. ctrl+opt+cmd+. is the kill switch: it stops whatever runs, and nothing more runs until the user answers.
     exit codes: 0 ok · 2 stale, re-read · 3 the user denied · 4 blocked, rate limited, over budget, cooling or a challenge ·
@@ -125,7 +125,7 @@ let rest = Array(argv.dropFirst())
 
 /// Commands answered in this process log their own row, so `log --session` and `grow` see `learn`, `bug`,
 /// `route` and the rest beside the daemon's commands.
-let loggedHere: Set<String> = ["route", "playbooks", "notes", "learn", "bug", "commit", "update", "settings", "repo", "policy", "budget", "pace",
+let loggedHere: Set<String> = ["route", "playbooks", "skills", "notes", "learn", "bug", "commit", "update", "settings", "repo", "policy", "budget", "pace",
                                "activity", "flag", "grow", "sessions", "project", "doctor", "pr", "vm", "replay", "phone", "tour", "prefs", "remember", "forget", "account",
                                "pipeline"]
 if loggedHere.contains(command) { Timing.begin() }
@@ -172,11 +172,13 @@ case "stop":
     let (stopped, how) = Wire.stopDaemon()
     print(how)
     exit(stopped ? 0 : 5)
-case "route", "playbooks", "notes":
+case "route", "playbooks", "notes", "skills":
     // Flags are not part of the query; --json works here as everywhere (E1).
     let a = Args.parse(rest)
-    if command != "route", a.has("check") { attempt { print(try Playbooks.checkAll()) } }
-    let out = command == "route" ? Routes.answer(a.pos.joined(separator: " ")) : Playbooks.search(a.pos.joined(separator: " "))
+    var out = ""
+    if command == "route" { out = Routes.answer(a.pos.joined(separator: " ")) } else {
+        do { out = try Skills.command(a) } catch { fail(error) }
+    }
     if a.has("json") {
         print(String(data: Wire.json(Response(code: 0, out: out)), encoding: .utf8) ?? "{}")
     } else {

@@ -154,6 +154,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.makeKeyAndOrderFront(nil)
         self.window = window
         NSApp.mainMenu = MainMenu.make()
+        TerminalKeys.install()
+        if let out = ProcessInfo.processInfo.environment["APPRENTICE_APP_KEYTEST"] { KeyTest.run(model: model, window: window, out: out) }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
@@ -161,6 +163,86 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         window?.makeKeyAndOrderFront(nil)
         return true
+    }
+}
+
+/// `APPRENTICE_APP_KEYTEST=<file>`: opens a tab running `cat -v`, sends keys through the app's own event path
+/// (`NSApp.sendEvent`, so window key equivalents and the responder chain all take part, as with a real
+/// keyboard), writes what the tab printed and who had the keyboard to the file, and quits. It is how the
+/// terminal's arrow keys are checked end to end without anyone at the keyboard.
+enum KeyTest {
+    static func run(model: AppModel, window: NSWindow, out: String) {
+        var log: [String] = []
+        func note(_ s: String) { log.append(s) }
+        func responder() -> String { window.firstResponder.map { String(describing: type(of: $0)) } ?? "nil" }
+        func key(_ code: UInt16, _ chars: String, _ flags: NSEvent.ModifierFlags = []) {
+            for type in [NSEvent.EventType.keyDown, .keyUp] {
+                guard let e = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime,
+                                               windowNumber: window.windowNumber, context: nil, characters: chars,
+                                               charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code) else { continue }
+                NSApp.sendEvent(e)
+            }
+        }
+        /// A click at a point given from the window's top-left, in points.
+        func click(_ x: CGFloat, _ fromTop: CGFloat) {
+            let h = window.contentView?.bounds.height ?? 780
+            let p = NSPoint(x: x, y: h - fromTop)
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                guard let e = NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                 windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) else { continue }
+                NSApp.sendEvent(e)
+            }
+        }
+        func hit(_ x: CGFloat, _ fromTop: CGFloat) -> String {
+            let h = window.contentView?.bounds.height ?? 780
+            let v = window.contentView?.hitTest(NSPoint(x: x, y: h - fromTop))
+            return v.map { String(describing: type(of: $0)) } ?? "nil"
+        }
+        let arrows: NSEvent.ModifierFlags = [.function, .numericPad]
+        func down() { key(125, String(UnicodeScalar(UInt16(NSDownArrowFunctionKey))!), arrows) }
+        func up() { key(126, String(UnicodeScalar(UInt16(NSUpArrowFunctionKey))!), arrows) }
+        func dump(_ title: String) {
+            guard let term = model.selectedSession else { note("\(title): no tab"); return }
+            let rows = (0..<term.screen.rows).map { term.screen.rowText($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            note("\(title) · responder \(responder())\n  " + rows.suffix(6).joined(separator: "\n  "))
+        }
+        let steps: [(Double, () -> Void)] = [
+            (1.5, { model.newTab(preset: "keytest", command: "stty -echo; cat -v") }),
+            (1.5, { dump("tab opened") }),
+            (0.2, { key(0, "a"); down(); up(); key(36, "\r") }),
+            (0.8, { dump("typed a, down, up, return") }),
+            (4.5, { note("after the 2-second refreshes · responder \(responder())") }),
+            (0.1, { model.section = .schedules }),
+            (0.6, { model.section = .terminal }),
+            (0.8, { note("after Schedules and back · responder \(responder())") }),
+            (0.1, { model.newTab(preset: "keytest2", command: "stty -echo; cat -v") }),
+            (1.2, { note("after a new tab · responder \(responder())") }),
+            (0.1, { if let first = model.tabs.first(where: { $0.title == "keytest" }) { model.selectedTab = first.id } }),
+            (0.8, { note("after choosing the first tab again · responder \(responder())") }),
+            (0.1, { note("under the sidebar's Terminal row: \(hit(110, 128)); the tab bar: \(hit(330, 70)); the terminal: \(hit(700, 400))") }),
+            (0.1, { click(110, 128) }),
+            (0.6, { note("after clicking the sidebar · responder \(responder())") }),
+            (0.1, { key(0, "c"); down(); key(36, "\r") }),
+            (0.6, { dump("typed c, down, return after the sidebar click") }),
+            (0.1, { click(700, 400) }),
+            (0.6, { note("after clicking inside the terminal · responder \(responder())") }),
+            (0.1, { key(0, "d"); down(); key(36, "\r") }),
+            (0.6, { dump("typed d, down, return after clicking the terminal") }),
+            (0.1, { click(330, 70) }),
+            (0.6, { note("after clicking the tab bar · responder \(responder())") }),
+            // The window's own controls had the keyboard last: the user clicked the sidebar, then the terminal.
+            (0.2, { window.makeFirstResponder(nil); key(0, "b"); down(); key(36, "\r") }),
+            (0.8, { dump("after the window took the keyboard: b, down, return") }),
+            (0.2, {
+                try? log.joined(separator: "\n\n").write(toFile: out, atomically: true, encoding: .utf8)
+                NSApp.terminate(nil)
+            }),
+        ]
+        var at = 0.0
+        for (delay, step) in steps {
+            at += delay
+            DispatchQueue.main.asyncAfter(deadline: .now() + at, execute: step)
+        }
     }
 }
 
@@ -401,10 +483,19 @@ struct Output: View {
 struct SheetFrame<Content: View, Buttons: View>: View {
     let title: String
     var subtitle = ""
-    var idealHeight: CGFloat = 560
-    var idealWidth: CGFloat = 600
-    @ViewBuilder var content: () -> Content
-    @ViewBuilder var buttons: () -> Buttons
+    let content: () -> Content
+    let buttons: () -> Buttons
+    /// Taken once, when the sheet opens: it never resizes under the person's typing.
+    @State private var size: CGSize
+
+    init(title: String, subtitle: String = "", idealHeight: CGFloat = 560, idealWidth: CGFloat = 600,
+         @ViewBuilder content: @escaping () -> Content, @ViewBuilder buttons: @escaping () -> Buttons) {
+        self.title = title
+        self.subtitle = subtitle
+        self.content = content
+        self.buttons = buttons
+        _size = State(initialValue: CGSize(width: SheetSize.width(ideal: idealWidth), height: SheetSize.height(ideal: idealHeight)))
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.s4) {
@@ -419,7 +510,7 @@ struct SheetFrame<Content: View, Buttons: View>: View {
             HStack(spacing: Theme.s2) { buttons() }
         }
         .padding(Theme.s5)
-        .frame(width: SheetSize.width(ideal: idealWidth), height: SheetSize.height(ideal: idealHeight))
+        .frame(width: size.width, height: size.height)
         .background(Theme.canvas)
     }
 }
@@ -749,7 +840,7 @@ enum Section: String, CaseIterable, Identifiable {
     case terminal = "Terminal"
     case pipelines = "Pipelines"
     case schedules = "Schedules"
-    case playbooks = "Playbooks"
+    case skills = "Skills"
     case vms = "VMs"
     case settings = "Settings"
     case updates = "Updates"
@@ -762,7 +853,7 @@ enum Section: String, CaseIterable, Identifiable {
         case .terminal: return "terminal.fill"
         case .pipelines: return "list.number"
         case .schedules: return "calendar"
-        case .playbooks: return "book.closed.fill"
+        case .skills: return "book.closed.fill"
         case .vms: return "server.rack"
         case .settings: return "gearshape.fill"
         case .updates: return "arrow.down.circle.fill"
@@ -866,7 +957,7 @@ struct RootView: View {
         case .pipelines: PipelinesView(model: model)
         case .terminal: TerminalWorkspace(model: model)
         case .schedules: SchedulesView(model: model)
-        case .playbooks: PlaybooksView(model: model)
+        case .skills: SkillsView(model: model)
         case .vms: VMsView(model: model)
         case .settings: SettingsView(model: model)
         case .updates: UpdatesView(model: model)
@@ -1157,7 +1248,7 @@ struct SchedulesView: View {
     @State private var adding = false
 
     var body: some View {
-        HSplitView {
+        SplitPane(id: "schedules") {
             VStack(spacing: 0) {
                 HStack {
                     Text("\(model.schedules.count) schedule\(model.schedules.count == 1 ? "" : "s")")
@@ -1188,8 +1279,7 @@ struct SchedulesView: View {
                     .scrollContentBackground(.hidden)
                 }
             }
-            .frame(minWidth: 240, idealWidth: 280)
-
+        } right: {
             Group {
                 if let id = selected, let schedule = model.schedules.first(where: { $0.id == id }) {
                     ScheduleDetail(model: model, schedule: schedule)
@@ -1214,7 +1304,6 @@ struct SchedulesView: View {
                     }
                 }
             }
-            .frame(minWidth: 440)
         }
         .background(Theme.canvas)
         .sheet(isPresented: $adding) {
@@ -1489,143 +1578,8 @@ struct ScheduleEditor: View {
 
 // MARK: - Playbooks
 
-/// What apprentice knows about an app or a site, in plain Markdown you can read and write. A new one is a
-/// site or app and your notes; `session` shows the key facts to every agent that opens it.
-struct PlaybooksView: View {
-    @ObservedObject var model: AppModel
-    @State private var query = ""
-    @State private var selected: String?
-    @State private var adding = false
-
-    private var books: [Playbooks.Playbook] {
-        let all = Playbooks.all()
-        guard !query.isEmpty else { return all }
-        let needle = query.lowercased()
-        return all.filter { $0.path.lowercased().contains(needle) || $0.title.lowercased().contains(needle) || $0.match.contains { $0.contains(needle) } }
-    }
-
-    var body: some View {
-        HSplitView {
-            VStack(spacing: 0) {
-                HStack(spacing: Theme.s2) {
-                    TextField("Search", text: $query)
-                        .textFieldStyle(.roundedBorder)
-                        .controlSize(.small)
-                    Button { adding = true } label: { Label("New", systemImage: "plus") }.controlSize(.small)
-                }
-                .padding(.horizontal, Theme.s3)
-                .padding(.vertical, Theme.s2)
-                Divider()
-                List(selection: $selected) {
-                    ForEach(books, id: \.path) { book in
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(book.title).font(.system(size: 12.5, weight: .medium)).lineLimit(1)
-                            Text(book.path).font(Theme.monoSmall).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        .padding(.vertical, 2)
-                        .tag(book.path)
-                    }
-                }
-                .listStyle(.sidebar)
-                .scrollContentBackground(.hidden)
-            }
-            .frame(minWidth: 240, idealWidth: 300)
-
-            Group {
-                if let path = selected, let book = Playbooks.all().first(where: { $0.path == path }) {
-                    PlaybookEditor(model: model, book: book).id(book.path)
-                } else {
-                    ScreenPage(title: "Playbooks", subtitle: "") {
-                        AnyView(
-                            HStack(spacing: Theme.s2) {
-                                IconButton("Open folder", "folder") { NSWorkspace.shared.open(Playbooks.dir) }
-                                IconButton("New playbook", "plus", prominent: true) { adding = true }
-                            }
-                        )
-                    } content: {
-                        Explainer(icon: Section.playbooks.icon, title: "What is a playbook?",
-                                  text: "A playbook is a page of notes for agents: what to know before they use a website or an app, how to do a kind of task, or a rule for everything. Agents find the right one by themselves.",
-                                  points: ["A website or an app: shown to the agent each time it opens that site or app.",
-                                           "A kind of task, like writing invoices: found when the agent's task mentions it.",
-                                           "Everywhere: a rule every agent reads, every time.",
-                                           "Keep names, handles and anything personal out: playbooks can be shared."])
-                        Panel(title: "Learned from a session") {
-                            Text("After an agent finishes a task in a tab, type `apprentice learn \"what it did\"` there. apprentice writes the steps down as a playbook, and it appears here under flows.")
-                                .font(Theme.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                }
-            }
-            .frame(minWidth: 440)
-        }
-        .background(Theme.canvas)
-        .sheet(isPresented: $adding) {
-            NewPlaybookSheet(model: model) { created in
-                adding = false
-                if let created { model.revision += 1; selected = created }
-            }
-        }
-    }
-}
-
-/// One playbook's text, as it is on disk. Save refuses anything that looks personal, as `commit` would.
-struct PlaybookEditor: View {
-    @ObservedObject var model: AppModel
-    let book: Playbooks.Playbook
-    @State private var text = ""
-    @State private var status = ""
-
-    private var dirty: Bool { text != ((try? String(contentsOf: book.url, encoding: .utf8)) ?? "") }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: Theme.s3) {
-            HStack(alignment: .firstTextBaseline, spacing: Theme.s3) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(book.title).font(Theme.title(17))
-                    Text(book.path + (book.match.isEmpty ? "" : " · " + book.match.joined(separator: ", ")))
-                        .font(Theme.monoSmall).foregroundStyle(.secondary)
-                }
-                Spacer()
-                if !status.isEmpty {
-                    Text(status).font(Theme.caption).foregroundStyle(status.hasPrefix("not saved") ? Theme.danger : .secondary)
-                }
-                Button("Open in editor") { NSWorkspace.shared.open(book.url) }
-                Button("Save") { save() }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut("s", modifiers: .command)
-                    .disabled(!dirty)
-            }
-            .controlSize(.small)
-            TextEditor(text: $text)
-                .font(Theme.mono)
-                .scrollContentBackground(.hidden)
-                .padding(Theme.s2)
-                .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).strokeBorder(Theme.hairline))
-        }
-        .padding(Theme.page)
-        .background(Theme.canvas)
-        .onAppear { text = (try? String(contentsOf: book.url, encoding: .utf8)) ?? "" }
-    }
-
-    private func save() {
-        let leaks = Playbooks.leaks(text)
-        guard leaks.isEmpty else {
-            status = "not saved: looks personal (\(leaks.prefix(2).joined(separator: "; "))). Use {placeholders}."
-            return
-        }
-        do {
-            try text.write(to: book.url, atomically: true, encoding: .utf8)
-            status = "saved"
-            model.revision += 1
-        } catch {
-            status = "not saved: \(error.localizedDescription)"
-        }
-    }
-}
-
-/// A site or an app, and what you know about it. Writes `web/<host>.md` or `macos/<app>.md` in the
-/// playbook format, so `session` picks it up at once.
+/// A new skill of yours: a website, a Mac app, a kind of task or a rule for everywhere, and what you know
+/// about it. Written in `Skills.yoursDir` in the skill format, so `session` picks it up at once.
 struct NewPlaybookSheet: View {
     @ObservedObject var model: AppModel
     var done: (String?) -> Void
@@ -1671,7 +1625,7 @@ struct NewPlaybookSheet: View {
     private var path: String { kind.folder + "/" + slug + ".md" }
 
     var body: some View {
-        SheetFrame(title: "New playbook", subtitle: "Plain facts an agent should know. No names, handles or anything personal.", idealHeight: 600) {
+        SheetFrame(title: "New skill", subtitle: "What an agent should know. It stays on this Mac. No names, handles or anything personal.", idealHeight: 600) {
             Panel(title: "It is for") {
                 LabeledField("Kind") {
                     Picker("", selection: $scope) {
@@ -1698,7 +1652,7 @@ struct NewPlaybookSheet: View {
             }
             if !problem.isEmpty { Text(problem).font(Theme.caption).foregroundStyle(Theme.danger) }
             if !slug.isEmpty {
-                Text("writes playbooks/\(path)").font(Theme.monoSmall).foregroundStyle(.tertiary)
+                Text("saved as \((Skills.yoursDir.appendingPathComponent(path).path as NSString).abbreviatingWithTildeInPath)").font(Theme.monoSmall).foregroundStyle(.tertiary)
             }
         } buttons: {
             Spacer()
@@ -1748,8 +1702,8 @@ struct NewPlaybookSheet: View {
         let body = Self.text(scope: kind.scope, match: matchValue, title: heading, notes: notes, day: Store.day(), tags: tags)
         let leaks = Playbooks.leaks(body)
         guard leaks.isEmpty else { problem = "looks personal (\(leaks.prefix(2).joined(separator: "; "))). Use {placeholders}."; return }
-        let url = Playbooks.dir.appendingPathComponent(path)
-        guard !FileManager.default.fileExists(atPath: url.path) else { problem = "\(path) already exists; choose it in the list to edit it"; return }
+        let url = Skills.yoursDir.appendingPathComponent(path)
+        guard !FileManager.default.fileExists(atPath: url.path) else { problem = "you already have one called \(path); choose it in the list to edit it"; return }
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try body.write(to: url, atomically: true, encoding: .utf8)
@@ -2124,6 +2078,8 @@ struct WelcomeView: View {
 struct CommandPalette: View {
     @ObservedObject var model: AppModel
     @State private var output = ""
+    /// Taken once, when it opens: it never resizes while you type.
+    @State private var width = SheetSize.width(ideal: 640)
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.s3) {
@@ -2159,7 +2115,7 @@ struct CommandPalette: View {
             }
         }
         .padding(Theme.s5)
-        .frame(width: SheetSize.width(ideal: 640))
+        .frame(width: width)
         .background(Theme.canvas)
     }
 

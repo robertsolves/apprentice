@@ -10,6 +10,8 @@ enum Playbooks {
         var meta: [String: String]
         var title: String
         var body: String
+        /// Built in, learned by apprentice, or the user's own: from the folder it was read from.
+        var origin: Skills.Origin = .builtIn
 
         var match: [String] {
             (meta["match"] ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces).lowercased() }.filter { !$0.isEmpty }
@@ -41,20 +43,31 @@ enum Playbooks {
     private static var cache: [String: (Date, Playbook)] = [:]
     private static let cacheLock = NSLock()
 
-    static func all() -> [Playbook] {
-        let root = dir.resolvingSymlinksInPath()
-        guard let walk = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else { return [] }
+    /// Every skill file of every kind (`Skills.roots`), one per path: yours over learned over built in, unless
+    /// `includeShadowed`.
+    static func all(includeShadowed: Bool = false) -> [Playbook] {
         cacheLock.lock()
         defer { cacheLock.unlock() }
         var out: [Playbook] = []
-        for case let url as URL in walk where url.pathExtension == "md" && url.lastPathComponent != "README.md" {
-            let stamp = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
-            if let (seen, note) = cache[url.path], seen == stamp { out.append(note); continue }
-            guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
-            let path = String(url.resolvingSymlinksInPath().path.dropFirst(root.path.count + 1))
-            let note = parse(text, url: url, path: path)
-            cache[url.path] = (stamp, note)
-            out.append(note)
+        var seen = Set<String>()
+        for (origin, folder) in Skills.roots {
+            let root = folder.resolvingSymlinksInPath()
+            guard let walk = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else { continue }
+            for case let url as URL in walk where url.pathExtension == "md" && url.lastPathComponent != "README.md" {
+                let stamp = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast
+                var note: Playbook
+                if let (when, cached) = cache[url.path], when == stamp {
+                    note = cached
+                } else {
+                    guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+                    let path = String(url.resolvingSymlinksInPath().path.dropFirst(root.path.count + 1))
+                    note = parse(text, url: url, path: path)
+                    cache[url.path] = (stamp, note)
+                }
+                note.origin = origin
+                guard seen.insert(note.path).inserted || includeShadowed else { continue }
+                out.append(note)
+            }
         }
         return out.sorted { $0.path < $1.path }
     }
@@ -89,13 +102,13 @@ enum Playbooks {
     static func hintLines(app: String?, bundle: String?, host: String?, system: String = "macos") -> [String] {
         let notes = matching(app: app, bundle: bundle, host: host, system: system)
         let guides = skills(host: host, system: system).map(\.name)
-        var out: [String] = guides.isEmpty ? [] : ["skills · \(guides.joined(separator: ", ")): load them before acting (no skills in your agent: apprentice playbooks <name>)"]
+        var out: [String] = guides.isEmpty ? [] : ["skills · \(guides.joined(separator: ", ")): load them before acting (no skills in your agent: apprentice skills <name>)"]
         guard !notes.isEmpty else { return out }
         for note in notes {
-            out.append("playbook · \(note.path)")
+            out.append("skill · \(note.path) · \(note.origin.hint)")
             out += note.keyFacts.prefix(6).map { "  - \($0)" }
         }
-        out.append("more: apprentice playbooks \"<words>\"")
+        out.append("more: apprentice skills \"<words>\"")
         return out
     }
 
@@ -139,29 +152,26 @@ enum Playbooks {
         if let skill = skills().first(where: { $0.name == named }) {
             return "\(skill.note.path)\n\(skill.note.body.trimmingCharacters(in: .whitespacesAndNewlines))"
         }
-        let root = dir.resolvingSymlinksInPath()
-        guard FileManager.default.fileExists(atPath: root.path) else {
-            return "no playbooks at \(dir.path): run ./kit.sh to link the repo's playbooks/, or set APPRENTICE_PLAYBOOKS"
-        }
         let notes = all()
         let words = query.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init).filter { $0.count > 1 }
         if words.isEmpty {
-            return (["playbooks in \(root.path)"] + notes.map { "\($0.path) · \($0.title)" }).joined(separator: "\n")
+            return (["skills: built in, learned by apprentice (hints, unreviewed) and yours · apprentice skills --paths"]
+                + notes.map { "\($0.path) · \($0.title) · \($0.origin.label)" }).joined(separator: "\n")
         }
         let ranked = notes.map { note -> (Playbook, Int) in
             let text = (note.path + " " + note.title + " " + (note.meta["tags"] ?? "") + " " + note.body).lowercased()
             return (note, words.filter { text.contains($0) }.count)
         }.filter { $0.1 > 0 }.sorted { $0.1 > $1.1 }
-        guard !ranked.isEmpty else { return "no playbook matches \"\(query)\": work it out on screen, then `apprentice learn`" }
+        guard !ranked.isEmpty else { return "no skill matches \"\(query)\": work it out on screen, then `apprentice learn`" }
         var out: [String] = []
         for (note, _) in ranked.prefix(5) {
-            out.append("\(note.path) · \(note.title)")
+            out.append("\(note.path) · \(note.title) · \(note.origin.hint)")
             let hits = note.body.components(separatedBy: .newlines).filter { line in
                 !line.hasPrefix("#") && words.contains { line.lowercased().contains($0) }
             }
             out += hits.prefix(6).map { "  \($0.trimmingCharacters(in: .whitespaces))" }
         }
-        out.append("full playbook: cat \(root.path)/<path>")
+        out.append("whole skill: cat " + ranked.prefix(1).map { $0.0.url.path }.joined())
         return out.joined(separator: "\n")
     }
 
@@ -178,7 +188,7 @@ enum Playbooks {
             parts.append("flow · \(best.note.path) (\(best.why))\n\(best.note.body.trimmingCharacters(in: .whitespacesAndNewlines))")
         }
         let text = parts.joined(separator: "\n")
-        return text.count > budget ? String(text.prefix(budget)) + "\n… (cut; full playbooks: apprentice playbooks \"<words>\")" : text
+        return text.count > budget ? String(text.prefix(budget)) + "\n… (cut; more: apprentice skills \"<words>\")" : text
     }
 
     struct Ranked {
@@ -376,17 +386,27 @@ enum Playbooks {
 
     static let actions: Set<String> = ["open", "click", "type", "key", "menu", "scroll", "browse", "hover", "drag", "upload", "download", "choose"]
 
-    /// Drafts a flow from the approved steps of the current session. The caller generalizes it.
+    /// Drafts a flow from the approved steps of the current session, as a learned skill on this Mac; the
+    /// caller generalizes it. `--fact "…"` saves one line about the session's site or app instead (`--for`
+    /// names another), dated and kept to `[skills] max_facts`.
     static func learn(_ a: Args) throws -> String {
+        if let fact = a.value("fact") {
+            let target = a.value("for") ?? Session.stored.flatMap { hostOf($0.url) ?? $0.app }
+            guard let target, !target.isEmpty else { throw Fail(5, "learn --fact \"…\" --for <site or app>: no session to take it from") }
+            return try Skills.addFact(fact, for: target)
+        }
         let task = a.pos.joined(separator: " ")
-        guard !task.isEmpty else { throw Fail(5, "learn \"task\" [--name slug] [--force]") }
+        guard !task.isEmpty else { throw Fail(5, "learn \"task\" [--name slug] [--force] · learn --fact \"one line\" [--for site-or-app]") }
         guard let session = Session.stored else { throw Fail(5, "no session: learn drafts a flow from the current session's steps") }
         let steps = stepLines(session)
         // The session line is always there; a flow needs at least one action after it (D1).
         guard steps.count > 1 else { throw Fail(5, "no actions in this session's log yet: nothing to learn") }
         let slug = slugify(a.value("name") ?? "\(session.app) \(task)")
         guard !slug.isEmpty else { throw Fail(5, "the flow needs a name with letters or digits: pass --name") }
-        let url = dir.appendingPathComponent("flows/\(slug).md")
+        let url = Skills.learnedDir.appendingPathComponent("flows/\(slug).md")
+        guard steps.count <= Skills.maxSteps + 1 else {
+            throw Fail(5, "this session has \(steps.count - 1) steps, over the \(Skills.maxSteps) a learned flow keeps ([skills] max_steps): learn a shorter task")
+        }
         if FileManager.default.fileExists(atPath: url.path), !a.has("force") {
             throw Fail(5, "\(url.path) exists: edit it, or pass --force to replace it")
         }
@@ -394,17 +414,12 @@ enum Playbooks {
         let text = draft(task, session, steps, model: model)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try text.write(to: url, atomically: true, encoding: .utf8)
-        let path = url.resolvingSymlinksInPath().path
+        Skills.prune()
+        let path = url.path
         let found = leaks(text + "\n" + slug)
-        guard found.isEmpty else {
-            // Written for the LLM to generalize, never committed as it is: a commit could reach everyone.
-            return "wrote \(path), not committed: it looks personal, and playbooks are shared:\n"
-                + found.map { "  - \($0)" }.joined(separator: "\n")
-                + "\nreplace each with a {placeholder} or a generic name, then `apprentice commit \"…\"`\n\n" + text
-        }
-        let hash = try? Repo.commit("Draft flow \(slug)", paths: [path])
-        return "wrote \(path)" + ((hash ?? nil).map { " (commit \($0))" } ?? "")
-            + "\nedit it now: generalize names, drop dead steps, add Fails; then `apprentice commit \"…\"`\n\n" + text
+        // A learned skill stays on this Mac; `skills share` checks it again before it could reach anyone.
+        return "learned skill \(path)" + (found.isEmpty ? "" : "\nit looks personal, replace each with a {placeholder}:\n" + found.map { "  - \($0)" }.joined(separator: "\n"))
+            + "\nedit it now: generalize names, drop dead steps, add Fails\n\n" + text
     }
 
     /// Screen text kept to one plain line inside one backticked step: a name with a newline or a
@@ -424,8 +439,8 @@ enum Playbooks {
         return (c.string ?? url) + (hadMore ? "/{path}" : "/")
     }
 
-    static func stepLines(_ session: Session) -> [String] {
-        let rows = Sessions.rows(Store.runFolder(session))
+    static func stepLines(_ session: Session, rows given: [[String: Any]]? = nil) -> [String] {
+        let rows = given ?? Sessions.rows(Store.runFolder(session))
         guard !rows.isEmpty else { return [] }
         var out = ["`session --app \"\(oneLine(session.app))\"`"]
         for r in rows {
@@ -467,7 +482,8 @@ enum Playbooks {
         return Dictionary(grouping: models, by: { $0 }).max { $0.value.count < $1.value.count }?.key
     }
 
-    static func draft(_ task: String, _ session: Session, _ steps: [String], model: String = "any") -> String {
+    static func draft(_ task: String, _ session: Session, _ steps: [String], model: String = "any",
+                      note: String = "Drafted by `apprentice learn` from approved steps. Run it with `apprentice do <this file's name> --key value`. Before using it widely: replace names from this screen with {placeholders}, delete steps that did nothing, and note what failed.") -> String {
         let os = ProcessInfo.processInfo.operatingSystemVersion
         let lang = Locale.preferredLanguages.first ?? "en"
         let match = hostOf(session.url) ?? session.app
@@ -484,7 +500,7 @@ enum Playbooks {
         ---
         # \(task)
 
-        Drafted by `apprentice learn` from approved steps. Run it with `apprentice do <this file's name> --key value`. Before committing: replace names from this screen with {placeholders}, delete steps that did nothing, and note what failed.
+        \(note)
 
         ## Steps
         \(steps.enumerated().map { "\($0.offset + 1). \($0.element)" }.joined(separator: "\n"))

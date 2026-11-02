@@ -38,9 +38,10 @@ enum Routes {
 
     /// Flows that ran to the end, per model, in the clone's playbooks: `do` adds one the first time a model
     /// gets through a flow, so `route` can point that model straight at it next time.
-    static var learnedPath: URL { Playbooks.dir.appendingPathComponent("routes-learned.toml") }
+    /// Learned routes are a learned skill of their own, on this Mac; the repo's older file is still read.
+    static var learnedPath: URL { Skills.learnedDir.appendingPathComponent("routes.toml") }
 
-    static func learned() -> [RouteEntry] { parse(learnedPath) }
+    static func learned() -> [RouteEntry] { parse(learnedPath) + parse(Playbooks.dir.appendingPathComponent("routes-learned.toml")) }
 
     static func parse(_ path: URL) -> [RouteEntry] {
         guard let text = try? String(contentsOf: path, encoding: .utf8) else { return [] }
@@ -92,8 +93,8 @@ enum Routes {
         learned = "\(Store.day())"
 
         """
+        try? FileManager.default.createDirectory(at: learnedPath.deletingLastPathComponent(), withIntermediateDirectories: true)
         guard (try? text.write(to: learnedPath, atomically: true, encoding: .utf8)) != nil else { return nil }
-        try? Repo.commit("Learned route: \(name) works for \(m)", paths: [learnedPath.resolvingSymlinksInPath().path])
         return "learned: `route` now points \(m) at this flow for its tasks"
     }
 

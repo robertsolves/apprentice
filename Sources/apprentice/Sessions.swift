@@ -174,5 +174,9 @@ enum Sessions {
     }
 
     /// The session that just ended, when a new one starts.
-    static func archiveCurrent() { archive(Session.stored.map { Store.runFolder($0) }) }
+    /// Also where apprentice learns from it (`Skills.learnFromEnded`): a flow repaired, or one drafted.
+    static func archiveCurrent() {
+        Skills.learnFromEnded(Session.stored)
+        archive(Session.stored.map { Store.runFolder($0) })
+    }
 }

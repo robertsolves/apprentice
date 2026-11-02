@@ -144,6 +144,14 @@ optional_every_h = 4
 # Context-menu items `download` uses, matched lower case. Add your language's if the Mac is not in English.
 # download_menu = ["save image as", "download linked file", "save link as", "download image"]
 
+[skills]
+# Learned skills: what apprentice writes as it works, in ~/.apprentice/skills/learned (on this Mac only).
+# auto_learn: save a session's steps when it ends after working, and repair saved steps that broke.
+# auto_learn = true
+# max_facts = 20      # one-line facts kept per site or app; the oldest go first
+# max_steps = 40      # a session longer than this is not saved as steps
+# max_learned = 150   # learned skills in all; the least recently used go first
+
 [schedules]
 # Prompts and tasks that run later or again (`apprentice schedule add …`, or the app's Schedules screen).
 # A run missed while the Mac slept runs once if it is less than catch_up_min late; older ones are skipped

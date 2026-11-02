@@ -1,15 +1,20 @@
-# apprentice playbooks
+# apprentice skills: the built-in ones
 
-What an LLM learned driving apps and sites, kept so the next run does not have to guess. `kit.sh` links `~/.apprentice/playbooks` to this folder, so `git pull` brings in playbooks learned on other machines.
+Skills are what agents know before they act. They come in three kinds, by folder; a file never decides its own kind:
 
-- `apprentice session` and `open` print the **Key facts** of every playbook whose `match` fits the app, bundle id or host.
-- `apprentice playbooks "words"` ranks playbooks by those words and shows the matching lines.
-- `apprentice learn "task"` drafts `flows/<slug>.md` from the session's approved steps. Edit it, then commit.
+- **Built in**: this folder (linked to `~/.apprentice/playbooks`) and the repo's `skills/apprentice-*`. Reviewed, shared through updates and `apprentice pr`.
+- **Learned by apprentice**: `~/.apprentice/skills/learned`. Written as it works: a session's steps when it ends after working, steps repaired after a flow broke, one-line facts from `learn --fact`. Unreviewed, shown to agents as hints. On this Mac only, and small: `[skills] max_facts`, `max_steps`, `max_learned` (least recently used removed first).
+- **Yours**: `~/.apprentice/skills/yours`, written in the window. A skill there, or a learned one, with the same path as a built-in one is used in its place (yours, then learned, then built in).
+
+Looking up: `apprentice skills "words"` ranks every kind and prints the matching lines; `apprentice skills --paths` names the three folders for `grep -Ri`. Learned facts are one dated line each (`- 2026-11-02 · …`), so a grep hit is a whole fact. `apprentice skills share <path>` copies a learned skill or one of yours here, past the personal-details check, for `pr`.
+
+- `apprentice session` and `open` print the **Key facts** of every skill whose `match` fits the app, bundle id or host, each labelled with its kind.
+- `apprentice learn "task"` drafts `flows/<slug>.md` in the learned folder from the session's approved steps; `learn --fact "…"` adds one line to the site's or app's learned skill.
 - `apprentice do <flow> --key value` runs a flow: one approval for the whole plan, element names found on screen as it goes, and it stops with the screen at the first step that fails.
 - `apprentice do --explain "task"` shows which flow a task would pick for the current model (`APPRENTICE_MODEL`), and why.
-- `routes-learned.toml` is written by `do` the first time a model runs a flow to the end, so `route` points that model straight at it next time.
+- Learned routes (`~/.apprentice/skills/learned/routes.toml`) are written by `do` the first time a model runs a flow to the end, so `route` points that model straight at it next time.
 
-Playbooks are the mechanics: labels, steps and flows, learned on screen. Judgement (how a person behaves on a site or system) lives in the repo's `skills/apprentice-*`, which `kit.sh` installs as agent skills; `session` names the ones that fit.
+The site and app skills here are the mechanics: labels, steps and flows, learned on screen. Judgement (how a person behaves on a site or system) lives in the repo's `skills/apprentice-*`, which `kit.sh` installs as agent skills; `session` names the ones that fit.
 
 ## Layout
 

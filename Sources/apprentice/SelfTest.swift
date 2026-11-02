@@ -37,6 +37,7 @@ enum SelfTest {
         account()
         forms()
         pipelines()
+        skillKinds()
         prefs()
         allowlist()
         flows()
@@ -997,6 +998,46 @@ enum SelfTest {
               "terminal: mouse, paste and focus modes are tracked")
         menu.feed(Data((esc + "[?1000l" + esc + "[?2004l").utf8))
         check(!menu.mouseTracking && !menu.bracketedPaste, "terminal: the modes turn off again")
+    }
+
+    /// Skills come in three kinds by folder; learned facts stay small, dated and deduplicated.
+    private static func skillKinds() {
+        let fm = FileManager.default
+        let builtIn = Store.dir.appendingPathComponent("skills-test-builtin")
+        defer { try? fm.removeItem(at: builtIn); try? fm.removeItem(at: Skills.root); unsetenv("APPRENTICE_PLAYBOOKS") }
+        setenv("APPRENTICE_PLAYBOOKS", builtIn.path, 1)
+        func put(_ dir: URL, _ path: String, _ title: String) {
+            let url = dir.appendingPathComponent(path)
+            try? fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? "---\nscope: site\nmatch: example.com\n---\n# \(title)\n## Key facts\n- one\n".write(to: url, atomically: true, encoding: .utf8)
+        }
+        put(builtIn, "web/example.com.md", "shipped")
+        put(Skills.learnedDir, "web/example.com.md", "learned")
+        put(Skills.learnedDir, "web/other.example.md", "learned only")
+        let all = Playbooks.all()
+        check(all.first { $0.path == "web/example.com.md" }?.origin == .learned, "skills: a learned skill takes the place of a built-in one with its path")
+        check(Playbooks.all(includeShadowed: true).filter { $0.path == "web/example.com.md" }.count == 2, "skills: the shadowed one is still there")
+        put(Skills.yoursDir, "web/example.com.md", "mine")
+        check(Playbooks.all().first { $0.path == "web/example.com.md" }?.origin == .yours, "skills: yours come before learned ones")
+        check(Playbooks.hintLines(app: nil, bundle: nil, host: "example.com").contains { $0.contains("yours: the user's own words") },
+              "skills: session says which kind each skill is")
+
+        let target = "shop.example.org"
+        for i in 1...(Skills.maxFacts + 3) { _ = try? Skills.addFact("Fact number \(i) about the shop page", for: target, day: "2026-01-0\(i % 9 + 1)") }
+        let file = Skills.factFile(for: target).url
+        var facts = Playbooks.parse((try? String(contentsOf: file, encoding: .utf8)) ?? "", url: file, path: "x").keyFacts
+        check(facts.count == Skills.maxFacts && facts.first?.hasSuffix("Fact number \(Skills.maxFacts + 3) about the shop page") == true,
+              "skills: learned facts are capped, newest first")
+        _ = try? Skills.addFact("fact NUMBER 5 about the shop page", for: target, day: "2026-02-01")
+        facts = Playbooks.parse((try? String(contentsOf: file, encoding: .utf8)) ?? "", url: file, path: "x").keyFacts
+        check(facts.first == "2026-02-01 · fact NUMBER 5 about the shop page" && facts.filter { Skills.factKey($0) == Skills.factKey("fact number 5 about the shop page") }.count == 1,
+              "skills: the same fact again moves up, dated, instead of repeating")
+        check((try? Skills.addFact("Write to sam@gmail.com for refunds", for: target)) == nil, "skills: a fact that looks personal is refused")
+        check(Skills.factFile(for: "Finder").url.path.hasSuffix("learned/macos/finder.md"), "skills: an app's facts go under macos/")
+
+        let rows: [[String: Any]] = [["cmd": "click", "diff": "+1 -0 ~0"], ["cmd": "type", "diff": "+0 -0 ~1"], ["error": "x"], ["cmd": "key", "diff": "+0 -0 ~0"]]
+        check(Skills.worked(rows).actions == 2 && !Skills.worked(rows).endedOnError, "skills: a session that recovered from an error still worked")
+        check(Skills.worked(rows + [["error": "y"]]).endedOnError, "skills: one that ended on an error did not")
     }
 
     /// Pipelines are files people edit by hand: they must read back exactly, numbered headings or not.

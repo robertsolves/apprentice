@@ -186,17 +186,24 @@ enum WeekTime {
 }
 
 /// The size a sheet may take: most of the window, never more than it, so a long form scrolls in a tall
-/// sheet instead of a short box in the middle of a big window.
+/// sheet instead of a short box in the middle of a big window. Measured against the main window, never
+/// the sheet itself (once a sheet is up it is the key window, and measuring it shrank the sheet on every
+/// redraw), and taken once when the sheet opens (`SheetFrame`, `CommandPalette`), so it never changes size
+/// while you type.
 enum SheetSize {
+    /// The window the sheet hangs from.
+    private static var host: NSWindow? {
+        let w = NSApp.mainWindow ?? NSApp.keyWindow ?? NSApp.windows.first { $0.isVisible && $0.sheetParent == nil }
+        return w?.sheetParent ?? w
+    }
+
     static func height(ideal: CGFloat, min minimum: CGFloat = 380) -> CGFloat {
-        let window = NSApp.keyWindow ?? NSApp.windows.first
-        let room = (window?.contentView?.bounds.height ?? 780) - 72
+        let room = (host?.contentView?.bounds.height ?? 780) - 72
         return max(minimum, Swift.min(ideal, room))
     }
 
     static func width(ideal: CGFloat) -> CGFloat {
-        let window = NSApp.keyWindow ?? NSApp.windows.first
-        let room = (window?.contentView?.bounds.width ?? 1200) - 96
+        let room = (host?.contentView?.bounds.width ?? 1200) - 96
         return max(440, Swift.min(ideal, room))
     }
 }

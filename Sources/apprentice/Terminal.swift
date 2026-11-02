@@ -952,6 +952,37 @@ enum Renderer {
     }
 }
 
+/// While a terminal tab is on screen, the keyboard is the terminal's: a key pressed while something else in
+/// the window holds the focus (a sidebar row, a tab, a button after a click, a menu that just closed) goes to
+/// the terminal, so arrow keys answer an agent's question instead of moving a list or scrolling. Text boxes,
+/// ⌘ shortcuts, sheets and a ⚠ banner keep their keys. Each take-back is noted in `app.log` (the control's
+/// type, never the key), so whatever keeps taking the focus can be found and fixed.
+enum TerminalKeys {
+    static func install() {
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard let term = TerminalTextView.shown, let window = term.window, event.window === window,
+                  window.attachedSheet == nil, window.firstResponder !== term, !term.locked,
+                  !event.modifierFlags.contains(.command) else { return event }
+            if let text = window.firstResponder as? NSText, text.isEditable || text.isFieldEditor { return event }
+            let from = window.firstResponder.map { String(describing: type(of: $0)) } ?? "nothing"
+            window.makeFirstResponder(term)
+            AppLog.note("keyboard back to the terminal from \(from)")
+            return event
+        }
+    }
+}
+
+/// A short log of the window's own events, for finding a bug the user describes: `~/.apprentice/app.log`,
+/// the last 200 lines. Never what was typed.
+enum AppLog {
+    static func note(_ line: String) {
+        let url = Store.dir.appendingPathComponent("app.log")
+        var lines = ((try? String(contentsOf: url, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
+        lines.append("\(Schedules.stamp(Date())) \(line)")
+        try? (lines.suffix(200).joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+    }
+}
+
 /// The text view that hands every keystroke to the pty, unless the command key makes it the view's own.
 final class TerminalTextView: NSTextView {
     var onKey: ((NSEvent) -> Bool)?
@@ -1016,9 +1047,17 @@ final class TerminalTextView: NSTextView {
         _ = term.wheel(lines: lines, col: col, row: row)
     }
 
+    /// The terminal on screen (only the chosen tab's is in the window), for `TerminalKeys`.
+    static weak var shown: TerminalTextView?
+
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil { DispatchQueue.main.async { [weak self] in if let self { self.window?.makeFirstResponder(self) } } }
+        if window != nil {
+            TerminalTextView.shown = self
+            DispatchQueue.main.async { [weak self] in if let self { self.window?.makeFirstResponder(self) } }
+        } else if TerminalTextView.shown === self {
+            TerminalTextView.shown = nil
+        }
     }
 
     override func layout() {
