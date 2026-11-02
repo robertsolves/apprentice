@@ -191,7 +191,7 @@ Exit codes (kept in sync with `usage()` and `agent/*.md`):
 | 0 | ok |
 | 2 | stale snapshot: re-read |
 | 3 | The user denied the step in the little window (`confirm`) |
-| 4 | blocked: allowlist, site policy (`policy:`), rate limit (`refresh limit`, `rate limit`), budget (`budget:`), a site cooling down after it throttled the account (`soft block:`), or a check only the user may complete (`challenge:`) |
+| 4 | blocked: allowlist, rate limit (`refresh limit`, `rate limit`), budget (`budget:`), a site cooling down after it throttled the account (`soft block:`), or a check only the user may complete (`challenge:`) |
 | 5 | element or text not found, or timeout |
 | 6 | interrupted by the user during borrow mode |
 | 7 | permission missing (Accessibility or Screen Recording) |
@@ -296,7 +296,7 @@ What needs approval: `open`, `click`, `type`, `key`, `menu`, `drag`, `upload`, `
 
 How it works:
 
-1. The command checks the allowlist, site policy, cooldown and challenge state, resolves its element, works out the action kind and checks its budget, then saves the request to `~/.apprentice/pending.json` with a 4-character token and exits 8:
+1. The command checks the allowlist, cooldown and challenge state, resolves its element, works out the action kind and checks its budget, then saves the request to `~/.apprentice/pending.json` with a 4-character token and exits 8:
    ```
    approve? click 22 button "Update profile"
      Safari · https://github.com/settings/profile
