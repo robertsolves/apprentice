@@ -59,7 +59,7 @@
       { "@type": "Question", "name": "What does apprentice need to run?",
         "acceptedAnswer": { "@type": "Answer", "text": "macOS 14 or later and Swift (Xcode or the command-line tools). You grant Accessibility and Screen Recording to the installed binary. Linux work runs in a small Debian VM under Tart." } },
       { "@type": "Question", "name": "What is apprentice not for?",
-        "acceptedAnswer": { "@type": "Answer", "text": "Bulk outreach, mass following, scraping at volume and running several accounts on one site are out of scope by design. Per-site budgets, cooldowns and allowlists keep activity at a pace one person could keep by hand, and you can mark any site read-only or off limits." } }
+        "acceptedAnswer": { "@type": "Answer", "text": "Bulk outreach, mass following, scraping at volume and running several accounts on one site are out of scope by design. Per-site budgets, cooldowns and allowlists keep activity at a pace one person could keep by hand." } }
     ]
   }
   </script>
@@ -211,6 +211,22 @@
     .card h3 { margin: 0 0 6px; font-size: 17px; }
     .card p { margin: 0; color: var(--muted); font-size: 15px; }
 
+    .steps { list-style: none; padding: 0; margin: 0 0 40px; display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; counter-reset: step; }
+    .steps li { counter-increment: step; padding: 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+    .steps li::before {
+      content: counter(step); display: grid; place-items: center; width: 30px; height: 30px; margin-bottom: 12px;
+      border-radius: 50%; background: var(--accent); color: var(--accent-ink); font-weight: 700; font-size: 15px;
+    }
+    .steps h3 { margin: 0 0 4px; font-size: 17px; }
+    .steps p { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.5; }
+    .feats { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 28px 32px; }
+    .feat { display: flex; gap: 14px; align-items: flex-start; }
+    .feat svg {
+      flex: none; width: 40px; height: 40px; padding: 9px; border-radius: 10px;
+      background: var(--code-bg); stroke: var(--accent); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round;
+    }
+    .feat h3 { margin: 2px 0 2px; font-size: 16px; }
+    .feat p { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.5; }
     .asks { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
     .asks .ask { border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; background: var(--surface); line-height: 1.45; }
     .faq details { border: 1px solid var(--border); border-radius: 12px; background: var(--surface); padding: 14px 16px; margin: 0 0 10px; }
@@ -329,19 +345,20 @@
   <section id="how">
     <div class="wrap">
       <h2>How it works</h2>
-      <p class="sub">One Swift binary, CLI and daemon in one, with no package dependencies. You never type its commands: your agent runs them from its own shell or over MCP, and the daemon does the reading and the careful acting.</p>
-      <div class="grid">
-        <div class="card"><h3>Acts like a person</h3><p>Every move draws a new path from one fast random generator: different curves and speeds, overshoot and correction. A natural key rhythm with the odd correction, pauses before it acts, rests between bursts, and now and then a harmless glance or scroll. Pick a style per site, from <code>fastest</code> to <code>careful</code>. Sites see a careful human pace, not a script hammering at them.</p></div>
-        <div class="card"><h3>Reads text, not pixels</h3><p>The accessibility tree becomes a numbered list of what's on screen. A step costs tens of tokens, not a screenshot. <code>shot</code> and <code>ocr</code> are there for the rare page that hides.</p></div>
-        <div class="card"><h3>Real input only</h3><p>Every click, scroll and keystroke goes through the system's own input stream with the window in front. Nothing is injected into pages and nothing is pressed through accessibility.</p></div>
-        <div class="card"><h3>Proposes, then acts</h3><p>Every change is a proposal first. Nothing happens until it's approved, and your agent checks with you on anything risky: send, delete, buy, passwords, settings.</p></div>
-        <div class="card"><h3>Asks you</h3><p>For decisions that are yours, a little window opens at the top of the screen: free text, choices, or "point at it". When you're away, the question goes back to the chat.</p></div>
-        <div class="card"><h3>Reach you on your phone</h3><p>Say “set up my phone”. You get one link to tap and a QR code to scan. After that, any question that goes to the chat makes your phone buzz, and your agent can send a screenshot of what it's asking about. Answer from the Claude app wherever you are. It uses ntfy, which is free, and needs no account or server.</p></div>
-        <div class="card"><h3>Stops for you</h3><p>It waits until you've been idle. Touch a key or the mouse and it stops at once and leaves the cursor where you are. ctrl+opt+cmd+. is a kill switch.</p></div>
-        <div class="card"><h3>Site rules built in</h3><p>Per-site budgets, cooldowns and allowlists keep the account well inside what you could do by hand. A CAPTCHA or checkpoint goes to you, never around you. You can mark any site read-only or off limits.</p></div>
-        <div class="card"><h3>Learns as it goes</h3><p>Notes about apps and sites live in the repo. A task that worked becomes a flow your agent can rerun next time, with one approval for the whole plan.</p></div>
-        <div class="card"><h3>Fixes and updates itself</h3><p>It runs from your own clone. Fixes are small commits that rebuild, self-test and restart. Upstream updates are rebased in, and a failed build keeps the old binary.</p></div>
-        <div class="card"><h3>A Linux VM on the side</h3><p>A small VM runs Chromium and any Linux app with its own screen, cursor and keyboard, so the agent works while you keep working. One VM per job, run side by side.</p></div>
+      <p class="sub">You talk to your agent as usual. apprentice gives it eyes and hands on screen, and you keep the final say.</p>
+      <ol class="steps">
+        <li><h3>You ask</h3><p>Tell Claude Code, Codex or any agent what you want done.</p></li>
+        <li><h3>It reads</h3><p>The window becomes a short numbered list. No screenshots.</p></li>
+        <li><h3>You approve</h3><p>Every change is proposed first. Risky ones come to you.</p></li>
+        <li><h3>It acts</h3><p>Real cursor and keys, at a human pace, on your Mac or in a Linux VM.</p></li>
+      </ol>
+      <div class="feats">
+        <div class="feat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h10M4 18h13"/></svg><div><h3>Text, not pixels</h3><p>A step costs tens of tokens instead of an image.</p></div></div>
+        <div class="feat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3l14 8-6 2-3 6z"/></svg><div><h3>Moves like a person</h3><p>Curved paths, a natural typing rhythm and pauses to look.</p></div></div>
+        <div class="feat"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg><div><h3>Stops when you move</h3><p>Touch the mouse or keyboard and it halts. ctrl+opt+cmd+. is a kill switch.</p></div></div>
+        <div class="feat"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2"/><path d="M11 18h2"/></svg><div><h3>Answers on your phone</h3><p>Away from your desk? Questions buzz your phone through free ntfy.</p></div></div>
+        <div class="feat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z"/></svg><div><h3>Plays by site rules</h3><p>Per-site budgets and cooldowns. CAPTCHAs and payments are always yours.</p></div></div>
+        <div class="feat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 14-5.3M20 12a8 8 0 0 1-14 5.3M18 3v4h-4M6 21v-4h4"/></svg><div><h3>Gets better with use</h3><p>Tasks that worked become rerunnable flows, and it updates itself safely.</p></div></div>
       </div>
     </div>
   </section>
@@ -382,7 +399,7 @@
       <details><summary>How does apprentice keep me in control?</summary><p>Every change is proposed before it happens and needs approval. Risky steps such as sending, deleting, buying, passwords and settings go to you in a small window on your screen, or to the chat when you are away. Touching the mouse or keyboard stops it at once, and ctrl+opt+cmd+. is a kill switch.</p></details>
       <details><summary>Can I answer apprentice from my phone?</summary><p>Yes. Ask your agent to set up your phone. It runs <code>apprentice phone</code>, which picks a private, random <a href="https://ntfy.sh">ntfy</a> topic and gives you a link to tap: on Android it subscribes the ntfy app in one tap, and on iPhone it opens the topic so you can subscribe. While you're away (for example, driving your Mac's Claude Code session from the Claude app), questions and approvals come to the chat and your phone buzzes. Only the question text is sent, never a screenshot, and questions about password and banking apps say only that a question is waiting.</p></details>
       <details><summary>What does apprentice need to run?</summary><p>macOS 14 or later and Swift (Xcode or the command-line tools). You grant Accessibility and Screen Recording to the installed binary. Linux work runs in a small Debian VM under Tart.</p></details>
-      <details><summary>What is apprentice not for?</summary><p>Bulk outreach, mass following, scraping at volume and running several accounts on one site are out of scope by design. Per-site budgets, cooldowns and allowlists keep activity at a pace one person could keep by hand, and you can mark any site read-only or off limits.</p></details>
+      <details><summary>What is apprentice not for?</summary><p>Bulk outreach, mass following, scraping at volume and running several accounts on one site are out of scope by design. Per-site budgets, cooldowns and allowlists keep activity at a pace one person could keep by hand.</p></details>
     </div>
   </section>
 
