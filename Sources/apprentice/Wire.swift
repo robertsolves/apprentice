@@ -181,17 +181,13 @@ enum Wire {
         let logPath = Store.stateDir.appendingPathComponent("daemon.err")
         FileManager.default.createFile(atPath: logPath.path, contents: nil)
         let log = try? FileHandle(forWritingTo: logPath)
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: binaryPath())
-        proc.arguments = ["serve", "--background"]
-        proc.standardInput = FileHandle.nullDevice
-        proc.standardOutput = log ?? FileHandle.nullDevice
-        proc.standardError = log ?? FileHandle.nullDevice
-        do {
-            try proc.run()
-        } catch {
-            throw Fail(5, "cannot start daemon: \(error.localizedDescription)")
+        let sink = log ?? FileHandle(forWritingAtPath: "/dev/null")
+        // On its own, so its grants are apprentice's whether the window, a tab or a terminal started it.
+        guard let pid = Own.spawn(binaryPath(), ["serve", "--background"], out: sink?.fileDescriptor ?? 2) else {
+            throw Fail(5, "cannot start daemon: \(String(cString: strerror(errno)))")
         }
+        // Reaped when it ends, so a window that outlives it keeps no zombie.
+        DispatchQueue.global(qos: .utility).async { var status: Int32 = 0; waitpid(pid, &status, 0) }
         let started = poll(timeout: 10, interval: 0.12) { ping() ? true : nil } != nil
         try? log?.close()
         if started {
@@ -362,5 +358,53 @@ final class UnixServer {
         NSApplication.shared.abortModal()
         NSApplication.shared.terminate(nil)
         exit(0)
+    }
+}
+
+/// Starts a process that answers to macOS for itself. A child normally counts as part of whoever started
+/// it, so the same binary would get Accessibility and Screen Recording as the terminal, the window or an
+/// agent's shell, whichever ran it, and the grants would change with the caller. Started this way, the
+/// daemon and every grant check are apprentice's own binary, the one entry the user switches on.
+enum Own {
+    /// `responsibility_spawnattrs_setdisclaim`, as Terminal uses for its shells; private, so looked up.
+    static func disclaim(_ attr: inout posix_spawnattr_t?) {
+        typealias Disclaim = @convention(c) (UnsafeMutablePointer<posix_spawnattr_t?>, Int32) -> Int32
+        if let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "responsibility_spawnattrs_setdisclaim") {
+            _ = unsafeBitCast(sym, to: Disclaim.self)(&attr, 1)
+        }
+    }
+
+    /// Spawns `path` with stdin closed and stdout and stderr on `out`; nil when it cannot start.
+    static func spawn(_ path: String, _ args: [String], out: Int32) -> pid_t? {
+        var actions: posix_spawn_file_actions_t?
+        posix_spawn_file_actions_init(&actions)
+        posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
+        posix_spawn_file_actions_adddup2(&actions, out, 1)
+        posix_spawn_file_actions_adddup2(&actions, out, 2)
+        var attr: posix_spawnattr_t?
+        posix_spawnattr_init(&attr)
+        disclaim(&attr)
+        let argv = ([path] + args).map { strdup($0) } + [nil]
+        defer {
+            argv.forEach { free($0) }
+            posix_spawn_file_actions_destroy(&actions)
+            posix_spawnattr_destroy(&attr)
+        }
+        var pid: pid_t = 0
+        return posix_spawn(&pid, path, &actions, &attr, argv, environ) == 0 ? pid : nil
+    }
+
+    /// Runs `path` to the end on its own and returns its exit code and output.
+    static func run(_ path: String, _ args: [String]) -> (code: Int32, out: String) {
+        let pipe = Pipe()
+        guard let pid = spawn(path, args, out: pipe.fileHandleForWriting.fileDescriptor) else {
+            return (5, "could not run \(path)")
+        }
+        try? pipe.fileHandleForWriting.close()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        var status: Int32 = 0
+        while waitpid(pid, &status, 0) == -1 && errno == EINTR {}
+        let code = (status & 0x7f) == 0 ? (status >> 8) & 0xff : 128 + (status & 0x7f)
+        return (code, String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
     }
 }

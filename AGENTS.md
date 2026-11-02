@@ -22,7 +22,7 @@ swift build -c release
 
 There is no XCTest target and no linter. `apprentice selftest` runs the built-in checks, and `kit.sh` runs them before installing.
 
-- Accessibility and Screen Recording are granted to the signed binary, and `kit.sh` signs it with `APPRENTICE_SIGN_IDENTITY` (or a keychain identity named `apprentice`). An ad-hoc signed debug build loses its grants on every rebuild, so test against the binary that `kit.sh` installs.
+- Accessibility and Screen Recording are granted to the signed binary, and `kit.sh` signs it with `APPRENTICE_SIGN_IDENTITY` (or a keychain identity named `apprentice`). An ad-hoc signed debug build loses its grants on every rebuild, so test against the binary that `kit.sh` installs. The daemon and every grant check (`doctor --grants`, `--ask`) are spawned through `Own` (`Wire.swift`), which disclaims responsibility, so macOS checks apprentice's own signature, never the terminal's or the window's: a binary that has no grant of its own fails even when run from a terminal that does have one. `doctor --grants --here` prints the calling process's own view.
 - If a daemon from an older build is still running, the CLI talks to it. Run `apprentice stop` after you rebuild.
 
 ## Architecture

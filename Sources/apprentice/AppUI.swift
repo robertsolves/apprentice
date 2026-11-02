@@ -2093,6 +2093,8 @@ struct GrantsPanel: View {
     @State private var accessibility: Bool?
     @State private var screen: Bool?
     private let tick = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+    /// A switch left on for an older copy of apprentice does not count for this one.
+    static let staleHint = "Already on in System Settings? That switch is for an older copy: select apprentice there, remove it with −, then click Open System Settings and switch the new one on."
 
     var body: some View {
         Panel(title: "Permissions") {
@@ -2112,6 +2114,9 @@ struct GrantsPanel: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(title + (on == nil ? "" : on! ? ": on" : ": off")).font(Theme.heading)
                 Text(why).font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                if on == false {
+                    Text(GrantsPanel.staleHint).font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
             }
             Spacer()
             if on == false {
@@ -2138,8 +2143,8 @@ struct GrantsPanel: View {
 
 /// What a first run needs, without the terminal: sign in to GitHub, then the two grants the CLI and daemon
 /// need. The grants belong to the CLI (`Contents/Helpers` in the release app), not this window, so each
-/// step runs `doctor --ask` through it and the check marks come from `doctor --grants` in a fresh process,
-/// which is the only place a new grant shows. "Later" comes back next launch; "Done" does not.
+/// step runs `doctor --ask` through it and the check marks come from `doctor --grants`, which asks a fresh
+/// process that answers for itself (`Own`): a child of this window would report the window's grant. "Later" comes back next launch; "Done" does not.
 enum Welcome {
     static var done: Bool { FileManager.default.fileExists(atPath: Store.url("welcome-done").path) }
     static func finish() { FileManager.default.createFile(atPath: Store.url("welcome-done").path, contents: Data()) }
@@ -2206,6 +2211,7 @@ struct WelcomeView: View {
             .foregroundStyle(.secondary)
             .fixedSize(horizontal: false, vertical: true)
         if !done {
+            Text(GrantsPanel.staleHint).font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Button("Open System Settings") { model.run("doctor", ["--ask", ask]) { _, _ in } }
                 .controlSize(.small)
         }

@@ -15,17 +15,32 @@ enum Doctor {
         var blocking = false
     }
 
+    /// This process's own view, which is the caller's: under a terminal it is the terminal's grant.
     static var accessibility: Bool { AXIsProcessTrusted() }
     static var screenRecording: Bool { CGPreflightScreenCaptureAccess() }
+
+    /// The grants as the daemon has them: a fresh process (a new grant shows only there) that answers
+    /// for itself (`Own`), so neither the terminal's nor the window's grant stands in for apprentice's.
+    static func grants() -> (accessibility: Bool, screen: Bool) {
+        let out = Own.run(Wire.binaryPath(), ["doctor", "--grants", "--here"]).out
+        return (out.contains("accessibility=true"), out.contains("screen=true"))
+    }
+
+    /// Asks from apprentice's own process too, so the entry the user switches on is the daemon's.
+    static func ask(_ which: String) -> String { Own.run(Wire.binaryPath(), ["doctor", "--ask", which, "--here"]).out }
+
+    /// A switch that is on in System Settings but not for this copy: an entry left by an older signature.
+    static let staleHint = "already on there? That entry is an older copy: select apprentice, remove it with −, then run this again"
     static let accessibilityPane = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
     static let screenPane = "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
 
     static func checks() -> [Check] {
         let bin = Wire.binaryPath()
+        let granted = grants()
         var out: [Check] = []
         out.append(Check(ok: true, line: "apprentice \(Build.version) · \(bin)"))
-        out.append(Check(ok: accessibility, line: "Accessibility", fix: "System Settings → Privacy & Security → Accessibility → enable apprentice (`apprentice doctor --fix` opens it)", blocking: true))
-        out.append(Check(ok: screenRecording, line: "Screen Recording (shot, ocr, click --on)", fix: "System Settings → Privacy & Security → Screen Recording → enable apprentice (`apprentice doctor --fix` opens it)", blocking: true))
+        out.append(Check(ok: granted.accessibility, line: "Accessibility", fix: "System Settings → Privacy & Security → Accessibility → enable apprentice (`apprentice doctor --fix` opens it; \(staleHint))", blocking: true))
+        out.append(Check(ok: granted.screen, line: "Screen Recording (shot, ocr, click --on)", fix: "System Settings → Privacy & Security → Screen Recording → enable apprentice (`apprentice doctor --fix` opens it; \(staleHint))", blocking: true))
 
         let sign = Repo.run("codesign", ["-dv", bin], in: Store.dir).out
         let adhoc = sign.contains("Signature=adhoc") || sign.contains("not signed")
@@ -95,16 +110,21 @@ enum Doctor {
 
     /// `doctor [--fix]`. Exit 7 while a grant is missing.
     static func run(_ a: Args) throws -> String {
-        if a.has("grants") { return "accessibility=\(accessibility) screen=\(screenRecording)" }
+        if a.has("grants") {
+            if a.has("here") { return "accessibility=\(accessibility) screen=\(screenRecording)" }
+            let g = grants()
+            return "accessibility=\(g.accessibility) screen=\(g.screen)"
+        }
         // The window's welcome steps: ask once, which puts this binary in the list, and open the pane.
         if let which = a.value("ask") {
+            guard a.has("here") else { return ask(which) }
             switch which {
             case "accessibility":
                 _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
                 NSWorkspace.shared.open(URL(string: accessibilityPane)!)
             case "screen":
                 _ = CGRequestScreenCaptureAccess()
-                NSWorkspace.shared.open(URL(string: screenPane)!)
+                if !a.has("no-pane") { NSWorkspace.shared.open(URL(string: screenPane)!) }
             default:
                 throw Fail(5, "doctor --ask accessibility|screen")
             }
@@ -116,33 +136,31 @@ enum Doctor {
             if list.contains(where: { !$0.ok && $0.blocking }) { throw Fail(7, out) }
             return out
         }
-        if !accessibility || !screenRecording {
+        let start = grants()
+        if !start.accessibility || !start.screen {
             print(render(list))
             // Asking once puts apprentice in both lists, so the user only flips the switch.
-            if !accessibility {
-                _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
-                NSWorkspace.shared.open(URL(string: accessibilityPane)!)
+            if !start.accessibility { _ = ask("accessibility") }
+            if !start.screen {
+                // The Accessibility pane comes first; Screen Recording's opens once that one is on.
+                if start.accessibility { _ = ask("screen") }
+                else { _ = Own.run(Wire.binaryPath(), ["doctor", "--ask", "screen", "--here", "--no-pane"]) }
             }
-            if !screenRecording {
-                _ = CGRequestScreenCaptureAccess()
-                if accessibility { NSWorkspace.shared.open(URL(string: screenPane)!) }
-            }
-            print("\nwaiting for the grants (switch apprentice on in each pane; Ctrl+C stops)…")
+            print("\nwaiting for the grants (switch apprentice on in each pane; \(staleHint); Ctrl+C stops)…")
             fflush(stdout)
-            // A grant shows in a fresh process, so each check asks a new one.
-            func grants() -> String { Repo.run(Wire.binaryPath(), ["doctor", "--grants"], in: Store.dir).out }
-            let both = "accessibility=true screen=true"
-            var screenPaneOpen = accessibility
+            var screenPaneOpen = start.accessibility
             let deadline = Date().addingTimeInterval(600)
-            while Date() < deadline, grants() != both {
+            var now = start
+            while Date() < deadline, !(now.accessibility && now.screen) {
                 // One pane at a time: Screen Recording once Accessibility is on.
-                if !screenPaneOpen, grants().hasPrefix("accessibility=true") {
+                if !screenPaneOpen, now.accessibility {
                     NSWorkspace.shared.open(URL(string: screenPane)!)
                     screenPaneOpen = true
                 }
                 Thread.sleep(forTimeInterval: 2)
+                now = grants()
             }
-            guard grants() == both else {
+            guard now.accessibility && now.screen else {
                 throw Fail(7, "the grants are still missing: switch apprentice on in both panes, then run `apprentice doctor --fix` again")
             }
             print("✓ both granted")

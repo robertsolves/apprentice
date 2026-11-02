@@ -46,10 +46,7 @@ final class Pty {
         posix_spawnattr_setflags(&attr, Int16(POSIX_SPAWN_SETSID))
         // The tab's shell answers for itself: an agent in it never borrows the app's Accessibility grant to
         // click the app's own Allow (`responsibility_spawnattrs_setdisclaim`, as Terminal does).
-        typealias Disclaim = @convention(c) (UnsafeMutablePointer<posix_spawnattr_t?>, Int32) -> Int32
-        if let sym = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "responsibility_spawnattrs_setdisclaim") {
-            _ = unsafeBitCast(sym, to: Disclaim.self)(&attr, 1)
-        }
+        Own.disclaim(&attr)
 
         var env = ProcessInfo.processInfo.environment
         // The tab knows which project and VM it belongs to, so an agent started here needs no setup.
