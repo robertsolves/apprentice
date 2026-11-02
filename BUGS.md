@@ -15,25 +15,8 @@ Filed by `apprentice bug` while working. Each has a suggested fix to review; non
 - Cause: `MCP.runLocally` and `MCP.map` call `Budgets.report` / `Policies.describe` / the daemon directly. Only the CLI forwards these to the guest (`VM.forward` in `main.swift`), so with `vm on` an MCP client sees the host's budgets, events and policies, which are for a machine taking no actions.
 - Suggested fix: forward the same three commands through `VM.forward` when the VM is on, as `main.swift` does, and answer from the guest.
 
-### F5 · `do <flow>` echoes filled step text, so a value passed as a var reaches the chat and the log — 2026-11-01
-- Cause: `Commands.runFlow` prints the step after `fill`, so `type #textbox "..." "{password}" --enter` appears in its ✓ and ✗ lines with the value substituted, unlike `type`, whose log rows never carry typed text.
-- Suggested fix: print the unresolved step (`{password}`) and mask values whose key contains `password`, `token` or `secret`.
 
-## Audit · every file read on 2026-11-02
 
-Findings from reading all of `Sources/apprentice`, `agent/`, the shell entry points, the workflows, the playbooks and the docs. Nothing here is applied. Severity is the order they appear in. `swift build` and `apprentice selftest` still pass, so none of these is a compile error.
-
-### F6 · `selftest` behind `--vm` deletes the real `~/.apprentice` — 2026-11-02
-- Severity: critical (data loss: settings, API key, session, logs, playbooks link).
-- Where: `main.swift:7`, `SelfTest.swift:34`, `SelfTest.swift:219-220`, `SelfTest.swift:242-243`.
-- Cause: the throwaway home is only set when `CommandLine.arguments[1] == "selftest"`. `apprentice --vm foo selftest` has `--vm` in slot 1, so `APPRENTICE_HOME` is never set: `Store.dir` stays `~/.apprentice`. `SelfTest.run()` then ends with `try? FileManager.default.removeItem(at: Store.dir)`, and two checks write over real files first and delete them on the way out: `budgets()` writes `Budgets.path` then `defer` removes it, `policies()` does the same to `Routes.customPath`. So that one command wipes `config.toml` (the API key), `routes.toml`, `budgets.json`, `session.json`, `runs/` and the playbooks link. `--vm` is also the documented way to reach a named VM, so this is reachable by following the usage text.
-- Suggested fix: set the throwaway home from the parsed command instead of slot 1 — move the check after the `--vm` strip and test `argvRaw[1] == "selftest"` there. Better, make `SelfTest.run()` refuse to run unless `APPRENTICE_HOME` is set and outside the home folder, and point `Budgets.path`, `Routes.customPath` and `Store.dir` at a temp dir the test owns rather than borrowing the live ones. Add a check to `selftest` that its state dir is under `NSTemporaryDirectory()`.
-
-### F7 · `do` rewrites `{…}` inside `sh:` steps, so shell commands with braces break — 2026-11-02
-- Severity: high (a whole class of shell flows cannot run: `${HOME}`, `awk '{print $1}'`, brace expansion).
-- Where: `Flows.swift:18` (`steps = raw.map { fill($0, a.flags, &missing) }`) versus `Flows.swift:85-88` (`shellCommand`).
-- Cause: every raw step is placeholder-filled before the code asks whether it is a `sh:` step. `fill` treats any `{…}` as a variable, so `` `sh: echo ${HOME}` `` asks for `--home`, and `` `sh: echo {a,b}` `` for `--a,b`; a missing one becomes `‹home›` and the flow stops with "needs --home` before the shell ever sees it.
-- Suggested fix: split `sh:` steps off before filling and fill only screen steps, or make `fill` substitute only keys the caller actually passed (`vars[key]`) and leave untouched braces alone instead of marking them missing. A `$`-prefixed brace should never be a placeholder.
 
 ### F9 · `replay <name> --from n` past the end reports success with 0 steps — 2026-11-02
 - Severity: high (a caller resuming a replay is told it finished, so the work silently never happens).
@@ -47,11 +30,7 @@ Findings from reading all of `Sources/apprentice`, `agent/`, the shell entry poi
 - Cause: `w.translate_coords(root, 0, 0)` already returns the window origin **in root coordinates**, so the box is then negated into `[-at.x, -at.y, …]` — a window at (300, 200) is reported at (-300, -200). `Remote.confirmDialog` (`Remote+More.swift:74-86`) filters OCR hits with `box.contains(point)`, which can never match a negative-origin rectangle, so the button is never clicked and it falls through to `Keys.press("return")` — which `pick`'s own comment (`Remote+More.swift:70-72`) says "closes the dialog without passing the file on" in GTK. The `frame` is the only consumer, so nothing else notices.
 - Suggested fix: `box = [at.x, at.y, g.width, g.height]` (or keep the negation but call `root.translate_coords(w, 0, 0)`). Worth a comment saying which direction the API goes, since this is the classic sign trap.
 
-### F11 · `apprentice bug` writes `bugs.md` while the repo's file is `BUGS.md` — 2026-11-02
-- Severity: medium (silent second file on any case-sensitive checkout — Linux CI, a case-sensitive volume, a GitHub tarball on ext4 — so reports land where `grow` and `pr` do not look).
-- Where: `Playbooks.swift:209-212`; contrast `PR.swift:21` which lists both spellings.
-- Cause: `bugFile` hardcodes `repo.appendingPathComponent("bugs.md")`. On this Mac's case-insensitive APFS it resolves to `BUGS.md`, so it works here and breaks elsewhere.
-- Suggested fix: pick the existing name — return `BUGS.md` when it exists, else create it with that name — so one file holds every report. `PR.swift`'s `records` set can then drop the lower-case spelling.
+
 ### F14 · `Toml.array` and `Toml.table` split on every comma, including ones inside quotes — 2026-11-02
 - Severity: medium (a config value containing a comma is silently cut in two, and the halves reach the allowlist, budgets and download menus).
 - Where: `Config.swift:46-64`.

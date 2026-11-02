@@ -18,7 +18,7 @@ enum PR {
         let subjects = Repo.git("log", "--reverse", "--format=%s", range).out.split(separator: "\n").map(String.init)
         guard !subjects.isEmpty else { return "nothing to offer: no local commits on top of \(remote)/\(base)" }
         let files = Repo.git("diff", "--name-only", "\(remote)/\(base)...HEAD").out.split(separator: "\n").map(String.init)
-        let records: Set<String> = ["BUGS.md", "bugs.md", "TODO.md"]
+        let records: Set<String> = ["BUGS.md", "TODO.md"]
         guard files.contains(where: { !records.contains($0) && !$0.hasPrefix("sessions/") }) else {
             throw Fail(5, "the commits change only field reports and session copies; a PR needs a fix to review")
         }

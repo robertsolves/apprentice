@@ -204,14 +204,14 @@ enum Playbooks {
     /// The repo that holds the playbooks (kit.sh links ~/.apprentice/playbooks into it).
     static var repo: URL { dir.resolvingSymlinksInPath().deletingLastPathComponent() }
 
-    /// Field reports go to the repo's bugs.md when the playbooks are the repo's own; playbooks pointed
+    /// Field reports go to the repo's BUGS.md when the playbooks are the repo's own; playbooks pointed
     /// anywhere else keep their reports beside them (L1).
     static var bugFile: URL {
         let isRepo = FileManager.default.fileExists(atPath: repo.appendingPathComponent("Package.swift").path)
-        return isRepo ? repo.appendingPathComponent("bugs.md") : dir.resolvingSymlinksInPath().appendingPathComponent("bugs.md")
+        return isRepo ? repo.appendingPathComponent("BUGS.md") : dir.resolvingSymlinksInPath().appendingPathComponent("BUGS.md")
     }
 
-    /// `bug "summary" [--repro …] [--cause …] [--fix …]`: appends a field report to the repo's bugs.md,
+    /// `bug "summary" [--repro …] [--cause …] [--fix …]`: appends a field report to the repo's BUGS.md,
     /// with the last error from the log. The LLM reads the source first and suggests the fix.
     static func fileBug(_ a: Args) throws -> String {
         let summary = a.pos.joined(separator: " ")

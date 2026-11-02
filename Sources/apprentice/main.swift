@@ -48,7 +48,7 @@ func usage() {
       apprentice ask "question" [--choices "A|B|C" [--multi] [--text]]   a little window for the user; prints their reply
       apprentice show "what"                    the user points the cursor at it; prints the element there
       apprentice confirm <token> [--why "…"]    the user approves or denies a pending step in the little window
-      apprentice bug "summary" [--repro …] [--cause …] [--fix …]   file a field report in the repo's bugs.md
+      apprentice bug "summary" [--repro …] [--cause …] [--fix …]   file a field report in the repo's BUGS.md
       apprentice commit "what and why"          one small commit in the repo; a source change rebuilds and restarts
       apprentice update [--check] [--build]     rebase onto upstream and rebuild (it also does this on its own unless [update] auto = false)
       apprentice selftest                       the built-in tests; kit.sh runs them before installing a build
