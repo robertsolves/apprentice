@@ -178,12 +178,13 @@
 
     <div class="hero">
       <img class="logo" src="assets/icon.svg" alt="apprentice icon">
-      <div><span class="pill">macOS 14+ · Text in, text out · You approve</span></div>
+      <div><span class="pill">Human pace · Real cursor and keys · You approve</span></div>
       <h1>Let your agent use the Mac like a careful person</h1>
       <p class="lede">
-        apprentice lets a coding agent or a hosted model work any app on your Mac, or any website, for you.
-        It reads the screen as a short numbered list, moves the real cursor, presses real keys,
-        and proposes every change before it makes it.
+        apprentice lets a coding agent or a hosted model work any app on your Mac, or any website, for you,
+        and it behaves the way you would: the real cursor on a curved path, real keys at a typing rhythm,
+        pauses to look, and rests between bursts. It reads the screen as a short numbered list and proposes
+        every change before it makes it.
       </p>
       <div class="cta">
         <a class="btn primary" href="#install">Install</a>
@@ -222,12 +223,13 @@ nothing was done. approve: <span class="k">apprentice approve 7c2e</span> · den
       <h2>How it works</h2>
       <p class="sub">One Swift binary, CLI and daemon in one, with no package dependencies. The agent calls it from its own shell; the daemon does the reading and the careful acting.</p>
       <div class="grid">
+        <div class="card"><h3>Acts like a person</h3><p>Curved pointer paths with overshoot, a natural key rhythm with the odd correction, pauses before it acts and rests between bursts. Sites see a careful human pace, not a script hammering at them.</p></div>
         <div class="card"><h3>Reads text, not pixels</h3><p>The accessibility tree becomes a numbered list of what's on screen. A step costs tens of tokens, not a screenshot. <code>shot</code> and <code>ocr</code> are there for the rare page that hides.</p></div>
-        <div class="card"><h3>Real input only</h3><p>Every click, scroll and keystroke goes through the system's own input stream, with the cursor on a curved path at a human pace. Nothing is injected into pages.</p></div>
+        <div class="card"><h3>Real input only</h3><p>Every click, scroll and keystroke goes through the system's own input stream with the window in front. Nothing is injected into pages and nothing is pressed through accessibility.</p></div>
         <div class="card"><h3>Proposes, then acts</h3><p>Every command that changes something returns <code>approve?</code> and a token. Nothing happens until it's approved. Risky steps (send, delete, buy, passwords, settings) carry a ⚠.</p></div>
         <div class="card"><h3>Asks you</h3><p>For decisions that are yours, a little window opens at the top of the screen: free text, choices, or "point at it". When you're away, the question goes back to the chat.</p></div>
         <div class="card"><h3>Stops for you</h3><p>It waits until you've been idle. Touch a key or the mouse and it stops at once and leaves the cursor where you are. ctrl+opt+cmd+. is a kill switch.</p></div>
-        <div class="card"><h3>Site rules built in</h3><p>Per-site budgets, cooldowns, challenge hand-off and allowlists. Meta and TikTok are refused by default. They're part of the product, not add-ons.</p></div>
+        <div class="card"><h3>Site rules built in</h3><p>Per-site budgets, cooldowns and allowlists keep the account well inside what you could do by hand. A CAPTCHA or checkpoint goes to you, never around you. Sites whose terms forbid automation (Meta, TikTok) are refused.</p></div>
         <div class="card"><h3>Learns as it goes</h3><p>Notes about apps and sites live in the repo. <code>learn</code> turns a task that worked into a flow, and <code>do &lt;flow&gt;</code> reruns it with one approval for the whole plan.</p></div>
         <div class="card"><h3>Fixes and updates itself</h3><p>It runs from your own clone. Fixes are small commits that rebuild, self-test and restart. Upstream updates are rebased in, and a failed build keeps the old binary.</p></div>
         <div class="card"><h3>A Linux VM on the side</h3><p>A small VM runs Chromium and any Linux app with its own screen, cursor and keyboard, so the agent works while you keep working. One VM per job, run side by side.</p></div>
