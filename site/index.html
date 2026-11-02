@@ -124,6 +124,9 @@
     .term .d { color: var(--term-dim); }
     .term .w { color: var(--term-warn); }
     .term .k { color: var(--term-ok); }
+    .term .u { color: var(--term-ok); font-weight: 600; }
+    .term .a { color: #8ab8ff; font-weight: 600; }
+    .term figcaption { padding: 0 20px 16px; font-size: 13px; color: var(--term-dim); font-family: inherit; }
 
     section { padding: 64px 0; }
     h2 { font-size: clamp(26px, 3.5vw, 34px); letter-spacing: -0.01em; margin: 0 0 8px; }
@@ -137,6 +140,8 @@
     .card h3 { margin: 0 0 6px; font-size: 17px; }
     .card p { margin: 0; color: var(--muted); font-size: 15px; }
 
+    .asks { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+    .asks .ask { border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; background: var(--surface); line-height: 1.45; }
     .tags { display: flex; flex-wrap: wrap; gap: 10px; }
     .tags span {
       border: 1px solid var(--border); background: var(--surface); border-radius: 8px;
@@ -161,7 +166,7 @@
     @media (max-width: 560px) {
       nav.links a.hide-sm { display: none; }
       .btn { width: 100%; justify-content: center; }
-      .term pre { font-size: 12px; }
+      .term pre { font-size: 12px; white-space: pre-wrap; }
     }
   </style>
 </head>
@@ -170,6 +175,7 @@
     <header class="top">
       <a class="brand" href="./"><img src="assets/icon.svg" alt="">apprentice</a>
       <nav class="links">
+        <a href="#ask" class="hide-sm">What to ask</a>
         <a href="#how" class="hide-sm">How it works</a>
         <a href="#install" class="hide-sm">Install</a>
         <a href="https://github.com/robertsolves/apprentice">GitHub</a>
@@ -193,44 +199,57 @@
           View on GitHub
         </a>
       </div>
-      <p class="fine">Works with Claude Code, Codex, opencode, Kilo, Gemini CLI and more · No screenshots by default</p>
+      <p class="fine">Ask Claude, Codex, Gemini, Freebuff, Devin, Grok or any coding agent · No screenshots by default</p>
 
-      <figure class="term" aria-label="Example apprentice session">
+      <figure class="term" aria-label="Example: asking your agent to do something on screen">
         <div class="bar"><i></i><i></i><i></i></div>
-<pre><span class="p">$</span> <span class="c">apprentice session --app Safari</span>
-<span class="d">session 3f9a1c · Safari · window 4120 · https://github.com/settings/profile</span>
-<span class="d">policy: websites only through the UI.</span>
+<pre><span class="u">you</span>   <span class="c">Set my GitHub bio to "Software engineer on the Gold Coast".</span>
 
-<span class="p">$</span> <span class="c">apprentice read --max 6</span>
-snap 1 · Safari · github.com/settings/profile · 6 of 41 shown
-1 link "Your profile"
-2 textbox "Name" value="Sam Lee"
-3 textarea "Bio" value=""
-4 button "Update profile" <span class="w">[gated]</span>
+<span class="a">agent</span> Opening github.com/settings/profile in Safari and reading the page.
+      <span class="d">· apprentice session · read: 41 items, 6 that matter</span>
+      I'll type it into the Bio field and press Update profile.
+      <span class="w">⚠ This is an account settings page.</span> Go ahead?
 
-<span class="p">$</span> <span class="c">apprentice type 3 "Software engineer on the Gold Coast"</span>
-approve? type into 3 textarea "Bio"
-  Safari · https://github.com/settings/profile
-  replaces it with: Software engineer on the Gold Coast
-<span class="w">⚠ settings, account or billing page</span>
-nothing was done. approve: <span class="k">apprentice approve 7c2e</span> · deny: apprentice deny 7c2e</pre>
+<span class="u">you</span>   <span class="c">yes</span>
+
+<span class="a">agent</span> <span class="d">· apprentice type · click (curved path, typing rhythm, then a pause)</span>
+      <span class="k">Done.</span> Your bio is updated. Nothing else on the page changed.</pre>
+        <figcaption>You talk to your agent as usual. It runs apprentice for you and checks with you before anything changes.</figcaption>
       </figure>
     </div>
   </div>
 
+  <section id="ask">
+    <div class="wrap">
+      <h2>What you can ask</h2>
+      <p class="sub">Anything you'd do yourself with the mouse and keyboard, one task at a time. Say it to your agent in plain words.</p>
+      <div class="asks">
+        <div class="ask">“Download last month's invoice from the Stripe dashboard and put it in ~/Documents/Invoices.”</div>
+        <div class="ask">“Reply to the latest email from my accountant in Mail: I'll send the receipts on Friday.”</div>
+        <div class="ask">“Book the 7am spin class on my gym's website for Thursday.”</div>
+        <div class="ask">“Go through my LinkedIn notifications and tell me which ones need a reply.”</div>
+        <div class="ask">“Fill in the contact form on the council website with my details from contacts.md.”</div>
+        <div class="ask">“Turn on Night Shift from 10pm in System Settings.”</div>
+        <div class="ask">“Post this changelog to the #updates channel in our Discord.”</div>
+        <div class="ask">“In the Linux VM, open the report in LibreOffice and save it as a PDF.”</div>
+        <div class="ask">“Do the weekly Shopify stock check like last time.”</div>
+      </div>
+    </div>
+  </section>
+
   <section id="how">
     <div class="wrap">
       <h2>How it works</h2>
-      <p class="sub">One Swift binary, CLI and daemon in one, with no package dependencies. The agent calls it from its own shell; the daemon does the reading and the careful acting.</p>
+      <p class="sub">One Swift binary, CLI and daemon in one, with no package dependencies. You never type its commands: your agent runs them from its own shell or over MCP, and the daemon does the reading and the careful acting.</p>
       <div class="grid">
         <div class="card"><h3>Acts like a person</h3><p>Curved pointer paths with overshoot, a natural key rhythm with the odd correction, pauses before it acts and rests between bursts. Sites see a careful human pace, not a script hammering at them.</p></div>
         <div class="card"><h3>Reads text, not pixels</h3><p>The accessibility tree becomes a numbered list of what's on screen. A step costs tens of tokens, not a screenshot. <code>shot</code> and <code>ocr</code> are there for the rare page that hides.</p></div>
         <div class="card"><h3>Real input only</h3><p>Every click, scroll and keystroke goes through the system's own input stream with the window in front. Nothing is injected into pages and nothing is pressed through accessibility.</p></div>
-        <div class="card"><h3>Proposes, then acts</h3><p>Every command that changes something returns <code>approve?</code> and a token. Nothing happens until it's approved. Risky steps (send, delete, buy, passwords, settings) carry a ⚠.</p></div>
+        <div class="card"><h3>Proposes, then acts</h3><p>Every change is a proposal first. Nothing happens until it's approved, and your agent checks with you on anything risky: send, delete, buy, passwords, settings.</p></div>
         <div class="card"><h3>Asks you</h3><p>For decisions that are yours, a little window opens at the top of the screen: free text, choices, or "point at it". When you're away, the question goes back to the chat.</p></div>
         <div class="card"><h3>Stops for you</h3><p>It waits until you've been idle. Touch a key or the mouse and it stops at once and leaves the cursor where you are. ctrl+opt+cmd+. is a kill switch.</p></div>
         <div class="card"><h3>Site rules built in</h3><p>Per-site budgets, cooldowns and allowlists keep the account well inside what you could do by hand. A CAPTCHA or checkpoint goes to you, never around you. Sites whose terms forbid automation (Meta, TikTok) are refused.</p></div>
-        <div class="card"><h3>Learns as it goes</h3><p>Notes about apps and sites live in the repo. <code>learn</code> turns a task that worked into a flow, and <code>do &lt;flow&gt;</code> reruns it with one approval for the whole plan.</p></div>
+        <div class="card"><h3>Learns as it goes</h3><p>Notes about apps and sites live in the repo. A task that worked becomes a flow your agent can rerun next time, with one approval for the whole plan.</p></div>
         <div class="card"><h3>Fixes and updates itself</h3><p>It runs from your own clone. Fixes are small commits that rebuild, self-test and restart. Upstream updates are rebased in, and a failed build keeps the old binary.</p></div>
         <div class="card"><h3>A Linux VM on the side</h3><p>A small VM runs Chromium and any Linux app with its own screen, cursor and keyboard, so the agent works while you keep working. One VM per job, run side by side.</p></div>
       </div>
@@ -240,17 +259,22 @@ nothing was done. approve: <span class="k">apprentice approve 7c2e</span> · den
   <section>
     <div class="wrap">
       <h2>Works with your agent</h2>
-      <p class="sub">The installer finds the assistants on your Mac and connects each one: a skill, a rules file, or the MCP server. There's also a built-in <code>run</code> loop for any OpenAI-compatible API.</p>
+      <p class="sub">You keep using the agent you already use. The installer finds the ones on your Mac and teaches each one apprentice: a skill, a rules file, or the MCP server. Anything else that can run a shell command can use it too, and there's a built-in loop for any OpenAI-compatible API.</p>
       <div class="tags">
         <span>Claude Code</span>
-        <span>Claude desktop (MCP)</span>
+        <span>Claude desktop</span>
         <span>Codex</span>
+        <span>Gemini CLI</span>
+        <span>Freebuff</span>
+        <span>Devin</span>
+        <span>Grok</span>
+        <span>Cursor</span>
+        <span>GitHub Copilot CLI</span>
         <span>opencode</span>
         <span>Kilo</span>
-        <span>Gemini CLI</span>
-        <span>GitHub Copilot CLI</span>
-        <span>Cursor</span>
         <span>Amp</span>
+        <span>Qwen Code</span>
+        <span>Crush</span>
         <span>Cline</span>
         <span>goose</span>
         <span>Continue</span>
@@ -278,7 +302,7 @@ nothing was done. approve: <span class="k">apprentice approve 7c2e</span> · den
         <pre><code>git clone https://github.com/robertsolves/apprentice.git ~/.apprentice/src &amp;&amp; ~/.apprentice/src/install.sh</code></pre>
         <ol>
           <li>It builds a release binary, runs its self-test and installs it to <code>~/.local/bin/apprentice</code>, signed so your permissions survive rebuilds.</li>
-          <li>It connects every AI assistant it finds on your Mac.</li>
+          <li>It connects every AI agent it finds on your Mac, so you can just ask it to do things on screen.</li>
           <li>Grant <strong>Accessibility</strong> and <strong>Screen Recording</strong> to <code>~/.local/bin/apprentice</code> in System Settings → Privacy &amp; Security, then run <code>apprentice stop</code>.</li>
         </ol>
         <a class="btn primary" href="https://github.com/robertsolves/apprentice#readme">Read the full README</a>

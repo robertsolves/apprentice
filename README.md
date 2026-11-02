@@ -4,25 +4,52 @@
 
 apprentice lets a coding agent or a hosted model use macOS, Linux and the web for you the way a careful person would, not a bot. It reads the window as a short numbered list, moves the real cursor and presses real keys. It proposes every change and waits for approval. When it is unsure it asks you, and it writes down what it learns so the next run is quicker.
 
+You don't type its commands. You ask your coding agent (Claude Code, Codex, Gemini CLI, Freebuff, Cursor and the rest) as you normally would, and it runs apprentice for you:
+
+```
+you    Set my GitHub bio to "Software engineer on the Gold Coast".
+
+agent  Opening github.com/settings/profile in Safari and reading the page.
+       I'll type it into the Bio field and press Update profile.
+       ⚠ This is an account settings page. Go ahead?
+
+you    yes
+
+agent  Done. Your bio is updated. Nothing else on the page changed.
+```
+
+## What you can ask
+
+Anything you'd do yourself with the mouse and keyboard, one task at a time:
+
+- "Download last month's invoice from the Stripe dashboard and put it in ~/Documents/Invoices."
+- "Reply to the latest email from my accountant in Mail: I'll send the receipts on Friday."
+- "Book the 7am spin class on my gym's website for Thursday."
+- "Go through my LinkedIn notifications and tell me which ones need a reply."
+- "Fill in the contact form on the council website with my details from contacts.md."
+- "Turn on Night Shift from 10pm in System Settings."
+- "Post this changelog to the #updates channel in our Discord."
+- "Export the selected frame in Figma as a PNG at 2x."
+- "In the Linux VM, open the report in LibreOffice and save it as a PDF."
+- "Do the weekly Shopify stock check like last time." (a flow it learned earlier, rerun with one approval)
+
+It reads the screen as text, proposes each change, and asks you before anything risky: sending, posting, deleting, buying, passwords and settings. It won't do bulk outreach, mass following, scraping at volume or run several accounts on one site.
+
+Under the hood, the agent calls the CLI. The same exchange from its side:
+
 ```
 $ apprentice session --app Safari
 session 3f9a1c · Safari · window 4120 · https://github.com/settings/profile
-policy: websites only through the UI. Quick macOS tasks (files, folders, opening apps) may use shell commands.
 
 $ apprentice read --max 6
-<screen>
 snap 1 · Safari · github.com/settings/profile · 6 of 41 shown
 1 link "Your profile"
 2 textbox "Name" value="Sam Lee"
 3 textarea "Bio" value=""
 4 button "Update profile" [gated]
-…
-</screen>
 
 $ apprentice type 3 "Software engineer on the Gold Coast"
 approve? type into 3 textarea "Bio"
-  Safari · https://github.com/settings/profile
-  replaces it with: Software engineer on the Gold Coast
 ⚠ settings, account or billing page
 nothing was done. approve: apprentice approve 7c2e · deny: apprentice deny 7c2e
 ```
