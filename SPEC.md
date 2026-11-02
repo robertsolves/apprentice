@@ -305,7 +305,7 @@ How it works:
    nothing was done. approve: apprentice approve a3f9 · deny: apprentice deny a3f9
    ```
 2. `⚠` lines flag what needs extra care: gate-list words (send, post, publish, like, follow, comment, submit, save, update, upload, pay, buy, delete, remove, confirm and more), settings, account and billing pages, return keys that may submit, uploads, and anything the caller marked `--gate`. Flagged proposals also keep a window screenshot in the run log.
-3. `approve <token>` runs exactly the saved request, paced and rate-limited as usual, and charges its budget. `approve <token> --text "…"` replaces the text of a pending `type`. `deny <token>` drops it. Both are logged.
+3. `approve <token>` runs exactly the saved request, paced and rate-limited as usual, and charges its budget. A step that never acts (refused by a rate limit, stopped by the user or the kill switch) gets its count back. `approve <token> --text "…"` replaces the text of a pending `type`. `deny <token>` drops it. Both are logged.
 4. A token is single-use and expires after 5 minutes, or after an hour once `confirm` hands it to the user in the chat. Up to five proposals wait at once, each answered by its own token. Reading the screen again is fine: on approval the element is checked again, and a step whose id now points at something else is refused as `stale`.
 5. A step on a password or security-code field runs only on the user's own approval (the `confirm` window or the menu bar); `approve` refuses it. The `run` loop sends every `⚠` approval to `confirm`.
 6. The usage docs tell agents to approve only steps the task needs, and to ask the user before any `⚠` step they did not ask for.

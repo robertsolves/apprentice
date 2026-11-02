@@ -193,6 +193,8 @@ func finish(_ command: String, _ session: Session, _ target: Target, _ old: Snap
 /// The rest of `finish` once the screen has settled, shared with the browser VM.
 func finish(_ command: String, _ session: Session, url: String?, _ old: Snapshot?, _ new: Snapshot,
             extra: [String] = [], log fields: [String: Any] = [:]) throws -> String {
+    // The step acted, so its budget count stands.
+    Commands.reserved = nil
     var session = session
     let new = keepIds(old, new)
     session.track(new.url)
@@ -259,6 +261,7 @@ func approveStep(_ session: Session, _ target: Page, _ e: Element?, _ summary: S
     if let host, let kind {
         try Budgets.check(host, kind, record: true)
         Commands.charged = kind
+        Commands.reserved = (host, kind)
     }
     return kind
 }
@@ -291,6 +294,8 @@ enum Commands {
     static var notice: String?
     /// The budgeted kind the current action was counted as, for its log row.
     static var charged: String?
+    /// A budget count taken at approval for a step that has not acted yet: refunded if the command fails first.
+    static var reserved: (host: String, kind: String)?
     /// When the last command finished, so an update never restarts the daemon in the middle of a task.
     static var lastAt = Date.distantPast
 
@@ -306,6 +311,8 @@ enum Commands {
         // A new session ends the last one: its scrubbed copy goes into the clone (`[storage] sessions`).
         if req.cmd == "session" { Sessions.archiveCurrent() }
         let result = Result { try Awake.busy { try dispatch(req) } }
+        if case .failure = result, let r = reserved { Budgets.refund(r.host, r.kind) }
+        reserved = nil
         // `session --task "…"` records what the user asked for, so the log reads as a task, not just steps.
         if req.cmd == "session", (try? result.get()) != nil, case let a = Args.parse(req.args), let task = a.value("task") ?? a.value("goal") {
             Store.log(["task": task])

@@ -305,6 +305,8 @@ enum SelfTest {
         } catch let f as Fail { check(f.code == 4, "a like over the hourly cap exits 4") } catch {}
         check((try? Budgets.check("example.com", "like", record: false)) == nil, "a refused action is not counted, and checking alone still refuses")
         check(runs("example.com", "post") && !runs("example.com", "repost"), "a repost shares the post budget")
+        Budgets.refund("www.example.com", "repost")
+        check(runs("example.com", "post"), "a step that never ran gives its count back")
     }
 
     /// A policy entry is a note on the site's terms: no site is ever refused, even with an old

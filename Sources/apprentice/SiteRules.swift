@@ -181,6 +181,19 @@ enum Budgets {
         if wait > 0 { Timing.measure("gap") { Pace.sleep(wait) } }
     }
 
+    /// Takes back the count of an approved step that never ran: refused by a rate limit, or stopped by the
+    /// user or the kill switch before it acted. It was counted at approval so other VMs' daemons see it.
+    static func refund(_ host: String, _ raw: String) {
+        let domain = Site.domain(host), kind = alias[raw] ?? raw
+        func drop(_ l: inout Limits) {
+            guard var times = l.kinds?[domain]?[kind], let last = times.indices.max(by: { times[$0] < times[$1] }) else { return }
+            times.remove(at: last)
+            l.kinds?[domain]?[kind] = times
+        }
+        Limits.update { drop(&$0) }
+        if let project = Project.dir { Project.update(project) { drop(&$0) } }
+    }
+
     /// A project's own budgets.json, else the account-wide caps.
     static func projectTable(_ project: URL, fallback: @autoclosure () -> [String: [String: Cap]] = table()) -> [String: [String: Cap]] {
         (try? projectCaps(project, fallback: fallback())) ?? [:]
