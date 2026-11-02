@@ -16,13 +16,15 @@ Playbooks are the mechanics: labels, steps and flows, learned on screen. Judgeme
 - `macos/` playbooks for one app, or for system parts every app shares (save panels).
 - `linux/` playbooks for the Linux VM.
 - `web/` playbooks for one site.
+- `topics/` playbooks for a kind of task (writing invoices): no `match`, found by their tags with `playbooks "words"`.
+- `general/` rules for every session (`match: *`).
 - `flows/` step lists for one task.
 
 ## Format
 
 ```
 ---
-scope: app | site | system | flow
+scope: app | site | system | topic | flow
 match: Finder, com.apple.finder        # app names, bundle ids or hosts; * matches every session
 system: macos                          # optional: macos or linux (the VM); the playbook shows only there
 tags: files, folder, rename

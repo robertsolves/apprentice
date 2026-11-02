@@ -194,11 +194,11 @@ enum MainMenu {
 
 // MARK: - Design system
 
-/// One visual language for the window, kept quiet: text first, one accent, hairlines instead of shadows,
-/// monospace for anything a command would print. No icon tiles, no gradients; the content is the design.
+/// One visual language for the window: one blue accent, clear SF Symbols in it for every section and
+/// action, hairlines instead of shadows, monospace for anything a command would print. No gradients.
 enum Theme {
-    /// Live, fine, done.
-    static let accent = Color(red: 0.24, green: 0.76, blue: 0.60)
+    /// The accent: icons, the selected thing, live and done.
+    static let accent = Color(red: 0.16, green: 0.47, blue: 0.96)
     /// Waiting on the user.
     static let warn = Color(red: 0.95, green: 0.64, blue: 0.22)
     /// Failed, denied, stopped.
@@ -254,10 +254,16 @@ struct StatusPill: View {
     let text: String
     var tint: Color = .secondary
     var dot = true
+    /// An SF Symbol in place of the dot.
+    var icon: String?
 
     var body: some View {
         HStack(spacing: 5) {
-            if dot { Circle().fill(tint).frame(width: 5, height: 5) }
+            if let icon {
+                Image(systemName: icon).font(.system(size: 10, weight: .semibold)).foregroundStyle(tint)
+            } else if dot {
+                Circle().fill(tint).frame(width: 7, height: 7)
+            }
             Text(text).font(Theme.monoSmall).lineLimit(1)
         }
         .padding(.horizontal, Theme.s2)
@@ -444,6 +450,16 @@ final class AppModel: ObservableObject {
     @Published var account: Account.Profile?
     /// The first-run steps (GitHub, Accessibility, Screen Recording), until the user finishes them once.
     @Published var welcomeOpen = !Welcome.done
+    @Published var projects: [Projects.Info] = []
+    @Published var pipelines: [Pipelines.Pipeline] = []
+    /// The VMs (`VM.inventory`), read off the main thread: Tart takes a moment to answer.
+    @Published var machines: [VM.Machine] = []
+    /// The New project sheet, open on an empty folder or a GitHub clone.
+    @Published var newProject: NewProjectSheet.Start?
+    /// The pipeline open in the Pipelines screen (unsaved when it has no file), and a counter that
+    /// reloads the editor when another one is chosen.
+    @Published var pipelineDraft: Pipelines.Pipeline?
+    @Published var pipelineEdits = 0
 
     let home = FileManager.default.homeDirectoryForCurrentUser
 
@@ -451,6 +467,7 @@ final class AppModel: ObservableObject {
         refresh()
         checkRelease()
         newTab(preset: "Shell", command: nil)
+        refreshMachines()
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.refresh() }
     }
 
@@ -479,6 +496,9 @@ final class AppModel: ObservableObject {
         session = Session.stored
         update = Release.available
         account = Account.profile
+        let listed = Projects.all()
+        if listed.map(\.id) != projects.map(\.id) || listed.map(\.name) != projects.map(\.name) { projects = listed }
+        pipelines = Pipelines.all()
         busy = pending.count > 0 || StatusItem.state == .working
         revision += 1
         for tab in tabs { tab.hasApproval = pending.contains { $0.tab == tab.id } }
@@ -493,6 +513,50 @@ final class AppModel: ObservableObject {
         if !pending.isEmpty { return "needs you" }
         if !daemonUp { return "stopped" }
         return busy ? "working" : "idle"
+    }
+
+    var statusIcon: String {
+        if !pending.isEmpty { return "exclamationmark.circle.fill" }
+        if !daemonUp { return "stop.circle" }
+        return busy ? "bolt.circle.fill" : "checkmark.circle.fill"
+    }
+
+    func refreshMachines() {
+        DispatchQueue.global(qos: .utility).async {
+            let list = VM.inventory()
+            DispatchQueue.main.async { if list != self.machines { self.machines = list } }
+        }
+    }
+
+    /// Opens the project's agent in a tab in its folder, working in its VM; `setUpVM` makes that VM first,
+    /// in the same tab, so the user watches it being made.
+    func openProject(_ p: Projects.Info, setUpVM: String? = nil) {
+        var command = AgentChoice.command(p.agent)
+        if let vm = setUpVM {
+            command = "apprentice --vm \(vm) vm setup && " + (command ?? "exec \"$SHELL\" -l")
+        }
+        newTab(preset: p.name, command: command, dir: p.folder, vm: p.vm)
+    }
+
+    /// Runs a pipeline in a new tab, so its output shows as it comes.
+    func runPipeline(_ p: Pipelines.Pipeline) {
+        let ref = p.url?.path ?? p.ref
+        newTab(preset: p.name, command: "apprentice pipeline run \(VM.shellQuoted(ref)); echo; exec \"$SHELL\" -l", dir: p.folder, vm: p.effectiveVM)
+    }
+
+    /// Shows a pipeline in the Pipelines screen's editor (a new one when it has no file).
+    func editPipeline(_ p: Pipelines.Pipeline) {
+        pipelineDraft = p
+        pipelineEdits += 1
+        section = .pipelines
+    }
+
+    /// The installed CLI with these arguments, off the main thread.
+    func runCLI(_ argv: [String], then: @escaping (Int32, String) -> Void) {
+        DispatchQueue.global(qos: .userInitiated).async {
+            let (code, out) = self.cli(argv)
+            DispatchQueue.main.async { then(code, out) }
+        }
     }
 
     var statusTint: Color {
@@ -521,7 +585,7 @@ final class AppModel: ObservableObject {
     static let inClient: Set<String> = ["route", "playbooks", "notes", "prefs", "remember", "forget", "learn", "bug",
                                         "commit", "update", "settings", "repo", "policy", "budget", "activity", "flag",
                                         "grow", "sessions", "project", "doctor", "tour", "pr", "run", "replay", "vm",
-                                        "phone", "selftest", "version", "account"]
+                                        "phone", "selftest", "version", "account", "pipeline"]
 
     /// Every button: the same request the CLI sends, marked as the user's own. It blocks, so it never runs
     /// on the main thread: `run(_:_:then:)` and `act` call it from a background queue.
@@ -681,7 +745,9 @@ final class AppModel: ObservableObject {
 // MARK: - Navigation
 
 enum Section: String, CaseIterable, Identifiable {
+    case projects = "Projects"
     case terminal = "Terminal"
+    case pipelines = "Pipelines"
     case schedules = "Schedules"
     case playbooks = "Playbooks"
     case vms = "VMs"
@@ -689,6 +755,19 @@ enum Section: String, CaseIterable, Identifiable {
     case updates = "Updates"
 
     var id: String { rawValue }
+
+    var icon: String {
+        switch self {
+        case .projects: return "folder.fill"
+        case .terminal: return "terminal.fill"
+        case .pipelines: return "list.number"
+        case .schedules: return "calendar"
+        case .playbooks: return "book.closed.fill"
+        case .vms: return "server.rack"
+        case .settings: return "gearshape.fill"
+        case .updates: return "arrow.down.circle.fill"
+        }
+    }
 }
 
 struct RootView: View {
@@ -697,7 +776,7 @@ struct RootView: View {
     var body: some View {
         NavigationSplitView {
             sidebar
-                .navigationSplitViewColumnWidth(min: 170, ideal: 190, max: 240)
+                .navigationSplitViewColumnWidth(min: 210, ideal: 230, max: 320)
         } detail: {
             detail
                 .frame(minWidth: 680, minHeight: 480)
@@ -712,6 +791,7 @@ struct RootView: View {
             CommandPalette(model: model)
         }
         .background(Color.clear.sheet(isPresented: $model.welcomeOpen) { WelcomeView(model: model) })
+        .background(Color.clear.sheet(item: $model.newProject) { start in NewProjectSheet(model: model, start: start) })
         .background(shortcuts)
         .onAppear { model.refresh() }
     }
@@ -720,12 +800,16 @@ struct RootView: View {
         List(Section.allCases, selection: Binding(
             get: { model.section },
             set: { if let s = $0 { model.section = s } })) { section in
-            HStack(spacing: Theme.s2) {
+            HStack(spacing: Theme.s3) {
+                Image(systemName: section.icon)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 22)
                 Text(section.rawValue)
-                    .font(.system(size: 12.5, weight: section == model.section ? .semibold : .regular))
+                    .font(.system(size: 13, weight: section == model.section ? .semibold : .regular))
                 Spacer(minLength: 0)
             }
-            .padding(.vertical, 2)
+            .padding(.vertical, 3)
             .tag(section)
         }
         .listStyle(.sidebar)
@@ -733,9 +817,10 @@ struct RootView: View {
         .safeAreaInset(edge: .top) {
             VStack(alignment: .leading, spacing: Theme.s3) {
                 HStack(alignment: .firstTextBaseline, spacing: Theme.s2) {
-                    Text("apprentice").font(.system(size: 13, weight: .bold))
+                    Text("apprentice").font(.system(size: 13, weight: .bold)).lineLimit(1).fixedSize()
                     Text("v\(Build.version)").font(Theme.monoSmall).foregroundStyle(.secondary)
-                    Spacer()
+                        .lineLimit(1).truncationMode(.tail)
+                    Spacer(minLength: 0)
                 }
                 Divider()
             }
@@ -747,7 +832,7 @@ struct RootView: View {
             VStack(alignment: .leading, spacing: Theme.s2) {
                 Divider()
                 HStack(spacing: Theme.s2) {
-                    StatusPill(text: model.status, tint: model.statusTint)
+                    StatusPill(text: model.status, tint: model.statusTint, icon: model.statusIcon)
                     if model.awayOn { StatusPill(text: "away", tint: .secondary) }
                     if Pause.on { StatusPill(text: "paused", tint: Theme.warn) }
                 }
@@ -777,6 +862,8 @@ struct RootView: View {
 
     @ViewBuilder private var detail: some View {
         switch model.section {
+        case .projects: ProjectsView(model: model)
+        case .pipelines: PipelinesView(model: model)
         case .terminal: TerminalWorkspace(model: model)
         case .schedules: SchedulesView(model: model)
         case .playbooks: PlaybooksView(model: model)
@@ -795,18 +882,18 @@ struct RootView: View {
             }
         }
         ToolbarItem(placement: .primaryAction) {
-            Button { model.openHelpTab() } label: { Text("Help") }
+            Button { model.openHelpTab() } label: { Label("Help", systemImage: "questionmark.circle") }
                 .help("Ask anything about apprentice in a tab")
         }
         ToolbarItem(placement: .primaryAction) {
-            Button { model.togglePause() } label: { Text(Pause.on ? "Resume" : "Pause") }
+            Button { model.togglePause() } label: { Label(Pause.on ? "Resume" : "Pause", systemImage: Pause.on ? "play.circle" : "pause.circle") }
                 .help("Hold apprentice still: new actions wait until you resume")
         }
         ToolbarItem(placement: .primaryAction) {
             Button {
                 model.paletteOpen = true
                 model.paletteText = ""
-            } label: { Text("Command") }
+            } label: { Label("Command", systemImage: "command") }
             .keyboardShortcut("k", modifiers: .command)
             .help("Run any apprentice command (⌘K)")
         }
@@ -855,12 +942,16 @@ struct TerminalWorkspace: View {
                 }
                 footer(session)
             } else {
-                VStack(spacing: Theme.s2) {
-                    Text("No tab open").font(Theme.heading)
-                    Text("⌘T opens a shell. The + menu has Claude Code, Codex, Help and your presets.")
-                        .font(Theme.caption).foregroundStyle(.secondary)
+                ScrollView {
+                    Explainer(icon: Section.terminal.icon, title: "What is the terminal?",
+                              text: "A terminal is where an agent works. Each tab runs one: Claude Code, Codex, or a plain shell. Type to it like a chat, and answer its questions with the arrow keys and Return.",
+                              points: ["The blue + opens a tab: a new project, one of your projects, an agent, or Help.",
+                                       "Help answers questions about apprentice in plain words.",
+                                       "⌘T opens a shell."])
+                        .frame(maxWidth: Theme.column)
+                        .padding(Theme.page)
+                        .frame(maxWidth: .infinity)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .background(Theme.canvas)
@@ -885,6 +976,13 @@ struct TerminalWorkspace: View {
                 .padding(.vertical, Theme.s2)
             }
             Menu {
+                Button("New project…") { model.newProject = .empty }
+                if !model.projects.isEmpty {
+                    Menu("Open a project") {
+                        ForEach(model.projects) { p in Button(p.name) { model.openProject(p) } }
+                    }
+                }
+                Divider()
                 Button("Shell") { model.newTab(preset: "Shell", command: nil) }
                 Button("Claude Code") { model.newTab(preset: "Claude Code", command: "claude") }
                 Button("Codex") { model.newTab(preset: "Codex", command: "codex") }
@@ -900,10 +998,10 @@ struct TerminalWorkspace: View {
                     }
                 }
             } label: {
-                Text("+")
-                    .font(.system(size: 14, weight: .medium, design: .monospaced))
-                    .frame(width: 24, height: 24)
-                    .foregroundStyle(.secondary)
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 16))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 26, height: 24)
             }
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
@@ -949,9 +1047,15 @@ private struct TabChip: View {
         return Theme.accent
     }
 
+    private var icon: String {
+        if tab.hasApproval { return "exclamationmark.circle.fill" }
+        if let code = tab.exited { return code == 0 ? "checkmark.circle" : "xmark.circle.fill" }
+        return "terminal"
+    }
+
     var body: some View {
         HStack(spacing: 6) {
-            Circle().fill(dot).frame(width: 5, height: 5)
+            Image(systemName: icon).font(.system(size: 11, weight: .medium)).foregroundStyle(dot)
             Text(tab.title)
                 .font(.system(size: 11.5, weight: selected ? .semibold : .regular))
                 .lineLimit(1)
@@ -1060,7 +1164,7 @@ struct SchedulesView: View {
                         .font(Theme.monoSmall)
                         .foregroundStyle(.secondary)
                     Spacer()
-                    Button("New") { adding = true }
+                    Button { adding = true } label: { Label("New", systemImage: "plus") }
                         .controlSize(.small)
                 }
                 .padding(.horizontal, Theme.s3)
@@ -1090,10 +1194,14 @@ struct SchedulesView: View {
                 if let id = selected, let schedule = model.schedules.first(where: { $0.id == id }) {
                     ScheduleDetail(model: model, schedule: schedule)
                 } else {
-                    ScreenPage(title: "Schedules",
-                               subtitle: "Something that runs later, or again and again, even with this window closed: a prompt for an agent, a task for apprentice, saved steps from a playbook, or a shell command. Every run asks for the same approvals as anything you start yourself.") {
-                        AnyView(Button("New schedule") { adding = true }.buttonStyle(.borderedProminent))
+                    ScreenPage(title: "Schedules", subtitle: "") {
+                        AnyView(IconButton("New schedule", "plus", prominent: true) { adding = true })
                     } content: {
+                        Explainer(icon: Section.schedules.icon, title: "What is a schedule?",
+                                  text: "A schedule runs something later, or again and again: a prompt for your agent, a pipeline, or a command. It asks for the same approvals as anything you start yourself.",
+                                  points: ["It runs while this Mac is on and awake, even with this window closed.",
+                                           "A run missed while the Mac slept is skipped, not repeated in a burst.",
+                                           "To run with nobody at the Mac, keep it plugged in and turn on Keep the Mac awake in Settings."])
                         Panel(title: "At login") {
                             Text("Schedules run from apprentice's background service. Start it at login so they run even when this window is closed.")
                                 .font(Theme.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -1209,6 +1317,10 @@ struct ScheduleDetail: View {
 struct ScheduleEditor: View {
     @ObservedObject var model: AppModel
     let existing: Schedules.Schedule?
+    /// A new schedule that starts filled in: a pipeline's Schedule button.
+    var presetKind: String?
+    var presetTarget: String?
+    var presetName: String?
     var done: () -> Void
 
     @State private var name = ""
@@ -1231,6 +1343,7 @@ struct ScheduleEditor: View {
         case "prompt": return "Prompt"
         case "run": return "Task"
         case "do": return "Flow"
+        case "pipeline": return "Pipeline"
         default: return "Command"
         }
     }
@@ -1244,6 +1357,7 @@ struct ScheduleEditor: View {
                 LabeledField("Runs") {
                     Picker("", selection: $kind) {
                         Text("a prompt in an agent").tag("prompt")
+                        Text("a pipeline").tag("pipeline")
                         Text("an apprentice task").tag("run")
                         Text("steps from a playbook").tag("do")
                         Text("a shell command").tag("sh")
@@ -1258,10 +1372,20 @@ struct ScheduleEditor: View {
                         .labelsHidden().pickerStyle(.segmented).frame(maxWidth: 320)
                     }
                 }
-                LabeledField(targetLabel) {
-                    TextField(kind == "do" ? "the name of the steps, as the playbook lists it" : "what should it do", text: $target, axis: .vertical)
-                        .lineLimit(3...10)
-                        .font(kind == "prompt" ? Theme.body : Theme.mono)
+                if kind == "pipeline" {
+                    LabeledField(targetLabel) {
+                        Picker("", selection: $target) {
+                            if model.pipelines.isEmpty { Text("no pipelines yet").tag("") }
+                            ForEach(model.pipelines) { Text($0.name).tag($0.ref) }
+                        }
+                        .labelsHidden().pickerStyle(.menu).frame(maxWidth: 320)
+                    }
+                } else {
+                    LabeledField(targetLabel) {
+                        TextField(kind == "do" ? "the name of the steps, as the playbook lists it" : "what should it do", text: $target, axis: .vertical)
+                            .lineLimit(4...14)
+                            .font(kind == "prompt" ? Theme.body : Theme.mono)
+                    }
                 }
             }
             Panel(title: "When") {
@@ -1322,6 +1446,11 @@ struct ScheduleEditor: View {
     }
 
     private func load() {
+        if existing == nil, let presetKind {
+            kind = presetKind
+            target = presetTarget ?? ""
+            name = presetName ?? ""
+        }
         guard let s = existing else { return }
         name = s.name
         kind = s.kind == .flow ? "do" : s.kind.rawValue
@@ -1382,7 +1511,7 @@ struct PlaybooksView: View {
                     TextField("Search", text: $query)
                         .textFieldStyle(.roundedBorder)
                         .controlSize(.small)
-                    Button("New") { adding = true }.controlSize(.small)
+                    Button { adding = true } label: { Label("New", systemImage: "plus") }.controlSize(.small)
                 }
                 .padding(.horizontal, Theme.s3)
                 .padding(.vertical, Theme.s2)
@@ -1406,15 +1535,20 @@ struct PlaybooksView: View {
                 if let path = selected, let book = Playbooks.all().first(where: { $0.path == path }) {
                     PlaybookEditor(model: model, book: book).id(book.path)
                 } else {
-                    ScreenPage(title: "Playbooks",
-                               subtitle: "What apprentice knows about an app or a site: the facts every agent reads before it opens one, the steps that work and the ones that do not. Write your own for a site or an app you use; keep names, handles and anything personal out, because playbooks can be shared.") {
+                    ScreenPage(title: "Playbooks", subtitle: "") {
                         AnyView(
                             HStack(spacing: Theme.s2) {
-                                Button("New playbook") { adding = true }.buttonStyle(.borderedProminent)
-                                Button("Open folder") { NSWorkspace.shared.open(Playbooks.dir) }
+                                IconButton("Open folder", "folder") { NSWorkspace.shared.open(Playbooks.dir) }
+                                IconButton("New playbook", "plus", prominent: true) { adding = true }
                             }
                         )
                     } content: {
+                        Explainer(icon: Section.playbooks.icon, title: "What is a playbook?",
+                                  text: "A playbook is a page of notes for agents: what to know before they use a website or an app, how to do a kind of task, or a rule for everything. Agents find the right one by themselves.",
+                                  points: ["A website or an app: shown to the agent each time it opens that site or app.",
+                                           "A kind of task, like writing invoices: found when the agent's task mentions it.",
+                                           "Everywhere: a rule every agent reads, every time.",
+                                           "Keep names, handles and anything personal out: playbooks can be shared."])
                         Panel(title: "Learned from a session") {
                             Text("After an agent finishes a task in a tab, type `apprentice learn \"what it did\"` there. apprentice writes the steps down as a playbook, and it appears here under flows.")
                                 .font(Theme.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -1501,33 +1635,63 @@ struct NewPlaybookSheet: View {
     @State private var notes = ""
     @State private var problem = ""
 
+    /// What the playbook is for: where it lives, what `match` and `scope` it gets, and how agents find it.
+    private struct Kind {
+        let id: String
+        let label: String
+        let folder: String
+        let scope: String
+        let field: String
+        let example: String
+        let how: String
+    }
+
+    private static let kinds = [
+        Kind(id: "site", label: "A website", folder: "web", scope: "site", field: "Website", example: "example.com",
+             how: "Agents see it each time they open this website."),
+        Kind(id: "app", label: "A Mac app", folder: "macos", scope: "app", field: "App", example: "Finder",
+             how: "Agents see it each time they open this app."),
+        Kind(id: "task", label: "A kind of task", folder: "topics", scope: "topic", field: "Task", example: "writing invoices",
+             how: "Agents find it when their task mentions these words."),
+        Kind(id: "everywhere", label: "Everywhere", folder: "general", scope: "system", field: "", example: "",
+             how: "Every agent reads it, every time, whatever it opens."),
+    ]
+
+    private var kind: Kind { Self.kinds.first { $0.id == scope } ?? Self.kinds[0] }
+
     private var slug: String {
-        let base = match.lowercased().trimmingCharacters(in: .whitespaces)
+        let source = kind.field.isEmpty ? title : match
+        let base = source.lowercased().trimmingCharacters(in: .whitespaces)
             .replacingOccurrences(of: "https://", with: "").replacingOccurrences(of: "http://", with: "")
             .replacingOccurrences(of: "www.", with: "")
         let kept = base.map { $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" ? $0 : "-" }
         return String(kept).trimmingCharacters(in: CharacterSet(charactersIn: "-."))
     }
 
-    private var path: String { (scope == "site" ? "web/" : "macos/") + slug + ".md" }
+    private var path: String { kind.folder + "/" + slug + ".md" }
 
     var body: some View {
-        SheetFrame(title: "New playbook", subtitle: "Plain facts an agent should know before it opens this. No names, handles or anything personal.", idealHeight: 560) {
-            Panel(title: "For") {
-                LabeledField("It is") {
+        SheetFrame(title: "New playbook", subtitle: "Plain facts an agent should know. No names, handles or anything personal.", idealHeight: 600) {
+            Panel(title: "It is for") {
+                LabeledField("Kind") {
                     Picker("", selection: $scope) {
-                        Text("a website").tag("site")
-                        Text("a Mac app").tag("app")
+                        ForEach(Self.kinds, id: \.id) { Text($0.label).tag($0.id) }
                     }
-                    .labelsHidden().pickerStyle(.segmented).frame(maxWidth: 240)
+                    .labelsHidden().pickerStyle(.segmented)
                 }
-                LabeledField(scope == "site" ? "Site" : "App") {
-                    TextField(scope == "site" ? "example.com" : "Finder", text: $match)
+                LabeledField("") {
+                    Text(kind.how).font(Theme.caption).foregroundStyle(.secondary)
                 }
-                LabeledField("Title") { TextField(scope == "site" ? "Example: the shop's back office" : "Example: Finder", text: $title) }
+                if !kind.field.isEmpty {
+                    LabeledField(kind.field) { TextField(kind.example, text: $match) }
+                }
+                LabeledField("Title") {
+                    TextField(kind.id == "everywhere" ? "How I like things done" : "A few words, for the list", text: $title)
+                }
             }
-            Panel(title: "Key facts", note: "one per line") {
-                TextField("Where things are, what works, what to avoid…", text: $notes, axis: .vertical)
+            Panel(title: kind.id == "everywhere" ? "Rules" : "Key facts", note: "one per line") {
+                TextField(kind.id == "everywhere" ? "Always ask before posting anything public…" : "Where things are, what works, what to avoid…",
+                          text: $notes, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .lineLimit(6...16)
                     .font(Theme.body)
@@ -1546,7 +1710,7 @@ struct NewPlaybookSheet: View {
         }
     }
 
-    static func text(scope: String, match: String, title: String, notes: String, day: String) -> String {
+    static func text(scope: String, match: String, title: String, notes: String, day: String, tags: String = "") -> String {
         let facts = notes.components(separatedBy: "\n").map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }.map { "- " + ($0.hasPrefix("- ") ? String($0.dropFirst(2)) : $0) }
         let heading = title.trimmingCharacters(in: .whitespaces).isEmpty ? match : title.trimmingCharacters(in: .whitespaces)
@@ -1554,7 +1718,7 @@ struct NewPlaybookSheet: View {
         ---
         scope: \(scope)
         match: \(match)
-        tags:
+        tags: \(tags)
         lang: en
         verified: \(day)
         status: draft
@@ -1572,7 +1736,16 @@ struct NewPlaybookSheet: View {
     }
 
     private func create() {
-        let body = Self.text(scope: scope, match: match.trimmingCharacters(in: .whitespaces), title: title, notes: notes, day: Store.day())
+        let typed = match.trimmingCharacters(in: .whitespaces)
+        let (matchValue, tags, heading): (String, String, String) = {
+            switch kind.id {
+            // A task is found by its words (`playbooks "words"`), not by a window.
+            case "task": return ("", Playbooks.slugify(typed).replacingOccurrences(of: "-", with: ", "), title.isEmpty ? typed : title)
+            case "everywhere": return ("*", "", title)
+            default: return (typed, "", title)
+            }
+        }()
+        let body = Self.text(scope: kind.scope, match: matchValue, title: heading, notes: notes, day: Store.day(), tags: tags)
         let leaks = Playbooks.leaks(body)
         guard leaks.isEmpty else { problem = "looks personal (\(leaks.prefix(2).joined(separator: "; "))). Use {placeholders}."; return }
         let url = Playbooks.dir.appendingPathComponent(path)
@@ -1584,46 +1757,6 @@ struct NewPlaybookSheet: View {
         } catch {
             problem = error.localizedDescription
         }
-    }
-}
-
-// MARK: - VMs
-
-struct VMsView: View {
-    @ObservedObject var model: AppModel
-    @State private var text = ""
-
-    private func vm(_ action: String) {
-        text = "…"
-        model.run("vm", [action]) { _, out in text = out; model.refresh() }
-    }
-
-    var body: some View {
-        ScreenPage(title: "VMs",
-                   subtitle: "A small Linux machine with its own screen, cursor and keyboard, so browser work never borrows yours. Setting one up is `apprentice vm setup` in a tab.") {
-            AnyView(Button("Shell in the VM") { model.newTab(preset: "VM shell", command: "apprentice vm shell") })
-        } content: {
-            Panel(title: "Browsers") {
-                Text("With the VM in use, every browser session an agent opens runs there instead of on this Mac.")
-                    .font(Theme.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: Theme.s2) {
-                    Button("Use the VM for browsers") { vm("on") }
-                    Button("Use this Mac") { vm("off") }
-                }
-                .controlSize(.small)
-            }
-            Panel(title: "Machine") {
-                HStack(spacing: Theme.s2) {
-                    Button("Start") { vm("up") }
-                    Button("Stop") { vm("down") }
-                    Button("Look at its screen") { vm("look") }
-                    Button("Refresh") { vm("list") }
-                }
-                .controlSize(.small)
-                Output(text: text)
-            }
-        }
-        .onAppear { vm("list") }
     }
 }
 
@@ -1641,14 +1774,17 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        ScreenPage(title: "Settings", subtitle: "What most people change. Each change is saved at once. The settings file behind this screen holds everything else.") {
+        ScreenPage(title: "Settings", subtitle: "") {
             AnyView(
                 HStack(spacing: Theme.s2) {
                     if !status.isEmpty { Text(status).font(Theme.caption).foregroundStyle(.secondary) }
-                    Button("Open the settings file") { NSWorkspace.shared.open(Config.path) }
+                    IconButton("Open the settings file", "doc.text") { NSWorkspace.shared.open(Config.path) }
                 }
             )
         } content: {
+            Explainer(icon: Section.settings.icon, title: "What are settings?",
+                      text: "How apprentice behaves while it works: sounds, notifications, keeping the Mac awake, how this window looks. Each change is saved the moment you make it.",
+                      points: ["Everything else is in the settings file, for when someone technical needs it."])
             AccountCard(model: model)
             ForEach(sections, id: \.self) { section in
                 Panel(title: Setting.title(section)) {
@@ -1832,9 +1968,11 @@ struct UpdatesView: View {
     @State private var checks = ""
 
     var body: some View {
-        ScreenPage(title: "Updates", subtitle: "The installed version, the permissions apprentice needs, and the agents it is connected to.") {
-            AnyView(Button("Check again") { load() })
+        ScreenPage(title: "Updates", subtitle: "") {
+            AnyView(IconButton("Check again", "arrow.clockwise") { load() })
         } content: {
+            Explainer(icon: Section.updates.icon, title: "What is here?",
+                      text: "The version you have, whether a newer one is out, the permissions apprentice needs from macOS, and the agents it is connected to.")
             Panel(title: "Installed") {
                 FieldRow(label: "version", value: Build.version, mono: true)
                 if Release.isRelease, !Release.cloneInstalled {

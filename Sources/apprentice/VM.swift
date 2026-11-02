@@ -274,6 +274,34 @@ enum VM {
         }
     }
 
+    /// One VM this Mac knows: `name` is empty for the default one (`apprentice-browser`).
+    struct Machine: Identifiable, Equatable {
+        var name: String
+        var tart: String?
+        var state: String
+        var host: String?
+        var id: String { name }
+        var label: String { name.isEmpty ? "default" : name }
+    }
+
+    /// The Tart VMs named apprentice-…, and `[vm.<name>]` hosts, for the window's VMs screen.
+    static func inventory() -> [Machine] {
+        let all = Toml.load(Config.path)
+        var out: [String: Machine] = [:]
+        for vm in tartList() where (vm["Source"] as? String) == "local" {
+            guard let n = vm["Name"] as? String, n.hasPrefix("apprentice-") else { continue }
+            let name = n == "apprentice-browser" ? "" : String(n.dropFirst("apprentice-".count))
+            out[name] = Machine(name: name, tart: n, state: vm["State"] as? String ?? "?", host: nil)
+        }
+        for key in all.keys where key.hasPrefix("vm.") {
+            let name = String(key.dropFirst(3))
+            if let host = all[key]?["host"].map(Toml.unquote), !host.isEmpty {
+                out[name] = Machine(name: name, tart: nil, state: "elsewhere", host: host)
+            }
+        }
+        return out.values.sorted { $0.name < $1.name }
+    }
+
     /// Whether a named VM is set up: a Tart VM `apprentice-<name>`, or a `[vm.<name>]` host.
     static func exists(_ vm: String) -> Bool {
         if Toml.load(Config.path)["vm.\(vm)"]?["host"] != nil { return true }
