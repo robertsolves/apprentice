@@ -45,7 +45,6 @@ enum SiteSettings {
     struct Preset: Identifiable {
         let site: String
         let label: String
-        let icon: String
         /// Field id → the value as the file takes it.
         let values: [String: String]
         var id: String { site }
@@ -59,13 +58,27 @@ enum SiteSettings {
         var groups: [Group] = []
         var fields: [Field] = []
         var presets: [Preset] = []
+        /// Every other word the screen shows (`[text]`).
+        var words: [String: String] = [:]
 
         func preset(_ site: String) -> Preset? { presets.first { $0.site == site } }
-        func label(_ site: String) -> String { site == everyWebsite ? "Every website" : preset(site)?.label ?? site }
+        func label(_ site: String) -> String { site == everyWebsite ? text("every_website") : preset(site)?.label ?? site }
+
+        /// A `[text]` entry with its `{name}`s filled in; the key itself when the spec lacks it, which
+        /// `problems` reports.
+        func text(_ key: String, _ fill: [String: String] = [:]) -> String {
+            fill.reduce(words[key] ?? key) { $0.replacingOccurrences(of: "{\($1.key)}", with: $1.value) }
+        }
     }
 
     static let types: Set<String> = ["choice", "number", "range", "percent", "hours", "cap"]
     static let stores: Set<String> = ["pace", "style", "budget"]
+    /// The `[text]` keys the screen uses.
+    static let textKeys = ["every_website", "every_website_detail", "every_website_subtitle", "set_up_group", "set_up_count", "ready_group",
+                           "ready_detail", "add", "add_site", "explainer_title", "set_up", "preset_again", "remove", "not_set_up_title",
+                           "not_set_up", "reset", "reset_help", "usual", "saved", "from", "to", "off", "hours_off", "below_steady", "cap_hour",
+                           "cap_day", "cap_week", "cap_gap", "cap_any", "add_title", "add_subtitle", "ready_made", "ready_made_about",
+                           "another", "website", "website_placeholder", "another_about", "cancel"]
 
     static var specFile: URL { Repo.resources.appendingPathComponent("agent/site-settings.toml") }
 
@@ -90,6 +103,7 @@ enum SiteSettings {
             spec.about = s(screen, "about")
             spec.points = list(screen, "points")
         }
+        spec.words = (table["text"] ?? [:]).mapValues(Toml.unquote)
         for section in order {
             guard let v = table[section] else { continue }
             if section.hasPrefix("group.") {
@@ -103,11 +117,8 @@ enum SiteSettings {
                     only: list(v, "only").map { $0.lowercased() }))
             } else if section.hasPrefix("preset.") {
                 var values = v
-                let label = s(v, "label"), icon = s(v, "icon")
                 values["label"] = nil
-                values["icon"] = nil
-                spec.presets.append(Preset(site: String(section.dropFirst(7)).lowercased(), label: label,
-                                           icon: icon.isEmpty ? "globe" : icon, values: values))
+                spec.presets.append(Preset(site: String(section.dropFirst(7)).lowercased(), label: s(v, "label"), values: values))
             }
         }
         return spec
@@ -117,6 +128,7 @@ enum SiteSettings {
     static func problems(_ spec: Spec) -> [String] {
         var out: [String] = []
         let groups = Set(spec.groups.map(\.id))
+        out += textKeys.filter { spec.words[$0] == nil }.map { "text.\($0) is missing" }
         for f in spec.fields {
             if !types.contains(f.type) { out.append("field.\(f.id): type \"\(f.type)\"") }
             if !stores.contains(f.store) { out.append("field.\(f.id): store \"\(f.store)\"") }

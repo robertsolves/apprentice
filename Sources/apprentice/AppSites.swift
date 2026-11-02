@@ -15,19 +15,19 @@ struct SitesView: View {
 
     var body: some View {
         SplitPane(id: "sites") {
-            ListColumn(count: "\(sites.count) set up", newTitle: "Add", new: { adding = true }) {
+            ListColumn(count: spec.text("set_up_count", ["count": "\(sites.count)"]), newTitle: spec.text("add"), new: { adding = true }) {
                 List(selection: $selected) {
-                    SwiftUI.Section(header: Text("Set up").eyebrow()) {
-                        IconRow(icon: "globe", title: spec.label(SiteSettings.everyWebsite), detail: "unless set below")
+                    SwiftUI.Section(header: Text(spec.text("set_up_group")).eyebrow()) {
+                        SiteRow(site: SiteSettings.everyWebsite, title: spec.label(SiteSettings.everyWebsite), detail: spec.text("every_website_detail"))
                             .tag(SiteSettings.everyWebsite)
                         ForEach(sites, id: \.self) { site in
-                            IconRow(icon: spec.preset(site)?.icon ?? "globe", title: spec.label(site), detail: site).tag(site)
+                            SiteRow(site: site, title: spec.label(site), detail: site).tag(site)
                         }
                     }
                     if !ready.isEmpty {
-                        SwiftUI.Section(header: Text("Ready to set up").eyebrow()) {
+                        SwiftUI.Section(header: Text(spec.text("ready_group")).eyebrow()) {
                             ForEach(ready) { preset in
-                                IconRow(icon: preset.icon, title: preset.label, detail: "one click").tag(preset.site)
+                                SiteRow(site: preset.site, title: preset.label, detail: spec.text("ready_detail")).tag(preset.site)
                             }
                         }
                     }
@@ -43,11 +43,11 @@ struct SitesView: View {
                 .id(site)
             } else {
                 ScreenPage(title: spec.title, subtitle: spec.subtitle) {
-                    AnyView(IconButton("Add a site", "plus", prominent: true) { adding = true })
+                    AnyView(IconButton(spec.text("add_site"), "plus", prominent: true) { adding = true })
                 } content: {
-                    Explainer(icon: Section.sites.icon, title: "What are site settings?", text: spec.about, points: spec.points)
+                    Explainer(icon: Section.sites.icon, title: spec.text("explainer_title"), text: spec.about, points: spec.points)
                     if !ready.isEmpty {
-                        Panel(title: "Ready to set up") {
+                        Panel(title: spec.text("ready_group")) {
                             PresetGrid(presets: ready) { preset in setUp(preset) }
                         }
                     }
@@ -78,7 +78,79 @@ struct SitesView: View {
     }
 }
 
-/// The presets as cards: an icon and a name, one click to set the site up.
+/// A site in a list: its own icon, its name and a quieter line.
+struct SiteRow: View {
+    let site: String
+    let title: String
+    let detail: String
+
+    var body: some View {
+        HStack(spacing: Theme.s3) {
+            SiteIcon(site: site, size: 18)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(.system(size: 12.5, weight: .medium)).lineLimit(1)
+                Text(detail).font(Theme.monoSmall).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+        .padding(.vertical, 3)
+    }
+}
+
+/// A website's own icon, as the site serves it: its apple-touch-icon, else its favicon, fetched once and kept
+/// in `~/.apprentice/icons`. Every website, or a site whose icon cannot be had, shows a plain globe.
+struct SiteIcon: View {
+    let site: String
+    let size: CGFloat
+    @State private var image: NSImage?
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(nsImage: image).resizable().interpolation(.high).aspectRatio(contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
+            } else {
+                Image(systemName: Section.sites.icon).font(.system(size: size * 0.8)).foregroundStyle(Theme.accent)
+            }
+        }
+        .frame(width: size, height: size)
+        .task(id: site) { image = await SiteIcons.image(site) }
+    }
+}
+
+enum SiteIcons {
+    static var dir: URL { Store.dir.appendingPathComponent("icons") }
+
+    /// The cached icon, else one fetched now. A site with none is tried again after a day.
+    static func image(_ site: String) async -> NSImage? {
+        guard site.contains("."), !site.contains("/") else { return nil }
+        let file = dir.appendingPathComponent(site + ".png"), miss = dir.appendingPathComponent(site + ".none")
+        if let cached = NSImage(contentsOf: file) { return cached }
+        if let at = (try? miss.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate, Date().timeIntervalSince(at) < 86_400 {
+            return nil
+        }
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        for path in ["https://\(site)/apple-touch-icon.png", "https://www.\(site)/apple-touch-icon.png", "https://\(site)/favicon.ico", "https://www.\(site)/favicon.ico"] {
+            guard let url = URL(string: path) else { continue }
+            var request = URLRequest(url: url, timeout: 6)
+            request.httpShouldHandleCookies = false
+            guard let (data, response) = try? await URLSession.shared.data(for: request),
+                  (response as? HTTPURLResponse)?.statusCode == 200, let image = NSImage(data: data), image.isValid,
+                  let tiff = image.tiffRepresentation, let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) else { continue }
+            try? png.write(to: file)
+            return image
+        }
+        FileManager.default.createFile(atPath: miss.path, contents: Data())
+        return nil
+    }
+}
+
+extension URLRequest {
+    init(url: URL, timeout: TimeInterval) {
+        self.init(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
+    }
+}
+
+/// The presets as cards: the site's icon and name, one click to set it up.
 struct PresetGrid: View {
     let presets: [SiteSettings.Preset]
     let pick: (SiteSettings.Preset) -> Void
@@ -88,7 +160,7 @@ struct PresetGrid: View {
             ForEach(presets) { preset in
                 Button { pick(preset) } label: {
                     HStack(spacing: Theme.s2) {
-                        Image(systemName: preset.icon).foregroundStyle(Theme.accent).frame(width: 18)
+                        SiteIcon(site: preset.site, size: 18)
                         Text(preset.label).font(.system(size: 12.5, weight: .medium))
                         Spacer(minLength: 0)
                         Image(systemName: "plus.circle").foregroundStyle(.secondary)
@@ -120,22 +192,21 @@ struct SiteDetail: View {
     private var fields: [SiteSettings.Field] { spec.fields.filter { $0.applies(to: site) } }
 
     var body: some View {
-        ScreenPage(title: spec.label(site), subtitle: site == SiteSettings.everyWebsite ? "Every website without settings of its own" : site) {
+        ScreenPage(title: spec.label(site), subtitle: site == SiteSettings.everyWebsite ? spec.text("every_website_subtitle") : site) {
             AnyView(HStack(spacing: Theme.s2) {
                 if !status.isEmpty {
-                    Text(status).font(Theme.caption).foregroundStyle(status == "saved" ? Color.secondary : Theme.danger).lineLimit(2)
+                    Text(status).font(Theme.caption).foregroundStyle(status == spec.text("saved") ? Color.secondary : Theme.danger).lineLimit(2)
                 }
                 if let preset {
-                    IconButton(configured ? "Use the preset again" : "Set up \(preset.label)", "wand.and.stars", prominent: !configured) { apply(preset) }
+                    IconButton(configured ? spec.text("preset_again") : spec.text("set_up", ["label": preset.label]), "wand.and.stars", prominent: !configured) { apply(preset) }
                 }
                 if configured, site != SiteSettings.everyWebsite {
-                    IconButton("Remove this site's settings", "trash") { remove() }
+                    IconButton(spec.text("remove"), "trash") { remove() }
                 }
             })
         } content: {
             if !configured, let preset {
-                Explainer(icon: preset.icon, title: "\(preset.label) is not set up yet",
-                          text: "apprentice already moves at a careful pace here. Setting it up adds the limits below, so it never does more in an hour or a day than a careful person would.",
+                Explainer(icon: Section.sites.icon, title: spec.text("not_set_up_title", ["label": preset.label]), text: spec.text("not_set_up"),
                           points: summary(preset))
             }
             ForEach(spec.groups) { group in
@@ -147,7 +218,7 @@ struct SiteDetail: View {
                         }
                         ForEach(rows) { field in
                             Divider()
-                            SiteFieldRow(field: field, site: site, own: own[field.id], usual: usual[field.id] ?? "") { write(field, $0) }
+                            SiteFieldRow(spec: spec, field: field, site: site, own: own[field.id], usual: usual[field.id] ?? "") { write(field, $0) }
                         }
                     }
                 }
@@ -159,7 +230,7 @@ struct SiteDetail: View {
 
     private func summary(_ preset: SiteSettings.Preset) -> [String] {
         fields.filter { $0.type == "cap" }.compactMap { field in
-            preset.values[field.id].flatMap { SiteFieldRow.capWords(field.label, $0) }
+            preset.values[field.id].flatMap { SiteFieldRow.capWords(spec, field.label, $0) }
         }
     }
 
@@ -179,8 +250,8 @@ struct SiteDetail: View {
         do {
             try SiteSettings.set(site, field, literal)
             Config.reloadIfChanged()
-            status = "saved"
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { if status == "saved" { status = "" } }
+            status = spec.text("saved")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { if status == spec.text("saved") { status = "" } }
         } catch let f as Fail {
             status = f.message
         } catch {
@@ -208,6 +279,7 @@ struct SiteDetail: View {
 
 /// One field: its label and help, a control for its type, and Reset when the site has its own value.
 struct SiteFieldRow: View {
+    let spec: SiteSettings.Spec
     let field: SiteSettings.Field
     let site: String
     /// The site's own value as the file writes it; nil when the usual one applies.
@@ -228,11 +300,11 @@ struct SiteFieldRow: View {
                 }
                 Spacer(minLength: Theme.s3)
                 if own != nil {
-                    Button { set(nil) } label: { Label("Reset", systemImage: "arrow.uturn.backward") }
+                    Button { set(nil) } label: { Label(spec.text("reset"), systemImage: "arrow.uturn.backward") }
                         .controlSize(.small)
-                        .help("Use the usual value again")
+                        .help(spec.text("reset_help"))
                 } else {
-                    Text("usual").font(Theme.monoSmall).foregroundStyle(.tertiary)
+                    Text(spec.text("usual")).font(Theme.monoSmall).foregroundStyle(.tertiary)
                 }
             }
             control
@@ -274,7 +346,7 @@ struct SiteFieldRow: View {
                 .buttonStyle(.plain)
                 .disabled(!allowed)
                 .opacity(allowed ? 1 : 0.4)
-                .help(allowed ? "" : "Social sites never go below steady")
+                .help(allowed ? "" : spec.text("below_steady"))
             }
         }
     }
@@ -318,16 +390,16 @@ struct SiteFieldRow: View {
 
     private var range: some View {
         HStack(spacing: Theme.s2) {
-            Text("from").font(Theme.caption).foregroundStyle(.secondary)
+            Text(spec.text("from")).font(Theme.caption).foregroundStyle(.secondary)
             numberBox(numberBinding(0))
-            Text("to").font(Theme.caption).foregroundStyle(.secondary)
+            Text(spec.text("to")).font(Theme.caption).foregroundStyle(.secondary)
             numberBox(numberBinding(1))
             Text(field.unit).font(Theme.caption).foregroundStyle(.secondary)
         }
     }
 
     private var percent: some View {
-        PercentSlider(value: Double(Toml.unquote(value)) ?? 0, max: field.max) { set(SiteSettings.number($0)) }
+        PercentSlider(value: Double(Toml.unquote(value)) ?? 0, max: field.max, off: spec.text("off")) { set(SiteSettings.number($0)) }
     }
 
     private var hours: some View {
@@ -339,25 +411,27 @@ struct SiteFieldRow: View {
             Toggle("", isOn: Binding(get: { on }, set: { $0 ? write(from, to) : set("[]") }))
                 .toggleStyle(.switch).labelsHidden().controlSize(.small)
             if on {
-                Text("from").font(Theme.caption).foregroundStyle(.secondary)
+                Text(spec.text("from")).font(Theme.caption).foregroundStyle(.secondary)
                 HourPicker(hour: Binding(get: { from }, set: { write($0, to) }), range: 0...23)
-                Text("to").font(Theme.caption).foregroundStyle(.secondary)
+                Text(spec.text("to")).font(Theme.caption).foregroundStyle(.secondary)
                 HourPicker(hour: Binding(get: { to }, set: { write(from, $0) }), range: 1...24)
             } else {
-                Text("off: any hour").font(Theme.caption).foregroundStyle(.secondary)
+                Text(spec.text("hours_off")).font(Theme.caption).foregroundStyle(.secondary)
             }
         }
     }
 
-    private static let capParts: [(key: String, unit: String)] = [("hour", "an hour"), ("day", "a day"), ("week", "a week"), ("min_gap_s", "s apart")]
+    private static func capParts(_ spec: SiteSettings.Spec) -> [(key: String, unit: String)] {
+        [("hour", spec.text("cap_hour")), ("day", spec.text("cap_day")), ("week", spec.text("cap_week")), ("min_gap_s", spec.text("cap_gap"))]
+    }
 
     private var cap: some View {
         let mine = Toml.table(own ?? "")
         let shown = Toml.table(usual)
         return HStack(spacing: Theme.s3) {
-            ForEach(Self.capParts, id: \.key) { part in
+            ForEach(Self.capParts(spec), id: \.key) { part in
                 HStack(spacing: 4) {
-                    TextField(shown[part.key].map(Toml.unquote) ?? "any", text: Binding(
+                    TextField(shown[part.key].map(Toml.unquote) ?? spec.text("cap_any"), text: Binding(
                         get: { mine[part.key].map(Toml.unquote) ?? "" },
                         set: { text in
                             var next = own == nil ? shown : mine
@@ -377,9 +451,9 @@ struct SiteFieldRow: View {
     }
 
     /// "Likes: 20 an hour, 100 a day, 30 s apart" for a cap literal.
-    static func capWords(_ label: String, _ literal: String) -> String? {
+    static func capWords(_ spec: SiteSettings.Spec, _ label: String, _ literal: String) -> String? {
         let t = Toml.table(literal)
-        let parts = capParts.compactMap { p in t[p.key].map { "\(Toml.unquote($0)) \(p.unit)" } }
+        let parts = capParts(spec).compactMap { p in t[p.key].map { "\(Toml.unquote($0)) \(p.unit)" } }
         return parts.isEmpty ? nil : "\(label): " + parts.joined(separator: ", ")
     }
 }
@@ -387,11 +461,13 @@ struct SiteFieldRow: View {
 /// A share as a percentage: a slider that writes when let go, so a drag is one save.
 struct PercentSlider: View {
     let max: Double
+    let off: String
     let commit: (Double) -> Void
     @State private var shown: Double
 
-    init(value: Double, max: Double, commit: @escaping (Double) -> Void) {
+    init(value: Double, max: Double, off: String, commit: @escaping (Double) -> Void) {
         self.max = max
+        self.off = off
         self.commit = commit
         _shown = State(initialValue: value)
     }
@@ -401,7 +477,7 @@ struct PercentSlider: View {
             Slider(value: $shown, in: 0...max, step: max / 100) { editing in if !editing { commit(shown) } }
                 .frame(maxWidth: 260)
                 .controlSize(.small)
-            Text(shown == 0 ? "off" : String(format: shown * 100 < 1 ? "%.1f%%" : "%.0f%%", shown * 100))
+            Text(shown == 0 ? off : String(format: shown * 100 < 1 ? "%.1f%%" : "%.0f%%", shown * 100))
                 .font(Theme.mono)
                 .foregroundStyle(.secondary)
                 .frame(width: 48, alignment: .leading)
@@ -424,7 +500,7 @@ struct HourPicker: View {
     }
 
     static func name(_ h: Int) -> String {
-        guard h < 24, let date = Calendar.current.date(bySettingHour: h, minute: 0, second: 0, of: Date()) else { return "midnight" }
+        guard let date = Calendar.current.date(bySettingHour: h % 24, minute: 0, second: 0, of: Date()) else { return String(h) }
         return date.formatted(date: .omitted, time: .shortened)
     }
 }
@@ -438,10 +514,10 @@ struct AddSiteSheet: View {
     @State private var problem = ""
 
     var body: some View {
-        SheetFrame(title: "Add a site", subtitle: "Give a website its own pace, hours and limits.", idealHeight: 440, idealWidth: 560) {
+        SheetFrame(title: spec.text("add_title"), subtitle: spec.text("add_subtitle"), idealHeight: 440, idealWidth: 560) {
             if !ready.isEmpty {
-                Panel(title: "Ready-made") {
-                    Text("Careful settings for the big social sites, with daily limits that keep an account safe.")
+                Panel(title: spec.text("ready_made")) {
+                    Text(spec.text("ready_made_about"))
                         .font(Theme.caption).foregroundStyle(.secondary)
                     PresetGrid(presets: ready) { preset in
                         AppModel.backup(Config.path)
@@ -450,17 +526,17 @@ struct AddSiteSheet: View {
                     }
                 }
             }
-            Panel(title: "Another website") {
-                LabeledField("Website") {
-                    TextField("example.com", text: $name).font(Theme.mono).onSubmit(add)
+            Panel(title: spec.text("another")) {
+                LabeledField(spec.text("website")) {
+                    TextField(spec.text("website_placeholder"), text: $name).font(Theme.mono).onSubmit(add)
                 }
-                Text("It starts at the pace it already runs at; change anything after.").font(Theme.caption).foregroundStyle(.secondary)
+                Text(spec.text("another_about")).font(Theme.caption).foregroundStyle(.secondary)
                 if !problem.isEmpty { Text(problem).font(Theme.caption).foregroundStyle(Theme.danger) }
             }
         } buttons: {
             Spacer()
-            Button("Cancel") { done(nil) }.keyboardShortcut(.cancelAction)
-            Button("Add", action: add).keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
+            Button(spec.text("cancel")) { done(nil) }.keyboardShortcut(.cancelAction)
+            Button(spec.text("add"), action: add).keyboardShortcut(.defaultAction).buttonStyle(.borderedProminent)
                 .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
         }
     }

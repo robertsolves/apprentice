@@ -1062,7 +1062,7 @@ enum SelfTest {
         style = "careful"
         like = { hour = 20, day = 100, min_gap_s = 30 }
         """)
-        check(SiteSettings.problems(spec).isEmpty && spec.fields.map(\.id) == ["style", "dwell", "like"], "sites: fields keep the spec's order")
+        check(SiteSettings.problems(spec).allSatisfy { $0.hasPrefix("text.") } && spec.text("x {n}", ["n": "1"]) == "x 1" && spec.fields.map(\.id) == ["style", "dwell", "like"], "sites: fields keep the spec's order")
         try? "# mine\n[agent]\nsounds = true\n".write(to: files.config, atomically: true, encoding: .utf8)
         let style = spec.fields[0], dwell = spec.fields[1], like = spec.fields[2]
         _ = try? SiteSettings.apply(spec.presets[0], spec: spec, files)

@@ -11,13 +11,55 @@
 #   percent  a share from 0 to `max`, shown as a percentage
 #   hours    quiet hours [from, to], or off
 #   cap      a kind's caps: { hour, day, week, min_gap_s }, each optional
-# `only` limits a field to the sites listed. Preset values are written as the file takes them.
+# `only` limits a field to the sites listed. Preset values are written as the file takes them. A site's icon
+# is its own (its apple-touch-icon or favicon, fetched once and kept in ~/.apprentice/icons), never named here.
+# [text] is every other word the screen shows; {label} and {site} are filled in.
 
 [screen]
 title = "Sites"
 subtitle = "How apprentice behaves on each website"
 about = "Each website can have its own pace, hours and limits, so apprentice works there the way a careful person would. Social sites already run at a careful pace; setting one up adds the daily limits that keep the account safe."
 points = ["Pick a site on the left, or set one up from the ready-made presets.", "Every change is saved at once. A value you changed shows Reset, which puts back the usual one.", "Every website covers the sites with no settings of their own."]
+
+[text]
+every_website = "Every website"
+every_website_detail = "unless set below"
+every_website_subtitle = "Every website without settings of its own"
+set_up_group = "Set up"
+set_up_count = "{count} set up"
+ready_group = "Ready to set up"
+ready_detail = "one click"
+add = "Add"
+add_site = "Add a site"
+explainer_title = "What are site settings?"
+set_up = "Set up {label}"
+preset_again = "Use the preset again"
+remove = "Remove this site's settings"
+not_set_up_title = "{label} is not set up yet"
+not_set_up = "apprentice already moves at a careful pace here. Setting it up adds the limits below, so it never does more in an hour or a day than a careful person would."
+reset = "Reset"
+reset_help = "Use the usual value again"
+usual = "usual"
+saved = "saved"
+from = "from"
+to = "to"
+off = "off"
+hours_off = "off: any hour"
+below_steady = "Social sites never go below steady"
+cap_hour = "an hour"
+cap_day = "a day"
+cap_week = "a week"
+cap_gap = "s apart"
+cap_any = "any"
+add_title = "Add a site"
+add_subtitle = "Give a website its own pace, hours and limits."
+ready_made = "Ready-made"
+ready_made_about = "Careful settings for the big social sites, with daily limits that keep an account safe."
+another = "Another website"
+website = "Website"
+website_placeholder = "example.com"
+another_about = "It starts at the pace it already runs at; change anything after."
+cancel = "Cancel"
 
 [group.pace]
 title = "Pace"
@@ -247,7 +289,6 @@ label = "Messages"
 
 [preset."instagram.com"]
 label = "Instagram"
-icon = "camera"
 style = "careful"
 post = { hour = 1, day = 3, min_gap_s = 1800 }
 story = { hour = 3, day = 10, min_gap_s = 300 }
@@ -259,7 +300,6 @@ message = { hour = 5, day = 20, min_gap_s = 180 }
 
 [preset."linkedin.com"]
 label = "LinkedIn"
-icon = "briefcase"
 style = "careful"
 post = { hour = 1, day = 2, min_gap_s = 3600 }
 comment = { hour = 4, day = 15, min_gap_s = 180 }
@@ -270,7 +310,6 @@ message = { hour = 5, day = 20, min_gap_s = 180 }
 
 [preset."x.com"]
 label = "X"
-icon = "bubble.left"
 style = "careful"
 post = { hour = 3, day = 10, min_gap_s = 600 }
 comment = { hour = 5, day = 20, min_gap_s = 120 }
@@ -282,7 +321,6 @@ message = { hour = 5, day = 20, min_gap_s = 180 }
 
 [preset."facebook.com"]
 label = "Facebook"
-icon = "person.2"
 style = "careful"
 post = { hour = 1, day = 5, min_gap_s = 1800 }
 comment = { hour = 5, day = 20, min_gap_s = 120 }
@@ -293,7 +331,6 @@ message = { hour = 5, day = 20, min_gap_s = 180 }
 
 [preset."reddit.com"]
 label = "Reddit"
-icon = "text.bubble"
 style = "careful"
 post = { hour = 1, day = 3, min_gap_s = 1800 }
 comment = { hour = 5, day = 20, min_gap_s = 120 }
@@ -304,7 +341,6 @@ message = { hour = 3, day = 10, min_gap_s = 300 }
 
 [preset."tiktok.com"]
 label = "TikTok"
-icon = "music.note"
 style = "careful"
 post = { hour = 1, day = 3, min_gap_s = 3600 }
 comment = { hour = 5, day = 20, min_gap_s = 120 }
