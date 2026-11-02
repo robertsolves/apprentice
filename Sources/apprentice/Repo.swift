@@ -71,8 +71,8 @@ enum Repo {
         run("git", ["add", "-A"] + scope)
         guard run("git", ["diff", "--cached", "--quiet"] + scope).code != 0 else { return nil }
         let staged = run("git", ["diff", "--cached", "--name-only"] + scope).out
-        if staged.split(separator: "\n").contains(where: { $0.hasPrefix("playbooks/") }) {
-            let patch = run("git", ["diff", "--cached", "-U0", "--no-ext-diff", "--", "playbooks/"]).out
+        if staged.split(separator: "\n").contains(where: { $0.hasPrefix("playbooks/") || $0.hasPrefix("skills/") }) {
+            let patch = run("git", ["diff", "--cached", "-U0", "--no-ext-diff", "--", "playbooks/", "skills/"]).out
             let found = Playbooks.leaks(inPatch: patch) + Playbooks.leaks(message).map { "the commit message: \($0)" }
             if !found.isEmpty {
                 run("git", ["reset", "-q"] + scope)

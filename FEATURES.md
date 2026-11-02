@@ -134,6 +134,7 @@ Verdicts: **keep** (used and pays off), **watch** (too new or too little data), 
 | Model and agent detection (`APPRENTICE_MODEL`, transcripts, configs, MCP) | `Agent.swift` | `model` on rows; `models` in grow | Flows are picked per model and it is the right model | keep |
 | `grow`, `bug`, `commit` | `Grow.swift`, `Repo.swift` | Fixes made from grow items; commits that needed a rebuild | The tool keeps improving from use | keep |
 | `pr`: local commits offered upstream from a fork, `--local`, session-copy disclosure | `PR.swift` | `pr` runs and PRs opened | Fixes reach upstream without force-pushing | watch |
+| Skills: hand-written judgement in `skills/apprentice-*` (web, macos, linux, instagram, facebook, tiktok, linkedin, x, reddit), installed with apprentice in every agent's skills folder by `connect.py`, named by `session` / `open`, printed by `playbooks <skill>` and in the `run` loop's context. Skills say how a person behaves on a site or system; playbooks hold the mechanics (labels, steps, flows) | `skills/`, `Playbooks.swift` `skills`, `agent/connect.py` | Sessions on a skill's host vs soft blocks and challenges there (`activity`); `playbooks apprentice-*` calls | Fewer soft blocks and challenges on social sites; no extra questions | watch |
 
 ## Logs, sessions and review
 
@@ -193,7 +194,7 @@ Every source file, and where its features are listed above. Nothing in `Sources/
 | `Grow.swift` | `grow` digest and pace summary |
 | `Input.swift` | Pointer paths, keys, borrow mode, watching for the person, paste |
 | `MCP.swift` | MCP server and its tools |
-| `Playbooks.swift` | Playbooks, `learn`, `bug`, flow ranking, `context(task:)` |
+| `Playbooks.swift` | Playbooks, skills, `learn`, `bug`, flow ranking, `context(task:)` |
 | `Notify.swift` | `phone`, away-mode pushes, question screenshots |
 | `PR.swift` | `pr`, `pr --local`, session-copy disclosure |
 | `Project.swift` | `project init`, `project status`, project limits |

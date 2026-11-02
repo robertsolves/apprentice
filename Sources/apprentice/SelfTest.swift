@@ -586,6 +586,26 @@ enum SelfTest {
     private static func schedules() {
         let cal = Calendar.current
         let now = Date()
+
+        // Skills sit beside the playbooks in the repo: skills/<name>/SKILL.md, matched by `metadata: hosts:` or `system:`.
+        let clone = Store.dir.appendingPathComponent("skills-test")
+        defer { try? FileManager.default.removeItem(at: clone) }
+        func skill(_ name: String, _ meta: String) {
+            let folder = clone.appendingPathComponent("skills/\(name)")
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try? "---\nname: \(name)\n\(meta)\n---\n# \(name)\nbody of \(name)\n".write(to: folder.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+        }
+        try? FileManager.default.createDirectory(at: clone.appendingPathComponent("playbooks"), withIntermediateDirectories: true)
+        skill("apprentice-web", "metadata:\n  hosts: \"*\"")
+        skill("apprentice-site", "metadata:\n  hosts: example.com, example.org")
+        skill("apprentice-macos", "metadata:\n  system: macos")
+        setenv("APPRENTICE_PLAYBOOKS", clone.appendingPathComponent("playbooks").path, 1)
+        func guides(_ host: String?, _ system: String) -> [String] { Playbooks.skills(host: host, system: system).map(\.name) }
+        check(guides("www.example.com", "linux") == ["apprentice-web", "apprentice-site"], "a page gets the web skill, then the site's")
+        check(guides("badexample.com", "macos") == ["apprentice-web"], "a look-alike host gets no site skill")
+        check(guides(nil, "macos") == ["apprentice-macos"] && guides(nil, "linux").isEmpty, "an app gets its system's skill")
+        check(Playbooks.search("apprentice-site").contains("body of apprentice-site"), "playbooks <skill name> prints the skill")
+        check(Playbooks.hintLines(app: "Chromium", bundle: nil, host: "example.org").first?.hasPrefix("skills · apprentice-web, apprentice-site") == true, "session names the skills")
         var s = Schedules.Schedule(id: "t", name: "t", kind: .run, target: "true")
         s.created = now
         s.every = 60
