@@ -464,7 +464,9 @@ enum Keys {
     /// Marks every event apprentice posts, so monitors can tell them from the person's own input. Drawn
     /// anew each time the daemon starts: a constant would be one value any app could look for on every
     /// install (BOT_DETECTION A1). The events are still visibly posted ones (A2); this only drops the signature.
-    static let tag: Int64 = Int64.random(in: 0x1000_0000...Int64.max)
+    /// Kept inside 31 bits like the old constant: a value that needs more could come back cut short on
+    /// a path that carries the field as 32 bits, and the person's own input check would see a stranger.
+    static let tag: Int64 = Int64.random(in: 0x1000_0000...0x7FFF_FFFF)
 
     /// Every event goes through the system input stream, like a person's mouse and keyboard.
     static func post(_ e: CGEvent) {
@@ -697,14 +699,20 @@ enum Borrow {
     static var active = false
     static var interrupted = false
 
-    private static var lastPosted: CGPoint?
+    /// The last few posted moves, newest last.
+    private static var recent: [CGPoint] = []
 
-    /// The cursor can trail the last posted move by one event, so it may sit at this point or the one before.
+    /// The cursor can trail a fast stroke by a few events (a busy system delivers them late), so it may sit
+    /// at any of the last few posted points. A person taking the mouse moves it well past that. A stop
+    /// is logged with both points, so one nobody caused can be traced.
     static func noteMove(_ intended: CGPoint) {
-        defer { lastPosted = intended }
+        defer { recent = Array((recent + [intended]).suffix(4)) }
         guard active, !interrupted, let actual = CGEvent(source: nil)?.location else { return }
-        let near = [intended, lastPosted ?? intended].contains { hypot(actual.x - $0.x, actual.y - $0.y) <= 10 }
-        if !near { interrupted = true }
+        let near = (recent + [intended]).contains { hypot(actual.x - $0.x, actual.y - $0.y) <= 14 }
+        if !near {
+            interrupted = true
+            Store.log(["interrupt": "cursor", "intended": [Int(intended.x), Int(intended.y)], "actual": [Int(actual.x), Int(actual.y)]])
+        }
     }
 
     /// Call before the step that commits an action: once it has happened, interruption is no longer an error.
@@ -746,8 +754,15 @@ enum Borrow {
     static let interruptions: NSEvent.EventTypeMask = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .scrollWheel]
 
     static func isPersons(_ event: NSEvent) -> Bool {
-        if event.cgEvent?.getIntegerValueField(.eventSourceUserData) == Keys.tag { return false }
-        return event.type != .scrollWheel || event.momentumPhase.isEmpty
+        let data = event.cgEvent?.getIntegerValueField(.eventSourceUserData)
+        if data == Keys.tag { return false }
+        guard event.type != .scrollWheel || event.momentumPhase.isEmpty else { return false }
+        // What stopped a command goes in the log, so a stop nobody caused can be traced to its source.
+        if !interrupted {
+            let pid = event.cgEvent?.getIntegerValueField(.eventSourceUnixProcessID) ?? 0
+            Store.log(["interrupt": "\(event.type.rawValue)", "source_pid": pid, "tagged": data.map { $0 != 0 } ?? false])
+        }
+        return true
     }
 
     static func waitIdle(_ seconds: Double = 1) throws {
@@ -768,7 +783,8 @@ enum Borrow {
         active = true
         // Under Watch, an interruption before this point still counts.
         if !Watch.on { interrupted = false }
-        lastPosted = nil
+        // Where the cursor is now counts too: the first sample of a quick stroke can land far from it.
+        recent = [CGEvent(source: nil)?.location].compactMap { $0 }
         // Monitors belong to the main run loop, which stays free while commands run on their own queue.
         let monitor = DispatchQueue.main.sync {
             NSEvent.addGlobalMonitorForEvents(matching: interruptions) { event in

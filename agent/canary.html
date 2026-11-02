@@ -5,43 +5,397 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>apprentice canary</title>
 <style>
-  :root { --bg: #fafafa; --fg: #1d1d1f; --muted: #6e6e73; --line: #d2d2d7; --bad: #c0392b; --ok: #1e824c; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #161617; --fg: #f5f5f7; --muted: #a1a1a6; --line: #3a3a3c; --bad: #ff6b5b; --ok: #4cd182; } }
-  body { margin: 0; padding: 16px; background: var(--bg); color: var(--fg); font: 14px/1.45 -apple-system, system-ui, sans-serif; }
-  h1 { font-size: 18px; margin: 0 0 4px; }
-  p { color: var(--muted); margin: 0 0 12px; max-width: 70ch; }
-  textarea { width: 100%; max-width: 640px; height: 90px; box-sizing: border-box; font: inherit; padding: 8px; background: transparent; color: inherit; border: 1px solid var(--line); border-radius: 6px; }
-  #feed { height: 220px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; margin: 12px 0; max-width: 640px; }
-  #feed div { padding: 10px 12px; border-bottom: 1px solid var(--line); }
-  button { font: inherit; padding: 6px 14px; margin: 8px 8px 0 0; }
-  /* Fixed columns and digits, so the table keeps its size while the numbers change under the pointer. */
-  table { border-collapse: collapse; margin-top: 12px; width: 100%; max-width: 640px; table-layout: fixed; }
-  td { padding: 4px 8px; border-bottom: 1px solid var(--line); vertical-align: top; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
-  td:first-child { color: var(--muted); width: 45%; }
-  .bad { color: var(--bad); } .ok { color: var(--ok); }
+  :root { --bg: #fafafa; --panel: #fff; --fg: #1d1d1f; --muted: #6e6e73; --line: #d2d2d7; --bad: #c0392b; --ok: #1e824c; --accent: #0a66c2; --warn: #fff3cd; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #161617; --panel: #1f1f21; --fg: #f5f5f7; --muted: #a1a1a6; --line: #3a3a3c; --bad: #ff6b5b; --ok: #4cd182; --accent: #4ea1ff; --warn: #3d3200; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 -apple-system, system-ui, sans-serif; }
+  header { padding: 12px 16px 0; }
+  h1 { font-size: 18px; margin: 0; }
+  header p { color: var(--muted); margin: 2px 0 8px; }
+  nav { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 16px 8px; border-bottom: 1px solid var(--line); }
+  nav a { padding: 4px 10px; border-radius: 6px; color: var(--accent); text-decoration: none; }
+  nav a[aria-current="page"] { background: var(--accent); color: #fff; }
+  .wrap { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; padding: 12px 16px; }
+  @media (max-width: 900px) { .wrap { grid-template-columns: 1fr; } }
+  section { display: none; } section.on { display: block; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px; margin-bottom: 12px; }
+  .card h2 { font-size: 14px; margin: 0 0 8px; }
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }
+  button, select, input, textarea { font: inherit; }
+  button { padding: 5px 12px; }
+  textarea { width: 100%; height: 70px; padding: 6px; background: transparent; color: inherit; border: 1px solid var(--line); border-radius: 6px; }
+  #checks { position: sticky; top: 8px; align-self: start; max-height: calc(100vh - 16px); overflow: auto; }
+  #checks ol { list-style: none; margin: 0; padding: 0; }
+  #checks li { padding: 2px 0; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); } .muted { color: var(--muted); }
+  /* Map */
+  #viewport { position: relative; height: 340px; overflow: hidden; border: 1px solid var(--line); border-radius: 6px; cursor: grab; touch-action: none; background: var(--panel); }
+  #world { position: absolute; left: 0; top: 0; width: 3000px; height: 2000px; transform-origin: 0 0;
+    background-image: linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px); background-size: 100px 100px; }
+  /* A fixed spot inside the map, not moved by panning, for a flow to drag and zoom from. */
+  #handle { position: absolute; right: 12px; bottom: 10px; padding: 4px 8px; border: 1px dashed var(--line); border-radius: 6px; background: var(--panel); color: var(--muted); font-size: 12px; }
+  .pin { position: absolute; padding: 3px 8px; border-radius: 12px; background: var(--accent); color: #fff; font-size: 12px; white-space: nowrap; }
+  /* Widgets */
+  .menu { position: absolute; z-index: 10; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 6px 20px rgba(0,0,0,.2); padding: 4px 0; min-width: 140px; }
+  .menu [role="menuitem"], .menu [role="option"] { display: block; width: 100%; text-align: left; border: 0; background: none; color: inherit; padding: 5px 12px; cursor: pointer; }
+  .menu [role="menuitem"]:hover, .menu [role="option"]:hover { background: var(--line); }
+  .tip { position: absolute; z-index: 10; background: var(--fg); color: var(--bg); padding: 4px 8px; border-radius: 4px; font-size: 12px; }
+  .hot { display: inline-block; padding: 6px 10px; border: 1px dashed var(--line); border-radius: 6px; user-select: none; }
+  dialog { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--fg); }
+  dialog::backdrop { background: rgba(0,0,0,.35); }
+  #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); background: var(--fg); color: var(--bg); padding: 8px 14px; border-radius: 6px; display: none; }
+  #sortable { list-style: none; padding: 0; margin: 0; max-width: 260px; }
+  #sortable li { padding: 6px 10px; margin: 4px 0; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); cursor: grab; user-select: none; }
+  #sortable li.dragging { opacity: .5; }
+  #pad { border: 1px solid var(--line); border-radius: 6px; background: var(--panel); touch-action: none; max-width: 100%; }
+  #composer { min-height: 44px; padding: 6px; border: 1px solid var(--line); border-radius: 6px; white-space: pre-wrap; }
+  #chat div { padding: 4px 0; border-bottom: 1px solid var(--line); white-space: pre-wrap; }
+  #feedlist { height: 420px; overflow: auto; border: 1px solid var(--line); border-radius: 6px; }
+  .post { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+  .banner { background: var(--warn); border: 1px solid var(--line); border-radius: 6px; padding: 10px; margin: 8px 0; }
+  table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+  td { padding: 3px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+  td:first-child { color: var(--muted); width: 55%; }
 </style>
 </head>
 <body>
-<h1>apprentice canary</h1>
-<p>Open this page in the session's browser, then let apprentice click, type into the box, scroll the feed and drag. It reports what a page can measure about that input (BOT_DETECTION.md, priority fixes 14 and 17). Nothing leaves the page.</p>
-<textarea id="box" placeholder="type here"></textarea>
-<div><button id="like">Like</button><button id="reset">Reset</button></div>
-<table id="out"></table>
-<div id="feed"></div>
+<header>
+  <h1>apprentice canary</h1>
+  <p>A full test page: every feature apprentice claims, and what a page can measure about its input. Nothing leaves the page.</p>
+</header>
+<nav aria-label="Sections">
+  <a href="#input">Typing</a><a href="#map">Map</a><a href="#widgets">Widgets</a><a href="#popups">Popups</a>
+  <a href="#drag">Drag</a><a href="#files">Files</a><a href="#chat">Chat</a><a href="#feed">Feed</a>
+  <a href="#rules">Site rules</a><a href="#metrics">Metrics</a>
+</nav>
+<div class="wrap">
+<main>
+
+<section id="s-input">
+  <div class="card"><h2>Typing</h2>
+    <textarea id="box" aria-label="Typing box" placeholder="type here"></textarea>
+    <div class="row"><input id="email" aria-label="Email" placeholder="Email"> <input id="pw" type="password" aria-label="Password" placeholder="Password"></div>
+    <table id="typed"></table>
+  </div>
+</section>
+
+<section id="s-map">
+  <div class="card"><h2>Map: drag to pan, wheel to zoom at the pointer, sideways wheel pans</h2>
+    <div class="row"><button id="zin">Zoom in</button><button id="zout">Zoom out</button><span id="mapstate" class="muted"></span></div>
+    <div id="viewport" aria-label="Map"><div id="world">
+      <span class="pin" style="left:300px;top:200px">Harbour</span>
+      <span class="pin" style="left:700px;top:420px">Lighthouse</span>
+      <button class="pin" id="treasure" style="left:1900px;top:1150px;border:0">Treasure</button>
+    </div><span id="handle">Drag the map from here</span></div>
+    <p class="muted">The Treasure pin starts out of view: pan to it, then click it.</p>
+  </div>
+</section>
+
+<section id="s-widgets">
+  <div class="card"><h2>Form controls</h2>
+    <div class="row"><label>Fruit <select id="fruit"><option>Apple</option><option>Banana</option><option>Cherry</option></select></label></div>
+    <div class="row"><label><input type="checkbox" id="news"> Subscribe to newsletter</label></div>
+    <div class="row" role="radiogroup" aria-label="Size"><label><input type="radio" name="size" value="S"> Small</label><label><input type="radio" name="size" value="M"> Medium</label><label><input type="radio" name="size" value="L"> Large</label></div>
+    <div class="row"><label>Volume <input type="range" id="vol" min="0" max="100" value="20"></label><span id="volv">20</span></div>
+    <div class="row" role="tablist"><button role="tab" id="tab1" aria-selected="true">Overview</button><button role="tab" id="tab2" aria-selected="false">Details</button></div>
+    <div id="tabpanel" class="muted">Overview panel</div>
+  </div>
+  <div class="card"><h2>Dynamic UI</h2>
+    <div class="row"><button id="load">Load results</button><span id="loading" class="muted"></span></div>
+    <div id="results"></div>
+    <div class="row"><button id="save">Save draft</button></div>
+  </div>
+</section>
+
+<section id="s-popups">
+  <div class="card"><h2>Menus and popups</h2>
+    <div class="row"><button id="colour" aria-haspopup="listbox">Choose a colour</button><span id="colourv" class="muted">none</span></div>
+    <div class="row"><span class="hot" id="hover">Hover me for help</span></div>
+    <div class="row"><span class="hot" id="ctx">Right-click me</span></div>
+    <div class="row"><span class="hot" id="dbl">Double-click to rename</span></div>
+    <div class="row"><button id="opendlg">Open dialog</button><span id="dlgv" class="muted"></span></div>
+  </div>
+  <dialog id="dlg" aria-label="Edit profile"><h2 style="font-size:15px;margin-top:0">Edit profile</h2>
+    <input id="dlgname" aria-label="Display name" placeholder="Display name">
+    <div class="row"><button id="dlgsave">Save profile</button><button id="dlgcancel">Cancel</button></div>
+  </dialog>
+</section>
+
+<section id="s-drag">
+  <div class="card"><h2>Reorder: drag an item onto another place</h2>
+    <ol id="sortable"><li>One</li><li>Two</li><li>Three</li><li>Four</li><li>Five</li></ol>
+  </div>
+  <div class="card"><h2>Sketch pad: drag across it</h2>
+    <canvas id="pad" width="560" height="200" aria-label="Sketch pad"></canvas>
+    <div class="muted" id="padv">no stroke yet</div>
+  </div>
+</section>
+
+<section id="s-files">
+  <div class="card"><h2>Upload and download</h2>
+    <div class="row"><label>Attachment <input type="file" id="file"></label><span id="filev" class="muted">no file</span></div>
+    <div class="row"><a id="dl" download="canary-report.txt" href="#">Download report</a></div>
+  </div>
+</section>
+
+<section id="s-chat">
+  <div class="card"><h2>Chat: Enter sends, Shift+Enter is a new line</h2>
+    <div id="chat"></div>
+    <div id="composer" contenteditable="true" role="textbox" aria-label="Write a message" aria-multiline="true"></div>
+  </div>
+</section>
+
+<section id="s-feed">
+  <div class="card"><h2>Feed: scroll to load more</h2>
+    <div id="feedlist" aria-label="Feed"></div>
+  </div>
+</section>
+
+<section id="s-rules">
+  <div class="card"><h2>Site rules (apprentice should stop on these)</h2>
+    <div class="row"><button id="softblock">Post too often</button><button id="human">Open the check</button><button id="clearrules">Clear</button></div>
+    <div id="rulebox"></div>
+  </div>
+</section>
+
+<section id="s-result">
+  <div class="card"><h2 id="resulttitle">Result</h2><p>A route of this single-page app: the address hash changed and most of the page was swapped.</p>
+    <a href="#widgets">Back to widgets</a></div>
+</section>
+
+<section id="s-metrics">
+  <div class="card"><h2>What the page measured</h2><table id="out"></table></div>
+</section>
+</main>
+
+<aside id="checks" class="card" aria-label="Checks"><h2>Checks</h2><ol id="checklist"></ol></aside>
+</div>
+<div id="toast" role="status"></div>
+
 <script>
 (function () {
-  const feed = document.getElementById('feed');
-  for (let i = 1; i <= 60; i++) { const d = document.createElement('div'); d.textContent = 'Post ' + i; feed.appendChild(d); }
-  let s;
-  function reset() {
-    s = { moves: 0, zeroDelta: 0, deltaMismatch: 0, coalesced: 0, moveTimes: [], untrusted: 0,
-          downs: {}, holds: [], flights: [], overlaps: 0, keys: 0, lastDown: 0, shiftDowns: 0, shiftedNoShiftKey: 0, shiftHeld: false,
-          codeA: 0, wheel: 0, wheelModes: {}, wheelDeltas: {}, clicks: 0, clickHolds: [], btnDown: 0,
-          blur: 0, focus: 0, hidden: 0, lastXY: null, pastes: 0, compositions: 0 };
+  const $ = id => document.getElementById(id);
+  // ---- Checks: one row per feature, ticked once it has been seen working. Kept across reloads.
+  const CHECKS = [
+    ['type', 'typed text arrived'], ['field', 'email field filled'], ['secret', 'password field filled'],
+    ['pan', 'map panned by drag'], ['zoomin', 'map zoomed in'], ['zoomout', 'map zoomed out'], ['zoomat', 'zoomed at the pointer, not the centre'],
+    ['sideways', 'sideways wheel'], ['treasure', 'found and clicked Treasure'],
+    ['select', 'chose Banana'], ['checkbox', 'newsletter box ticked'], ['radio', 'size chosen'], ['slider', 'volume slider moved'], ['tab', 'Details tab opened'],
+    ['delayed', 'waited for delayed results'], ['route', 'followed a link to a new route'], ['back', 'went back'], ['toast', 'saw the toast'],
+    ['listbox', 'picked a colour from the listbox'], ['hover', 'hover tooltip shown'], ['context', 'context menu item chosen'], ['double', 'renamed by double-click'],
+    ['dialog', 'saved the dialog'], ['reorder', 'list reordered by drag'], ['sketch', 'drew on the sketch pad'],
+    ['upload', 'file attached'], ['download', 'report downloaded'], ['chat', 'multi-line message sent in one piece'],
+    ['scroll', 'feed scrolled'], ['loadmore', 'feed loaded more'], ['like', 'liked a post'], ['blur', 'window lost focus and came back'],
+  ];
+  let done = {};
+  try { done = JSON.parse(sessionStorage.getItem('canary-checks') || '{}'); } catch (e) {}
+  function pass(key, note) {
+    if (done[key]) return;
+    done[key] = note || true;
+    try { sessionStorage.setItem('canary-checks', JSON.stringify(done)); } catch (e) {}
+    renderChecks();
+  }
+  function renderChecks() {
+    const n = CHECKS.filter(c => done[c[0]]).length;
+    $('checklist').innerHTML = '<li><b>' + n + ' of ' + CHECKS.length + ' passed</b></li>' + CHECKS.map(c =>
+      '<li class="' + (done[c[0]] ? 'ok' : 'muted') + '">' + (done[c[0]] ? '✓ ' : '○ ') + c[1] + (typeof done[c[0]] === 'string' ? ' · ' + done[c[0]] : '') + '</li>').join('');
+  }
+  function toast(text) { const t = $('toast'); t.textContent = text; t.style.display = 'block'; pass('toast'); clearTimeout(toast.t); toast.t = setTimeout(() => { t.style.display = 'none'; }, 3000); }
+
+  // ---- Routes: a single-page app; the hash picks the section.
+  let lastRoute = '', viaBack = false;
+  function route() {
+    const h = (location.hash || '#input').slice(1), name = h.split('/')[0];
+    document.querySelectorAll('section').forEach(sec => sec.classList.toggle('on', sec.id === 's-' + name));
+    document.querySelectorAll('nav a').forEach(a => { if (a.getAttribute('href') === '#' + name) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
+    if (name === 'result') { $('resulttitle').textContent = 'Result ' + (h.split('/')[1] || ''); pass('route'); }
+    if (lastRoute.startsWith('result') && viaBack) pass('back');
+    viaBack = false; lastRoute = h;
     render();
   }
+  addEventListener('popstate', () => { viaBack = true; });
+  addEventListener('hashchange', route);
+
+  // ---- Typing
+  $('box').addEventListener('input', () => { if ($('box').value.length >= 10) pass('type', $('box').value.length + ' chars'); renderTyped(); });
+  $('email').addEventListener('input', () => { if (/\S+@\S+\.\S+/.test($('email').value)) pass('field'); });
+  $('pw').addEventListener('input', () => { if ($('pw').value.length >= 6) pass('secret'); });
+  function renderTyped() {
+    const v = $('box').value, rows = [];
+    for (let i = 0; i < v.length; i += 60) rows.push('<tr><td>' + (i + 1) + '–' + Math.min(i + 60, v.length) + ' of ' + v.length + '</td><td>' + v.slice(i, i + 60).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/ /g, '·').replace(/\n/g, '⏎') + '</td></tr>');
+    $('typed').innerHTML = rows.join('');
+  }
+
+  // ---- Map: pan, zoom at the pointer, sideways wheel
+  const vp = $('viewport'), world = $('world');
+  let mx = -40, my = -40, zoom = 1, panStart = null;
+  const strokes = [];
+  function applyMap() {
+    world.style.transform = 'translate(' + mx + 'px,' + my + 'px) scale(' + zoom + ')';
+    $('mapstate').textContent = 'offset ' + Math.round(-mx) + ',' + Math.round(-my) + ' · zoom ' + zoom.toFixed(2);
+  }
+  function zoomBy(f, cx, cy) {
+    const nz = Math.min(Math.max(zoom * f, 0.3), 4);
+    mx = cx - (cx - mx) * nz / zoom; my = cy - (cy - my) * nz / zoom;
+    if (nz > zoom) pass('zoomin', nz.toFixed(2) + '×'); else if (nz < zoom) pass('zoomout', nz.toFixed(2) + '×');
+    zoom = nz; applyMap();
+  }
+  vp.addEventListener('pointerdown', e => { if (e.target.id === 'treasure') return; panStart = { x: e.clientX, y: e.clientY, mx, my, path: [[e.clientX, e.clientY, e.timeStamp]] }; vp.setPointerCapture(e.pointerId); });
+  vp.addEventListener('pointermove', e => {
+    if (!panStart) return;
+    mx = panStart.mx + e.clientX - panStart.x; my = panStart.my + e.clientY - panStart.y; applyMap();
+    panStart.path.push([e.clientX, e.clientY, e.timeStamp]);
+  });
+  vp.addEventListener('pointerup', () => {
+    if (!panStart) return;
+    const d = Math.hypot(mx - panStart.mx, my - panStart.my);
+    if (d > 40) { pass('pan', Math.round(d) + ' px'); strokes.push(shape(panStart.path)); }
+    panStart = null;
+  });
+  vp.addEventListener('wheel', e => {
+    e.preventDefault();
+    const r = vp.getBoundingClientRect(), cx = e.clientX - r.left, cy = e.clientY - r.top;
+    if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) { mx -= e.deltaX; applyMap(); pass('sideways'); return; }
+    zoomBy(e.deltaY < 0 ? 1.15 : 1 / 1.15, cx, cy);
+    if (Math.hypot(cx - r.width / 2, cy - r.height / 2) > 60) pass('zoomat', Math.round(cx) + ',' + Math.round(cy));
+  }, { passive: false });
+  $('zin').onclick = () => zoomBy(1.25, vp.clientWidth / 2, vp.clientHeight / 2);
+  $('zout').onclick = () => zoomBy(0.8, vp.clientWidth / 2, vp.clientHeight / 2);
+  $('treasure').onclick = () => pass('treasure');
+  applyMap();
+
+  // ---- Form controls and dynamic UI
+  $('fruit').onchange = () => { if ($('fruit').value === 'Banana') pass('select'); };
+  $('news').onchange = () => { if ($('news').checked) pass('checkbox'); };
+  document.querySelectorAll('input[name=size]').forEach(r => r.onchange = () => pass('radio', r.value));
+  $('vol').oninput = () => { $('volv').textContent = $('vol').value; if (Math.abs($('vol').value - 20) >= 15) pass('slider', $('vol').value); };
+  $('tab1').onclick = () => { $('tab1').setAttribute('aria-selected', 'true'); $('tab2').setAttribute('aria-selected', 'false'); $('tabpanel').textContent = 'Overview panel'; };
+  $('tab2').onclick = () => { $('tab2').setAttribute('aria-selected', 'true'); $('tab1').setAttribute('aria-selected', 'false'); $('tabpanel').textContent = 'Details panel: shipping in 3 days'; pass('tab'); };
+  $('load').onclick = () => {
+    $('loading').textContent = 'Loading…'; $('results').innerHTML = '';
+    setTimeout(() => {
+      $('loading').textContent = '';
+      $('results').innerHTML = '<p>Results ready</p><a href="#result/1">Open result 1</a> · <a href="#result/2">Open result 2</a>';
+      pass('delayed');
+    }, 1500 + Math.random() * 1500);
+  };
+  $('save').onclick = () => toast('Draft saved');
+
+  // ---- Popups
+  function closeMenus() { document.querySelectorAll('.menu,.tip').forEach(m => m.remove()); }
+  function menuAt(x, y, role, items, pick) {
+    closeMenus();
+    const m = document.createElement('div'); m.className = 'menu'; m.setAttribute('role', role === 'option' ? 'listbox' : 'menu');
+    items.forEach(t => { const b = document.createElement('button'); b.setAttribute('role', role); b.textContent = t; b.onclick = ev => { ev.stopPropagation(); closeMenus(); pick(t); }; m.appendChild(b); });
+    m.style.left = (x + scrollX) + 'px'; m.style.top = (y + scrollY) + 'px'; document.body.appendChild(m);
+  }
+  $('colour').onclick = e => { e.stopPropagation(); const r = $('colour').getBoundingClientRect(); menuAt(r.left, r.bottom + 2, 'option', ['Red', 'Teal', 'Amber', 'Violet'], t => { $('colourv').textContent = t; pass('listbox', t); }); };
+  document.addEventListener('click', closeMenus);
+  let hoverT;
+  $('hover').addEventListener('pointerenter', () => { hoverT = setTimeout(() => {
+    const r = $('hover').getBoundingClientRect(), t = document.createElement('div'); t.className = 'tip'; t.textContent = 'Help: this explains the field';
+    t.style.left = (r.left + scrollX) + 'px'; t.style.top = (r.bottom + scrollY + 4) + 'px'; document.body.appendChild(t); pass('hover'); }, 400); });
+  $('hover').addEventListener('pointerleave', () => { clearTimeout(hoverT); document.querySelectorAll('.tip').forEach(m => m.remove()); });
+  $('ctx').addEventListener('contextmenu', e => { e.preventDefault(); e.stopPropagation(); menuAt(e.clientX, e.clientY, 'menuitem', ['Copy link', 'Rename', 'Archive'], t => pass('context', t)); });
+  $('dbl').addEventListener('dblclick', () => {
+    const el = $('dbl'), input = document.createElement('input'); input.value = el.textContent; input.setAttribute('aria-label', 'New name');
+    el.replaceWith(input); input.focus(); input.select();
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') { const sp = document.createElement('span'); sp.className = 'hot'; sp.textContent = input.value; input.replaceWith(sp); pass('double', input.value); } });
+  });
+  $('opendlg').onclick = () => $('dlg').showModal();
+  $('dlgsave').onclick = () => { if ($('dlgname').value.trim()) { $('dlgv').textContent = 'saved: ' + $('dlgname').value; pass('dialog'); } $('dlg').close(); };
+  $('dlgcancel').onclick = () => $('dlg').close();
+
+  // ---- Drag: reorder with the pointer, sketch pad
+  const list = $('sortable'); let dragging = null;
+  const original = [...list.children].map(li => li.textContent).join(',');
+  list.addEventListener('pointerdown', e => { if (e.target.tagName !== 'LI') return; dragging = e.target; dragging.classList.add('dragging'); list.setPointerCapture(e.pointerId); });
+  list.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    const over = [...list.children].find(li => li !== dragging && e.clientY < li.getBoundingClientRect().top + li.offsetHeight / 2);
+    list.insertBefore(dragging, over || null);
+  });
+  list.addEventListener('pointerup', () => {
+    if (!dragging) return; dragging.classList.remove('dragging'); dragging = null;
+    const now = [...list.children].map(li => li.textContent).join(',');
+    if (now !== original) pass('reorder', now);
+  });
+  const pad = $('pad'), pctx = pad.getContext('2d'); let drawing = null;
+  pad.addEventListener('pointerdown', e => { drawing = [[e.offsetX, e.offsetY, e.timeStamp]]; pad.setPointerCapture(e.pointerId); });
+  pad.addEventListener('pointermove', e => {
+    if (!drawing) return;
+    const [px, py] = drawing[drawing.length - 1];
+    pctx.strokeStyle = getComputedStyle(document.body).color; pctx.lineWidth = 2; pctx.beginPath(); pctx.moveTo(px, py); pctx.lineTo(e.offsetX, e.offsetY); pctx.stroke();
+    drawing.push([e.offsetX, e.offsetY, e.timeStamp]);
+  });
+  pad.addEventListener('pointerup', () => {
+    if (!drawing) return;
+    const st = shape(drawing); drawing = null;
+    if (st.n > 5) { strokes.push(st); pass('sketch', st.n + ' pts'); $('padv').textContent = 'last stroke: ' + st.n + ' points, path/straight ' + st.ratio.toFixed(3) + ', speed variation ' + st.cv.toFixed(2); }
+  });
+  // How a stroke moved: path length over straight distance (1 is a ruler line) and speed variation.
+  function shape(p) {
+    let len = 0; const speeds = [];
+    for (let i = 1; i < p.length; i++) { const d = Math.hypot(p[i][0] - p[i - 1][0], p[i][1] - p[i - 1][1]); len += d; const dt = p[i][2] - p[i - 1][2]; if (dt > 0) speeds.push(d / dt); }
+    const straight = Math.hypot(p[p.length - 1][0] - p[0][0], p[p.length - 1][1] - p[0][1]) || 1;
+    const m = speeds.reduce((a, b) => a + b, 0) / (speeds.length || 1);
+    const sd = Math.sqrt(speeds.reduce((a, b) => a + (b - m) ** 2, 0) / (speeds.length || 1));
+    return { n: p.length, ratio: len / straight, cv: m ? sd / m : 0 };
+  }
+
+  // ---- Files
+  $('file').onchange = () => { const f = $('file').files[0]; if (f) { $('filev').textContent = f.name + ' · ' + f.size + ' bytes'; pass('upload', f.name); } };
+  // A real address from the start, so "Save link as" from the context menu saves the report too.
+  function report() { $('dl').href = 'data:text/plain;charset=utf-8,' + encodeURIComponent('apprentice canary report\n' + JSON.stringify(done, null, 1)); }
+  report();
+  $('dl').addEventListener('click', () => { report(); pass('download'); });
+  $('dl').addEventListener('contextmenu', () => { report(); pass('download'); });
+
+  // ---- Chat
+  $('composer').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      const text = $('composer').innerText.replace(/\n+$/, '');
+      if (!text.trim()) return;
+      const d = document.createElement('div'); d.textContent = text; $('chat').appendChild(d); $('composer').textContent = '';
+      const lines = text.split('\n').length;
+      if (lines >= 2) pass('chat', lines + ' lines');
+    }
+  });
+
+  // ---- Feed: infinite scroll, likes in several languages
+  const feed = $('feedlist'); let posts = 0;
+  const likeWords = ['Like', 'Gefällt mir', 'いいね', "J'aime", 'Me gusta'];
+  function more(n) {
+    for (let i = 0; i < n; i++) {
+      posts++;
+      const d = document.createElement('div'); d.className = 'post'; d.dataset.n = posts;
+      d.innerHTML = '<div>Post ' + posts + ' · a short update about the weather and the garden.</div>';
+      const b = document.createElement('button'); b.textContent = likeWords[posts % likeWords.length];
+      b.onclick = () => { b.textContent = 'Liked'; b.disabled = true; pass('like', 'post ' + d.dataset.n); };
+      d.appendChild(b); feed.appendChild(d);
+    }
+  }
+  more(20);
+  feed.addEventListener('scroll', () => {
+    if (feed.scrollTop > 200) pass('scroll');
+    if (feed.scrollTop + feed.clientHeight > feed.scrollHeight - 150 && posts < 400) { more(15); pass('loadmore', posts + ' posts'); }
+  });
+
+  // ---- Site rules: the texts apprentice's soft-block and challenge checks look for
+  $('softblock').onclick = () => { $('rulebox').innerHTML = '<div class="banner" role="alert">You\'re doing that too much. Try again later.</div>'; };
+  $('human').onclick = () => { $('rulebox').innerHTML = '<div class="banner" role="alert">Verify you are human<br><label><input type="checkbox"> I\'m not a robot</label></div>'; };
+  $('clearrules').onclick = () => { $('rulebox').innerHTML = ''; };
+
+  // ---- Input measurements (BOT_DETECTION.md)
+  let s;
+  function reset() {
+    s = { moves: 0, zeroDelta: 0, deltaMismatch: 0, coalesced: 0, moveTimes: [], untrusted: 0, downs: {}, holds: [], flights: [], overlaps: 0, keys: 0,
+          lastDown: 0, shiftDowns: 0, metaDowns: 0, shiftedNoShiftKey: 0, shiftHeld: false, codeA: 0, wheel: 0, wheelModes: {}, wheelDeltas: {},
+          clicks: 0, clickHolds: [], btnDown: 0, blur: 0, focus: 0, hidden: 0, lastXY: null, pastes: 0, compositions: 0, reactions: [] };
+  }
   const med = a => { if (!a.length) return '-'; const b = a.slice().sort((x, y) => x - y); return Math.round(b[b.length >> 1]); };
-  const spread = a => { if (a.length < 2) return '-'; const m = a.reduce((x, y) => x + y, 0) / a.length; return Math.round(Math.sqrt(a.reduce((x, y) => x + (y - m) ** 2, 0) / a.length)); };
+  const sdev = a => { if (a.length < 2) return '-'; const m = a.reduce((x, y) => x + y, 0) / a.length; return Math.round(Math.sqrt(a.reduce((x, y) => x + (y - m) ** 2, 0) / a.length)); };
   function rate() {
     const t = s.moveTimes; if (t.length < 10) return '-';
     const gaps = []; for (let i = 1; i < t.length; i++) { const g = t[i] - t[i - 1]; if (g < 50) gaps.push(g); }
@@ -49,33 +403,36 @@
   }
   function row(k, v, bad) { return '<tr><td>' + k + '</td><td class="' + (bad === undefined ? '' : bad ? 'bad' : 'ok') + '">' + v + '</td></tr>'; }
   function render() {
+    if (!s || !location.hash.startsWith('#metrics')) return;
     const o = [];
     o.push(row('navigator.webdriver', String(navigator.webdriver), navigator.webdriver === true));
-    o.push(row('userAgent', navigator.userAgent));
     o.push(row('platform · languages', navigator.platform + ' · ' + (navigator.languages || []).join(', ')));
     o.push(row('time zone', Intl.DateTimeFormat().resolvedOptions().timeZone));
-    o.push(row('screen · DPR · cores · memory', screen.width + '×' + screen.height + ' · ' + devicePixelRatio + ' · ' + navigator.hardwareConcurrency + ' · ' + (navigator.deviceMemory || '?')));
+    o.push(row('screen · DPR · cores', screen.width + '×' + screen.height + ' · ' + devicePixelRatio + ' · ' + navigator.hardwareConcurrency));
     o.push(row('pointer moves · rate', s.moves + ' · ' + rate()));
     o.push(row('moves with movementX/Y = 0 (P19)', s.zeroDelta + ' of ' + s.moves, s.moves > 20 && s.zeroDelta / s.moves > 0.5));
-    o.push(row('moves whose deltas disagree with coordinates', s.deltaMismatch, s.moves > 20 && s.deltaMismatch / s.moves > 0.3));
+    o.push(row('moves whose deltas disagree', s.deltaMismatch, s.moves > 20 && s.deltaMismatch / s.moves > 0.3));
     o.push(row('coalesced samples per event', s.moves ? (s.coalesced / s.moves).toFixed(2) : '-'));
     o.push(row('untrusted events', s.untrusted, s.untrusted > 0));
-    o.push(row('keys · hold median ± sd (ms)', s.keys + ' · ' + med(s.holds) + ' ± ' + spread(s.holds)));
-    o.push(row('flight median ± sd (ms)', med(s.flights) + ' ± ' + spread(s.flights)));
-    o.push(row('overlapping keys (rollover, P1)', s.overlaps, s.keys > 30 && s.overlaps === 0));
-    o.push(row('Shift keydowns · shifted keys with no Shift down (P3)', s.shiftDowns + ' · ' + s.shiftedNoShiftKey, s.shiftedNoShiftKey > 0));
-    o.push(row('code KeyA for a non-a character (P16)', s.codeA, s.codeA > 0));
+    o.push(row('keys · hold median ± sd (ms)', s.keys + ' · ' + med(s.holds) + ' ± ' + sdev(s.holds)));
+    o.push(row('flight median ± sd (ms)', med(s.flights) + ' ± ' + sdev(s.flights)));
+    o.push(row('overlapping keys (P1)', s.overlaps, s.keys > 30 && s.overlaps === 0));
+    o.push(row('Shift · Meta keydowns · shifted with no Shift (P3)', s.shiftDowns + ' · ' + s.metaDowns + ' · ' + s.shiftedNoShiftKey, s.shiftedNoShiftKey > 0));
+    o.push(row('code KeyA for another character (P16)', s.codeA, s.codeA > 0));
     o.push(row('pastes · compositions', s.pastes + ' · ' + s.compositions));
     o.push(row('wheel events · deltaMode (P20)', s.wheel + ' · ' + JSON.stringify(s.wheelModes)));
-    o.push(row('wheel deltaY values', JSON.stringify(s.wheelDeltas).slice(0, 120)));
-    o.push(row('clicks · hold median ± sd (ms)', s.clicks + ' · ' + med(s.clickHolds) + ' ± ' + spread(s.clickHolds)));
+    o.push(row('wheel deltaY values', JSON.stringify(s.wheelDeltas).slice(0, 80)));
+    o.push(row('clicks · hold median ± sd (ms)', s.clicks + ' · ' + med(s.clickHolds) + ' ± ' + sdev(s.clickHolds)));
+    o.push(row('reaction: route shown to first move (ms)', med(s.reactions)));
+    o.push(row('drag strokes · path/straight · speed variation', strokes.length ? strokes.length + ' · ' + strokes.map(x => x.ratio.toFixed(3)).join(' ') + ' · ' + strokes.map(x => x.cv.toFixed(2)).join(' ') : '-'));
     o.push(row('blur · focus · hidden (P18)', s.blur + ' · ' + s.focus + ' · ' + s.hidden));
-    const typed = document.getElementById('box').value;
-    for (let i = 0; i < typed.length; i += 60) o.push(row('typed ' + (i + 1) + '–' + Math.min(i + 60, typed.length) + ' of ' + typed.length, typed.slice(i, i + 60).replace(/ /g, '·')));
-    document.getElementById('out').innerHTML = o.join('');
+    $('out').innerHTML = o.join('');
   }
+  let shownAt = performance.now(), firstMoveSeen = false;
+  addEventListener('hashchange', () => { shownAt = performance.now(); firstMoveSeen = false; });
   addEventListener('pointermove', e => {
     if (!e.isTrusted) s.untrusted++;
+    if (!firstMoveSeen) { firstMoveSeen = true; const r = e.timeStamp - shownAt; if (r > 0 && r < 10000) s.reactions.push(r); }
     s.moves++; s.moveTimes.push(e.timeStamp); if (s.moveTimes.length > 400) s.moveTimes.shift();
     if (e.movementX === 0 && e.movementY === 0) s.zeroDelta++;
     if (s.lastXY) {
@@ -88,7 +445,8 @@
   addEventListener('keydown', e => {
     if (!e.isTrusted) s.untrusted++;
     if (e.key === 'Shift') { s.shiftDowns++; s.shiftHeld = true; return; }
-    if (['Meta', 'Control', 'Alt'].includes(e.key) || e.repeat) return;
+    if (e.key === 'Meta') { s.metaDowns++; return; }
+    if (['Control', 'Alt'].includes(e.key) || e.repeat) return;
     const t = e.timeStamp;
     if (Object.keys(s.downs).length) s.overlaps++;
     if (s.lastDown) s.flights.push(t - s.lastDown);
@@ -99,22 +457,22 @@
   addEventListener('keyup', e => {
     if (e.key === 'Shift') { s.shiftHeld = false; return; }
     if (s.downs[e.code] !== undefined) { s.holds.push(e.timeStamp - s.downs[e.code]); delete s.downs[e.code]; }
-    render();
   }, true);
   addEventListener('wheel', e => {
     s.wheel++; s.wheelModes[e.deltaMode] = (s.wheelModes[e.deltaMode] || 0) + 1;
-    const k = String(Math.round(e.deltaY)); s.wheelDeltas[k] = (s.wheelDeltas[k] || 0) + 1; render();
+    const k = String(Math.round(e.deltaY)); s.wheelDeltas[k] = (s.wheelDeltas[k] || 0) + 1;
   }, { capture: true, passive: true });
   addEventListener('pointerdown', e => { s.btnDown = e.timeStamp; }, true);
-  addEventListener('pointerup', e => { if (s.btnDown) { s.clicks++; s.clickHolds.push(e.timeStamp - s.btnDown); s.btnDown = 0; render(); } }, true);
-  addEventListener('paste', () => { s.pastes++; render(); }, true);
+  addEventListener('pointerup', e => { if (s.btnDown) { s.clicks++; s.clickHolds.push(e.timeStamp - s.btnDown); s.btnDown = 0; } }, true);
+  addEventListener('paste', () => { s.pastes++; }, true);
   addEventListener('compositionstart', () => { s.compositions++; }, true);
-  addEventListener('blur', () => { s.blur++; render(); });
-  addEventListener('focus', () => { s.focus++; render(); });
-  document.addEventListener('visibilitychange', () => { if (document.hidden) s.hidden++; render(); });
-  document.getElementById('reset').addEventListener('click', reset);
+  let blurred = false;
+  addEventListener('blur', () => { s.blur++; blurred = true; });
+  addEventListener('focus', () => { s.focus++; if (blurred) pass('blur'); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden) s.hidden++; });
   setInterval(render, 1000);
-  reset();
+
+  reset(); renderChecks(); route();
 })();
 </script>
 </body>

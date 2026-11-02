@@ -360,20 +360,39 @@ def snap(req):
 
 def focus(req):
     app, window, wframe, doc = page(req)
-    stack = [(window, 0)] + [(w, 0) for _, w, _ in popups(app, window)]
-    while stack:
-        a, depth = stack.pop()
-        st = states(a)
-        if st.contains(S.FOCUSED):
-            role = a.get_role_name()
-            kind = classify(a, role)
-            secret = role == "password text"
-            return {"found": True, "label": kind[0] if kind else role, "name": a.get_name() or "",
-                    "value": None if secret else text_of(a), "frame": extents(a), "secret": secret,
-                    "editable": st.contains(S.EDITABLE)}
-        if depth < 60 and st.contains(S.SHOWING):
-            stack += [(c, depth + 1) for c in children(a) if c is not None]
-    return {"found": False}
+
+    def deepest(root):
+        stack, best = [(root, 0)], None
+        while stack:
+            a, depth = stack.pop()
+            st = states(a)
+            if st.contains(S.FOCUSED):
+                # Chromium marks the page focused as well as the field inside it: the focus is the
+                # deepest focused node, so the search goes on inside this one only.
+                best = (a, st)
+                stack = [(c, depth + 1) for c in children(a) if c is not None] if depth < 60 else []
+                continue
+            if depth < 60 and st.contains(S.SHOWING):
+                stack += [(c, depth + 1) for c in children(a) if c is not None]
+        return best
+
+    def sized(hit):
+        f = extents(hit[0]) if hit else None
+        return hit is not None and f is not None and f[2] > 0 and f[3] > 0
+
+    # The window first, then its popups: Chromium keeps hidden popup windows whose empty document
+    # also says it is focused, and taking that one made every click look as if it missed its field.
+    hits = [deepest(window)] + [deepest(w) for _, w, _ in popups(app, window)]
+    best = next((h for h in hits if sized(h)), None) or next((h for h in hits if h), None)
+    if best is None:
+        return {"found": False}
+    a, st = best
+    role = a.get_role_name()
+    kind = classify(a, role)
+    secret = role == "password text"
+    return {"found": True, "label": kind[0] if kind else role, "name": a.get_name() or "",
+            "value": None if secret else text_of(a), "frame": extents(a), "secret": secret,
+            "editable": st.contains(S.EDITABLE)}
 
 
 def cursor(req):
@@ -416,6 +435,8 @@ def keycode_for(keysym):
     code = spare.pop(0)
     dpy.change_keyboard_mapping(code, [(keysym,) * 2])
     dpy.sync()
+    # Apps read the new mapping from a MappingNotify; a key pressed before they have dropped the character.
+    time.sleep(0.08)
     remapped[keysym] = code
     return code, False
 
@@ -431,9 +452,10 @@ def fake(kind, code):
     xtest.fake_input(dpy, kind, code)
 
 
-# The host's clock against this one: `at` is the host time an input op was meant for. The first op, or
-# one that arrives well after its time, sets the offset; the rest wait for theirs, so a burst of lines
-# ssh delivered in one read plays at the spacing the host gave it.
+# The host's clock against this one: `at` is the host time an input op was meant for. The offset is the
+# quickest trip seen so far (plus a little slack), so a burst of lines ssh delivered in one read plays at
+# the spacing the host gave it, while an op that arrives late (the first one after this script restarts)
+# plays at once and never holds back the ones after it.
 clock = {"offset": None}
 
 
@@ -441,13 +463,12 @@ def wait_for(at):
     if at is None:
         return
     now = time.monotonic()
-    offset = clock["offset"]
-    if offset is None or at + offset < now - 0.25:
-        clock["offset"] = now - at + 0.03
-        return
-    delay = at + offset - now
+    trip = now - at + 0.02
+    if clock["offset"] is None or trip < clock["offset"]:
+        clock["offset"] = trip
+    delay = at + clock["offset"] - now
     if delay > 0:
-        time.sleep(min(delay, 0.5))
+        time.sleep(min(delay, 0.2))
 
 
 def play(req):
