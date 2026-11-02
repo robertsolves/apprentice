@@ -274,6 +274,12 @@ enum VM {
         }
     }
 
+    /// Whether a named VM is set up: a Tart VM `apprentice-<name>`, or a `[vm.<name>]` host.
+    static func exists(_ vm: String) -> Bool {
+        if Toml.load(Config.path)["vm.\(vm)"]?["host"] != nil { return true }
+        return tartList().contains { ($0["Name"] as? String) == "apprentice-\(vm)" }
+    }
+
     /// Every VM: the default one, the Tart ones named apprentice-<name>, and `[vm.<name>]` hosts.
     static func list() -> String {
         let tartVMs = tartList()

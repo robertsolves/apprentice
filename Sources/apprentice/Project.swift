@@ -52,7 +52,7 @@ enum Project {
         (try? Data(contentsOf: dir.appendingPathComponent("limits.json"))).flatMap { try? JSONDecoder().decode(Limits.self, from: $0) } ?? Limits()
     }
 
-    /// `project [init | status]`.
+    /// `project init | status`; the rest (`new`, `list`, `open`, `save`…) is `Projects`.
     static func command(_ a: Args) throws -> String {
         switch a.pos.first ?? "status" {
         case "init":
@@ -68,7 +68,7 @@ enum Project {
             let own = FileManager.default.fileExists(atPath: dir.appendingPathComponent("budgets.json").path)
             return "project \(dir.path) · counts in limits.json · caps: " + (own ? "its own budgets.json, on top of the account-wide ones" : "the account-wide ones, counted for this project too")
         default:
-            throw Fail(5, "project [init | status]")
+            return try Projects.command(a)
         }
     }
 }

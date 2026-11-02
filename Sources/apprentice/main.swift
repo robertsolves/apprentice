@@ -10,6 +10,14 @@ if argvRaw.count > 2, argvRaw[1] == "--vm" {
     argvRaw.removeSubrange(1...2)
 }
 
+// A project with a VM (`.apprentice/project.toml`) is that VM for anything run inside its folder, so an
+// agent opened there needs no setup. Never for the daemon or the window: they are this Mac's.
+if ProcessInfo.processInfo.environment["APPRENTICE_VM"] == nil, argvRaw.count > 1,
+   !["serve", "stop", "app", "selftest", "uninstall", "notify-post", "notify-test", "project"].contains(argvRaw[1]),
+   let vm = Projects.here()?.vm {
+    setenv("APPRENTICE_VM", vm, 1)
+}
+
 // The self-test works in a folder of its own, never the user's ~/.apprentice. This runs after the `--vm`
 // strip so `apprentice --vm x selftest` is caught too.
 if argvRaw.count > 1, argvRaw[1] == "selftest" {
@@ -61,7 +69,9 @@ func usage() {
       apprentice repo                           the clone apprentice runs from
       apprentice policy [domain]                may the LLM use shell commands for macOS tasks? With a domain: notes on its terms
       apprentice budget [domain]                what is left of this hour's, today's and this week's caps per site and kind
+      apprentice project new "name" [--from <git url>] [--vm <name>] [--agent claude] | list | open | save [--push] | add <folder> | forget   a folder for one piece of work: notes agents read, its pipelines, its VM; save commits it, --push puts it on GitHub
       apprentice project [init | status]        a project's own .apprentice/ folder: its own site counts and tighter caps, on top of the account-wide ones
+      apprentice pipeline list | show | new "name" "step" … | add <name> "step" | run <name> [--from N] | rm   prompts that run one after another, now or on a schedule (schedule add … --pipeline <name>)
       apprentice cool [--clear domain]          sites cooling down after a rate limit; clearing asks the user
       apprentice activity <domain> [--days 7]   actions per day, rate limits, challenges and flags on one site
       apprentice flag <domain> "what you saw"   record when the user saw a warning or restriction
@@ -86,7 +96,7 @@ func usage() {
       apprentice replay <name> [--from n] [--approve]
       apprentice mcp
       apprentice vm setup | install | up | down | on | off | look | call "what" | shell | status | list   a small Linux VM with its own screen, cursor and keyboard: its browser and Linux apps (--on linux); shell prints the ssh command for its terminal
-      apprentice app                            the window: terminal tabs where agents run, schedules, approvals, sites, settings and health
+      apprentice app                            the window: projects, terminal tabs where agents run, pipelines, schedules, playbooks, VMs and settings
       apprentice schedule add|list|show|pause|resume|rm|now|agent   prompts and tasks that run later or again
       apprentice away on|off|status|wait|add|list|cancel   work that runs only while you are away, and stops when you are back
       apprentice serve [--background] | stop
@@ -115,7 +125,8 @@ let rest = Array(argv.dropFirst())
 /// Commands answered in this process log their own row, so `log --session` and `grow` see `learn`, `bug`,
 /// `route` and the rest beside the daemon's commands.
 let loggedHere: Set<String> = ["route", "playbooks", "notes", "learn", "bug", "commit", "update", "settings", "repo", "policy", "budget",
-                               "activity", "flag", "grow", "sessions", "project", "doctor", "pr", "vm", "replay", "phone", "tour", "prefs", "remember", "forget", "account"]
+                               "activity", "flag", "grow", "sessions", "project", "doctor", "pr", "vm", "replay", "phone", "tour", "prefs", "remember", "forget", "account",
+                               "pipeline"]
 if loggedHere.contains(command) { Timing.begin() }
 
 func done(_ code: Int32) -> Never {
@@ -210,6 +221,8 @@ case "sessions":
     done(0)
 case "project":
     attempt { print(try Project.command(Args.parse(rest))) }
+case "pipeline":
+    attempt { print(try Pipelines.command(Args.parse(rest))) }
 case "doctor":
     attempt { print(try Doctor.run(Args.parse(rest))) }
 case "tour":

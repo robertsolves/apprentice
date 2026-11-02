@@ -11,7 +11,7 @@ struct Args {
     /// `click --right 5` keeps 5 as the id.
     static let switches: Set<String> = [
         "right", "double", "enter", "new-window", "new-tab", "json", "gate", "approve", "screen-anyway", "no-options",
-        "multi", "text", "force", "background", "all",
+        "multi", "text", "force", "background", "all", "push", "keep-going",
     ]
 
     /// `switches` are the flags that never take a value; `do` passes none, so a flow's `{text}` or

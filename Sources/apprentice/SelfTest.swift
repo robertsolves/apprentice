@@ -36,6 +36,7 @@ enum SelfTest {
         login()
         account()
         forms()
+        pipelines()
         prefs()
         allowlist()
         flows()
@@ -985,6 +986,40 @@ enum SelfTest {
               "terminal: mouse, paste and focus modes are tracked")
         menu.feed(Data((esc + "[?1000l" + esc + "[?2004l").utf8))
         check(!menu.mouseTracking && !menu.bracketedPaste, "terminal: the modes turn off again")
+    }
+
+    /// Pipelines are files people edit by hand: they must read back exactly, numbered headings or not.
+    private static func pipelines() {
+        let text = """
+        ---
+        name: Morning round
+        agent: codex
+        vm: shop   # the shop's VM
+        ---
+        # Morning round
+
+        Every weekday before work.
+
+        ## 1. Read Instagram
+        Get the newest comments.
+        Note the ones about prices.
+
+        ## Answer
+        sh: echo done
+        """
+        let p = Pipelines.parse(text)
+        check(p.name == "Morning round" && p.agent == "codex" && p.vm == "shop", "pipelines: front matter is read")
+        check(p.steps.count == 2 && p.steps[0].title == "Read Instagram" && p.steps[0].prompt.hasSuffix("about prices."),
+              "pipelines: each ## heading is a step, its number dropped")
+        check(p.steps[1].shell == "echo done" && p.steps[0].shell == nil, "pipelines: sh: makes a shell step")
+        check(p.about == "Every weekday before work.", "pipelines: text before the first step is kept")
+        let again = Pipelines.parse(Pipelines.render(p))
+        check(again.steps == p.steps && again.name == p.name && again.vm == p.vm && again.about == p.about,
+              "pipelines: render and parse round-trip")
+        let prompt = Pipelines.prompt(p, step: 1, previous: String(repeating: "x", count: 9000))
+        check(prompt.hasPrefix("This is step 2 of 2") && prompt.count < 6400, "pipelines: the previous output is passed, capped")
+        check(Projects.notes(name: "Shop", vm: "shop", about: "").contains("APPRENTICE_VM=shop"),
+              "projects: the agent notes name the project's VM")
     }
 
     /// The comment-preserving edit: a UI change never rewrites what a person wrote by hand.

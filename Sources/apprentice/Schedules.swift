@@ -10,7 +10,7 @@ import Foundation
 /// still apply, and an approval nobody is there to give waits or goes to the phone (`away on`).
 enum Schedules {
     enum Kind: String, CaseIterable {
-        case prompt, run, flow, sh
+        case prompt, run, flow, sh, pipeline
 
         var label: String {
             switch self {
@@ -18,6 +18,7 @@ enum Schedules {
             case .run: return "apprentice run"
             case .flow: return "playbook flow"
             case .sh: return "shell command"
+            case .pipeline: return "pipeline"
             }
         }
     }
@@ -493,21 +494,25 @@ enum Schedules {
             .map { ($0.lastPathComponent, $0) }
     }
 
+    /// One prompt for an agent CLI, run to its end without a terminal.
+    static func agentArgv(_ agent: String, _ prompt: String) -> [String] {
+        switch agent.lowercased() {
+        case "claude", "claude-code": return ["claude", "-p", prompt]
+        case "codex": return ["codex", "exec", prompt]
+        case "opencode", "kilo": return [agent.lowercased(), "run", prompt]
+        default: return [agent, "-p", prompt]
+        }
+    }
+
     /// The command line for a run: the agent CLI with the prompt, `apprentice run` / `do`, or the shell.
     static func command(_ s: Schedule) -> [String] {
         let binary = Wire.binaryPath()
         let vm = s.vm.map { ["--vm", $0] } ?? []
         switch s.kind {
         case .prompt:
-            let agent = s.agent ?? "claude"
-            let base: [String]
-            switch agent.lowercased() {
-            case "claude", "claude-code": base = ["claude", "-p", s.target]
-            case "codex": base = ["codex", "exec", s.target]
-            case "opencode", "kilo": base = [agent.lowercased(), "run", s.target]
-            default: base = [agent, "-p", s.target]
-            }
-            return base
+            return agentArgv(s.agent ?? "claude", s.target)
+        case .pipeline:
+            return [binary] + vm + ["pipeline", "run", s.target]
         case .run:
             let model = s.model.map { ["--model", $0] } ?? []
             return [binary] + vm + ["run", s.target] + model
@@ -612,7 +617,7 @@ enum Schedules {
 
     // MARK: - CLI
 
-    static let usage = "schedule add <name> (--at|<date>|--every <min>|--daily <HH:MM>|--weekly \"mon,wed 09:00\"|--cron \"m h dom mon dow\") (--prompt \"…\" [--agent claude] | --run \"…\" | --do <flow> | --sh \"…\") [--dir] [--vm] [--model] [--jitter min] [--site] · list | show <id> | pause <id> | resume <id> | rm <id> | now <id> | agent on|off"
+    static let usage = "schedule add <name> (--at|<date>|--every <min>|--daily <HH:MM>|--weekly \"mon,wed 09:00\"|--cron \"m h dom mon dow\") (--prompt \"…\" [--agent claude] | --run \"…\" | --do <flow> | --sh \"…\" | --pipeline <name>) [--dir] [--vm] [--model] [--jitter min] [--site] · list | show <id> | pause <id> | resume <id> | rm <id> | now <id> | agent on|off"
 
     static func command(_ a: Args) throws -> String {
         // An MCP client or an older caller names the schedule with --id; the subcommands take it as a word.
@@ -725,13 +730,15 @@ enum Schedules {
         guard triggers.count == 1, let trigger = triggers.first else {
             throw Fail(6, "schedule add: give one of --at, --every, --daily, --weekly or --cron")
         }
-        let kinds = ["prompt", "run", "do", "sh"].filter { a.has($0) }
+        let kinds = ["prompt", "run", "do", "sh", "pipeline"].filter { a.has($0) }
         guard kinds.count == 1, let kindFlag = kinds.first else {
-            throw Fail(6, "schedule add: give one of --prompt, --run, --do or --sh")
+            throw Fail(6, "schedule add: give one of --prompt, --run, --do, --sh or --pipeline")
         }
-        let kind: Kind = kindFlag == "prompt" ? .prompt : kindFlag == "run" ? .run : kindFlag == "do" ? .flow : .sh
+        let kind: Kind = kindFlag == "prompt" ? .prompt : kindFlag == "run" ? .run : kindFlag == "do" ? .flow
+            : kindFlag == "pipeline" ? .pipeline : .sh
         let target = a.value(kindFlag) ?? ""
         guard !target.isEmpty else { throw Fail(6, "schedule add: \(kindFlag) needs a value") }
+        if kind == .pipeline { _ = try Pipelines.find(target) }
 
         var s = Schedule(id: id, name: name, kind: kind, target: target)
         if let old = existing { s = old; s.name = name; s.kind = kind; s.target = target }
