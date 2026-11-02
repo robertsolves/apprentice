@@ -29,7 +29,7 @@ Save tokens: ids survive actions, so act from the diff and `read` again only on 
 - Move: `scroll up|down|left|right [n] [--in id|--at x,y]`, `drag <id> <id>|--by dx,dy`, `browse [s]` (read down a feed).
 - Files: `upload <id> <path>`, `download <id> <path>`, `choose "<path>"` in an open/save dialog.
 - When the list can't name it: `ocr [--crop id|x,y,w,h]`, then `shot --marks` (ids drawn on a PNG), `shot`.
-- Sites: `budget [domain]` before a batch, `cool`, `policy <domain>`.
+- Sites: `budget [domain]` before a batch, `cool`, `policy <domain>`. Only when the user says a site is just read without signing in (scouting): `pace <site> fastest` once, so it goes at full speed.
 - Projects: a folder with `.apprentice/project.toml` is one; its `AGENTS.md` says what it is for and which VM it uses (set for you inside it). `pipeline list | show | new | add | run` handles its prompt lists.
 
 ## Approval

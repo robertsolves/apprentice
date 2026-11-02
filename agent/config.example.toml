@@ -1,21 +1,22 @@
 # ~/.apprentice/config.toml
 
-# Keystrokes keep a slight human rhythm. In native apps the cursor and the pause between actions do
-# not wait. Built in, web pages run at the steady style and the social sites (Facebook, Instagram,
-# Threads, TikTok, LinkedIn, X, Reddit, Pinterest, YouTube, Bluesky) at careful; [pace.styles] below wins.
-[pace.default]
-move_ms = [50, 200]
-key_ms_median = 140   # one key down to the next; a recording (`apprentice typing learn`) replaces it
-key_ms_sigma = 0.4
-between_actions_ms = [0, 0]
-nav_min_gap_s = 5
-reload_max = { count = 3, window_s = 120 }
-actions_per_min = 30
-overshoot = 0.33   # share of long cursor moves that pass the target, then correct back
-fidget = 0         # share of actions followed by a gesture that changes nothing (glance, trace, rest, scroll and back); at most 0.5
-browse = 0         # share of commands on a web page that end with browse_s of reading down the feed, then back up; at most 0.2
-browse_s = [10, 40]
-# style = "fast"   # sets every timing key at once: "fastest", "fast" (native default), "steady" (web default), or "careful" (social default; slowest, least scripted)
+# Built in, apps (on this Mac and in the VM) run at the fastest style: short moves, no waits, pasted text.
+# Web pages run at steady and the social sites (Facebook, Instagram, Threads, TikTok, LinkedIn, X, Reddit,
+# Pinterest, YouTube, Bluesky) at careful; [pace.styles] below wins. A [pace.default] section replaces
+# fastest for apps and is the base for every style; these are its keys.
+# [pace.default]
+# move_ms = [50, 200]
+# key_ms_median = 140   # one key down to the next; a recording (`apprentice typing learn`) replaces it
+# key_ms_sigma = 0.4
+# between_actions_ms = [0, 0]
+# nav_min_gap_s = 5
+# reload_max = { count = 3, window_s = 120 }
+# actions_per_min = 30
+# overshoot = 0.33   # share of long cursor moves that pass the target, then correct back
+# fidget = 0         # share of actions followed by a gesture that changes nothing (glance, trace, rest, scroll and back); at most 0.5
+# browse = 0         # share of commands on a web page that end with browse_s of reading down the feed, then back up; at most 0.2
+# browse_s = [10, 40]
+# style = "fast"   # sets every timing key at once: "fastest" (app default), "fast", "steady" (web default), or "careful" (social default; slowest, least scripted)
 # A person's day, set by careful; any profile can set or change them:
 # quiet_hours = [2, 6]      # local hours with no actions on the site; [] turns them off
 # session_max_min = 50      # a sitting on one site this long starts a break (0 is off)
@@ -28,7 +29,7 @@ browse_s = [10, 40]
 careful = ["facebook.com", "instagram.com", "threads.net", "tiktok.com", "linkedin.com", "x.com", "reddit.com"]
 # steady = ["news.ycombinator.com"]
 # fast = ["web"]      # put web pages back on the fast style
-# fastest = ["native"]
+# fastest = ["example.com"]   # a site only read without signing in; `apprentice pace example.com fastest` adds it
 
 # Every profile starts from pace.default (or its style); list only the keys that differ.
 [pace."github.com"]
@@ -53,8 +54,8 @@ actions_per_min = 8
 browse = 0.12       # a feed is mostly read
 # quiet_hours = [1, 7]
 
-[pace.native]
-mode = "fast"   # shorter key gaps in native apps
+# [pace.native]
+# style = "fast"   # apps typed key by key at short gaps instead of fastest's pasted text
 
 # What apprentice does when a site pushes back. apprentice never refuses a site on its own; these
 # decide. "stop" refuses actions on that site, "warn" lets work go on with a ⚠ line, "off" does not look.

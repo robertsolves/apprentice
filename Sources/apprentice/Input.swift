@@ -467,8 +467,9 @@ enum Keys {
         }
     }
 
-    /// Pastes `text` with a real cmd+v, then puts the clipboard back. Only for places no website can
-    /// see, such as the browser's address bar and system file dialogs; text inside pages is typed.
+    /// Pastes `text` with a real cmd+v, then puts the clipboard back. For places no website can see, such
+    /// as the browser's address bar and system file dialogs, and for `fastest` apps and the sites the user
+    /// listed as `fastest`; text in any other page is typed.
     static func paste(_ text: String) throws {
         // The VM has no clipboard of this Mac's; its address bar is typed into quickly instead.
         if Remote.active { return try type(text, fast: true) }

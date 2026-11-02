@@ -47,7 +47,7 @@ VM, Chromium: typing, the map, form controls, routes and back, popups, dialog, d
 
 | ID | Signal | Sev. | Status and what changed |
 | --- | --- | --- | --- |
-| P1 | Keystroke rhythm: uniform hold, no overlap, `fast` gaps on pages | High | ✅ Holds are log-normal around the person's own hold, `--pace fast` is ignored on web pages. Gaps are now timed from one key down to the next, so overlap comes from the timing itself (never on one finger or one key); see P22 for the per-pair rhythm |
+| P1 | Keystroke rhythm: uniform hold, no overlap, `fast` gaps on pages | High | ✅ Holds are log-normal around the person's own hold, `--pace fast` is ignored on web pages; only a site the user lists as `fastest` (`pace <site> fastest`, meant for logged-out scouting) is pasted into, by their choice. Gaps are now timed from one key down to the next, so overlap comes from the timing itself (never on one finger or one key); see P22 for the per-pair rhythm |
 | P2 | `key`/`code` disagree for accents and exotic characters | Med | ✅ Option layer and dead keys come from the layout (`Keys.sequences`); the US table is used only when the layout cannot be read |
 | P3 | Shift is a flag with no Shift keydown | Low–Med | ✅ Shift, cmd, option and ctrl are `flagsChanged` keys of their own; Shift is held across a run of capitals. The VM already pressed `Shift_L` |
 | P4 | Mouse paths: small curve family, every long move capped at `move_ms` max, 120 Hz | High | ☑️ Above the cap a move still grows slowly (`Mouse.duration`), the sample rate is drawn per stroke (100–135 Hz). No deliberate miss-click: a miss can click something else |

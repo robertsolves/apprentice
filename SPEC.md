@@ -134,7 +134,7 @@ Rules for every action (`Borrow.run`):
 - Stops the moment the user presses a key, clicks or scrolls (a trackpad's momentum from before the command does not count; apprentice's own events carry `Keys.tag`, so they do not count), and returns `interrupted` (exit 6).
 - Leaves the cursor where it landed, as a person would.
 
-Text is typed key by key inside web pages and apps, with key codes from the current keyboard layout (`Keys.layout`) and Shift for capitals. It is pasted (`Keys.paste`, clipboard restored) only where no website can see it: the browser's address bar and system file dialogs. A newline in the text is typed as return in apps and shift+return on web pages, so a chat composer never sends part of the text.
+Text is typed key by key inside web pages and apps, with key codes from the current keyboard layout (`Keys.layout`) and Shift for capitals. It is pasted (`Keys.paste`, clipboard restored) where no website can see it (the browser's address bar and system file dialogs) and under the `fastest` style: in apps, where it is the built-in default, and on any site the user listed as `fastest` (`pace <site> fastest`), the quick way to scout a site without signing in. A password field is always typed. The Linux VM has no clipboard of this Mac's, so fast text there is typed at short gaps. A newline in the text is typed as return in apps and shift+return on web pages, so a chat composer never sends part of the text.
 
 Upload, download and file dialogs:
 
@@ -167,6 +167,7 @@ All output is compact plain text meant for an agent to read. `--json` gives the 
 | `ask` / `show` / `confirm <token>` | The little window for the user (exit 9 when they are away) | their reply |
 | `policy [domain]` | Shell-command policy, or a site's automation policy | policy lines |
 | `budget [domain]` | What is left of this hour's, day's and week's caps per site and kind | budget lines |
+| `pace [site [style\|default]]` | Which style a site or app runs at; sets it in `[pace.styles]` | pace lines |
 | `cool [--clear domain]` | Sites cooling down after a rate limit; clearing asks the user | cooldown lines |
 | `activity <domain> [--days 7]` | Actions per day and kind, rate limits, challenges and flags | timeline |
 | `flag <domain> "what you saw"` | Record when the user saw a warning or restriction | ok |
@@ -231,7 +232,7 @@ All randomness in pacing comes from `Rand` (`Rand.swift`): one xoshiro256** gene
 - **Characters off the main layers.** Option-layer characters (ß, ©) use their option key; accents use the layout's dead key and then the letter (é is option+e, e on a US board), with the layout composing the text. A character no key on the layout types (an emoji, CJK without an input method) is pasted on its own, clipboard restored, rather than sent on a key that types something else.
 - **Corrections.** At `key_error_rate` (off by default, 1.5% in the social profiles, at most 0.1), a neighbouring QWERTY key is typed, then deleted and retyped. At most 3 per field, never in password or secure fields, never with `--pace fast`.
 - **Field entry.** `type` clicks the field and sends `cmd+a` only when the field already has text.
-- `--pace fast` shortens the gaps between keys in native apps; on a web page it is ignored. Every key is still a real key. A 200-character post takes about 20–25 s at the normal pace.
+- `--pace fast` shortens the gaps between keys in native apps; on a web page it is ignored, and only a site the user listed as `fastest` is pasted into. Every typed key is still a real key. A 200-character post takes about 20–25 s at the normal pace.
 
 ### Cadence, bursts and dwell
 
@@ -246,12 +247,12 @@ All randomness in pacing comes from `Rand` (`Rand.swift`): one xoshiro256** gene
 
 `style` sets every timing key at once, from fastest to least likely to be taken for a script. Keys listed next to it win.
 
-- **`fastest`:** 30–90 ms moves, 45 ms key median, short key gaps, rare overshoot, no fidgets.
-- **`fast`:** the built-in default for native apps: 50–200 ms moves, 100 ms key median, a third of moves overshoot.
+- **`fastest`:** the built-in default for apps, on this Mac and in the VM: 30–90 ms moves, no waits between actions, pasted text, rare overshoot, no fidgets. On a site the user lists, for scouting without an account.
+- **`fast`:** 50–200 ms moves, 100 ms key median, a third of moves overshoot, no waits between actions.
 - **`steady`:** the built-in default for web pages: 120–500 ms moves, 0.5–2.5 s between actions, 1–3 s dwell, rare corrected slips, a fidget after one action in ten, at most 15 actions a minute.
 - **`careful`:** 250–1000 ms moves, 3–12 s between actions, 3–8 s dwell, a rest of 30–120 s after 3–6 quick actions, 1.5% corrected slips, a fidget after one action in four, at most 6 actions a minute, quiet from 2 to 6, a 15–40 min break after 50 min on one site, at most 400 actions a day. Built in for the social sites (`Config.socialSites`: Facebook, Instagram, Threads, TikTok, LinkedIn, X, Reddit, Pinterest, YouTube, Bluesky), and reads down the feed after one command in twelve (`browse = 0.08`).
 
-A style never loosens the navigation gap, the reload cap or a budget. `[pace.styles]` assigns styles to sites and apps in one place and wins over the built-in ones (`fast = ["web"]` puts web pages back on `fast`); `web` and `native` are every browser and every other app.
+A style never loosens the navigation gap, the reload cap or a budget. `[pace.styles]` assigns styles to sites and apps in one place and wins over the built-in ones (`fast = ["web"]` puts web pages back on `fast`); `web` and `native` are every browser and every other app. `[pace.default]` replaces the built-in `fastest` for apps. `apprentice pace <site> <style>` moves a site or app into one list (`default` takes it off them all), and `pace` alone prints the lists. It never puts a social site below `steady`: that stays a hand edit.
 
 ### Config
 
@@ -430,7 +431,7 @@ An audit, made on 2026-11-01 against `78ff6d6`, of what Instagram, Facebook, Tik
 | # | Signal | Weight | Status |
 | --- | --- | --- | --- |
 | 1 | Velocity with no budget: only a per-minute cap | High | Fixed: per-kind budgets, cooldown and challenge stop |
-| 2 | No gap between actions; cadence set by LLM latency | High | Fixed: `steady` on every web page and `careful` on the social sites by default; native apps stay fast |
+| 2 | No gap between actions; cadence set by LLM latency | High | Fixed: `steady` on every web page and `careful` on the social sites by default; apps, and sites the user lists as `fastest`, stay fast |
 | 3 | No time on content before acting | High | Fixed: `dwell_s` before any budgeted action |
 | 4 | Fast pointer: every move 50–200 ms | High | Fixed in the social profiles (200–900 ms) |
 | 5 | Same path shape: one symmetric Bézier, exact stop | Medium | Fixed: two strokes, overshoot or undershoot, five path shapes and three speed profiles drawn per stroke, a per-run hand, uneven samples |

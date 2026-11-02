@@ -273,9 +273,9 @@ struct PaceConfig {
 
     init() {}
 
-    /// `style = "fastest" | "fast" | "steady" | "careful"`: the timing keys at once. `fast` is the
-    /// built-in default for native apps, `steady` for web pages, and `careful` for social sites
-    /// (`Config.socialSites`); `careful` is the least likely to be taken for a script and the slowest.
+    /// `style = "fastest" | "fast" | "steady" | "careful"`: the timing keys at once. `fastest` (short moves,
+    /// no waits, pasted text) is the built-in default for apps, `steady` for web pages, and `careful` for social
+    /// sites (`Config.socialSites`); `careful` is the least likely to be taken for a script and the slowest.
     /// Limits that guard the account (navigation gap, reload cap) are never loosened by a style.
     static func preset(_ name: String, on base: PaceConfig) -> PaceConfig? {
         var p = base
@@ -589,7 +589,8 @@ struct Config {
     static func load() -> Config {
         var c = Config()
         let toml = Layers.config()
-        if let d = toml["pace.default"] { c.pace = PaceConfig(d) }
+        // Apps on the Mac and in the VM run `fastest` unless `[pace.default]` says otherwise: no site watches them.
+        if let d = toml["pace.default"] { c.pace = PaceConfig(d) } else if let fastest = PaceConfig.preset("fastest", on: c.pace) { c.pace = fastest }
         c.defaultPace = c.pace
         // Built in, under anything the file says: web pages at `steady`, social sites at `careful`
         // (BOT_DETECTION S1). `[pace.styles] fast = ["web"]` undoes it.
@@ -694,5 +695,80 @@ struct Config {
         }
         if current.profiles[session.app.lowercased()] != nil { return session.app.lowercased() }
         return session.isBrowser ? "web" : "native"
+    }
+}
+
+/// `pace [site [style | default]]`: which style a site or app runs at, kept as `[pace.styles]` lists in
+/// config.toml. `fastest` suits a logged-out site the user only reads (scouting): real input still, but
+/// no waits, short moves and pasted text. A social site never goes below `steady` here, as its standing is the
+/// account's; the user can still list it by hand.
+enum PaceStyles {
+    static let names = ["fastest", "fast", "steady", "careful"]
+
+    static func run(_ a: Args) throws -> String {
+        guard let raw = a.pos.first else { return list(Toml.load(Config.path)["pace.styles"] ?? [:]) }
+        let site = key(raw)
+        guard let style = a.pos.dropFirst().first?.lowercased() else { return "pace: \(site) at \(current(site))" }
+        guard style == "default" || names.contains(style) else { throw Fail(5, "pace <site> \(names.joined(separator: "|"))|default") }
+        if let refusal = refusal(site, style) { throw Fail(4, refusal) }
+        let lists = moved(site, to: style, in: Toml.load(Config.path)["pace.styles"] ?? [:])
+        for name in names {
+            let sites = lists[name] ?? []
+            let literal = "[" + sites.map { "\"\($0)\"" }.joined(separator: ", ") + "]"
+            if sites.isEmpty { Toml.remove(Config.path, "pace.styles", name) } else { Toml.set(Config.path, "pace.styles", name, literal) }
+        }
+        dropIfEmpty()
+        return "pace: \(site) at \(current(site)) from the next command"
+    }
+
+    /// The `[pace.styles]` header goes too once its last list does, with the blank line above it.
+    static func dropIfEmpty() {
+        guard var lines = try? String(contentsOf: Config.path, encoding: .utf8).components(separatedBy: "\n"),
+              let (start, end) = Toml.bounds(lines, "pace.styles"), start > 0,
+              lines[start..<end].allSatisfy({ $0.trimmingCharacters(in: .whitespaces).isEmpty }) else { return }
+        var from = start - 1
+        while from > 0, lines[from - 1].trimmingCharacters(in: .whitespaces).isEmpty { from -= 1 }
+        lines.removeSubrange(from..<end)
+        try? lines.joined(separator: "\n").write(to: Config.path, atomically: true, encoding: .utf8)
+    }
+
+    /// A URL or host as the profiles key it (`www.x.com` is `x.com`); an app name lower case.
+    static func key(_ raw: String) -> String {
+        let host = raw.contains("://") ? hostOf(raw) : (raw.contains(".") && !raw.contains(" ") ? raw : nil)
+        return host.map(Site.domain) ?? raw.lowercased()
+    }
+
+    static func refusal(_ site: String, _ style: String) -> String? {
+        guard Config.socialSites.contains(site), style == "fast" || style == "fastest" else { return nil }
+        return "pace: \(site) stays at steady or careful here, as a social site's pace is the account's standing; "
+            + "the user can list it under [pace.styles] in \(Config.path.path) by hand"
+    }
+
+    /// The `[pace.styles]` lists with `site` in `style`'s alone (in none for `default`), so no site sits in
+    /// two lists, where which one won would be chance.
+    static func moved(_ site: String, to style: String, in table: [String: String]) -> [String: [String]] {
+        var lists: [String: [String]] = [:]
+        for name in names {
+            let sites = table[name].flatMap(Toml.array) ?? []
+            lists[name] = sites.filter { $0.lowercased() != site }
+        }
+        if style != "default" { lists[style, default: []].append(site) }
+        return lists
+    }
+
+    static func current(_ site: String) -> String {
+        let table = Toml.load(Config.path)["pace.styles"] ?? [:]
+        if let name = names.first(where: { (table[$0].flatMap(Toml.array) ?? []).map { $0.lowercased() }.contains(site) }) { return name }
+        if Config.socialSites.contains(site) { return "careful (built in for social sites)" }
+        return site.contains(".") ? "steady (built in for web pages)" : "fastest (built in for apps)"
+    }
+
+    static func list(_ table: [String: String]) -> String {
+        let rows = names.compactMap { name -> String? in
+            let sites = table[name].flatMap(Toml.array) ?? []
+            return sites.isEmpty ? nil : "\(name): \(sites.joined(separator: ", "))"
+        }
+        return (rows.isEmpty ? ["pace: no sites listed"] : rows)
+            .joined(separator: "\n") + "\nbuilt in: web pages steady, social sites careful, apps fastest"
     }
 }

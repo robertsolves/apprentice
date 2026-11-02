@@ -783,8 +783,10 @@ enum Commands {
         if before != "" { try Keys.press("cmd+a") }
         let secret = (target.app.attr(kAXFocusedUIElementAttribute) as! AXUIElement?)?.string(kAXSubroleAttribute) == "AXSecureTextField"
             || label.lowercased().contains("password")
+        // Fast is pasted, as far quicker than any typing, but never a password, which a clipboard history would keep.
         // On a web page a line break is shift+return, so a chat composer never sends half the text.
-        try Keys.type(text, fast: fast, corrections: !secret, newline: target.url != nil ? "shift+return" : "return")
+        if fast, !secret, !text.isEmpty { try Keys.paste(text) }
+        else { try Keys.type(text, fast: fast, corrections: !secret, newline: target.url != nil ? "shift+return" : "return") }
         // Keys can land nowhere (another app or tool has focus) while every step "works" (F4). Checked
         // before any return is pressed, so nothing half-typed is sent.
         guard !text.isEmpty else { return nil }
@@ -890,8 +892,9 @@ enum Commands {
                      warn: enter ? ["return may submit or send"] : [], force: a.has("gate"))
         }
         try beforeAction(session, url: target.url)
-        // Never on a web page: typing at a third of a person's gaps is a keystroke-timing tell (BOT_DETECTION P1).
-        let fast = (a.value("pace") == "fast" || Config.current.pace.mode == "fast") && target.url == nil
+        // Apps run `fastest` (pasted text) by default. A web page is typed at a person's gaps, a keystroke-timing
+        // tell otherwise (BOT_DETECTION P1), unless the user listed its site as `fastest`; `--pace fast` alone never does.
+        let fast = Config.current.pace.mode == "fast" || (a.value("pace") == "fast" && target.url == nil)
         let (node, rect) = focused ? (el, e.rect) : liveRect(el, e, target)
         // An away task's step is a unit: what it changes and how to undo it, so a return mid-unit can put
         // the field back instead of guessing.

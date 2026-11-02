@@ -124,6 +124,7 @@ With `[agent] ask_on_start = true`, the first `session` after the daemon starts 
 | `key <combo>` · `menu "File > Save…"` | A shortcut, or a menu item clicked like a person |
 | `focus <app> [--on mac\|linux]` | Bring an app or the VM's browser to the front and bind to it |
 | `budget` · `cool` · `activity` · `flag` | What is left of the site caps, a site's cooldown, recent events, and flagging a page |
+| `pace [site [style]]` | How fast a site or app goes; `fastest` for a site you scout without signing in |
 | `serve` · `stop` · `replay <name> [--from n] [--approve]` | Run the daemon in the foreground, stop it, replay a saved run |
 | `scroll`, `hover`, `drag`, `wait-for "text"` | The rest of what a hand does |
 | `browse [seconds]` | Read down a page or feed at a reading pace, clicking nothing |
@@ -167,7 +168,7 @@ Settings are `config.toml` (see `agent/config.example.toml`), `routes.toml` and 
 
 `config.toml` has:
 
-- **`[pace.*]`:** mouse, typing and navigation timing, with profiles per site or app. `style` sets them all at once: `fastest`, `fast` (the default in native apps), `steady` (the default on web pages), or `careful`, the slowest and least scripted, which is built in for Facebook, Instagram, Threads, TikTok, LinkedIn, X, Reddit, Pinterest, YouTube and Bluesky and also keeps quiet hours (2–6), takes a break after 50 minutes on a site and stops at 400 actions a day. `[pace.styles]` assigns a style to each site or app and wins over the built-in ones, e.g. `fast = ["web"]`. `overshoot` and `fidget` tune how often the cursor passes its target and how often a harmless gesture (a glance, reading a few lines, a scroll and back) follows an action; `browse` and `browse_s` make a site now and then read down its feed for a while and scroll back. `steady` and `careful` turn them on.
+- **`[pace.*]`:** mouse, typing and navigation timing, with profiles per site or app. `style` sets them all at once: `fastest` (the default in apps: no waits, and text is pasted), `fast`, `steady` (the default on web pages), or `careful`, the slowest and least scripted, which is built in for Facebook, Instagram, Threads, TikTok, LinkedIn, X, Reddit, Pinterest, YouTube and Bluesky and also keeps quiet hours (2–6), takes a break after 50 minutes on a site and stops at 400 actions a day. `[pace.styles]` assigns a style to each site or app and wins over the built-in ones, e.g. `fast = ["web"]`; `apprentice pace example.com fastest` adds a site you only read without signing in, so it goes as fast as it can. `overshoot` and `fidget` tune how often the cursor passes its target and how often a harmless gesture (a glance, reading a few lines, a scroll and back) follows an action; `browse` and `browse_s` make a site now and then read down its feed for a while and scroll back. `steady` and `careful` turn them on.
 - **`[session] allow`:** the sites a session may act on.
 - **`[agent]`:**
   - `ui_only` turns off shell commands for macOS tasks;

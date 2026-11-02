@@ -69,6 +69,7 @@ func usage() {
       apprentice repo                           the clone apprentice runs from
       apprentice policy [domain]                may the LLM use shell commands for macOS tasks? With a domain: notes on its terms
       apprentice budget [domain]                what is left of this hour's, today's and this week's caps per site and kind
+      apprentice pace [site [fastest|fast|steady|careful|default]]   how fast a site or app goes; fastest (pasted text, no waits) suits logged-out scouting. Apps are fastest, web pages steady, social sites careful
       apprentice project new "name" [--from <git url>] [--vm <name>] [--agent claude] | list | open | save [--push] | add <folder> | forget   a folder for one piece of work: notes agents read, its pipelines, its VM; save commits it, --push puts it on GitHub
       apprentice project [init | status]        a project's own .apprentice/ folder: its own site counts and tighter caps, on top of the account-wide ones
       apprentice pipeline list | show | new "name" "step" … | add <name> "step" | run <name> [--from N] | rm   prompts that run one after another, now or on a schedule (schedule add … --pipeline <name>)
@@ -124,7 +125,7 @@ let rest = Array(argv.dropFirst())
 
 /// Commands answered in this process log their own row, so `log --session` and `grow` see `learn`, `bug`,
 /// `route` and the rest beside the daemon's commands.
-let loggedHere: Set<String> = ["route", "playbooks", "notes", "learn", "bug", "commit", "update", "settings", "repo", "policy", "budget",
+let loggedHere: Set<String> = ["route", "playbooks", "notes", "learn", "bug", "commit", "update", "settings", "repo", "policy", "budget", "pace",
                                "activity", "flag", "grow", "sessions", "project", "doctor", "pr", "vm", "replay", "phone", "tour", "prefs", "remember", "forget", "account",
                                "pipeline"]
 if loggedHere.contains(command) { Timing.begin() }
@@ -209,6 +210,8 @@ case "policy":
 case "budget":
     print(Budgets.report(Args.parse(rest).pos.first))
     done(0)
+case "pace":
+    attempt { print(try PaceStyles.run(Args.parse(rest))) }
 case "activity":
     attempt { print(try Events.activity(Args.parse(rest))) }
 case "flag":

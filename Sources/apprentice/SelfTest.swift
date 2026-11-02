@@ -132,6 +132,17 @@ enum SelfTest {
               "after the break work goes on, up to the daily cap")
         let fastest = PaceConfig(["style": "\"fastest\""])
         check(fastest.moveMax < PaceConfig().moveMax && fastest.navGap == PaceConfig().navGap, "a fast style never loosens the navigation gap")
+        let webOnApps = PaceConfig.preset("steady", on: fastest)
+        check(webOnApps?.mode == "human" && webOnApps?.betweenMax == 2.5 && webOnApps?.keyErrorRate ?? 0 > 0,
+              "web pages stay steady over apps' fastest")
+        let styles = PaceStyles.moved("example.com", to: "fastest", in: ["steady": "[\"Example.com\", \"a.org\"]", "fast": "[\"b.org\"]"])
+        check(styles["fastest"] == ["example.com"] && styles["steady"] == ["a.org"] && styles["fast"] == ["b.org"],
+              "pace moves a site into one style's list alone")
+        check(PaceStyles.moved("a.org", to: "default", in: ["steady": "[\"a.org\"]"]).values.allSatisfy { $0.isEmpty }, "pace default takes a site off every list")
+        check(PaceStyles.key("https://www.Example.com/x") == "example.com" && PaceStyles.key("twitter.com") == "x.com"
+              && PaceStyles.key("Safari") == "safari", "pace keys a URL by its site and an app by its name")
+        check(PaceStyles.refusal("linkedin.com", "fastest") != nil && PaceStyles.refusal("linkedin.com", "steady") == nil
+              && PaceStyles.refusal("example.com", "fastest") == nil, "pace never takes a social site below steady")
 
         Rand.seed(7)
         let first = (0..<4).map { _ in Rand.next() }

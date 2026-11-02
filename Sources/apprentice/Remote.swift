@@ -634,8 +634,9 @@ enum Remote {
                      warn: enter ? ["return may submit or send"] : [], force: a.has("gate"))
         }
         try beforeAction(session, url: page.url)
-        // Never on a web page: typing at a third of a person's gaps is a keystroke-timing tell (BOT_DETECTION P1).
-        let fast = (a.value("pace") == "fast" || Config.current.pace.mode == "fast") && page.url == nil
+        // As on the Mac: apps run fast, a web page only when the user listed its site as `fastest` (BOT_DETECTION P1).
+        // The guest has no clipboard of this Mac's, so fast is typed at short gaps rather than pasted.
+        let fast = Config.current.pace.mode == "fast" || (a.value("pace") == "fast" && page.url == nil)
         var note: String?
         try act {
             if !isFocused {

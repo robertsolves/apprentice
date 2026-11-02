@@ -53,6 +53,8 @@ enum MCP {
         tool("phone", "Set up push notifications to the user's phone (on), stop them (off) or send a test; returns links to tap", ["state": ["type": "string"]]),
         tool("policy", "Whether quick macOS tasks may use shell commands; with a domain, the user's notes on that site's terms", ["domain": ["type": "string"]]),
         tool("budget", "What is left of today's and this hour's action caps per site and kind", ["domain": ["type": "string"]]),
+        tool("pace", "How fast a site or app goes; with a style, sets it (only when the user said so, e.g. fastest for a logged-out site they scout)",
+             ["site": ["type": "string"], "style": ["type": "string", "enum": ["fastest", "fast", "steady", "careful", "default"]]]),
         tool("choose", "In an open or save dialog, go to a path: picks a file or fills in a new name", ["path": ["type": "string"]], ["path"]),
         tool("do", "Run a flow from playbooks/flows with one approval. vars: {\"name\": \"value\"} fills {name}", ["flow": ["type": "string"], "vars": ["type": "object"]], ["flow"]),
         tool("ask", "When stuck or deciding, show the user a little window: free text, or choices (multi for checkboxes, text to add a reply field). Returns their reply. optional: a question they may leave (choices only); after a minute it returns 'carry on assuming <assume>'. Prefer choices, and optional for preferences",
@@ -130,6 +132,7 @@ enum MCP {
             return try Prefs.remember(Args.parse([args["key"] as? String ?? "", args["value"] as? String ?? "", "--from", args["from"] as? String ?? ""]))
         case "policy": return (args["domain"] as? String).map(Policies.describe) ?? Config.policyLine
         case "budget": return Budgets.report(args["domain"] as? String)
+        case "pace": return try PaceStyles.run(Args.parse([args["site"] as? String, args["style"] as? String].compactMap { $0 }))
         default: return nil
         }
     }
