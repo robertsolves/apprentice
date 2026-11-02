@@ -209,7 +209,7 @@ enum Repo {
     /// or a question is open, nor within a minute of the last command. Otherwise it looks again in a minute.
     /// The next command starts the new binary.
     static func restartWhenIdle() {
-        let idle = Approvals.pending == nil && StatusItem.state != .waiting
+        let idle = Approvals.pending == nil && StatusItem.state != .waiting && !KillSwitch.halted
             && Date().timeIntervalSince(Commands.lastAt) > 60
         guard idle else {
             DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 60) { restartWhenIdle() }

@@ -83,6 +83,8 @@ enum Ask {
         guard !reply.skipped, !reply.chosen.isEmpty || !reply.text.isEmpty else {
             throw Fail(5, "no answer: The user skipped the question")
         }
+        // The user answered in the window, so the agent has asked them: the kill switch's stop is lifted.
+        KillSwitch.halted = false
         var out: [String] = []
         if !reply.chosen.isEmpty { out.append("user chose: " + reply.chosen.joined(separator: "; ")) }
         if !reply.text.isEmpty { out.append("user: " + reply.text) }

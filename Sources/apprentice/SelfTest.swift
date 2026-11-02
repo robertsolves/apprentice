@@ -250,6 +250,13 @@ enum SelfTest {
         Approvals.planFlagged = false
         Approvals.drop(Approvals.pending?.token ?? "")
         check(!Gate.wordsIn("Save and send").isSubset(of: Gate.wordsIn("Save")), "a near match that sends is not the step's button")
+        KillSwitch.halted = true
+        Approvals.request = Request(cmd: "click", args: ["8"])
+        do {
+            try Approvals.check("click 8", details: [], warnings: [])
+            check(false, "after the kill switch nothing is proposed")
+        } catch let f as Fail { check(f.code == 6 && Approvals.pending == nil, "after the kill switch nothing is proposed (exit 6)") } catch {}
+        KillSwitch.halted = false
         Approvals.request = Request(cmd: "")
     }
 

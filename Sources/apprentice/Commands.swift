@@ -295,12 +295,9 @@ enum Commands {
     static var lastAt = Date.distantPast
 
     static func run(_ req: Request) throws -> String {
-        // A press stops the action under way; it is then cleared, so the tool does not stay locked (B5).
-        // One pressed between commands stops the next one once.
-        if KillSwitch.tripped, req.cmd != "ping" {
-            KillSwitch.tripped = false
-            throw Fail(6, "interrupted: the kill switch was pressed, so this command was not run. Run it again to carry on")
-        }
+        // A press stops the action under way and holds every later step (`KillSwitch.halted`) until the
+        // user answers; the press itself is cleared, so reading still works (B5).
+        if req.cmd != "ping" { KillSwitch.tripped = false }
         Borrow.interrupted = false
         charged = nil
         Timing.begin()
@@ -318,7 +315,7 @@ enum Commands {
         }
         if KillSwitch.tripped {
             KillSwitch.tripped = false
-            throw Fail(6, "interrupted: the kill switch was pressed during this command. Check the screen with `read`")
+            throw Fail(6, "interrupted: " + KillSwitch.message)
         }
         let out = try result.get()
         defer { notice = nil }
@@ -369,6 +366,10 @@ enum Commands {
         case "do": return try runFlow(a)
         case "awake": return try Awake.run(a)
         case "away": return try Ask.awayCommand(a)
+        case "resume":
+            let was = KillSwitch.halted
+            KillSwitch.halted = false
+            return was ? "resumed: the kill switch's stop is lifted" : "nothing to resume"
         case "phone": return try Notify.phone(a, tty: false)
         case "download": return try download(a)
         case "wait-for": return try waitFor(a)
@@ -383,6 +384,11 @@ enum Commands {
     /// Runs the pending request for `token`. `--text` replaces the text of a pending `type`.
     static func approve(_ a: Args) throws -> String {
         guard let token = a.pos.first else { throw Fail(5, "approve <token> [--text \"edited text\"]") }
+        if Approvals.byUser == token {
+            KillSwitch.halted = false
+        } else if KillSwitch.halted {
+            throw Fail(6, "stopped: " + KillSwitch.message)
+        }
         if let p = Approvals.find(token), p.needsUser, Approvals.byUser != token {
             throw Fail(8, "only the user can approve \(token): \(p.summary) is \(Gate.credential). Run `apprentice confirm \(token) --why \"…\"` so they decide in the window. Nobody can approve it for them, nor from the chat")
         }

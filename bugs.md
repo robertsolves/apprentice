@@ -213,3 +213,39 @@ Findings from reading all of `Sources/apprentice`, `agent/`, the shell entry poi
 - Where: `Commands.swift:1170-1173`.
 - Cause: the file is `shots/shot-<HHmmss>.png`, and `Capture.save` overwrites an existing file without complaint. Two captures inside one second — the usual before/after pair, since a `shot` of a small window is fast — get the same name, so the pair an agent compares is two copies of the later image.
 - Suggested fix: put the snapshot number in the name (`shot-\(snap)-…`) or a millisecond/random suffix, so a path is never reused.
+
+### F37 · `[vm] local` is documented as the way to keep a site off the VM, but no code reads it — 2026-11-02
+- Severity: medium (a safety control the docs tell the user to rely on does nothing: with `vm on`, a site they listed as kept on this Mac still goes to the guest).
+- Where: `SPEC.md:453`, `FEATURES.md:158`; the settings reader `VM.swift:24-44`; the routing in `Remote.swift`.
+- Cause: `VM.settings` merges `[vm]` and `[vm.<name>]` and `VM.swift:28` reserves only `name`, `host` and `port` as per-VM keys; `host` is read at `VM.swift:43`. Nothing reads a `local` list, and `Remote.wants` never consults one. Both docs state it as shipped: "Accounts whose standing matters most stay on this Mac's own browser: `[vm] local = [\"site.com\"]` refuses them in every VM."
+- Suggested fix: read `[vm] local` into a list of domains (matched with `Site.domain`, so renames count), and refuse in `Remote.wants` with `Fail(4, "vm: <site> is kept on this Mac ([vm] local)")`. If it is not going to be built, move it to `TODO.md` and delete the two doc claims.
+
+### F38 · "site policy" is documented as an exit-4 refusal agents must stop on, but nothing throws it — 2026-11-02
+- Severity: low (agents are told to stop and report on a condition that cannot occur, and every `session` prints a `policy:` line that the docs name as the block).
+- Where: `SPEC.md:193`; `agent/AGENTS.md:43` and `:49`; `agent/SKILL.md:49`; `README.md:148`. Code: `Config.swift:292-294`, `SiteRules.swift:435,442`, `Flows.swift:28`.
+- Cause: since site policies stopped refusing (`SPEC.md:376`, `FEATURES.md:89`, `AGENTS.md:68`), the remaining `policy:` strings are informational — the header `session` prints and the `policy <domain>` notes. The only policy refusal is the shell one at `Flows.swift:28` ("blocked: … the policy is UI only"), which is exit 4 but is not a site policy and does not print a `policy:` line. SPEC's exit table and both agent docs still list "site policy (`policy:`)" as a cause, although `AGENTS.md:73` says these lists are kept in sync.
+- Suggested fix: drop "site policy" and `policy:` from the exit-4 rows in `SPEC.md`, `README.md`, `agent/AGENTS.md` and `agent/SKILL.md`, and say that the `policy:` line is informational (which shell may be used), not a refusal.
+
+### F39 · SPEC's architecture table calls the VM a macOS guest — 2026-11-02
+- Severity: low (someone planning from the component table believes a macOS VM exists; the README says it is only planned).
+- Where: `SPEC.md:88`.
+- Cause: everything else says Linux or Debian — `SPEC.md:449-453` ("A Debian guest (Tart …)"), `README.md:72` and `:96` ("There is no macOS VM yet"), `TODO.md:5`, `site/llms.txt:8`, and `agent/vm/provision.sh` installs Debian. Only the table row says "Optional macOS guest so browser work has its own cursor and keyboard".
+- Suggested fix: make the row read "Optional Linux (Debian) guest under Tart, so browser work has its own cursor and keyboard; a macOS guest is planned".
+
+### F40 · `vm list` is implemented and told to agents, but `usage()` and the README leave it out — 2026-11-02
+- Severity: low (an agent that reads only `apprentice help` or the README never learns it exists, and SPEC calls `usage()` "the full list").
+- Where: `VM.swift:252`; the `vm` line of `usage()` in `main.swift`; `README.md:136`; `agent/AGENTS.md:39`; `agent/SKILL.md:45`.
+- Cause: `case "list": return list()` is handled, and both agent docs say "`vm list` shows them", but the usage line lists `setup | install | up | down | on | off | look | call "what" | shell | status` with no `list`, and the README row copies it. `SPEC.md:146` calls `usage()` the full list; `FEATURES.md:237` does include it.
+- Suggested fix: add `| list` to the `vm` usage line and to the README's `vm` row.
+
+### F41 · The README's command table is missing eight commands — 2026-11-02
+- Severity: low (the README is the page agents are pointed at, and it has no row for `budget` or `focus`, both of which `agent/SKILL.md` and `agent/AGENTS.md` tell agents to run).
+- Where: `README.md:112-137`.
+- Cause: the table covers the rest of `usage()` but skips `focus` (`main.swift` usage:9), `budget` (38), `cool` (40), `activity` (41), `flag` (42), `serve` and `stop` (57), and `replay` (54). `FEATURES.md`'s command index lists all of them, and both agent docs use `focus` and `budget` in their loops.
+- Suggested fix: add a `focus <app> [--on mac|linux]` row, a `budget`/`cool`/`activity`/`flag` row, and `serve`/`stop` and `replay` rows.
+
+### F42 · `scroll --in` and `browse --in` silently scroll the window when the value is not a number — 2026-11-02
+- Severity: low (a mistyped or label-valued target scrolls the page instead of the list, and the command reports success).
+- Where: `Commands.swift:863` (`scroll`), `Commands.swift:885` (`browse`).
+- Cause: both read the flag as `if let raw = a.value("in"), let id = Int(raw) { rect = try resolve(id, target).1.rect }`, so a value like `--in footer` makes the condition fail and execution falls through to the window-centre rect. The command then succeeds (`ok · snap …`) having scrolled the wrong thing; a numeric id that is stale or absent does throw, so only the non-numeric case is silent, and the log row records no `in`, so it cannot be told from the logs either.
+- Suggested fix: `if let raw = a.value("in") { guard let id = Int(raw) else { throw Fail(5, "--in takes an element id, not \"\(raw)\"") }; rect = try resolve(id, target).1.rect }`.

@@ -66,6 +66,11 @@ enum StatusItem {
                 menu.addItem(action("Approve", #selector(approve), p.token))
                 menu.addItem(action("Deny", #selector(deny), p.token))
             }
+            if KillSwitch.halted {
+                menu.addItem(.separator())
+                menu.addItem(info("Stopped by the kill switch"))
+                menu.addItem(action("Resume", #selector(resume), nil))
+            }
             menu.addItem(.separator())
             menu.addItem(action("Open this session's log", #selector(openLog), nil))
             if let n = Store.load(Repo.Notice.self, "update.json") { menu.addItem(info(clip(n.text, 90))) }
@@ -97,6 +102,10 @@ enum StatusItem {
                 _ = try? Daemon.command(Request(cmd: cmd, args: [token]), byUser: true)
                 StatusItem.busy(false)
             }
+        }
+
+        @objc func resume() {
+            DispatchQueue.global(qos: .userInitiated).async { _ = try? Daemon.command(Request(cmd: "resume")) }
         }
 
         @objc func openLog() {

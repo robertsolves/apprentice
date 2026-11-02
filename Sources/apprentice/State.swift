@@ -543,6 +543,7 @@ enum Approvals {
 
     /// Returns when the current request was approved; otherwise saves a proposal and throws exit 8.
     static func check(_ summary: String, details: [String], warnings: [String], element: String? = nil) throws {
+        if KillSwitch.halted { throw Fail(6, "stopped: " + KillSwitch.message) }
         if approved, !planActive || planCovers(warnings) {
             // The id may point at something else after a fresh read: then the approval does not apply.
             if let want = granted?.element, let element, want != element {

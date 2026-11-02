@@ -2,7 +2,12 @@ import AppKit
 import Foundation
 
 enum KillSwitch {
+    /// Stops the action under way.
     static var tripped = false
+    /// Kept after a press until the user answers a question, approves a step themselves or says to carry
+    /// on (`resume`): meanwhile no step is proposed or run. Reading still works.
+    static var halted = false
+    static let message = "the user pressed the kill switch. Stop: do nothing more on screen and ask them what to do (`apprentice ask`). Their answer in the window lifts the stop; if they answer in the chat and say to carry on, run `apprentice resume`"
 
     static func install() {
         NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { event in
@@ -10,6 +15,7 @@ enum KillSwitch {
             // The "." key on whatever layout is in use; 47 is its US position.
             if flags == [.control, .option, .command], event.charactersIgnoringModifiers == "." || event.keyCode == 47 {
                 tripped = true
+                halted = true
                 NSSound.beep()
                 Daemon.queue.async { Store.log(["kill_switch": true]) }
             }

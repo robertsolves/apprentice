@@ -57,7 +57,7 @@ ok · snap 4 · +2 -0 ~0
 
 - **It reads text, not pixels.** The macOS accessibility tree becomes a numbered list of what is on screen. A step costs tens of tokens, not a screenshot. `shot` and `ocr` exist for the rare page that hides from accessibility.
 - **It uses real input only.** Every click, scroll and keystroke goes through the system's own input stream with the window in front, and the cursor moves at a human pace along paths that vary every time: different curves and speeds, overshoot and correction, all drawn from one fast random generator. Nothing is injected into pages, and nothing is pressed through accessibility. Addresses and file-dialog paths are pasted, because no website can see those boxes. Text inside pages is typed key by key.
-- **It stops for you.** It waits until you have been idle for a moment. If you press a key or click while it is acting, it stops with exit 6 and leaves the cursor where you are. ctrl+opt+cmd+. is a kill switch.
+- **It stops for you.** It waits until you have been idle for a moment. If you press a key or click while it is acting, it stops with exit 6 and leaves the cursor where you are. ctrl+opt+cmd+. is a kill switch: nothing more runs until you answer the agent or click Resume in the menu bar.
 - **It proposes, then acts.** Every command that changes something (`open`, `click`, `type`, `key`, `menu`, `drag`, `upload`, `download`, `choose`, `do`) returns `approve? …` and a token, with exit 8. Nothing happens until `apprentice approve <token>`. Steps that look risky carry a `⚠` line: send, post, delete, buy, a password field, a settings page.
 - **It asks you.** For any decision that is yours, it opens a little window at the top of the screen and pings:
   - `ask` takes free text or choices;

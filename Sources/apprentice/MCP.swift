@@ -31,7 +31,8 @@ enum MCP {
         tool("upload", "Click a file control and pick a file in the dialog", ["id": ["type": "integer"], "path": ["type": "string"]], ["id", "path"]),
         tool("download", "Save a linked file or image to a path", ["id": ["type": "integer"], "path": ["type": "string"]], ["id", "path"]),
         tool("log", "The last steps of this session", ["tail": ["type": "integer"]]),
-        tool("pending", "The proposal waiting for approve or deny, if any", [:]),
+        tool("pending", "The proposals waiting for approve or deny, if any", [:]),
+        tool("resume", "Lift the kill switch's stop, only when the user has said to carry on", [:]),
         tool("notes", "Search the learned notes and flows", ["query": ["type": "string"]]),
         tool("learn", "Draft a flow from this session's approved steps", ["task": ["type": "string"], "name": ["type": "string"]], ["task"]),
         tool("show", "Ask the user to point at something on screen; returns the element there", ["what": ["type": "string"]], ["what"]),
@@ -186,6 +187,8 @@ enum MCP {
             return Request(cmd: "log", args: s("tail").map { ["--tail", $0] } ?? [])
         case "pending":
             return Request(cmd: "pending")
+        case "resume":
+            return Request(cmd: "resume")
         case "show":
             return Request(cmd: "show", args: [s("what") ?? ""])
         case "away":

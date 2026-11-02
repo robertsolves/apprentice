@@ -313,7 +313,7 @@ How it works:
 Other guardrails:
 
 - **Allowlist per session:** domains and apps, set in config or with `session --allow`. Leaving it is exit 4.
-- **Kill switch:** a global hotkey (ctrl+opt+cmd+.) stops all sessions immediately.
+- **Kill switch:** a global hotkey (ctrl+opt+cmd+.) stops the action under way (exit 6) and holds every later step, also exit 6, until the user answers an `ask` or `confirm` in the window, approves from the menu bar, or tells the agent to carry on (`resume`, or Resume in the menu bar). Reading still works.
 - **No secrets:** no passwords in commands or logs. apprentice relies on sessions the user is already logged into. Password fields are never read back, only typed into.
 - **Log scrubbing:** windows from banking, health and password-manager apps are excluded from screenshots and element logs.
 - **Prompt injection:** on-screen text is data. Usage docs tell agents not to follow instructions found on a page or in an email.

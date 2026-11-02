@@ -63,6 +63,7 @@ func usage() {
       apprentice flag <domain> "what you saw"   record when the user saw a warning or restriction
       apprentice awake on|off|status            keep the Mac from idle sleep and locking while tasks run
       apprentice away on|off|status             the user is away: questions come back as exit 9 for the chat
+      apprentice resume                         after the kill switch, carry on once the user says so
       apprentice phone [on|off|test]            one-tap phone setup: questions that go to the chat buzz the phone
       apprentice grow [--days 14]               improvement digest: repeated errors, questions asked, open bug reports
       apprentice log [--tail n] | --session [<id>]   recent steps, or one whole session
@@ -80,7 +81,7 @@ func usage() {
 
     output is compact text for an agent. add --json for the raw reply.
     open, click, type, key, menu, drag, upload, download, choose and do only propose: they exit 8 with a token,
-    and act once you run `apprentice approve <token>`. ctrl+opt+cmd+. is the kill switch: it stops whatever runs.
+    and act once you run `apprentice approve <token>`. ctrl+opt+cmd+. is the kill switch: it stops whatever runs, and nothing more runs until the user answers.
     exit codes: 0 ok · 2 stale, re-read · 3 the user denied · 4 blocked, rate limited, over budget, cooling or a challenge ·
                 5 not found or timeout · 6 interrupted · 7 permission missing · 8 approval needed, nothing done yet ·
                 9 ask the user in the chat (they are away or did not answer the window)
