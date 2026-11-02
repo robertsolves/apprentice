@@ -104,6 +104,20 @@ Verdicts: **keep** (used and pays off), **watch** (too new or too little data), 
 | macOS notifications for cooldowns and challenges | `SiteRules.swift` `Site.notify` | Not measured | The user notices blocks without asking | watch |
 | Keep-awake | `Awake.swift` | `awake` rows | Long runs finish without sleep | watch |
 
+## The window, schedules and away
+
+| Feature | Where | How to measure | Keep if | Verdict |
+| --- | --- | --- | --- | --- |
+| `app`: the window as its own process, opened from the Dock, Spotlight or the menu bar; every button sends the same request the CLI sends (`Request.user` marks the person's own click, so approvals and `user_only` steps work from it) | `AppUI.swift` `AppMain`, `AppBundle`, `AppModel` | `app` rows; approvals decided in the window versus the menu bar | The window is how the person works day to day | watch |
+| Screens: Terminal, Schedules, Approvals (badge), Activity, Sites, Settings, Playbooks, VMs and Updates & health; ⌘1…9 and a ⌘K palette that runs any command and shows its output | `AppUI.swift` `RootView` and the screen views | Which section is opened; `grow` for the commands behind it | Every screen is used, and the palette replaces a terminal for quick commands | watch |
+| Terminal tabs: a pty per tab (`$SHELL -l` in a folder, an optional start command), `[app.tabs]` presets, Claude Code / Codex / opencode / Kilo / a following `apprentice log`; `APPRENTICE_TAB`, `APPRENTICE_PROJECT`, `APPRENTICE_VM` set for the tab | `Terminal.swift` `Pty`, `TermSession`; `AppUI.swift` `TerminalWorkspace` | Log rows carrying `tab`; approvals answered in a tab | Agents run in tabs rather than the user's own terminal | watch |
+| Terminal screen: alternate screen, 256 colours and truecolor, cursor addressing, erase, scroll regions, insert/delete, wide characters and scrollback; ⌘V paste | `Terminal.swift` `TermScreen`, `Renderer`, `TerminalTextView` | Not measured; a TUI that draws wrongly is a bug report | A coding agent's TUI draws correctly | watch |
+| Inline ⚠ banner in the tab it came from, with Deny / Allow; the terminal ignores keys while it is open, so an agent cannot approve its own step | `AppUI.swift` `ApprovalBanner`; `State.swift` `Approvals.check` (`tab`) | `confirm` rows with `via` and `by`; steps approved from a banner | Banners become the usual way risky steps are approved | watch |
+| `schedule`: prompts for an agent CLI, `run` tasks, flows and (unless `ui_only`) shell commands, later or again; once, every N minutes, daily, chosen weekdays or cron, ± jitter through `Rand`, quiet-hours shift, catch-up, overlap skip; adding or changing one from an agent is a `user_only` step | `Schedules.swift`; `Daemon.swift` `Schedules.install` | `schedule` rows (`started`, `result`, `skipped`); runs per schedule in `~/.apprentice/schedules/<id>/` | Scheduled work runs on time and is neither skipped nor doubled | watch |
+| `schedule agent on`: a LaunchAgent starts `apprentice serve` at login, so schedules fire with nothing else open | `Schedules.swift` `installAgent`, `removeAgent` | The LaunchAgent is installed while schedules exist | Schedules fire after a restart or a reboot | watch |
+| `away`: queued `do`/`run` work that runs only while the person is away and stops on their first input (exit 10); presence from idle time plus display-sleep assertions; the per-unit journal and the resume rule (proceed, undo and redo, or needs-you) | `Away.swift`; `Commands.swift` `run` (exit 10) and `type` (journal); `Daemon.swift` `Away.install` | `away` rows (`yielded`, `state`); `exit 10` in `sessions` | Away work finishes without colliding with the person | watch |
+| `away wait`: blocks until the person leaves, so an agent pauses and resumes instead of retrying into an exit 10 | `Away.swift` `wait` | `away` rows from an agent's wait | Agents use it rather than retrying | watch |
+
 ## Learning and reuse
 
 | Feature | Where | How to measure | Keep if | Verdict |
@@ -195,6 +209,10 @@ Every source file, and where its features are listed above. Nothing in `Sources/
 | `SiteRules.swift` | Budgets, cooldowns, soft blocks, challenges, policy notes, dwell, `cool`, `budget`, `activity`, `flag`, notifications |
 | `State.swift` | Store and locking, sessions, logging, privacy, rate and nav limits, gate, approvals |
 | `StatusItem.swift` | Menu-bar item and its menu: approve, deny, log, stop, resume, update notice |
+| `AppUI.swift` | `app` window: bundle, sidebar screens, tabs, banner approvals, command palette |
+| `Away.swift` | `away` queue, presence, exit 10, the unit journal and the resume rule |
+| `Schedules.swift` | `schedules.toml`, next-fire maths, jitter, quiet hours, catch-up, the daemon timer, `schedule`, the LaunchAgent |
+| `Terminal.swift` | pty tabs, the xterm screen model and the terminal view |
 | `VM.swift` | `vm` subcommands, ssh, screen viewer |
 | `Wire.swift` | Wire protocol, daemon start/stop, `--json` |
 | `main.swift` | `help`, usage, `--vm`, exit codes, command routing |
@@ -219,7 +237,9 @@ Every command the CLI accepts, and the section that scopes it. `help` and `versi
 | `ocr [--crop]` / `shot [--crop] [--marks]` | Reading the screen |
 | `approve [--text]` / `deny` / `pending` / `resume` | Safety |
 | `ask [--choices] [--multi] [--text]` / `show` / `confirm [--why]` | Talking to the user |
-| `away on\|off\|status` / `phone [on\|off\|test]` | Talking to the user |
+| `away on\|off\|status\|wait\|add\|list\|cancel\|run` / `phone [on\|off\|test]` | Talking to the user |
+| `app` | The window |
+| `schedule add\|list\|show\|pause\|resume\|rm\|now\|agent` | The window |
 | `awake on\|off\|status` | Talking to the user |
 | `do <flow> [--key value]` / `do --explain` | Learning and reuse |
 | `playbooks ["words"]` / `learn "task" [--name] [--model] [--force]` / `route "task"` | Learning and reuse |
