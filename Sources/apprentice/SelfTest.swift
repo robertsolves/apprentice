@@ -29,6 +29,7 @@ enum SelfTest {
         flows()
         notes()
         learning()
+        projects()
         updates()
         try? FileManager.default.removeItem(at: Store.dir)
         if failures.isEmpty {
@@ -349,6 +350,25 @@ enum SelfTest {
         check(PR.github("git@github.com:you/apprentice.git") == "you/apprentice" && PR.github("https://github.com/a/b") == "a/b", "GitHub owner/name from either URL")
         let body = PR.body(["Fix F3: stale ids", "notes: finder"], files: ["Sources/a.swift"])
         check(body.contains("- Fix F3: stale ids") && body.contains("## Field reports\n- F3"), "a PR body lists the commits and the reports they name")
+    }
+
+    /// A project folder adds its own counts and caps, and never lifts the account-wide ones; the agent's
+    /// model is read from its transcript.
+    private static func projects() {
+        let root = Store.dir.appendingPathComponent("project-test")
+        let nested = root.appendingPathComponent("src/deep")
+        try? FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: root.appendingPathComponent(".apprentice"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root); Project.dir = nil }
+        check(Project.find(from: nested.path)?.path == root.appendingPathComponent(".apprentice").path, "a project folder is found from a subfolder")
+        try? #"{"default": {"reaction": {"hour": 1}}}"#.write(to: root.appendingPathComponent(".apprentice/budgets.json"), atomically: true, encoding: .utf8)
+        Project.dir = root.appendingPathComponent(".apprentice")
+        func like() -> Bool { (try? Budgets.check("project.example", "reaction", record: true)) != nil }
+        check(like() && !like(), "the project's tighter cap stops the second action")
+        Project.dir = nil
+        check(like(), "outside the project only the account-wide cap applies")
+        check(Agent.lastModel(in: #"{"model":"claude-a"} {"model":"<synthetic>"} {"model":"claude-b"} {"model":"<synthetic>"}"#) == "claude-b",
+              "the agent's model is the last real one in its transcript")
     }
 
     /// The automatic update against throwaway git repos: a clean update, a dirty tree, a conflict and a

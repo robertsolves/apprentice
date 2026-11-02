@@ -114,8 +114,8 @@ enum Budgets {
     static var path: URL { Settings.dir.appendingPathComponent("budgets.json") }
 
     /// budgets.json maps each site to its caps per kind. Keys starting with "_" and "inherit" are notes.
-    static func table() -> [String: [String: Cap]] {
-        guard let data = try? Data(contentsOf: path),
+    static func table(_ file: URL = path) -> [String: [String: Cap]] {
+        guard let data = try? Data(contentsOf: file),
               let raw = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return builtIn }
         var out: [String: [String: Cap]] = [:]
         for (site, value) in raw where !site.hasPrefix("_") {
@@ -131,8 +131,7 @@ enum Budgets {
 
     /// The cap for one kind on one site: the site's own entry, else the default's, else the cap of
     /// its alias, else the cap for any gated action.
-    static func cap(_ domain: String, _ kind: String) -> Cap {
-        let t = table()
+    static func cap(_ domain: String, _ kind: String, table t: [String: [String: Cap]] = table()) -> Cap {
         let site = t.keys.filter { $0 != "default" && Site.matches(domain, $0) }.max { $0.count < $1.count }
         for k in [kind, alias[kind]].compactMap({ $0 }) {
             if let site, let c = t[site]?[k] { return c }
@@ -169,8 +168,27 @@ enum Budgets {
         // An upvote is a like and a repost is a post, so the alias shares its counter: counted apart,
         // the two together got twice the cap the alias promises.
         let kind = alias[raw] ?? raw
-        let cap = cap(domain, kind)
-        let wait = try Limits.update { l -> Double in
+        // A project folder adds its own count and caps; the account-wide ones below always apply too.
+        let project = Project.dir
+        let projectCaps = project.map(projectTable)
+        if let project, let projectCaps {
+            try Project.update(project) { try count(&$0, domain, kind, cap(domain, kind, table: projectCaps), record: false, scope: "in this project") }
+        }
+        let wait = try Limits.update { try count(&$0, domain, kind, cap(domain, kind), record: record, scope: nil) }
+        if record, let project, let projectCaps {
+            _ = try? Project.update(project) { try count(&$0, domain, kind, cap(domain, kind, table: projectCaps), record: true, scope: "in this project") }
+        }
+        if wait > 0 { Timing.measure("gap") { Pace.sleep(wait) } }
+    }
+
+    /// A project's own budgets.json, else the account-wide caps.
+    static func projectTable(_ project: URL) -> [String: [String: Cap]] {
+        let file = project.appendingPathComponent("budgets.json")
+        return FileManager.default.fileExists(atPath: file.path) ? table(file) : table()
+    }
+
+    /// Checks one kind's count against `cap` and, with `record`, counts it; returns how long to wait first.
+    private static func count(_ l: inout Limits, _ domain: String, _ kind: String, _ cap: Cap, record: Bool, scope: String?) throws -> Double {
         let now = Date().timeIntervalSince1970
         let times = (l.kinds?[domain]?[kind] ?? []).filter { now - $0 < 8 * 86_400 }
         let cal = Calendar.current
@@ -182,7 +200,7 @@ enum Budgets {
         func over(_ count: Int, _ limit: Double?, _ span: String) throws {
             guard let limit, Double(count) >= limit else { return }
             Events.add(domain, "budget", ["kind": kind, "span": span, "count": count])
-            throw Fail(4, "budget: \(count) \(name) on \(domain) \(span) (cap \(Int(limit))). Stop here; the user can change caps in budgets.json")
+            throw Fail(4, "budget: \(count) \(name) on \(domain) \(span)\(scope.map { " " + $0 } ?? "") (cap \(Int(limit))). Stop here; the user can change caps in budgets.json")
         }
         try over(times.filter { now - $0 < 3600 }.count, cap.hour, "in the last hour")
         try over(times.filter { $0 >= day }.count, cap.day, "today")
@@ -200,27 +218,32 @@ enum Budgets {
         kinds[domain, default: [:]][kind] = times + [now + wait]
         l.kinds = kinds
         return wait
-        }
-        if wait > 0 { Timing.measure("gap") { Pace.sleep(wait) } }
     }
 
     /// `apprentice budget [domain]`: what is left today and this hour, per kind, for the sites used lately.
     static func report(_ only: String?) -> String {
-        let l = Limits.stored
+        var out = report(only, Limits.stored, table(), title: "budget")
+        if let project = Project.dir {
+            out += "\n" + report(only, Project.limits(project), projectTable(project), title: "project budget (\(project.deletingLastPathComponent().lastPathComponent))")
+        }
+        return out
+    }
+
+    static func report(_ only: String?, _ l: Limits, _ t: [String: [String: Cap]], title: String) -> String {
         let now = Date().timeIntervalSince1970
         let day = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
         var domains = Set(l.kinds?.keys.map { $0 } ?? []).union(l.cooling?.keys.map { $0 } ?? []).union(l.challenged?.keys.map { $0 } ?? [])
         if let only { domains = [Site.domain(only)] }
-        guard !domains.isEmpty else { return "budget · nothing used in the last 8 days. Caps: \(path.path)" }
+        guard !domains.isEmpty else { return "\(title) · nothing used in the last 8 days. Caps: \(path.path)" }
         var out: [String] = []
         for domain in domains.sorted() {
-            out.append("budget · \(domain)")
+            out.append("\(title) · \(domain)")
             if let c = l.cooling?[domain], c.until > now { out.append("  cooling until \(Site.time(c.until)) (strike \(c.strikes))") }
             if let marker = l.challenged?[domain] { out.append("  challenge on screen: \(marker)") }
             let used = l.kinds?[domain] ?? [:]
             let kinds = only == nil ? used.keys.sorted() : Set(used.keys).union(words.map(\.0)).sorted()
             for kind in kinds {
-                let cap = cap(domain, kind)
+                let cap = cap(domain, kind, table: t)
                 let times = used[kind] ?? []
                 var parts: [String] = []
                 if let d = cap.day { parts.append("today \(times.filter { $0 >= day }.count)/\(Int(d))") }

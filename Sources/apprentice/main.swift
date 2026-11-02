@@ -55,6 +55,7 @@ func usage() {
       apprentice repo                           the clone apprentice runs from
       apprentice policy [domain]                may the LLM use shell commands for macOS tasks? With a domain: may apprentice work there?
       apprentice budget [domain]                what is left of today's and this hour's caps per site and kind
+      apprentice project [init | status]        a project's own .apprentice/ folder: its own site counts and tighter caps, on top of the account-wide ones
       apprentice cool [--clear domain]          sites cooling down after a rate limit; clearing asks the user
       apprentice activity <domain> [--days 7]   actions per day, rate limits, challenges and flags on one site
       apprentice flag <domain> "what you saw"   record when the user saw a warning or restriction
@@ -94,7 +95,7 @@ let rest = Array(argv.dropFirst())
 /// Commands answered in this process log their own row, so `log --session` and `grow` see `learn`, `bug`,
 /// `route` and the rest beside the daemon's commands.
 let loggedHere: Set<String> = ["route", "notes", "learn", "bug", "commit", "update", "settings", "repo", "policy", "budget",
-                               "activity", "flag", "grow", "sessions", "doctor", "pr", "vm", "replay"]
+                               "activity", "flag", "grow", "sessions", "project", "doctor", "pr", "vm", "replay"]
 if loggedHere.contains(command) { Timing.begin() }
 
 func done(_ code: Int32) -> Never {
@@ -170,6 +171,8 @@ case "grow":
 case "sessions":
     print(Sessions.list(Args.parse(rest)))
     done(0)
+case "project":
+    attempt { print(try Project.command(Args.parse(rest))) }
 case "doctor":
     attempt { print(try Doctor.run(Args.parse(rest))) }
 case "uninstall":
