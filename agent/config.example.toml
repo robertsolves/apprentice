@@ -1,8 +1,8 @@
 # ~/.apprentice/config.toml
 
 # Built in, apps (on this Mac and in the VM) run at the fastest style: short moves, no waits, pasted text.
-# Web pages run at steady and the social sites (Facebook, Instagram, Threads, TikTok, LinkedIn, X, Reddit,
-# Pinterest, YouTube, Bluesky) at careful; [pace.styles] below wins. A [pace.default] section replaces
+# Web pages run at steady and the social sites (the [social] list in agent/sites.toml; add more in
+# ~/.apprentice/sites.toml) at careful; [pace.styles] below wins. A [pace.default] section replaces
 # fastest for apps and is the base for every style; these are its keys.
 # [pace.default]
 # move_ms = [50, 200]
@@ -68,7 +68,7 @@ cooldown_hours = [1, 6, 24]
 on_challenge = "stop"
 # Text that means the site is throttling, and signs of a check. These replace the built-in lists;
 # matched lower case, no commas inside a phrase.
-# The built-in lists cover English and the big sites' other languages.
+# The built-in lists (agent/sites.toml) cover English and the big sites' other languages.
 # soft_block = ["try again later", "temporarily restricted", "unusual activity", "rate limit"]
 # challenge = ["captcha", "verify you are human", "confirm it's you", "enter the code"]
 # Or add to the built-in lists instead of replacing them:
@@ -85,7 +85,8 @@ auto = false
 gap_min = 30               # a sign-in page again sooner than this stops for you: the last one failed
 per_day = 3                # sign-ins per site a day
 
-# More words per budgeted kind, for a language or a site's own labels (whole words; CJK inside text).
+# More words per budgeted kind (the kinds are in agent/sites.toml), for a language or a site's own
+# labels (whole words; CJK inside text).
 # [sites.kinds]
 # like = ["gostei"]
 # follow = ["seguir perfil"]
@@ -93,7 +94,7 @@ per_day = 3                # sign-ins per site a day
 [gate]
 # Steps only the user can approve, in apprentice's window or menu-bar item; the agent's approve is
 # refused, even inside an approved flow. Whole words in the button or link. Password fields always are.
-# [] leaves every step to the agent.
+# Without this key the list in agent/sites.toml applies; [] leaves every step to the agent.
 user_only = ["pay", "pay now", "buy", "buy now", "purchase", "checkout", "check out", "place order", "order now", "donate", "transfer", "upgrade", "captcha", "not a robot", "verify you are human", "delete account", "close account", "deactivate"]
 
 [session]

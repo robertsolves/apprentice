@@ -21,6 +21,20 @@ enum Repo {
     /// Where the repo's own files are read from (`agent/`, `skills/`, `playbooks/`): the release app's copy
     /// when that is what runs without a clone, else the clone.
     static var resources: URL { Release.cloneInstalled ? root : (Release.share ?? root) }
+    /// A shipped file such as `agent/sites.toml`: from `resources`, else from the repo the running binary
+    /// was built in (a `swift build` run before kit.sh, and `selftest` under a throwaway home).
+    static func shipped(_ path: String) -> URL {
+        let file = resources.appendingPathComponent(path)
+        if FileManager.default.fileExists(atPath: file.path) { return file }
+        var dir = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath().deletingLastPathComponent()
+        while dir.path != "/" {
+            let here = dir.appendingPathComponent(path)
+            if FileManager.default.fileExists(atPath: dir.appendingPathComponent("Package.swift").path),
+               FileManager.default.fileExists(atPath: here.path) { return here }
+            dir.deleteLastPathComponent()
+        }
+        return file
+    }
     /// install.sh names it `upstream`; an older plain clone only has origin.
     static var upstream: String { git("remote").out.split(separator: "\n").contains("upstream") ? "upstream" : "origin" }
 

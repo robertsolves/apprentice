@@ -15,8 +15,9 @@ enum Site {
         return renamed[h] ?? h
     }
 
-    /// One account, two names: the same login and limits whichever one the browser lands on.
-    static let renamed = ["twitter.com": "x.com"]
+    /// One account, two names: the same login and limits whichever one the browser lands on
+    /// (`[renamed]` in agent/sites.toml).
+    static var renamed: [String: String] { SiteLists.current.renamed }
 
     static func matches(_ host: String, _ domain: String) -> Bool {
         let h = host.lowercased(), d = domain.lowercased()
@@ -97,8 +98,7 @@ enum Budgets {
     }
 
     /// A kind with no cap of its own counts against a close one: an upvote is a like.
-    static let alias = ["upvote": "like", "story": "post", "group_post": "post", "repost": "post",
-                        "connect": "follow", "friend_request": "follow", "endorse": "like", "join": "follow"]
+    static var alias: [String: String] { SiteLists.current.countsAs }
 
     static var path: URL { Settings.dir.appendingPathComponent("budgets.json") }
 
@@ -135,42 +135,11 @@ enum Budgets {
         return t["default"]?["default"] ?? Cap()
     }
 
-    /// Kinds in the order they are tested, so "unfollow" wins over "follow" and "add friend" over "add".
-    /// English first, then the words the big sites use in German, French, Spanish, Portuguese, Italian,
-    /// Dutch, Polish, Turkish, Russian, Japanese, Korean and Chinese, so a "Gefällt mir" or a "いいね" is
-    /// budgeted like a "Like" (BOT_DETECTION S2). `[sites.kinds]` in config.toml adds more.
-    static let words: [(String, [String])] = [
-        ("unfollow", ["unfollow", "nicht mehr folgen", "entfolgen", "ne plus suivre", "se désabonner", "dejar de seguir",
-                      "deixar de seguir", "smetti di seguire", "ontvolgen", "przestań obserwować", "takibi bırak",
-                      "отписаться", "フォロー解除", "언팔로우", "팔로우 취소", "取消关注", "取消關注"]),
-        ("friend_request", ["add friend", "freund hinzufügen", "freundschaftsanfrage", "ajouter en ami", "agregar amigo",
-                            "añadir amigo", "adicionar amigo", "aggiungi agli amici", "vriend toevoegen", "dodaj do znajomych",
-                            "arkadaş ekle", "добавить в друзья", "友達を追加", "친구 추가", "加好友", "添加好友"]),
-        ("connect", ["connect", "vernetzen", "se connecter", "conectar", "collegati", "connectie maken", "nawiąż kontakt",
-                     "bağlantı kur", "установить контакт", "つながりを申請", "1촌 맺기", "建立联系"]),
-        ("repost", ["repost", "retweet", "reshare", "quote", "reposten", "republier", "republicar", "ripubblica", "repostuj",
-                    "yeniden paylaş", "репост", "リポスト", "リツイート", "재게시", "转发", "轉發", "转帖"]),
-        ("endorse", ["endorse", "empfehlen", "recommander", "onderschrijven"]),
-        ("join", ["join", "beitreten", "rejoindre", "unirse", "unirme", "entrar no grupo", "partecipa", "unisciti",
-                  "lid worden", "dołącz", "katıl", "вступить", "присоединиться", "参加する", "가입", "加入"]),
-        ("follow", ["follow", "subscribe", "folgen", "abonnieren", "suivre", "s'abonner", "seguir", "suscribirse", "segui",
-                    "iscriviti", "volgen", "abonneren", "obserwuj", "subskrybuj", "takip et", "abone ol", "подписаться",
-                    "フォロー", "チャンネル登録", "팔로우", "구독", "关注", "關注", "订阅", "訂閱"]),
-        ("upvote", ["upvote", "hochvoten", "voter pour", "votar a favor", "voto positivo", "賛成票"]),
-        ("like", ["like", "heart", "gefällt mir", "j'aime", "me gusta", "curtir", "gosto", "mi piace", "vind ik leuk",
-                  "lubię to", "beğen", "нравится", "いいね", "좋아요", "赞", "讚", "点赞", "喜欢"]),
-        ("comment", ["comment", "reply", "kommentieren", "antworten", "commenter", "répondre", "comentar",
-                     "responder", "commenta", "rispondi", "reageren", "beantwoorden", "skomentuj", "odpowiedz", "yorum yap",
-                     "yanıtla", "комментировать", "ответить", "コメント", "返信", "댓글", "답글", "评论", "評論", "回复", "回覆"]),
-        ("message", ["message", "send", "nachricht", "senden", "envoyer", "mensaje", "enviar", "mensagem", "messaggio", "invia",
-                     "bericht", "verzenden", "verstuur", "wiadomość", "wyślij", "mesaj", "gönder", "сообщение", "отправить",
-                     "メッセージ", "送信", "메시지", "보내기", "私信", "发送", "發送", "傳送"]),
-        ("story", ["story", "stories", "storys", "ストーリーズ", "스토리", "快拍"]),
-        ("post", ["post", "publish", "tweet", "share", "posten", "veröffentlichen", "teilen", "publier", "partager",
-                  "publicar", "compartir", "compartilhar", "pubblica", "condividi", "plaatsen", "delen", "publiceren",
-                  "opublikuj", "udostępnij", "paylaş", "опубликовать", "поделиться", "投稿", "シェア", "ポスト",
-                  "게시", "공유", "发布", "發佈", "分享", "发帖"]),
-    ]
+    /// Kinds in the order they are tested, so "unfollow" wins over "follow" and "add friend" over "add",
+    /// each with its words in the big sites' languages, so a "Gefällt mir" or a "いいね" is budgeted like a
+    /// "Like" (BOT_DETECTION S2). They are `[kind.<name>]` in agent/sites.toml; `[sites.kinds]` in
+    /// config.toml adds more.
+    static var words: [(String, [String])] { SiteLists.current.kinds.map { ($0.id, $0.words) } }
 
     /// Words in lower case, split into letters-only words, as `kind` reads a control.
     static func normalized(_ text: String) -> String {
@@ -420,7 +389,7 @@ enum Cooldown {
 // MARK: - Challenges
 
 enum Challenge {
-    static let paths = ["/challenge", "/checkpoint", "/captcha", "/sorry/", "/account/access", "/verify", "/authwall"]
+    static var paths: [String] { SiteLists.current.challengePaths }
 
     /// The first challenge marker in the page's address, title or short texts.
     static func find(_ s: Snapshot) -> String? {

@@ -74,7 +74,7 @@ VM, Chromium: typing, the map, form controls, routes and back, popups, dialog, d
 
 | ID | Signal | Sev. | Status and what changed |
 | --- | --- | --- | --- |
-| S1 | Fast default cadence: no gap, dwell, bursts or fidgets | High | ☑️ Web pages run at `steady`; Facebook, Instagram, Threads, TikTok, LinkedIn, X/Twitter, Reddit, Pinterest, YouTube and Bluesky at `careful` (`Config.socialSites`). `[pace.styles]` overrides both |
+| S1 | Fast default cadence: no gap, dwell, bursts or fidgets | High | ☑️ Web pages run at `steady`; Facebook, Instagram, Threads, TikTok, LinkedIn, X/Twitter, Reddit, Pinterest, YouTube and Bluesky at `careful` (`[social]` in `agent/sites.toml`). `[pace.styles]` overrides both |
 | S2 | Budget kinds read from English labels only | High | ✅ Twelve more languages, CJK matched inside text, `[sites.kinds]` adds words |
 | S3 | Soft-block and challenge detection narrow | Med–High | ☑️ See D1–D3 |
 | S4 | No active hours, sitting length or daily model | Med | ☑️ `quiet_hours`, `session_max_min` with `break_min`, `actions_per_day`; on in `careful` (2–6, 50 min, 400), exit 4 |

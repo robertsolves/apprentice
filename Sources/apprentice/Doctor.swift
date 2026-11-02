@@ -41,6 +41,9 @@ enum Doctor {
         let playbooks = Playbooks.dir.resolvingSymlinksInPath()
         let playbooksOK = FileManager.default.fileExists(atPath: playbooks.path)
         out.append(Check(ok: playbooksOK, line: "playbooks: \(playbooks.path)", fix: "run kit.sh in the clone to link \(Store.dir.path)/playbooks", blocking: true))
+        let lists = SiteLists.problems()
+        out.append(Check(ok: lists.isEmpty, line: "site lists: " + (lists.isEmpty ? SiteLists.files[0].path : lists.joined(separator: ", ")),
+                         fix: "reinstall, or restore agent/sites.toml in the clone", blocking: true))
 
         if Repo.isGit {
             let remote = Repo.upstream

@@ -11,8 +11,19 @@ enum Toml {
     static func parse(_ text: String) -> [String: [String: String]] {
         var out: [String: [String: String]] = [:]
         var section = ""
+        var pending = ""
         for raw in text.components(separatedBy: .newlines) {
-            let line = stripComment(raw).trimmingCharacters(in: .whitespaces)
+            var line = stripComment(raw).trimmingCharacters(in: .whitespaces)
+            // An array may run over several lines: keep reading until its brackets close.
+            if !pending.isEmpty {
+                pending += " " + line
+                guard opens(pending) <= 0 else { continue }
+                line = pending
+                pending = ""
+            } else if line.contains("="), !line.hasPrefix("["), opens(line) > 0 {
+                pending = line
+                continue
+            }
             if line.isEmpty { continue }
             if line.hasPrefix("[") && line.hasSuffix("]") {
                 section = line.dropFirst().dropLast().trimmingCharacters(in: .whitespaces)
@@ -25,6 +36,18 @@ enum Toml {
             out[section, default: [:]][key] = value
         }
         return out
+    }
+
+    /// How many `[` are still open in a line, outside strings.
+    static func opens(_ line: String) -> Int {
+        var depth = 0, inString = false
+        var prev: Character = " "
+        for ch in line {
+            if ch == "\"" && prev != "\\" { inString.toggle() }
+            if !inString { depth += ch == "[" ? 1 : ch == "]" ? -1 : 0 }
+            prev = ch
+        }
+        return depth
     }
 
     static func stripComment(_ line: String) -> String {
@@ -463,21 +486,8 @@ struct Config {
     var runMaxMinutes = 15.0
     var flowShellSeconds = 120.0
     /// Text a site shows when it throttles the account; seeing one after an action cools the site down.
-    /// English first, then the same messages as the big sites word them in other languages (BOT_DETECTION D1).
-    var softBlockPhrases = [
-        "try again later", "you're doing that too much", "you are doing that too much", "temporarily restricted",
-        "temporarily blocked", "unusual activity", "we limit how often", "rate limit", "too many requests",
-        "action blocked", "suspicious activity", "temporarily limited", "over the daily limit",
-        "später erneut", "vorübergehend gesperrt", "vorübergehend eingeschränkt", "ungewöhnliche aktivität", "zu viele anfragen",
-        "réessayer plus tard", "réessayez plus tard", "temporairement bloqué", "temporairement restreint", "activité inhabituelle",
-        "trop de requêtes", "inténtalo más tarde", "vuelve a intentarlo más tarde", "bloqueado temporalmente",
-        "restringido temporalmente", "actividad inusual", "demasiadas solicitudes", "tente novamente mais tarde",
-        "bloqueado temporariamente", "atividade incomum", "riprova più tardi", "temporaneamente bloccato", "attività insolita",
-        "probeer het later opnieuw", "tijdelijk geblokkeerd", "spróbuj ponownie później", "tymczasowo zablokowane",
-        "daha sonra tekrar dene", "geçici olarak engellendi", "повторите попытку позже", "временно заблокирован",
-        "необычная активность", "しばらくしてから", "一時的にブロック", "制限されています", "잠시 후 다시", "일시적으로 차단",
-        "稍后再试", "請稍後再試", "暂时被限制", "操作过于频繁",
-    ]
+    /// The same messages in the big sites' languages (BOT_DETECTION D1), from `[phrases]` in agent/sites.toml.
+    var softBlockPhrases = SiteLists.current.softBlock
     /// What a soft block does: "stop" cools the site down and refuses actions there until it ends,
     /// "warn" only says so, "off" does not look.
     var onSoftBlock = "stop"
@@ -495,22 +505,9 @@ struct Config {
     var loginPerDay = 3
     /// Words and phrases that make a step one only the user can approve, in the little window: the
     /// agent's `approve` is refused. Matched as whole words in the element's label and name.
-    var userOnly = [
-        "pay", "pay now", "buy", "buy now", "purchase", "checkout", "check out", "place order", "order now",
-        "donate", "transfer", "upgrade", "captcha", "not a robot", "verify you are human", "delete account",
-        "close account", "deactivate",
-    ]
+    var userOnly = SiteLists.current.userOnly
     /// Signs of a CAPTCHA or identity check, which only the user may complete.
-    var challengeMarkers = [
-        "captcha", "verify you are human", "verify you're human", "i'm not a robot", "i am not a robot",
-        "are you a robot", "confirm it's you", "confirm it is you", "enter the code", "security check",
-        "press and hold", "help us confirm", "your account has been locked", "your account is locked",
-        "bestätige, dass du ein mensch bist", "sicherheitsüberprüfung", "je ne suis pas un robot", "vérifiez que vous êtes humain",
-        "confirmez qu'il s'agit bien de vous", "no soy un robot", "verifica que eres humano", "confirma que eres tú",
-        "não sou um robô", "confirme que é você", "non sono un robot", "conferma che sei tu", "ik ben geen robot",
-        "nie jestem robotem", "robot değilim", "я не робот", "подтвердите, что это вы", "ロボットではありません",
-        "本人確認", "로봇이 아닙니다", "본인 인증", "我不是机器人", "安全验证", "验证身份",
-    ]
+    var challengeMarkers = SiteLists.current.challenge
     /// More words per budgeted kind, from `[sites.kinds]`: `like = ["gostei"]`.
     var kindWords: [String: [String]] = [:]
 
@@ -527,9 +524,8 @@ struct Config {
     var tabPresets: [String: [String: String]] = [:]
 
     /// Sites built in at the `careful` style: the social networks, where an account's standing is
-    /// what is at stake. twitter.com counts as x.com (`Site.domain`).
-    static let socialSites = ["facebook.com", "instagram.com", "threads.net", "threads.com", "tiktok.com", "linkedin.com",
-                              "x.com", "reddit.com", "pinterest.com", "youtube.com", "bsky.app"]
+    /// what is at stake (`[social]` in agent/sites.toml). twitter.com counts as x.com (`Site.domain`).
+    static var socialSites: [String] { SiteLists.current.social }
 
     static var current = Config.load()
     static var path: URL { Settings.dir.appendingPathComponent("config.toml") }

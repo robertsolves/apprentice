@@ -41,6 +41,7 @@ enum SelfTest {
         oneAtATime()
         sitesScreen()
         agentList()
+        siteLists()
         prefs()
         allowlist()
         flows()
@@ -1098,6 +1099,28 @@ enum SelfTest {
     }
 
     /// The agent CLIs come from files: order kept, the user's entry replaces the shipped one with its id.
+    private static func siteLists() {
+        check(Toml.parse("a = [\n  \"x\", # one\n  \"]\",\n]\nb = 1\n")[""] == ["a": "[ \"x\", \"]\", ]", "b": "1"]
+              && Toml.array("[ \"x\", \"]\", ]") == ["x", "]"], "toml: an array may run over several lines")
+        let shipped = Store.dir.appendingPathComponent("sites-lists.toml"), mine = Store.dir.appendingPathComponent("sites-mine.toml")
+        defer { try? FileManager.default.removeItem(at: shipped); try? FileManager.default.removeItem(at: mine) }
+        try? "[social]\nsites = [\"a.com\", \"b.com\"]\n[kind.unfollow]\nwords = [\"unfollow\"]\n[kind.follow]\nwords = [\"follow\"]\n[kind.join]\ncounts_as = \"follow\"\nwords = [\"join\"]\n[phrases]\nsoft_block = [\"slow down\"]\n"
+            .write(to: shipped, atomically: true, encoding: .utf8)
+        try? "[social]\nsites = [\"c.com\"]\n[kind.follow]\nwords = [\"seguir\"]\n[kind.wave]\nwords = [\"wave\"]\n[phrases]\nsoft_block = []\n"
+            .write(to: mine, atomically: true, encoding: .utf8)
+        let lists = SiteLists.load([shipped, mine])
+        check(lists.social == ["a.com", "b.com", "c.com"] && lists.softBlock == ["slow down"],
+              "site lists: the user's file adds social sites and phrases, never takes one away")
+        check(lists.kinds.map(\.id) == ["unfollow", "follow", "join", "wave"] && lists.kinds[1].words == ["follow", "seguir"]
+              && lists.countsAs == ["join": "follow"], "site lists: kinds keep the order written, and the user's words add to a kind")
+        check(SiteLists.problems(lists).contains("no check phrases"), "site lists: an empty list is reported, not taken as none")
+        if FileManager.default.fileExists(atPath: SiteLists.files[0].path) {
+            let real = SiteLists.load([SiteLists.files[0]])
+            check(SiteLists.problems(real).isEmpty && real.social.contains("instagram.com") && real.kinds.first?.id == "unfollow",
+                  "site lists: the shipped file reads cleanly (\(SiteLists.problems(real).joined(separator: ", ")))")
+        }
+    }
+
     private static func agentList() {
         let shipped = Store.dir.appendingPathComponent("agents-test.toml"), mine = Store.dir.appendingPathComponent("agents-mine.toml")
         defer { try? FileManager.default.removeItem(at: shipped); try? FileManager.default.removeItem(at: mine) }

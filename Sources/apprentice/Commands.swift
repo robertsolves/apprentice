@@ -523,6 +523,10 @@ enum Commands {
         var out = "session \(s.id ?? "-") · \(name) · window \(s.wid)"
         // Once per daemon run, whether or not the options window opened: the agent passes it on.
         if firstThisRun { out += "\n⚠ " + riskWarning + " Tell the user this once." }
+        let lists = SiteLists.problems()
+        if !lists.isEmpty {
+            out += "\n⚠ the site lists (\(SiteLists.files[0].path)) are missing or broken: \(lists.joined(separator: ", ")). Social sites, budgets and throttle checks need them: tell the user, and stay off social sites until `apprentice doctor` passes."
+        }
         if let url = s.url { out += " · \(url)" }
         let hints = Routes.hintLines(for: hostOf(s.url)) + Policies.lines(for: hostOf(s.url))
             + Prefs.sessionHints(a, app: name, host: hostOf(s.url))

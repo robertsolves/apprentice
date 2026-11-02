@@ -1,0 +1,157 @@
+# What apprentice knows about websites: which are social networks, which words on a control are a like,
+# a follow or a post, and the words a site uses when it slows an account down or puts up a check.
+# apprentice reads this file, then ~/.apprentice/sites.toml, which adds to it: a site, a word or a phrase
+# there is added, never taken away. config.toml's [sites] soft_block_extra, challenge_extra and
+# [sites.kinds] add more per install, and [sites] soft_block and challenge replace those two lists.
+
+
+# Social networks start at the careful style (BOT_DETECTION S1) and never go below steady, because a
+# social site's pace is the account's standing. Old names count as the new one (`renamed`).
+
+[social]
+sites = [
+    "facebook.com", "instagram.com", "threads.net", "threads.com", "tiktok.com", "linkedin.com", "x.com",
+    "reddit.com", "pinterest.com", "youtube.com", "bsky.app",
+]
+
+[renamed]
+"twitter.com" = "x.com"
+
+# The kinds budgets.json caps, tested in this order, so "unfollow" wins over "follow" and "add friend"
+# over "add". Whole words only: "Unlike" and "Following" are not a like or a follow. Chinese, Japanese and
+# Korean words match inside the text. `counts_as`: a kind with no cap of its own counts against this one.
+
+[kind.unfollow]
+words = [
+    "unfollow", "nicht mehr folgen", "entfolgen", "ne plus suivre", "se désabonner", "dejar de seguir",
+    "deixar de seguir", "smetti di seguire", "ontvolgen", "przestań obserwować", "takibi bırak", "отписаться",
+    "フォロー解除", "언팔로우", "팔로우 취소", "取消关注", "取消關注",
+]
+
+[kind.friend_request]
+counts_as = "follow"
+words = [
+    "add friend", "freund hinzufügen", "freundschaftsanfrage", "ajouter en ami", "agregar amigo", "añadir amigo",
+    "adicionar amigo", "aggiungi agli amici", "vriend toevoegen", "dodaj do znajomych", "arkadaş ekle",
+    "добавить в друзья", "友達を追加", "친구 추가", "加好友", "添加好友",
+]
+
+[kind.connect]
+counts_as = "follow"
+words = [
+    "connect", "vernetzen", "se connecter", "conectar", "collegati", "connectie maken", "nawiąż kontakt",
+    "bağlantı kur", "установить контакт", "つながりを申請", "1촌 맺기", "建立联系",
+]
+
+[kind.repost]
+counts_as = "post"
+words = [
+    "repost", "retweet", "reshare", "quote", "reposten", "republier", "republicar", "ripubblica", "repostuj",
+    "yeniden paylaş", "репост", "リポスト", "リツイート", "재게시", "转发", "轉發", "转帖",
+]
+
+[kind.endorse]
+counts_as = "like"
+words = [
+    "endorse", "empfehlen", "recommander", "onderschrijven",
+]
+
+[kind.join]
+counts_as = "follow"
+words = [
+    "join", "beitreten", "rejoindre", "unirse", "unirme", "entrar no grupo", "partecipa", "unisciti", "lid worden",
+    "dołącz", "katıl", "вступить", "присоединиться", "参加する", "가입", "加入",
+]
+
+[kind.follow]
+words = [
+    "follow", "subscribe", "folgen", "abonnieren", "suivre", "s'abonner", "seguir", "suscribirse", "segui",
+    "iscriviti", "volgen", "abonneren", "obserwuj", "subskrybuj", "takip et", "abone ol", "подписаться", "フォロー",
+    "チャンネル登録", "팔로우", "구독", "关注", "關注", "订阅", "訂閱",
+]
+
+[kind.upvote]
+counts_as = "like"
+words = [
+    "upvote", "hochvoten", "voter pour", "votar a favor", "voto positivo", "賛成票",
+]
+
+[kind.like]
+words = [
+    "like", "heart", "gefällt mir", "j'aime", "me gusta", "curtir", "gosto", "mi piace", "vind ik leuk", "lubię to",
+    "beğen", "нравится", "いいね", "좋아요", "赞", "讚", "点赞", "喜欢",
+]
+
+[kind.comment]
+words = [
+    "comment", "reply", "kommentieren", "antworten", "commenter", "répondre", "comentar", "responder", "commenta",
+    "rispondi", "reageren", "beantwoorden", "skomentuj", "odpowiedz", "yorum yap", "yanıtla", "комментировать",
+    "ответить", "コメント", "返信", "댓글", "답글", "评论", "評論", "回复", "回覆",
+]
+
+[kind.message]
+words = [
+    "message", "send", "nachricht", "senden", "envoyer", "mensaje", "enviar", "mensagem", "messaggio", "invia",
+    "bericht", "verzenden", "verstuur", "wiadomość", "wyślij", "mesaj", "gönder", "сообщение", "отправить", "メッセージ",
+    "送信", "메시지", "보내기", "私信", "发送", "發送", "傳送",
+]
+
+[kind.story]
+counts_as = "post"
+words = [
+    "story", "stories", "storys", "ストーリーズ", "스토리", "快拍",
+]
+
+[kind.post]
+words = [
+    "post", "publish", "tweet", "share", "posten", "veröffentlichen", "teilen", "publier", "partager", "publicar",
+    "compartir", "compartilhar", "pubblica", "condividi", "plaatsen", "delen", "publiceren", "opublikuj",
+    "udostępnij", "paylaş", "опубликовать", "поделиться", "投稿", "シェア", "ポスト", "게시", "공유", "发布", "發佈", "分享", "发帖",
+]
+
+[kind.group_post]
+counts_as = "post"
+words = []
+
+# Text a site shows when it throttles the account; seeing one after an action cools the site down
+# (BOT_DETECTION D1). Signs of a CAPTCHA or identity check, which only the user may complete, and the
+# addresses those checks live at.
+
+[phrases]
+soft_block = [
+    "try again later", "you're doing that too much", "you are doing that too much", "temporarily restricted",
+    "temporarily blocked", "unusual activity", "we limit how often", "rate limit", "too many requests",
+    "action blocked", "suspicious activity", "temporarily limited", "over the daily limit", "später erneut",
+    "vorübergehend gesperrt", "vorübergehend eingeschränkt", "ungewöhnliche aktivität", "zu viele anfragen",
+    "réessayer plus tard", "réessayez plus tard", "temporairement bloqué", "temporairement restreint",
+    "activité inhabituelle", "trop de requêtes", "inténtalo más tarde", "vuelve a intentarlo más tarde",
+    "bloqueado temporalmente", "restringido temporalmente", "actividad inusual", "demasiadas solicitudes",
+    "tente novamente mais tarde", "bloqueado temporariamente", "atividade incomum", "riprova più tardi",
+    "temporaneamente bloccato", "attività insolita", "probeer het later opnieuw", "tijdelijk geblokkeerd",
+    "spróbuj ponownie później", "tymczasowo zablokowane", "daha sonra tekrar dene", "geçici olarak engellendi",
+    "повторите попытку позже", "временно заблокирован", "необычная активность", "しばらくしてから", "一時的にブロック", "制限されています",
+    "잠시 후 다시", "일시적으로 차단", "稍后再试", "請稍後再試", "暂时被限制", "操作过于频繁",
+]
+challenge = [
+    "captcha", "verify you are human", "verify you're human", "i'm not a robot", "i am not a robot",
+    "are you a robot", "confirm it's you", "confirm it is you", "enter the code", "security check", "press and hold",
+    "help us confirm", "your account has been locked", "your account is locked",
+    "bestätige, dass du ein mensch bist", "sicherheitsüberprüfung", "je ne suis pas un robot",
+    "vérifiez que vous êtes humain", "confirmez qu'il s'agit bien de vous", "no soy un robot",
+    "verifica que eres humano", "confirma que eres tú", "não sou um robô", "confirme que é você",
+    "non sono un robot", "conferma che sei tu", "ik ben geen robot", "nie jestem robotem", "robot değilim",
+    "я не робот", "подтвердите, что это вы", "ロボットではありません", "本人確認", "로봇이 아닙니다", "본인 인증", "我不是机器人", "安全验证", "验证身份",
+]
+challenge_paths = [
+    "/challenge", "/checkpoint", "/captcha", "/sorry/", "/account/access", "/verify", "/authwall",
+]
+
+# Words and phrases that make a step one only the user can approve. [gate] user_only in config.toml
+# replaces this list.
+
+[gate]
+user_only = [
+    "pay", "pay now", "buy", "buy now", "purchase", "checkout", "check out", "place order", "order now", "donate",
+    "transfer", "upgrade", "captcha", "not a robot", "verify you are human", "delete account", "close account",
+    "deactivate",
+]
