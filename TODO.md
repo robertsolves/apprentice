@@ -45,6 +45,10 @@ From a `/simplify` pass on 2026-11-02; the small shared helpers landed, these we
 - Try `scroll left|right`, `scroll --at` and `drag --by` live on a web map, on this Mac and in the VM (only `selftest` has run them): check the sideways direction is right, and that `Mouse.drag`'s curved stroke pans smoothly.
 - No pinch or trackpad zoom (gesture events). The wheel and `+`/`-` cover web maps, but some apps zoom only by pinch.
 
+## UI
+
+- A window for apprentice (schedules, settings, site rules, updates, a terminal with tabs): design in `UI_DESIGN_TODO.md`.
+
 ## Install
 
 - CI publishes a universal binary on `v*` tags; notarize it and have `install.sh` prefer it (falling back to building), so most users need no Swift toolchain. Today `install.sh` builds from source and needs the Xcode command-line tools.
@@ -77,6 +81,7 @@ From a `/simplify` pass on 2026-11-02; the small shared helpers landed, these we
 
 ## Agent commands
 
+- Away tasks: queued work that runs while the user is away, stops when they return and resumes from the screen, never from memory. Design and build order in `AWAY.md`.
 
 ## Site
 

@@ -284,8 +284,8 @@ extension Remote {
         var rect = CGRect(x: bounds.midX - 40, y: bounds.midY - 40, width: 80, height: 80)
         var e: Element?
         if let r = a.value("in"), let id = Int(r) { e = try resolve(id); rect = e!.rect }
-        let start = try a.value("at").map { try Commands.screenPoint($0, Commands.dragUsage) } ?? Mouse.landing(in: rect)
-        let end = CGPoint(x: start.x + by.x, y: start.y + by.y)
+        let start = try a.value("at").map { Mouse.aim(at: try Commands.screenPoint($0, Commands.dragUsage)) } ?? Mouse.landing(in: rect)
+        let end = Mouse.dropBy(from: start, by)
         guard bounds.contains(start), bounds.contains(end) else {
             throw Fail(4, "a drag by \(raw) from \(Int(start.x)),\(Int(start.y)) leaves the session window: drag less, or in two steps")
         }

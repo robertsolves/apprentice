@@ -146,6 +146,12 @@ enum SelfTest {
         check(Keys.tag != 0x646B_6374 && Keys.tag > 0, "the event tag is drawn, not the old constant")
         check(Mouse.Speed.allCases.allSatisfy { abs(Mouse.progress($0, 1, skew: 0.8) - 1) < 1e-9 && abs(Mouse.progress($0, 0, skew: 0.8)) < 1e-9 },
               "every speed profile starts at the start and ends on the target")
+        let button = CGRect(x: 5000, y: 5000, width: 40, height: 24)
+        let rests = (0..<120).map { _ in Mouse.landing(in: button) } + (0..<60).map { _ in Mouse.aim(at: CGPoint(x: 5100, y: 5100)) }
+            + (0..<60).map { _ in Mouse.dropBy(from: CGPoint(x: 5200, y: 5200), CGPoint(x: 300, y: 0)) }
+        check(Set(rests.map(Mouse.Rest.key)).count == rests.count && rests.prefix(120).allSatisfy { button.insetBy(dx: -6, dy: -6).contains($0) }
+              && rests.dropFirst(120).prefix(60).allSatisfy { hypot($0.x - 5100, $0.y - 5100) < 9 },
+              "the pointer never rests on one pixel twice, and stays on its target")
         Rand.seed(UInt64.random(in: .min ... .max))
     }
 

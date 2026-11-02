@@ -785,6 +785,7 @@ enum Commands {
         try gate(session, target, nil, "\(clickVerb(right: right, double: double)) at \(raw)", force: a.has("gate"))
         try beforeAction(session, url: target.url)
         try Borrow.run(target) {
+            let point = Mouse.aim(at: point)
             Mouse.move(to: point)
             try Borrow.checkpoint()
             Pace.sleep(Rand.uniform(0.04...0.12))
@@ -923,8 +924,8 @@ enum Commands {
         if let at, !(target.window.frame?.contains(at) ?? false) { throw Fail(4, "\(a.value("at") ?? "") is outside the session window") }
         try Borrow.run(target) {
             // The wheel scrolls whatever is under the cursor, so the cursor goes there first. A map
-            // zooms on the point under it, so `--at` lands exactly there.
-            let point = at ?? Mouse.landing(in: rect)
+            // zooms on the point under it, so `--at` lands within a pixel or two of it.
+            let point = at.map { Mouse.aim(at: $0) } ?? Mouse.landing(in: rect)
             Mouse.move(to: point, size: at == nil ? rect.size : CGSize(width: 20, height: 20))
             try Borrow.checkpoint()
             Pace.sleep(Rand.uniform(0.15...0.4))
@@ -1030,8 +1031,8 @@ enum Commands {
             e = try resolve(id, target).1
             rect = e!.rect
         }
-        let start = try a.value("at").map { try screenPoint($0, dragUsage) } ?? Mouse.landing(in: rect)
-        let end = CGPoint(x: start.x + by.x, y: start.y + by.y)
+        let start = try a.value("at").map { Mouse.aim(at: try screenPoint($0, dragUsage)) } ?? Mouse.landing(in: rect)
+        let end = Mouse.dropBy(from: start, by)
         guard let frame = target.window.frame, frame.contains(start), frame.contains(end) else {
             throw Fail(4, "a drag by \(raw) from \(Int(start.x)),\(Int(start.y)) leaves the session window: drag less, or in two steps")
         }

@@ -484,7 +484,55 @@ enum Mouse {
     /// of its edge.
     static func landing(in r: CGRect) -> CGPoint {
         func offset() -> CGFloat { CGFloat(min(max(Pace.gaussian() * Rand.uniform(0.12...0.18), -0.42), 0.42)) }
-        return CGPoint(x: r.midX + offset() * r.width, y: r.midY + offset() * r.height)
+        func draw() -> CGPoint { CGPoint(x: r.midX + offset() * r.width, y: r.midY + offset() * r.height) }
+        // Redrawn while it is a pixel the pointer stopped on lately: two rests on one pixel is a tell.
+        var p = draw()
+        for _ in 0..<12 where Rest.seen(p) { p = draw() }
+        return fresh(p)
+    }
+
+    /// Where the pointer stopped lately, by pixel: every landing, settle, aim and drop is checked against
+    /// it, so no two rests share a pixel and no two paths share both ends.
+    enum Rest {
+        static let keep = 256
+        private static var recent: [Int64] = []
+        private static var set: Set<Int64> = []
+
+        static func key(_ p: CGPoint) -> Int64 { Int64(p.x.rounded()) << 32 | Int64(Int32(truncatingIfNeeded: Int(p.y.rounded()))) & 0xFFFF_FFFF }
+        static func seen(_ p: CGPoint) -> Bool { set.contains(key(p)) }
+        static func note(_ p: CGPoint) {
+            let k = key(p)
+            guard set.insert(k).inserted else { return }
+            recent.append(k)
+            if recent.count > keep { set.remove(recent.removeFirst()) }
+        }
+    }
+
+    /// `p`, or the nearest pixel around it the pointer has not stopped on lately, noted as a rest.
+    @discardableResult
+    static func fresh(_ p: CGPoint) -> CGPoint {
+        var at = p
+        var ring = 1
+        while Rest.seen(at), ring <= 6 {
+            let angle = Rand.uniform(0.0..<(2 * .pi))
+            at = CGPoint(x: p.x + CGFloat(Double(ring) * cos(angle)), y: p.y + CGFloat(Double(ring) * sin(angle)))
+            if Rest.seen(at) { ring += Rand.chance(0.5) ? 1 : 0 }
+        }
+        Rest.note(at)
+        return at
+    }
+
+    /// A hand aimed at an exact point (`--at`) lands within a pixel or two of it, never on one pixel twice.
+    static func aim(at p: CGPoint) -> CGPoint {
+        func off() -> CGFloat { CGFloat(min(max(Pace.gaussian() * 0.9, -2.5), 2.5)) }
+        return fresh(CGPoint(x: p.x + off(), y: p.y + off()))
+    }
+
+    /// Where a drag by an offset lets go: a hand misses a planned distance by a little, about 1% of it.
+    static func dropBy(from start: CGPoint, _ by: CGPoint) -> CGPoint {
+        let err = min(max(hypot(by.x, by.y) * 0.01, 1), 5)
+        func off() -> CGFloat { CGFloat(min(max(Pace.gaussian() * err, -2 * err), 2 * err)) }
+        return fresh(CGPoint(x: start.x + by.x + off(), y: start.y + by.y + off()))
     }
 
     /// The person's hand (`Hand`), kept across restarts, so moves vary around one person's habits
@@ -621,12 +669,14 @@ enum Mouse {
 
     /// The hand coming to rest over a target: 40–120 ms with a pixel or so of movement. Returns
     /// where the cursor ended, which is where the click lands.
-    static func settle(at p: CGPoint) -> CGPoint {
+    static func settle(at p: CGPoint, type: CGEventType = .mouseMoved) -> CGPoint {
         var at = p
-        for _ in 0..<Rand.uniform(1...3) {
+        let n = Rand.uniform(1...3)
+        for i in 1...n {
             Pace.sleep(Rand.uniform(0.015...0.04))
             at = CGPoint(x: p.x + Rand.uniform(-1.5...1.5), y: p.y + Rand.uniform(-1.5...1.5))
-            post(at)
+            if i == n { at = fresh(at) }
+            post(at, type)
         }
         Pace.sleep(Rand.uniform(0.02...0.05))
         return at
@@ -656,16 +706,30 @@ enum Mouse {
     /// The press is held a moment before moving, then the pointer travels one stroke with a drawn shape,
     /// speed profile and uneven samples, as `move` does: a straight line at one steady speed is a tell.
     /// Slower than a free move, since a drop target needs the pointer to arrive; nearly straight, so the
-    /// path stays inside the window.
+    /// path stays inside the window. A long drag reaches a little short of or past the drop and corrects,
+    /// and every drag settles before letting go, so neither the path nor the drop pixel repeats.
     static func drag(from start: CGPoint, to end: CGPoint) throws {
         guard let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: start, mouseButton: .left) else { return }
         Keys.post(down)
         Pace.sleep(Rand.uniform(0.1...0.22))
         let p = Config.current.pace
-        let dist = max(hypot(end.x - start.x, end.y - start.y), 1)
+        let dx = end.x - start.x, dy = end.y - start.y
+        let dist = max(hypot(dx, dy), 1)
         let fitts = (0.12 + 0.11 * log2(dist / 20 + 1)) * hand.speed * Rand.logNormal(median: 1, sigma: 0.12) * 1.5
         let duration = min(max(fitts, p.moveMin), max(p.moveMax * 3, 1))
-        stroke(from: start, to: end, duration: duration, bend: 0.1, type: .leftMouseDragged)
+        if dist > 120 {
+            // Short of the drop by 2–5%, or past it by up to 2% (at most 12 px, so the path stays in the window).
+            let along = Rand.chance(p.overshoot) ? dist + min(dist * Rand.uniform(0.005...0.02), 12) : dist * Rand.uniform(0.95...0.98)
+            let off = Rand.uniform(-1.0...1.0) * min(dist * 0.015, 5)
+            let reach = CGPoint(x: start.x + dx / dist * along - dy / dist * off, y: start.y + dy / dist * along + dx / dist * off)
+            stroke(from: start, to: reach, duration: duration * 0.88, bend: 0.1, type: .leftMouseDragged)
+            if !(KillSwitch.tripped || Borrow.interrupted) {
+                stroke(from: reach, to: end, duration: Rand.uniform(0.06...0.18), bend: 0.2, type: .leftMouseDragged)
+            }
+        } else {
+            stroke(from: start, to: end, duration: duration, bend: 0.1, type: .leftMouseDragged)
+        }
+        let drop = KillSwitch.tripped || Borrow.interrupted ? end : settle(at: end, type: .leftMouseDragged)
         if KillSwitch.tripped || Borrow.interrupted {
             try? Keys.press("esc")
             if let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: start, mouseButton: .left) {
@@ -673,8 +737,8 @@ enum Mouse {
             }
             throw Fail(6, "interrupted: the drag was cancelled before the drop")
         }
-        Pace.sleep(Rand.uniform(0.08...0.2))
-        if let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: end, mouseButton: .left) {
+        Pace.sleep(Rand.uniform(0.04...0.15))
+        if let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: drop, mouseButton: .left) {
             Keys.post(up)
         }
     }

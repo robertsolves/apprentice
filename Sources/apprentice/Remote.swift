@@ -545,6 +545,7 @@ enum Remote {
             try gate(session, page, nil, "\(verb) at \(raw)", force: a.has("gate"))
             try beforeAction(session, url: page.url)
             try act {
+                let point = Mouse.aim(at: point)
                 Mouse.move(to: point)
                 Pace.sleep(Rand.uniform(0.04...0.12))
                 Mouse.click(at: point, right: right, double: double)
@@ -695,7 +696,7 @@ enum Remote {
         let at = try a.value("at").map { try Commands.screenPoint($0, "scroll --at x,y") }
         if let at, !bounds.insetBy(dx: -1, dy: -90).contains(at) { throw Fail(4, "\(a.value("at") ?? "") is outside the session window") }
         try act {
-            let point = at ?? Mouse.landing(in: rect)
+            let point = at.map { Mouse.aim(at: $0) } ?? Mouse.landing(in: rect)
             Mouse.move(to: point, size: at == nil ? rect.size : CGSize(width: 20, height: 20))
             Pace.sleep(Rand.uniform(0.15...0.4))
             Wheel.scroll(lines: count * 3, down: direction == "down" || direction == "right",
