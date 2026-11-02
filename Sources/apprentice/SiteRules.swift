@@ -482,6 +482,8 @@ struct SitePolicy {
     var terms: String?
     var checked: String?
     var api: String?
+    /// The user's notes on the site's terms: shown with its hints, never used to refuse the site.
+    var notes: String?
 }
 
 enum Policies {
@@ -490,7 +492,7 @@ enum Policies {
         for (section, v) in Toml.load(Routes.customPath) where section.hasPrefix("policy.") {
             let domain = String(section.dropFirst("policy.".count)).lowercased()
             out[domain] = SitePolicy(domain: domain, terms: v["terms_url"].map(Toml.unquote), checked: v["checked"].map(Toml.unquote),
-                                     api: v["api"].map(Toml.unquote))
+                                     api: v["api"].map(Toml.unquote), notes: v["notes"].map(Toml.unquote))
         }
         return Array(out.values)
     }
@@ -503,12 +505,14 @@ enum Policies {
     /// Printed under `session` and `open`: a warning when the entry is old.
     static func lines(for host: String?) -> [String] {
         guard let p = find(host) else { return [] }
+        var out: [String] = []
+        if let notes = p.notes, !notes.isEmpty { out.append("policy note for \(p.domain): \(notes)") }
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
         if let checked = p.checked.flatMap(f.date(from:)), Date().timeIntervalSince(checked) > 182 * 86_400 {
-            return ["policy: the entry for \(p.domain) was checked on \(p.checked ?? ""), over 6 months ago. Terms change; the user should re-read them"]
+            out.append("policy: the entry for \(p.domain) was checked on \(p.checked ?? ""), over 6 months ago. Terms change; the user should re-read them")
         }
-        return []
+        return out
     }
 
     /// `apprentice policy <domain>`.
@@ -518,6 +522,7 @@ enum Policies {
         if let t = p.terms { out.append("terms: \(t)") }
         if let c = p.checked { out.append("checked: \(c)") }
         if let a = p.api { out.append("instead: \(a)") }
+        if let n = p.notes { out.append("note: \(n)") }
         return out.joined(separator: "\n")
     }
 }

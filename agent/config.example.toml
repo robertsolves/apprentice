@@ -5,7 +5,7 @@
 # Threads, TikTok, LinkedIn, X, Reddit, Pinterest, YouTube, Bluesky) at careful; [pace.styles] below wins.
 [pace.default]
 move_ms = [50, 200]
-key_ms_median = 100
+key_ms_median = 140   # one key down to the next; a recording (`apprentice typing learn`) replaces it
 key_ms_sigma = 0.4
 between_actions_ms = [0, 0]
 nav_min_gap_s = 5
@@ -126,6 +126,38 @@ ask_window_s = 60
 # Context-menu items `download` uses, matched lower case. Add your language's if the Mac is not in English.
 # download_menu = ["save image as", "download linked file", "save link as", "download image"]
 
+[schedules]
+# Prompts and tasks that run later or again (`apprentice schedule add …`, or the app's Schedules screen).
+# A run missed while the Mac slept runs once if it is less than catch_up_min late; older ones are skipped
+# and logged, never a burst of catch-ups. The daemon owns the timer: `apprentice schedule agent on`
+# starts it at login, so schedules fire with nothing else open.
+enabled = true
+catch_up_min = 60
+
+[away]
+# Work queued with `apprentice away add` runs only while you are away, and stops the moment you touch the
+# Mac (exit 10). Being idle is not enough on its own: an app holding the display awake (a video, a call)
+# means you are still here.
+after_min = 3
+countdown_s = 10
+# true: away work may run on this Mac (only while the screen is unlocked). A VM is the safer place.
+host = false
+
+[app]
+# The window (`apprentice app`): one place for terminal tabs, schedules, approvals, sites, settings and health.
+font = "SF Mono"        # the terminal's font; any installed monospaced family
+font_size = 12
+# system | light | dark
+theme = "system"
+# false: scrollback is not saved across a relaunch, since it may hold secrets
+keep_scrollback = false
+copy_on_select = false
+# Terminal tab presets, shown in the new-tab menu: name = { dir, cmd, env, vm }.
+# [app.tabs]
+# shop = { dir = "~/work/shop", cmd = "claude" }
+# blog = { dir = "~/work/blog", cmd = "claude" }
+# linux1 = { cmd = "claude", vm = "linux1" }
+
 [run]
 base_url = "https://api.openai.com/v1"
 model = "gpt-4o-mini"
@@ -163,3 +195,8 @@ check_hours = 6
 # element names; "off" keeps nothing. Never typed text or screenshots.
 [storage]
 sessions = "scrubbed"
+
+[typing]
+# Learn your typing rhythm from short samples of your own typing (timings only, never the text,
+# never in password fields). `apprentice typing show` shows it, `typing forget` deletes it.
+learn = true

@@ -26,6 +26,13 @@ enum MCP {
         tool("shot", "Save a PNG of the window or a crop; marks draws each element's id on it", ["crop": ["type": "string"], "marks": ["type": "boolean"]]),
         tool("ocr", "OCR the window into numbered lines", ["crop": ["type": "string"]]),
         tool("route", "Check for a faster API, CLI or connector route", ["task": ["type": "string"]], ["task"]),
+        tool("schedule", "Prompts and tasks that run later or again. action: list, show, add, pause, resume, now, rm. add takes a name, one of at/every/daily/weekly/cron and one of prompt/run/do/sh. Only the user approves adding or changing one",
+             ["action": ["type": "string"], "name": ["type": "string"], "id": ["type": "string"],
+              "at": ["type": "string"], "every": ["type": "string"], "daily": ["type": "string"],
+              "weekly": ["type": "string"], "cron": ["type": "string"], "prompt": ["type": "string"],
+              "run": ["type": "string"], "do": ["type": "string"], "sh": ["type": "string"],
+              "dir": ["type": "string"], "vm": ["type": "string"], "model": ["type": "string"],
+              "agent": ["type": "string"], "jitter": ["type": "string"], "site": ["type": "string"]], ["action"]),
         tool("focus", "Switch the session to another running app; on: mac or linux", ["app": ["type": "string"], "on": ["type": "string"]], ["app"]),
         tool("drag", "Drag one element onto another, or drag by an offset to pan a map or canvas (by: \"dx,dy\", inside `in` or from `at`: \"x,y\")",
              ["from": ["type": "integer"], "to": ["type": "integer"], "by": ["type": "string"], "in": ["type": "integer"], "at": ["type": "string"]], []),
@@ -37,7 +44,7 @@ enum MCP {
         tool("playbooks", "Search the learned app, site and flow playbooks", ["query": ["type": "string"]]),
         tool("learn", "Draft a flow from this session's approved steps", ["task": ["type": "string"], "name": ["type": "string"]], ["task"]),
         tool("show", "Ask the user to point at something on screen; returns the element there", ["what": ["type": "string"]], ["what"]),
-        tool("away", "The user is away (on) or back (off): questions go to the chat while away", ["state": ["type": "string"]], ["state"]),
+        tool("away", "The user is away (on), back (off), wait: run only when they are away; questions go to the chat while away", ["state": ["type": "string"]], ["state"]),
         tool("phone", "Set up push notifications to the user's phone (on), stop them (off) or send a test; returns links to tap", ["state": ["type": "string"]]),
         tool("policy", "Whether quick macOS tasks may use shell commands; with a domain, the user's notes on that site's terms", ["domain": ["type": "string"]]),
         tool("budget", "What is left of today's and this hour's action caps per site and kind", ["domain": ["type": "string"]]),
@@ -174,6 +181,14 @@ enum MCP {
             return Request(cmd: name, args: a)
         case "route":
             return Request(cmd: "route", args: [s("task") ?? ""])
+        case "schedule":
+            var a = [s("action") ?? "list"]
+            if let name = s("name") { a.append(name) }
+            if let id = s("id") { a += ["--id", id] }
+            for key in ["at", "every", "daily", "weekly", "cron", "prompt", "run", "do", "sh", "dir", "vm", "model", "agent", "jitter", "site"] {
+                if let value = s(key) { a += ["--\(key)", value] }
+            }
+            return Request(cmd: "schedule", args: a)
         case "focus":
             return Request(cmd: "focus", args: [s("app") ?? ""] + (s("on").map { ["--on", $0] } ?? []))
         case "drag":

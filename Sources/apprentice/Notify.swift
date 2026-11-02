@@ -96,9 +96,14 @@ enum Notify {
             try util.run()
             util.waitUntilExit()
             try? fm.removeItem(at: iconset)
-            let plist: [String: Any] = ["CFBundleIdentifier": "com.apprentice.notify", "CFBundleName": "apprentice",
+            // One bundle for everything: the window (`apprentice app`, opened from the Dock) and
+            // notifications, so `UNUserNotificationCenter` works and the grants stay with the binary.
+            let plist: [String: Any] = ["CFBundleIdentifier": AppBundle.identifier, "CFBundleName": "apprentice",
+                                        "CFBundleDisplayName": "apprentice",
                                         "CFBundleExecutable": "apprentice", "CFBundleIconFile": "AppIcon", "CFBundlePackageType": "APPL",
-                                        "LSUIElement": true]
+                                        "CFBundleShortVersionString": Build.number, "CFBundleVersion": Build.number,
+                                        "LSMinimumSystemVersion": "14.0", "NSHighResolutionCapable": true,
+                                        "LSUIElement": false]
             try (plist as NSDictionary).write(to: app.appendingPathComponent("Contents/Info.plist"))
             let sign = Process()
             sign.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")

@@ -33,18 +33,6 @@ enum Ask {
 
     /// `away on|off|status`: questions go to the chat while the user is away. The LLM may set this when they
     /// says they are away or back; it only changes where questions go.
-    static func awayCommand(_ a: Args) throws -> String {
-        switch a.pos.first ?? "status" {
-        case "on": Store.save(Away(on: true), "away.json")
-        case "off": Store.remove("away.json")
-        case "status": break
-        default: throw Fail(5, "away on|off|status")
-        }
-        Store.log(["away": away])
-        return away ? "away: on · questions come back as exit 9, to ask in the chat; nothing can be pointed at"
-                    : "away: off · questions open the little window (\(Config.current.askIn == "window" ? "only" : "then the chat after \(Int(Config.current.askWindowSeconds)) s"))"
-    }
-
     static let callerKey = "apprentice.caller"
     /// The socket of the request being served on this thread; read it before hopping to main.
     static var caller: Int32? { Thread.current.threadDictionary[callerKey] as? Int32 }

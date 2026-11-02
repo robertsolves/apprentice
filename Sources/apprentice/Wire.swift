@@ -9,10 +9,25 @@ struct Request: Codable {
     var model: String? = Request.callerModel
     /// The caller's project `.apprentice/` folder, for project-scoped site counts.
     var project: String? = Project.dir?.path
+    /// The terminal tab that started this command (`APPRENTICE_TAB`), so a log row, a pending approval or
+    /// a question can be shown in the tab it came from.
+    var tab: String? = Request.callerTab
+    /// True for a command started by an away task (`APPRENTICE_AWAY=1`): its steps go in the journal.
+    var away: Bool? = Request.callerAway
+    /// True when the app (`apprentice app`) sends it: the user's own channel, like the menu bar.
+    var user: Bool?
 
     /// The calling agent's model (`Agent.detected`: `APPRENTICE_MODEL`, else found from the agent itself);
     /// `run --model` and an MCP client's name set it for their own requests.
     static var callerModel: String? = Agent.detected
+
+    /// The tab the caller runs in, from the terminal the app started (`APPRENTICE_TAB`).
+    static var callerTab: String? {
+        let raw = ProcessInfo.processInfo.environment["APPRENTICE_TAB"] ?? ""
+        return raw.isEmpty ? nil : String(raw.prefix(80))
+    }
+
+    static var callerAway: Bool { ProcessInfo.processInfo.environment["APPRENTICE_AWAY"] == "1" }
 }
 
 struct Response: Codable {

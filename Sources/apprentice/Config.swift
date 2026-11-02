@@ -84,6 +84,73 @@ enum Toml {
         }
         return out
     }
+
+    /// Changes one key's value in place and leaves every other byte of the file as it was, comments
+    /// included: the app's forms edit a hand-written config without rewriting it. The key is added at the
+    /// end of its section (and the section at the end of the file) when it is missing. The value is the
+    /// TOML text of the value, quotes and all. Returns whether the file was written.
+    @discardableResult
+    static func set(_ path: URL, _ section: String, _ key: String, _ literal: String) -> Bool {
+        var lines = ((try? String(contentsOf: path, encoding: .utf8)) ?? "").components(separatedBy: "\n")
+        guard !lines.isEmpty else { return false }
+        let header = section.isEmpty ? nil : "[\(section)]"
+        var start = 0
+        var end = lines.count
+        if let header {
+            guard let found = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == header }) else {
+                lines.append("")
+                lines.append(header)
+                lines.append("\(key) = \(literal)")
+                return write(lines, path)
+            }
+            start = found + 1
+            var i = start
+            while i < lines.count, !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("[") { i += 1 }
+            end = i
+        }
+        for i in start..<end {
+            let bare = stripComment(lines[i])
+            let body = bare.trimmingCharacters(in: .whitespaces)
+            guard body.hasPrefix(key) else { continue }
+            let after = body.dropFirst(key.count).trimmingCharacters(in: .whitespaces)
+            guard after.hasPrefix("=") else { continue }
+            // Keep the line's own indentation and whatever comment followed the old value.
+            let indent = String(lines[i].prefix { $0 == " " || $0 == "\t" })
+            let comment = String(lines[i].dropFirst(bare.count)).trimmingCharacters(in: .whitespaces)
+            lines[i] = indent + key + " = " + literal + (comment.isEmpty ? "" : " " + comment)
+            return write(lines, path)
+        }
+        // Not there yet: at the end of its section, before the blank lines and the next header.
+        var insert = end
+        while insert > start, lines[insert - 1].trimmingCharacters(in: .whitespaces).isEmpty { insert -= 1 }
+        lines.insert("\(key) = \(literal)", at: insert)
+        return write(lines, path)
+    }
+
+    /// Removes a key from a section, leaving its comments alone. False when it was not there.
+    @discardableResult
+    static func remove(_ path: URL, _ section: String, _ key: String) -> Bool {
+        guard var lines = try? String(contentsOf: path, encoding: .utf8).components(separatedBy: "\n") else { return false }
+        let header = section.isEmpty ? nil : "[\(section)]"
+        var start = 0
+        var end = lines.count
+        if let header {
+            guard let found = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == header }) else { return false }
+            start = found + 1
+            var i = start
+            while i < lines.count, !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("[") { i += 1 }
+            end = i
+        }
+        for i in start..<end where stripComment(lines[i]).trimmingCharacters(in: .whitespaces).hasPrefix(key + " ") || stripComment(lines[i]).trimmingCharacters(in: .whitespaces).hasPrefix(key + "=") {
+            lines.remove(at: i)
+            return write(lines, path)
+        }
+        return false
+    }
+
+    private static func write(_ lines: [String], _ path: URL) -> Bool {
+        (try? lines.joined(separator: "\n").write(to: path, atomically: true, encoding: .utf8)) != nil
+    }
 }
 
 /// Keystrokes keep a slight human rhythm; cursor travel and the pause between actions do not wait
@@ -91,7 +158,7 @@ enum Toml {
 struct PaceConfig {
     var moveMin = 0.05
     var moveMax = 0.2
-    var keyMedian = 0.10
+    var keyMedian = 0.14
     var keySigma = 0.4
     var betweenMin = 0.0
     var betweenMax = 0.0
@@ -139,7 +206,7 @@ struct PaceConfig {
         var p = base
         switch name {
         case "fastest":
-            (p.moveMin, p.moveMax, p.keyMedian, p.keySigma) = (0.03, 0.09, 0.045, 0.3)
+            (p.moveMin, p.moveMax, p.keyMedian, p.keySigma) = (0.03, 0.09, 0.07, 0.3)
             (p.betweenMin, p.betweenMax, p.dwellMin, p.dwellMax, p.burstMin, p.burstMax) = (0, 0, 0, 0, 0, 0)
             (p.keyErrorRate, p.overshoot, p.fidget, p.mode) = (0, 0.1, 0, "fast")
         case "fast":
@@ -148,12 +215,12 @@ struct PaceConfig {
             (p.betweenMin, p.betweenMax, p.dwellMin, p.dwellMax, p.burstMin, p.burstMax) = (0, 0, 0, 0, 0, 0)
             (p.keyErrorRate, p.overshoot, p.fidget, p.mode) = (0, d.overshoot, 0, "human")
         case "steady":
-            (p.moveMin, p.moveMax, p.keyMedian, p.keySigma) = (0.12, 0.5, 0.12, 0.4)
+            (p.moveMin, p.moveMax, p.keyMedian, p.keySigma) = (0.12, 0.5, 0.15, 0.4)
             (p.betweenMin, p.betweenMax, p.dwellMin, p.dwellMax, p.burstMin, p.burstMax) = (0.5, 2.5, 1, 3, 0, 0)
             (p.keyErrorRate, p.overshoot, p.fidget, p.mode) = (0.008, 0.4, 0.1, "human")
             p.actionsPerMin = min(p.actionsPerMin, 15)
         case "careful":
-            (p.moveMin, p.moveMax, p.keyMedian, p.keySigma) = (0.25, 1.0, 0.14, 0.45)
+            (p.moveMin, p.moveMax, p.keyMedian, p.keySigma) = (0.25, 1.0, 0.18, 0.45)
             (p.betweenMin, p.betweenMax, p.dwellMin, p.dwellMax, p.burstMin, p.burstMax) = (3, 12, 3, 8, 3, 6)
             (p.restMin, p.restMax) = (30, 120)
             (p.keyErrorRate, p.overshoot, p.fidget, p.mode) = (0.015, 0.45, 0.25, "human")
@@ -294,6 +361,8 @@ struct Config {
     var keepAwake = false
     /// The menu-bar item that says whether apprentice is working, waiting for the user or holding a proposal.
     var menuBar = true
+    /// `[typing] learn`: sample the person's own typing now and then, for `Typing`'s per-pair rhythm.
+    var typingLearn = true
     var overlay = true
     var sounds = true
     var notifications = false
@@ -355,6 +424,18 @@ struct Config {
     ]
     /// More words per budgeted kind, from `[sites.kinds]`: `like = ["gostei"]`.
     var kindWords: [String: [String]] = [:]
+
+    /// `[schedules] enabled`: the daemon's timer fires schedules unless this is false.
+    var schedulesOn = true
+    /// `[app]`: the window. Its terminal's font, whether scrollback comes back after a relaunch, and
+    /// whether selecting text copies it.
+    var appFont = "SF Mono"
+    var appFontSize = 12.0
+    var appTheme = "system"
+    var keepScrollback = false
+    var copyOnSelect = false
+    /// `[app.tabs]`: tab presets, `shop = { dir = "~/work/shop", cmd = "claude", vm = "linux1" }`.
+    var tabPresets: [String: [String: String]] = [:]
 
     /// Sites built in at the `careful` style: the social networks, where an account's standing is
     /// what is at stake. twitter.com counts as x.com (`Site.domain`).
@@ -445,6 +526,7 @@ struct Config {
         if let v = toml["agent"]?["ask_sound"] { c.askSound = Toml.unquote(v) }
         if let v = toml["agent"]?["keep_awake"] { c.keepAwake = Toml.unquote(v) == "true" }
         if let v = toml["agent"]?["menu_bar"] { c.menuBar = Toml.unquote(v) != "false" }
+        if let v = toml["typing"]?["learn"] { c.typingLearn = Toml.unquote(v) != "false" }
         if let v = toml["agent"]?["dock_icon"] { c.dockIcon = Toml.unquote(v) != "false" }
         if let v = toml["agent"]?["notifications"] { c.notifications = Toml.unquote(v) == "true" }
         if let v = toml["agent"]?["sounds"] { c.sounds = Toml.unquote(v) != "false" }
@@ -464,6 +546,13 @@ struct Config {
         if let v = toml["sites"]?["on_challenge"].map(Toml.unquote), ["stop", "warn", "off"].contains(v) { c.onChallenge = v }
         if let v = toml["gate"]?["user_only"].flatMap(Toml.array) { c.userOnly = v.map { $0.lowercased() }.filter { !$0.isEmpty } }
         if let v = toml["agent"]?["ask_window_s"].flatMap({ Double(Toml.unquote($0)) }) { c.askWindowSeconds = v }
+        if let v = toml["schedules"]?["enabled"] { c.schedulesOn = Toml.unquote(v) != "false" }
+        if let v = toml["app"]?["font"] { c.appFont = Toml.unquote(v) }
+        if let v = toml["app"]?["font_size"].flatMap({ Double(Toml.unquote($0)) }), v >= 8, v <= 32 { c.appFontSize = v }
+        if let v = toml["app"]?["theme"] { c.appTheme = Toml.unquote(v) }
+        if let v = toml["app"]?["keep_scrollback"] { c.keepScrollback = Toml.unquote(v) == "true" }
+        if let v = toml["app"]?["copy_on_select"] { c.copyOnSelect = Toml.unquote(v) == "true" }
+        for (name, raw) in toml["app.tabs"] ?? [:] { c.tabPresets[name] = Toml.table(raw) }
         if let r = toml["run"] {
             if let v = r["base_url"] { c.runURL = Toml.unquote(v) }
             if let v = r["model"] { c.runModel = Toml.unquote(v) }

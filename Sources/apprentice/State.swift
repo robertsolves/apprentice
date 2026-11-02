@@ -163,6 +163,8 @@ enum Privacy {
 
     /// `url` is the page being logged, which may differ from the page the session last saw.
     static func blocked(_ session: Session, url: String? = nil) -> Bool {
+        // The app's own window is scrubbed by name, never by a site whose URL happens to say "apprentice".
+        if session.bundle == AppBundle.identifier || session.app.lowercased() == "apprentice" { return true }
         let text = [session.bundle ?? "", session.app, session.url ?? "", url ?? ""].joined(separator: " ").lowercased()
         return names.contains { text.contains($0) }
     }
@@ -544,6 +546,8 @@ enum Approvals {
         /// Set when the proposal was put in front of the user, who may take longer than `ttl` to answer.
         var until: Double?
         var warnings: [String]?
+        /// The terminal tab or schedule the proposal came from, so the app shows its banner there.
+        var tab: String?
 
         var expires: Double { until ?? at + Approvals.ttl }
         /// A credential step runs only once the user approves it themselves.
@@ -621,7 +625,8 @@ enum Approvals {
         }
         let token = String(UUID().uuidString.prefix(4)).lowercased()
         let p = Pending(token: token, cmd: request.cmd, args: request.args, summary: summary,
-                        snap: SnapStore.current?.snap, at: Date().timeIntervalSince1970, element: element, warnings: warnings)
+                        snap: SnapStore.current?.snap, at: Date().timeIntervalSince1970, element: element, warnings: warnings,
+                        tab: request.tab)
         add(p)
         Store.log(["proposed": summary, "token": token, "warnings": warnings])
         var out = ["approve? \(summary)"] + details.map { "  \($0)" } + warnings.map { "⚠ \($0)" }

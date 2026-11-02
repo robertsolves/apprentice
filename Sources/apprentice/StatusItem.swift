@@ -77,6 +77,7 @@ enum StatusItem {
             }
             menu.addItem(.separator())
             menu.addItem(action("Open this session's log", #selector(openLog), nil))
+            menu.addItem(action("Open apprentice…", #selector(openApp), nil))
             if let n = Store.load(Repo.Notice.self, "update.json") { menu.addItem(info(clip(n.text, 90))) }
             let mute = action("Mute sounds", #selector(toggleMute), nil)
             mute.state = Sound.muted ? .on : .off
@@ -114,6 +115,9 @@ enum StatusItem {
         @objc func resume() {
             DispatchQueue.global(qos: .userInitiated).async { _ = try? Daemon.command(Request(cmd: "resume")) }
         }
+
+        /// The quickest way to the window: the menu bar is always there.
+        @objc func openApp() { _ = AppBundle.open() }
 
         @objc func toggleMute() { Sound.muted.toggle() }
 

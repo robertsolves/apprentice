@@ -62,7 +62,7 @@ func usage() {
       apprentice activity <domain> [--days 7]   actions per day, rate limits, challenges and flags on one site
       apprentice flag <domain> "what you saw"   record when the user saw a warning or restriction
       apprentice awake on|off|status            keep the Mac from idle sleep and locking while tasks run
-      apprentice away on|off|status             the user is away: questions come back as exit 9 for the chat
+      apprentice typing [learn | show | forget]   record how you type (only key timings), so typing keeps your rhythm per letter pair
       apprentice resume                         after the kill switch, carry on once the user says so
       apprentice phone [on|off|test]            one-tap phone setup: questions that go to the chat buzz the phone
       apprentice grow [--days 14]               improvement digest: repeated errors, questions asked, open bug reports
@@ -76,6 +76,9 @@ func usage() {
       apprentice replay <name> [--from n] [--approve]
       apprentice mcp
       apprentice vm setup | install | up | down | on | off | look | call "what" | shell | status | list   a small Linux VM with its own screen, cursor and keyboard: its browser and Linux apps (--on linux); shell prints the ssh command for its terminal
+      apprentice app                            the window: terminal tabs where agents run, schedules, approvals, sites, settings and health
+      apprentice schedule add|list|show|pause|resume|rm|now|agent   prompts and tasks that run later or again
+      apprentice away on|off|status|wait|add|list|cancel   work that runs only while you are away, and stops when you are back
       apprentice serve [--background] | stop
       apprentice uninstall [--all] [--yes]      list, then remove, everything apprentice installed (--all: the clone too)
 
@@ -84,13 +87,16 @@ func usage() {
     and act once you run `apprentice approve <token>`. ctrl+opt+cmd+. is the kill switch: it stops whatever runs, and nothing more runs until the user answers.
     exit codes: 0 ok · 2 stale, re-read · 3 the user denied · 4 blocked, rate limited, over budget, cooling or a challenge ·
                 5 not found or timeout · 6 interrupted · 7 permission missing · 8 approval needed, nothing done yet ·
-                9 ask the user in the chat (they are away or did not answer the window)
+                9 ask the user in the chat (they are away or did not answer the window) ·
+                10 yielded: the user is back (away mode), nothing was done; wait with `apprentice away wait`
     """)
 }
 
 let argv = Array(argvRaw.dropFirst())
 // No command is a usage error, so an empty interpolation never reads as success (E4).
 guard let command = argv.first else {
+    // Opened from the Dock or Spotlight: the bundle's own binary, with no arguments, is the window.
+    if Bundle.main.bundleIdentifier == AppBundle.identifier { AppMain.run() }
     usage()
     exit(5)
 }
@@ -130,6 +136,13 @@ case "version", "--version", "-v":
     exit(0)
 case "serve":
     attempt { try Daemon.start(background: rest.contains("--background")) }
+case "app":
+    if rest.contains("--install") { exit(AppBundle.install()) }
+    AppBundle.launchFromCLI()
+case "schedule":
+    attempt { print(try Schedules.command(Args.parse(rest))) }
+case "away":
+    attempt { print(try Away.command(Args.parse(rest))) }
 case "stop":
     // Says what happened, and fails when the daemon is still there (E3).
     let (stopped, how) = Wire.stopDaemon()

@@ -88,7 +88,11 @@ enum Daemon {
         StatusItem.install()
         Overlay.install()
         Borrow.watchHuman()
+        // The window's own process is separate (`apprentice app`), so a stuck terminal or a crashed view
+        // never takes the daemon and a pending approval down with it.
         if Store.vmName == nil { Repo.scheduleChecks() }
+        Schedules.install()
+        Away.install()
         if Config.current.keepAwake { Awake.set(true) }
 
         let server = UnixServer(path: Store.socketPath) { req -> (Response, Bool) in
@@ -97,6 +101,11 @@ enum Daemon {
                 return (Response(code: 0, out: "stopped"), true)
             }
             do {
+                // An away task's steps go in the journal, so a return can undo a half-typed unit.
+                if req.away == true { Away.recording = req.tab ?? "away" }
+                // The app is a user channel, like the menu bar: its click is the user's own approval.
+                if req.user == true, req.cmd == "approve" { Approvals.byUser = req.args.first }
+                defer { Away.recording = nil; if req.user == true { Approvals.byUser = nil } }
                 let aside = Commands.asides.contains(req.cmd) && Daemon.queue(for: req) !== Daemon.queue
                 if !aside {
                     Store.model = req.model

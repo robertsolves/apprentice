@@ -69,6 +69,9 @@ commit="$(git -C "$root" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 [ -n "$(git -C "$root" status --porcelain --untracked-files=no 2>/dev/null)" ] && commit="$commit-dirty"
 printf '{"clone":"%s","commit":"%s","built":"%s","bin":"%s"}\n' "$root" "$commit" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$bin" \
   >"$HOME/.apprentice/install.json"
+# The window app: the same binary in a real bundle, signed with the same identity, so the Accessibility and
+# Screen Recording grants stay with it across rebuilds (`apprentice app` opens it).
+"$bin" app --install || echo "warning: could not build ~/.apprentice/Apprentice.app"
 # State holds URLs, page titles, screenshots and perhaps an API key: this user only.
 chmod 700 "$HOME/.apprentice"
 

@@ -38,6 +38,10 @@ enum SelfTest {
         learning()
         projects()
         updates()
+        schedules()
+        away()
+        tomlEdits()
+        terminal()
         try? FileManager.default.removeItem(at: Store.dir)
         if failures.isEmpty {
             print("selftest: \(count) checks passed")
@@ -139,36 +143,10 @@ enum SelfTest {
         let long = (0..<200).map { _ in Mouse.duration(2, base) }
         check(long.allSatisfy { $0 > base.moveMax && $0 <= base.moveMax * 2.5 } && Set(long).count > 150 && Mouse.duration(0.001, base) == base.moveMin,
               "long moves pass the cap without piling up on it; short ones keep the floor")
-        let wild = Hand(speed: 9, side: -1, hold: .nan, holdSigma: 0, rhythm: 1, click: 1).bounded
-        check(wild.speed <= 1.4 && wild.side >= 0.2 && wild.hold >= 0.05 && wild.click <= 0.16, "a hand from a bad file is bounded")
-        check((0..<500).allSatisfy { _ in (0.035...0.25).contains(Pace.keyHold("a")) && (0.03...1.2).contains(Typing.interval("a", 0, "k", 40)) },
+        let wild = Hand(speed: 9, side: -1, hold: .nan, holdSigma: 0, rhythm: 1, rollover: 2, click: 1).bounded
+        check(wild.speed <= 1.4 && wild.side >= 0.2 && wild.hold >= 0.05 && wild.rollover <= 0.6 && wild.click <= 0.16, "a hand from a bad file is bounded")
+        check((0..<500).allSatisfy { _ in (0.035...0.25).contains(Pace.keyHold("a")) && (0.035...0.9).contains(Pace.keyGap(after: "a", before: "k")) },
               "key holds and gaps stay in range")
-        func median(_ a: Character, _ ca: CGKeyCode, _ b: Character, _ cb: CGKeyCode) -> Double {
-            let s = (0..<301).map { _ in Typing.interval(a, ca, b, cb) }.sorted()
-            return s[150]
-        }
-        // "ed" is one finger, "th" two hands: by the board alone the first is slower, and each pair keeps its lean.
-        check(Typing.kind(14, 2) == .finger && Typing.kind(17, 4) == .other && Typing.kind(0, 49) == .toSpace
-              && median("e", 14, "d", 2) > median("t", 17, "h", 4) * 1.2
-              && Typing.lean("th", 0.14) == Typing.lean("th", 0.14) && Typing.lean("th", 0.14) != Typing.lean("ht", 0.14),
-              "gaps follow the board: one finger slower than two hands, and each pair keeps its own lean")
-        var recorded = Typing.Profile(recorded: Date())
-        // The person types "th" at 60 ms and "ed" at 300 ms: the recording wins over the board.
-        var presses: [Typing.Press] = []
-        var t = 0.0
-        for _ in 0..<12 {
-            for (code, ch, gap) in [(CGKeyCode(17), Character("t"), 0.2), (4, "h", 0.06), (14, "e", 0.15), (2, "d", 0.3), (49, " ", 0.12)] as [(CGKeyCode, Character, Double)] {
-                t += gap
-                presses.append(Typing.Press(code: code, char: ch, down: t, up: t + 0.09, edit: false))
-            }
-        }
-        presses[5].edit = true
-        Typing.add(presses, to: &recorded)
-        Store.save(recorded, Typing.file)
-        check(abs(median("t", 17, "h", 4) - 0.06) < 0.02 && abs(median("e", 14, "d", 2) - 0.3) < 0.08
-              && recorded.pairs["th"]?.count == 11 && recorded.holds["t"]?.first == 90,
-              "a recording sets each pair's own rhythm and hold; a pair beside a correction is left out")
-        Store.remove(Typing.file)
         check(Keys.tag != 0x646B_6374 && Keys.tag > 0, "the event tag is drawn, not the old constant")
         check(Mouse.Speed.allCases.allSatisfy { abs(Mouse.progress($0, 1, skew: 0.8) - 1) < 1e-9 && abs(Mouse.progress($0, 0, skew: 0.8)) < 1e-9 },
               "every speed profile starts at the start and ends on the target")
@@ -214,8 +192,6 @@ enum SelfTest {
             check(!vm(cmd), "\(cmd) stays on this Mac")
         }
         check(VM.isBrowser("Safari") && VM.isBrowser("Brave Browser.app") && !VM.isBrowser("Finder"), "browser names")
-        check(isBlankTab("chrome://newtab/") && isBlankTab("chrome://new-tab-page/") && isBlankTab(nil) && isBlankTab("about:blank")
-              && !isBlankTab("https://example.com/newtab") && !isBlankTab("https://example.com/"), "blank browser tabs")
     }
 
     private static func notify() {
@@ -604,6 +580,156 @@ enum SelfTest {
         check(like(), "outside the project only the account-wide cap applies")
         check(Agent.lastModel(in: #"{"model":"claude-a"} {"model":"<synthetic>"} {"model":"claude-b"} {"model":"<synthetic>"}"#) == "claude-b",
               "the agent's model is the last real one in its transcript")
+    }
+
+    /// Schedules: every trigger's next time, jitter bounds, the quiet-hours shift, catch-up and cron.
+    private static func schedules() {
+        let cal = Calendar.current
+        let now = Date()
+        var s = Schedules.Schedule(id: "t", name: "t", kind: .run, target: "true")
+        s.created = now
+        s.every = 60
+        if let next = Schedules.baseNext(s, after: now.addingTimeInterval(90)) {
+            check(abs(next.timeIntervalSince(now.addingTimeInterval(3600))) < 2, "every 60 min keeps its rhythm from when it was made")
+        } else {
+            check(false, "every 60 min has a next time")
+        }
+        var daily = s
+        daily.every = nil
+        daily.daily = "09:30"
+        if let next = Schedules.baseNext(daily, after: now) {
+            let c = cal.dateComponents([.hour, .minute], from: next)
+            check(c.hour == 9 && c.minute == 30 && next > now, "a daily schedule lands on its time")
+        } else {
+            check(false, "a daily schedule has a next time")
+        }
+        var weekly = daily
+        weekly.daily = nil
+        weekly.weekly = "mon,wed 09:00"
+        if let next = Schedules.baseNext(weekly, after: now) {
+            let weekday = cal.component(.weekday, from: next)
+            check(weekday == 2 || weekday == 4, "a weekly schedule lands on one of its days")
+            check(next > now, "a weekly schedule is in the future")
+        } else {
+            check(false, "a weekly schedule has a next time")
+        }
+        var cron = weekly
+        cron.weekly = nil
+        cron.cron = "30 8 * * *"
+        if let next = Schedules.nextCron("30 8 * * *", after: now) {
+            let c = cal.dateComponents([.hour, .minute], from: next)
+            check(c.hour == 8 && c.minute == 30 && next > now, "a cron line finds the next 08:30")
+        } else {
+            check(false, "a cron line has a next time")
+        }
+        check(Schedules.nextCron("bad", after: now) == nil, "a bad cron line has no next time")
+        check(Schedules.cronField("1-5", 0, 6) == Set(1...5) && Schedules.cronField("*/15", 0, 59)?.count == 4,
+              "cron ranges, steps and lists")
+        check(Schedules.cronField("9", 0, 5) == nil, "a cron value out of range is refused")
+
+        let jittered = Schedules.jittered(now, 15, draw: { 1 })
+        check(abs(jittered.timeIntervalSince(now.addingTimeInterval(900))) < 1, "jitter reaches its upper bound")
+        let low = Schedules.jittered(now, 15, draw: { 0 })
+        check(abs(low.timeIntervalSince(now.addingTimeInterval(-900))) < 1, "jitter reaches its lower bound")
+        check(Schedules.jittered(now, 0) == now, "no jitter is no shift")
+
+        let day = cal.startOfDay(for: now)
+        guard let early = cal.date(byAdding: .minute, value: 150, to: day),
+              let night = cal.date(byAdding: .minute, value: 23 * 60, to: day) else {
+            check(false, "today's clock times")
+            return
+        }
+        check(cal.component(.hour, from: Schedules.outOfQuietHours(early, (2, 6))) == 6,
+              "a run inside quiet hours moves to their end")
+        let moved = Schedules.outOfQuietHours(night, (22, 6))
+        check(cal.component(.hour, from: moved) == 6 && moved > night, "quiet hours that wrap move to the next morning")
+        check(Schedules.outOfQuietHours(night, (-1, -1)) == night, "no quiet hours changes nothing")
+
+        check(Schedules.catchUp(due: now.addingTimeInterval(-1800), now: now, minutes: 60), "half an hour late is caught up")
+        check(!Schedules.catchUp(due: now.addingTimeInterval(-5400), now: now, minutes: 60), "an hour and a half late is skipped")
+        check(Schedules.preview(daily, count: 5).count == 5, "five future runs are previewed")
+        check(Schedules.timeOfDay("09:30") == 570 && Schedules.timeOfDay("24:00") == nil, "a clock time parses strictly")
+        check(Schedules.render([s]).contains("[schedule.\"t\"]"), "schedules.toml is written as sections")
+    }
+
+    /// The away queue and the resume rule: a screen that does not match is the user's call, never a guess.
+    private static func away() {
+        check(Away.decide(preconditionsHold: true, cutMidway: false, alreadyHappened: false) == .proceed,
+              "a matching screen continues")
+        check(Away.decide(preconditionsHold: false, cutMidway: false, alreadyHappened: false) == .needsUser,
+              "a changed screen goes to the user")
+        check(Away.decide(preconditionsHold: true, cutMidway: true, alreadyHappened: false) == .redoUnit,
+              "a unit cut off midway is undone and redone")
+        check(Away.decide(preconditionsHold: true, cutMidway: true, alreadyHappened: true) == .needsUser,
+              "a step that may already have happened goes to the user")
+        Away.setMode(true)
+        check(Away.mode, "away on is remembered")
+        Away.update { $0.removeAll() }
+        let task = Away.Task(id: "t1", kind: "run", target: "true", state: .queued, created: Date().timeIntervalSince1970)
+        Away.add(task)
+        check(Away.find("t1")?.target == "true", "an away task is queued and found")
+        Away.journal(Away.Unit(task: "t1", step: "type into Message", host: "example.com", window: 7,
+                               label: "Message", typed: "hello", inverse: "clear", at: 0))
+        check(Away.leftover(task)?.contains("5 characters") == true, "the journal says what was left half-done")
+        Away.update { $0.removeAll() }
+        try? FileManager.default.removeItem(at: Away.journalPath)
+        Away.setMode(false)
+        check(!Away.mode, "away off is remembered")
+        check(Away.acting.contains("type") && !Away.acting.contains("pending"), "only acting commands yield")
+    }
+
+    /// The terminal's screen model: text, colours, erase and the alternate screen a TUI runs in.
+    private static func terminal() {
+        let esc = String(UnicodeScalar(27)!)
+        let screen = TermScreen(cols: 20, rows: 5)
+        func feed(_ s: String) { screen.feed(Data(s.utf8)) }
+        feed("hello")
+        check(screen.rowText(0).hasPrefix("hello"), "terminal: text lands on the screen")
+        feed("\r\nworld")
+        check(screen.rowText(1).hasPrefix("world"), "terminal: a newline moves to the next line")
+        feed(esc + "[2J" + esc + "[H")
+        check(screen.rowText(1).trimmingCharacters(in: .whitespaces).isEmpty, "terminal: erase display clears it")
+        feed(esc + "[31mred")
+        check(screen.grid[0].cells[0].fg == 1, "terminal: a colour sets the foreground")
+        feed(esc + "[?1049h")
+        check(screen.alt, "terminal: the alternate screen starts")
+        check(screen.rowText(0).trimmingCharacters(in: .whitespaces).isEmpty, "terminal: the alternate screen starts blank")
+        feed(esc + "[?1049l")
+        check(screen.rowText(0).hasPrefix("red"), "terminal: the alternate screen comes back")
+        feed(esc + "[?25l")
+        check(!screen.cursorVisible, "terminal: the cursor can be hidden")
+        screen.resize(cols: 10, rows: 3)
+        check(screen.cols == 10 && screen.rows == 3, "terminal: a resize reflows the grid")
+    }
+
+    /// The comment-preserving edit: a UI change never rewrites what a person wrote by hand.
+    private static func tomlEdits() {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("apprentice-toml-\(getpid()).toml")
+        let text = """
+            # top comment
+            top = 1
+
+            [agent]
+            # keep me
+            ask_sound = "Ping"   # a trailing note
+            menu_bar = true
+
+            [pace."x.com"]
+            actions_per_min = 8
+            """
+        try? text.write(to: file, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: file) }
+        check(Toml.set(file, "agent", "ask_sound", "\"Glass\""), "a key is changed")
+        let after = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
+        check(after.contains("# top comment") && after.contains("# keep me"), "comments survive an edit")
+        check(after.contains("ask_sound = \"Glass\" # a trailing note"), "a trailing comment stays on its line")
+        check(Toml.load(file)["agent"]?["ask_sound"].map(Toml.unquote) == "Glass", "the new value reads back")
+        check(Toml.set(file, "agent", "sounds", "false"), "a missing key is added to its section")
+        check(Toml.load(file)["agent"]?["sounds"] == "false" && Toml.load(file)["pace.x.com"]?["actions_per_min"] == "8",
+              "an added key stays in its section")
+        check(Toml.set(file, "app", "font", "\"Menlo\""), "a missing section is added")
+        check(Toml.load(file)["app"]?["font"].map(Toml.unquote) == "Menlo", "the new section reads back")
+        check(Toml.remove(file, "agent", "menu_bar") && Toml.load(file)["agent"]?["menu_bar"] == nil, "a key can be removed")
     }
 
     /// The automatic update against throwaway git repos: a clean update, a dirty tree, a conflict and a

@@ -340,6 +340,12 @@ enum Commands {
         // A press stops the action under way and holds every later step (`KillSwitch.halted`) until the
         // user answers; the press itself is cleared, so reading still works (B5).
         if req.cmd != "ping" { KillSwitch.tripped = false }
+        // Away mode means work runs only while nobody is here. An acting command started with the person at
+        // the Mac yields at once (exit 10) instead of waiting thirty seconds for them to go still, so an
+        // agent pauses instead of fighting them for the mouse (AWAY.md).
+        if Away.mode, Away.acting.contains(req.cmd), Away.userPresent() {
+            throw Fail(10, Away.yieldMessage)
+        }
         Borrow.interrupted = false
         charged = nil
         notice = nil
@@ -370,7 +376,7 @@ enum Commands {
 
     /// Commands that wait on the person or only read files. They run off the command queue
     /// (`Daemon.queue(for:)`), touch no per-command state, and hop onto the queue for anything on screen.
-    static let asides: Set<String> = ["ask", "confirm", "show", "log", "pending"]
+    static let asides: Set<String> = ["ask", "confirm", "show", "log", "pending", "away"]
 
     /// Commands that only look at the screen: they take in a page changed by someone else, where an
     /// action is refused until the caller has read it.
@@ -383,6 +389,7 @@ enum Commands {
         case "confirm": return try Ask.confirm(a)
         case "show": return try Ask.pointAt(a)
         case "log": return try log(a)
+        case "away": return try Away.command(a)
         default:
             let open = Approvals.all
             return open.isEmpty ? "nothing pending" : open.map { "pending \($0.token) · \($0.summary)" }.joined(separator: "\n")
@@ -415,7 +422,8 @@ enum Commands {
         case "choose": return try choose(a)
         case "do": return try runFlow(a)
         case "awake": return try Awake.run(a)
-        case "away": return try Ask.awayCommand(a)
+        case "away": return try Away.command(a)
+        case "schedule": return try Schedules.command(a)
         case "resume":
             let was = KillSwitch.halted
             KillSwitch.halted = false
@@ -559,7 +567,19 @@ enum Commands {
     }
 
     /// Picks the app's main window and saves it as the session. `keep` carries over its id and allowlist.
+    /// apprentice's own windows are never a session target. Otherwise an agent in a terminal tab could
+    /// bind to the app, read it and click its own Allow button; the walker skips them for the same reason.
+    static func refuseOwnWindow(_ app: NSRunningApplication) throws {
+        let name = (app.localizedName ?? "").lowercased()
+        let exe = app.executableURL?.path ?? ""
+        if app.processIdentifier == getpid() || app.bundleIdentifier == AppBundle.identifier
+            || name == "apprentice" || name == "apprentice app" || exe.contains("Apprentice.app/Contents/MacOS/apprentice") {
+            throw Fail(5, "\(app.localizedName ?? "apprentice") is apprentice's own window, which is never a session target. Bind another app's window")
+        }
+    }
+
     private static func attach(_ running: NSRunningApplication, _ name: String, _ a: Args, keep: Session? = nil) throws -> Session {
+        try refuseOwnWindow(running)
         enableWebAccessibility(appElement(running.processIdentifier), pid: running.processIdentifier)
         Pace.sleep(0.3)
         let app = runningApp(named: name) ?? running
@@ -841,6 +861,13 @@ enum Commands {
         // Never on a web page: typing at a third of a person's gaps is a keystroke-timing tell (BOT_DETECTION P1).
         let fast = (a.value("pace") == "fast" || Config.current.pace.mode == "fast") && target.url == nil
         let (node, rect) = focused ? (el, e.rect) : liveRect(el, e, target)
+        // An away task's step is a unit: what it changes and how to undo it, so a return mid-unit can put
+        // the field back instead of guessing.
+        if let recorder = Away.recording {
+            Away.journal(Away.Unit(task: recorder, step: "type into \(e.short)", host: hostOf(target.url),
+                                   window: Int(session.wid), label: e.short, typed: text, inverse: "clear",
+                                   at: Date().timeIntervalSince1970))
+        }
         var note: String?
         try Borrow.run(target) {
             note = try typeInto(node, rect, text, target, focused: focused, fast: fast, label: e.short)
