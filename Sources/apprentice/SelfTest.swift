@@ -21,6 +21,13 @@ enum SelfTest {
         diffs()
         approvals()
         limits()
+        sites()
+        budgets()
+        policies()
+        gate()
+        allowlist()
+        flows()
+        notes()
         updates()
         try? FileManager.default.removeItem(at: Store.dir)
         if failures.isEmpty {
@@ -159,6 +166,146 @@ enum SelfTest {
         let shared = Store.load(Limits.self, "limits.json")
         check(shared?.lastAction == 0 && shared?.kinds?["example.com"]?["like"]?.count == 2, "site counts are shared, the rhythm is not")
         check(Store.load(Limits.SessionPace.self, "pace.json")?.lastAction == 42 && Limits.stored.lastAction == 42, "the rhythm is kept per session")
+    }
+
+    /// www.linkedin.com and linkedin.com share a budget; a look-alike domain shares nothing.
+    private static func sites() {
+        check(Site.domain("WWW.LinkedIn.com") == "linkedin.com" && Site.domain("m.example.org") == "example.org", "www. and m. count with the site")
+        check(Site.domain("www.co") == "www.co", "a prefix that is the whole name stays")
+        check(Site.matches("api.example.com", "example.com") && Site.matches("Example.com", "example.com"), "subdomains and case match")
+        check(!Site.matches("badexample.com", "example.com") && !Site.matches("example.com.evil.io", "example.com"), "look-alike hosts do not match")
+        check(Budgets.kind("button \"Unfollow\"", gated: true) == "unfollow", "unfollow is not a follow")
+        check(Budgets.kind("button \"Add friend\"", gated: true) == "friend_request", "add friend is a friend request")
+        check(Budgets.kind("button \"Unlike\"", gated: false) == nil && Budgets.kind("button \"Following\"", gated: false) == nil,
+              "whole words only")
+        check(Budgets.kind("button \"Archive\"", gated: true) == "default" && Budgets.kind("link \"Home\"", gated: false) == nil,
+              "any other gated action counts as default, an ungated one not at all")
+        check(Budgets.plural("friend_request") == "friend requests" && Budgets.plural("default") == "gated actions", "plurals")
+    }
+
+    /// Caps from budgets.json, counted across aliases, in this run's temporary settings.
+    private static func budgets() {
+        let path = Budgets.path
+        defer { try? FileManager.default.removeItem(at: path) }
+        let table = #"{"_note": "x", "default": {"like": {"hour": 2}, "default": {"day": 9}}, "example.com": {"post": {"day": 1}}}"#
+        try? table.write(to: path, atomically: true, encoding: .utf8)
+        check(Budgets.cap("example.com", "post").day == 1, "a site's own cap wins")
+        check(Budgets.cap("shop.example.com", "like").hour == 2, "a subdomain falls back to the default's cap")
+        check(Budgets.cap("example.com", "upvote").hour == 2, "an alias takes its kind's cap")
+        check(Budgets.cap("other.org", "archive").day == 9, "an unknown kind takes the default cap")
+        func runs(_ host: String, _ kind: String) -> Bool { (try? Budgets.check(host, kind, record: true)) != nil }
+        check(runs("www.example.com", "like") && runs("example.com", "upvote"), "under the cap it runs")
+        do {
+            try Budgets.check("example.com", "like", record: true)
+            check(false, "a like over the hourly cap is stopped")
+        } catch let f as Fail { check(f.code == 4, "a like over the hourly cap exits 4") } catch {}
+        check((try? Budgets.check("example.com", "like", record: false)) == nil, "a refused action is not counted, and checking alone still refuses")
+        check(runs("example.com", "post") && !runs("example.com", "repost"), "a repost shares the post budget")
+    }
+
+    /// Meta and TikTok are forbidden whatever the subdomain; routes.toml sets the rest.
+    private static func policies() {
+        func allowed(_ host: String?, _ cmd: String) -> Bool { (try? Policies.check(host, cmd: cmd)) != nil }
+        check(!allowed("www.instagram.com", "read") && !allowed("m.facebook.com", "click"), "built-in forbidden sites refuse every command")
+        check(allowed("notinstagram.com", "click") && allowed(nil, "click"), "other sites and no page are not refused")
+        let path = Routes.customPath
+        defer { try? FileManager.default.removeItem(at: path) }
+        try? """
+        [policy."news.example"]
+        automation = "read-only"
+        [policy."tiktok.com"]
+        automation = "allowed"
+        """.write(to: path, atomically: true, encoding: .utf8)
+        check(allowed("www.news.example", "read") && allowed("news.example", "scroll"), "a read-only site can be read")
+        check(!allowed("news.example", "click") && !allowed("news.example", "type"), "a read-only site refuses changes")
+        check(allowed("tiktok.com", "click"), "a routes.toml entry replaces a built-in one")
+    }
+
+    /// The ⚠ lines: what a step is, never what the agent says it is.
+    private static func gate() {
+        func el(_ label: String, _ name: String) -> Element {
+            Element(id: 1, path: [], label: label, name: name, value: nil, frame: [0, 0, 1, 1], offscreen: false, gated: false)
+        }
+        let page = Page(url: "https://example.com/feed", title: "Feed", scope: "web")
+        check(Gate.matches("Send message") && Gate.matches("DELETE") && !Gate.matches("Sender") && !Gate.matches("Unlike"),
+              "gate words match whole words in any case")
+        check(Gate.warnings(el("link", "Home"), page).isEmpty, "a plain link has no warning")
+        check(Gate.warnings(el("button", "Post"), page).contains { $0.hasPrefix("may be irreversible") }, "post may be irreversible")
+        check(Gate.warnings(el("textbox", "Verification code"), page).contains("a password or security-code field"), "a code field always stops")
+        check(Gate.warnings(el("link", "Home"), Page(url: "https://example.com/account/x", title: "", scope: "web")).count == 1,
+              "account pages warn")
+        check(Gate.warnings(el("link", "Home"), Page(url: nil, title: "", scope: "sheet")) == ["inside a dialog"], "dialogs warn")
+        check(Gate.warnings(nil, page, force: true) == ["marked --gate"], "--gate adds a warning")
+    }
+
+    /// An allowlist entry covers its subdomains, never a look-alike; the app's name covers pageless windows.
+    private static func allowlist() {
+        func s(_ allow: [String]) -> Session { Session(app: "Safari", bundle: nil, pid: 1, wid: 1, allow: allow) }
+        check(s([]).allows(url: "https://anything.io"), "an empty allowlist is unrestricted")
+        check(s(["example.com"]).allows(url: "https://docs.example.com/a") && s(["Example.com"]).allows(url: "https://example.com"),
+              "subdomains and case are allowed")
+        check(!s(["example.com"]).allows(url: "https://badexample.com") && !s(["example.com"]).allows(url: "https://example.com.evil.io"),
+              "look-alike hosts are not")
+        check(!s(["example.com"]).allows(url: nil) && s(["safari"]).allows(url: nil), "a window without a page needs the app's name")
+        check(s(["*"]).allows(url: "https://x.y"), "* allows everything")
+        check(Config.parseAllow(" a.com, b.org ,") == ["a.com", "b.org"], "the allow option is split and trimmed")
+    }
+
+    /// Flow steps: shell-like words and {placeholders}.
+    private static func flows() {
+        check((try? Commands.tokenize(#"type #textbox "" "Hello \"you\"""#)) == ["type", "#textbox", "", #"Hello "you""#],
+              "quotes group, empty quotes are a word, \\\" escapes")
+        check((try? Commands.tokenize(#"open C:\path  x"#)) == [#"open"#, #"C:\path"#, "x"], "other backslashes are kept, extra spaces ignored")
+        check((try? Commands.tokenize(#"click "Save"#)) == nil, "an unclosed quote is an error")
+        var missing = Set<String>()
+        let filled = Commands.fill("type 3 \"{First Name} {city}\"", ["first-name": "Ada"], &missing)
+        check(filled == "type 3 \"Ada ‹city›\"" && missing == ["city"], "placeholders fill, a missing one is marked and reported")
+        var loop = Set<String>()
+        check(!Commands.fill("{a}", ["a": "{a}"], &loop).isEmpty, "a value that brings its placeholder back does not loop for ever")
+    }
+
+    /// Notes: front matter, key facts, steps, and which session sees which note.
+    private static func notes() {
+        let text = """
+        ---
+        scope: flow
+        match: Finder
+        ---
+        # New folder
+
+        ## Key facts
+        - one
+        - two
+        ## Steps
+        1. `menu "File > New Folder"`
+        2. Pick the row by hand.
+        not a step
+        ## Fails
+        3. not a step either
+        """
+        let n = Notes.parse(text, url: URL(fileURLWithPath: "/x/new-folder.md"), path: "flows/new-folder.md")
+        check(n.meta["scope"] == "flow" && n.title == "New folder" && n.match == ["finder"], "front matter and title")
+        check(n.keyFacts == ["one", "two"], "key facts are the bullets under their heading")
+        check(Notes.steps(n) == ["`menu \"File > New Folder\"`", "Pick the row by hand."], "steps are the numbered lines under Steps")
+        check(Notes.parse("# T\nbody", url: URL(fileURLWithPath: "/x/a.md"), path: "a.md").meta.isEmpty, "no front matter is fine")
+        check(Notes.slugify("Post a job: LinkedIn (draft)!") == "post-a-job-linkedin-draft", "slugs")
+
+        let root = Store.dir.appendingPathComponent("notes-test")
+        defer { try? FileManager.default.removeItem(at: root); unsetenv("APPRENTICE_NOTES") }
+        func write(_ name: String, _ meta: String) {
+            try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try? "---\n\(meta)\n---\n# \(name)\n".write(to: root.appendingPathComponent(name + ".md"), atomically: true, encoding: .utf8)
+        }
+        write("mac", "scope: system\nmatch: *\nsystem: macos")
+        write("linux", "scope: system\nmatch: *\nsystem: linux")
+        write("site", "scope: site\nmatch: example.com")
+        write("flow", "scope: flow\nmatch: *")
+        setenv("APPRENTICE_NOTES", root.path, 1)
+        func seen(_ host: String?, _ system: String) -> [String] {
+            Notes.matching(app: "Chromium", bundle: nil, host: host, system: system).map(\.title).sorted()
+        }
+        check(seen("www.example.com", "linux") == ["linux", "site"], "the VM sees its own notes and the site's, not the Mac's")
+        check(seen("badexample.com", "macos") == ["mac"], "a look-alike host gets no site note, and flows never show")
     }
 
     /// The automatic update against throwaway git repos: a clean update, a dirty tree, a conflict and a

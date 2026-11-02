@@ -96,7 +96,7 @@ apprentice improves from use. When you start work in this repo:
 
 Each install is a local clone made by `install.sh`, with `upstream` as a fetch-only remote (any git URL; an older clone uses `origin`). Local commits stay local. The daemon fetches every `[update] check_hours` (6) and, unless `[update] auto = false`, rebases the local commits onto upstream on a clean tree, runs `kit.sh` (build, `selftest`, sign, swap) and restarts between commands. A failed build or self-test resets to the old commit and keeps the old binary. `session` prints the result once (`Repo.updateLine`). `apprentice update` does the same by hand. There's no GitHub step: no forks, `gh` or pull requests.
 
-`apprentice selftest` (`SelfTest.swift`) checks the pure parts: TOML, args, pace limits, the wire format, VM routing and `diff`. Add a check there when you fix a bug in one of them. `kit.sh` runs it on the new binary before installing it.
+`apprentice selftest` (`SelfTest.swift`) checks the pure parts: TOML, args, pace limits, the wire format, VM routing, `diff`, the approval gate and its warnings, site budgets and policies, allowlists, flow steps and notes. Add a check there when you fix a bug in one of them. `kit.sh` runs it on the new binary before installing it.
 
 ## BUGS.md and TODO.md
 

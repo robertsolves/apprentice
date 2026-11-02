@@ -110,7 +110,7 @@ extension Commands {
         return out
     }
 
-    private static func fill(_ step: String, _ vars: [String: String], _ missing: inout Set<String>) -> String {
+    static func fill(_ step: String, _ vars: [String: String], _ missing: inout Set<String>) -> String {
         var s = step
         // A value that brings its own placeholder back would substitute for ever and wedge the
         // daemon; the count bounds that, and anything left stays visible as a marker.
