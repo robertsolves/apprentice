@@ -270,7 +270,14 @@ enum VM {
         case "shell":
             _ = try address()
             return "\(shell) '<command>'   terminal commands in \(name); GUI apps started there show on its screen"
-        default: throw Fail(5, "vm setup | install | up | down | on | off | look | call \"what\" | shell | status | list")
+        case "ssh":
+            // A person's own shell in the VM, for the window's "Open a shell in it" tab.
+            _ = try address()
+            let argv = ["ssh", "-F", sshConfig.path, name]
+            var cargs = argv.map { strdup($0) } + [nil]
+            execv("/usr/bin/ssh", &cargs)
+            throw Fail(1, "vm ssh: could not start ssh")
+        default: throw Fail(5, "vm setup | install | up | down | on | off | look | call \"what\" | shell | ssh | status | list")
         }
     }
 

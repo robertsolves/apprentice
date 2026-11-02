@@ -601,38 +601,34 @@ struct VMsView: View {
     @State private var output = ""
     @State private var adding = false
     @State private var newName = ""
+    @State private var selected: String?
 
     var body: some View {
-        ScreenPage(title: "VMs", subtitle: "") {
-            AnyView(IconButton("New VM", "plus", prominent: true) { newName = ""; adding = true })
-        } content: {
-            Explainer(icon: Section.vms.icon, title: "What is a VM?",
-                      text: "A VM is a small Linux computer that runs inside this Mac. It has its own screen, mouse and keyboard, so an agent can use websites there while you keep using your Mac.",
-                      points: ["Make one per project to keep each project's accounts apart.",
-                               "Look at its screen any time to see what the agent is doing.",
-                               "A VM only runs while this Mac is on and awake."])
-            if model.machines.isEmpty {
-                Panel(title: "Your VMs") {
-                    Text("None yet. New VM makes one; it takes a few minutes the first time.")
-                        .font(Theme.body).foregroundStyle(.secondary)
+        SplitPane(id: "vms") {
+            ListColumn(count: "\(model.machines.count) VM\(model.machines.count == 1 ? "" : "s")", newTitle: "New", new: { newName = ""; adding = true }) {
+                if model.machines.isEmpty {
+                    Text("No VMs yet").font(Theme.caption).foregroundStyle(.secondary)
+                        .padding(Theme.s4).frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    List(selection: $selected) {
+                        ForEach(model.machines) { m in
+                            IconRow(icon: m.host == nil ? Section.vms.icon : "network", title: m.label, detail: m.host ?? m.state).tag(m.id)
+                        }
+                    }
+                    .listStyle(.sidebar)
+                    .scrollContentBackground(.hidden)
                 }
+            }
+        } right: {
+            if let id = selected, let m = model.machines.first(where: { $0.id == id }) {
+                detail(m)
             } else {
-                Panel(title: "Your VMs") {
-                    ForEach(model.machines) { m in machineRow(m) }
-                }
+                intro
             }
-            Panel(title: "Browsers outside a project") {
-                Text("When an agent opens a website and its project has no VM, it uses the default VM if this is on, else this Mac.")
-                    .font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: Theme.s2) {
-                    IconButton("Use the default VM", "server.rack") { vm("", "on") }
-                    IconButton("Use this Mac", "laptopcomputer") { vm("", "off") }
-                }
-                .controlSize(.small)
-            }
-            if !output.isEmpty { Panel(title: "Result") { Output(text: output) } }
         }
+        .background(Theme.canvas)
         .onAppear { model.refreshMachines() }
+        .onChange(of: selected) { _, _ in output = "" }
         .sheet(isPresented: $adding) {
             SheetFrame(title: "New VM", subtitle: "Its own Linux computer inside this Mac, with Chromium for websites.", idealHeight: 320, idealWidth: 520) {
                 Panel(title: "VM") {
@@ -657,26 +653,69 @@ struct VMsView: View {
         }
     }
 
-    private func machineRow(_ m: VM.Machine) -> some View {
-        HStack(spacing: Theme.s3) {
-            Image(systemName: m.host == nil ? "server.rack" : "network")
-                .font(.system(size: 16)).foregroundStyle(Theme.accent).frame(width: 22)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(m.label).font(.system(size: 12.5, weight: .semibold))
-                Text(m.host ?? m.state).font(Theme.monoSmall).foregroundStyle(m.state == "running" ? Theme.accent : .secondary)
+    /// Nothing chosen: what a VM is, and where websites open outside a project.
+    private var intro: some View {
+        ScreenPage(title: "VMs", subtitle: "") {
+            AnyView(IconButton("New VM", "plus", prominent: true) { newName = ""; adding = true })
+        } content: {
+            Explainer(icon: Section.vms.icon, title: "What is a VM?",
+                      text: "A VM is a small Linux computer that runs inside this Mac. It has its own screen, mouse and keyboard, so an agent can use websites there while you keep using your Mac.",
+                      points: ["Make one per project to keep each project's accounts apart.",
+                               "Look at its screen any time to see what the agent is doing.",
+                               "A VM only runs while this Mac is on and awake."])
+            Panel(title: "Browsers outside a project") {
+                Text("When an agent opens a website and its project has no VM, it uses the default VM if this is on, else this Mac.")
+                    .font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: Theme.s2) {
+                    IconButton("Use the default VM", "server.rack") { vm("", "on") }
+                    IconButton("Use this Mac", "laptopcomputer") { vm("", "off") }
+                }
+                .controlSize(.small)
             }
-            Spacer()
-            if m.host == nil {
-                if m.state == "running" {
-                    IconButton("Look", "eye") { vm(m.name, "look") }
-                    IconButton("Stop", "stop.fill") { vm(m.name, "down") }
-                } else {
-                    IconButton("Start", "play.fill") { vm(m.name, "up") }
+            if !output.isEmpty { Panel(title: "Result") { Output(text: output) } }
+        }
+    }
+
+    /// One VM: its state, what to do with it and the projects that work in it.
+    private func detail(_ m: VM.Machine) -> some View {
+        let projects = model.projects.filter { ($0.vm ?? "") == m.name }
+        let running = m.state == "running"
+        return ScreenPage(title: m.label, subtitle: m.host.map { "Another computer at \($0)" } ?? "A Linux computer inside this Mac") {
+            AnyView(HStack(spacing: Theme.s2) {
+                if m.host == nil {
+                    if running {
+                        IconButton("Look at its screen", "eye", prominent: true) { vm(m.name, "look") }
+                        IconButton("Stop", "stop.fill") { vm(m.name, "down") }
+                    } else {
+                        IconButton("Start", "play.fill", prominent: true) { vm(m.name, "up") }
+                    }
+                }
+                IconButton("Open a shell in it", "terminal") {
+                    model.newTab(preset: "VM \(m.label)", command: "apprentice\(m.name.isEmpty ? "" : " --vm \(m.name)") vm ssh")
+                }
+            })
+        } content: {
+            Panel(title: "Now") {
+                HStack(spacing: Theme.s2) {
+                    StatusPill(text: m.state, tint: running ? Theme.accent : .secondary)
+                    if let host = m.host { Text(host).font(Theme.monoSmall).foregroundStyle(.secondary) }
                 }
             }
+            Panel(title: "Projects that work in it") {
+                if projects.isEmpty {
+                    Text("None. A project picks its VM when it is made.").font(Theme.caption).foregroundStyle(.secondary)
+                } else {
+                    ForEach(projects) { p in
+                        HStack {
+                            IconRow(icon: Section.projects.icon, title: p.name, detail: (p.folder.path as NSString).abbreviatingWithTildeInPath)
+                            Spacer()
+                            IconButton("Open", "arrow.up.forward.app") { model.openProject(p) }.controlSize(.small)
+                        }
+                    }
+                }
+            }
+            if !output.isEmpty { Panel(title: "Result") { Output(text: output) } }
         }
-        .controlSize(.small)
-        .padding(.vertical, 2)
     }
 
     private func vm(_ name: String, _ action: String) {
