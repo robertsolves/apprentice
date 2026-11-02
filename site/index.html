@@ -110,11 +110,6 @@
       --muted: #5a6371;
       --border: #e1e5eb;
       --code-bg: #eef1f5;
-      --term-bg: #0f1218;
-      --term-text: #d8dee8;
-      --term-dim: #7d8899;
-      --term-warn: #f2b84b;
-      --term-ok: #6fd3a0;
       --shadow: 0 1px 2px rgb(0 0 0 / .04), 0 8px 24px rgb(0 0 0 / .06);
       --ray: rgb(10 92 230 / .09);
       --glow: rgb(10 92 230 / .10);
@@ -129,7 +124,6 @@
         --muted: #9aa6b8;
         --border: #262c37;
         --code-bg: #1f2530;
-        --term-bg: #0a0d12;
         --shadow: 0 1px 2px rgb(0 0 0 / .3), 0 8px 24px rgb(0 0 0 / .35);
       --ray: rgb(90 162 255 / .11);
       --glow: rgb(90 162 255 / .12);
@@ -144,7 +138,6 @@
       --muted: #9aa6b8;
       --border: #262c37;
       --code-bg: #1f2530;
-      --term-bg: #0a0d12;
       --shadow: 0 1px 2px rgb(0 0 0 / .3), 0 8px 24px rgb(0 0 0 / .35);
       --ray: rgb(90 162 255 / .11);
       --glow: rgb(90 162 255 / .12);
@@ -217,24 +210,6 @@
       padding: 1px 7px; margin-right: 6px; font-size: 11px; letter-spacing: .06em; text-transform: uppercase;
     }
 
-    .term {
-      margin: 40px auto 0; max-width: 820px; text-align: left;
-      border-radius: 12px; overflow: hidden;
-      background: var(--term-bg); color: var(--term-text);
-      box-shadow: var(--shadow); border: 1px solid var(--border);
-    }
-    .term .bar { display: flex; gap: 6px; padding: 10px 12px; border-bottom: 1px solid rgb(255 255 255 / .06); }
-    .term .bar i { width: 11px; height: 11px; border-radius: 50%; background: rgb(255 255 255 / .14); }
-    .term pre { margin: 0; padding: 18px 20px; overflow-x: auto; font-size: 13.5px; line-height: 1.55; }
-    .term .p { color: var(--term-dim); }
-    .term .c { color: #ffffff; }
-    .term .d { color: var(--term-dim); }
-    .term .w { color: var(--term-warn); }
-    .term .k { color: var(--term-ok); }
-    .term .u { color: var(--term-ok); font-weight: 600; }
-    .term .a { color: #8ab8ff; font-weight: 600; }
-    .term figcaption { padding: 0 20px 16px; font-size: 13px; color: var(--term-dim); font-family: inherit; }
-
     section { padding: 64px 0; }
     h2 { font-size: clamp(26px, 3.5vw, 34px); letter-spacing: -0.01em; margin: 0 0 8px; }
     .sub { color: var(--muted); margin: 0 0 32px; max-width: 42em; }
@@ -296,8 +271,7 @@
     @media (max-width: 560px) {
       nav.links a.hide-sm { display: none; }
       .btn { width: 100%; justify-content: center; }
-      .term pre { font-size: 12px; white-space: pre-wrap; }
-    }
+      }
   </style>
 </head>
 <body>
@@ -327,33 +301,7 @@
       </div>
       <p class="fine">Works with Claude Code, Codex, Gemini CLI and any coding agent · Free and open source</p>
 
-      <!-- Demo slot: replace this figure with the screen-recorded video once it exists (see TODO.md). -->
-      <figure class="term" aria-label="Example: asking your agent to do something on screen">
-        <div class="bar"><i></i><i></i><i></i></div>
-<pre><span class="u">you</span>    <span class="c">Download my January internet bill and put it in ~/Documents/Bills.</span>
-
-<span class="a">agent</span>  <span class="d">$ apprentice read --filter bill</span>
-       14 link "Internet · January · $84.20"
-       <span class="d">$ apprentice click 14</span>
-       approve? click 14 link "Internet · January · $84.20"
-       <span class="d">$ apprentice approve 2c7e</span>
-       ok · snap 3 · +1 -0 ~0
-       + 22 button "Download"
-       <span class="d">$ apprentice click 22</span>
-       approve? click 22 button "Download"
-       <span class="w">⚠ downloads a file</span>
-       <span class="d">$ apprentice approve 9f1b</span>          <span class="d"># you asked to download it</span>
-       ok · snap 4 · +2 -0 ~0
-       + 23 dialog "Save to ~/Downloads"
-       + 24 button "~/Documents/Bills"
-       <span class="d">$ apprentice click 24</span>  →  ⚠ inside a dialog
-       <span class="d">$ apprentice confirm 4d0a --why "you asked for ~/Documents/Bills"</span>
-
-<span class="u">you</span>    <span class="k">Approve</span>  <span class="d">(in apprentice's window on your screen)</span>
-
-<span class="a">agent</span>  Saved: Internet, January, $84.20.</pre>
-        <figcaption>The <code>$ apprentice</code> lines are the commands your agent runs and their real output format. Its own words will vary. You asked to download it, so it approves that step itself; picking a folder you didn't mention goes to you.</figcaption>
-      </figure>
+      <!-- Demo video goes here, below the buttons (see TODO.md). -->
     </div>
   </div>
 
