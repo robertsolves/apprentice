@@ -1,0 +1,21 @@
+<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
+  <!-- Social preview card. Re-render with:
+       rsvg-convert -w 1200 -h 630 site/assets/og.svg -o site/assets/og.png -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2F8CFF"/>
+      <stop offset="1" stop-color="#0A5CE6"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="630" fill="#0f1218"/>
+  <g transform="translate(96 175) scale(4.375)">
+    <rect width="64" height="64" rx="14" fill="url(#bg)"/>
+    <path d="M45.5 20 C 42 32, 37.5 44, 27 44 C 20.5 44, 16.5 39, 16.5 33 C 16.5 27, 20.5 22, 27 22 C 37.5 22, 42 34, 45.5 44" fill="none" stroke="#FFFFFF" stroke-width="6.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <g font-family="Helvetica Neue, Helvetica, Arial, sans-serif">
+    <text x="420" y="268" font-size="92" font-weight="700" fill="#EEF2F8">apprentice</text>
+    <text x="422" y="336" font-size="36" fill="#9AA6B8">Lets a coding agent work any Mac app</text>
+    <text x="422" y="384" font-size="36" fill="#9AA6B8">or website, the way a careful person would</text>
+    <text x="422" y="456" font-size="28" font-weight="700" fill="#5AA2FF">TEXT IN · TEXT OUT · YOU APPROVE</text>
+  </g>
+</svg>
