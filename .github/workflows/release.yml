@@ -1,5 +1,7 @@
-# Builds the universal (arm64 + x86_64) apprentice binary and attaches it to a
-# GitHub Release.
+# Builds the universal (arm64 + x86_64) apprentice and attaches it to a GitHub
+# Release: apprentice-macos.dmg (Apprentice.app: the window, the CLI and the
+# playbooks; it updates itself from these releases) and apprentice-macos.zip
+# (the bare binary).
 #
 #   git tag v0.2.0 && git push origin v0.2.0     → public release
 #   Actions ▸ Release ▸ Run workflow (version)    → DRAFT release, for testing
@@ -17,7 +19,8 @@
 #   APPLE_TEAM_ID           10-char team id
 #
 # Asset names carry no version so the landing page can link to
-# releases/latest/download/apprentice-macos.zip forever.
+# releases/latest/download/apprentice-macos.dmg forever, and the app finds
+# apprentice-macos.dmg and SHA256SUMS.txt in every release it updates to.
 name: Release
 
 on:
@@ -112,6 +115,13 @@ jobs:
       - name: Package zip
         run: ditto -c -k --sequesterRsrc dist apprentice-macos.zip
 
+      # The app keeps the CLI's identifier for its helper, so a CLI install and the
+      # app share their Accessibility and Screen Recording grants.
+      - name: Package DMG
+        run: |
+          scripts/make-dmg.sh dist/apprentice dmg "${IDENTITY:-}"
+          mv dmg/apprentice-macos.dmg apprentice-macos.dmg
+
       # A bare binary can't be stapled; Gatekeeper looks the ticket up online.
       - name: Notarize
         if: env.HAS_SIGNING == 'true'
@@ -120,20 +130,25 @@ jobs:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          OUT="$(xcrun notarytool submit apprentice-macos.zip \
-            --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" \
-            --wait --output-format json)"
-          echo "$OUT"
-          STATUS="$(echo "$OUT" | jq -r .status)"
-          if [ "$STATUS" != "Accepted" ]; then
-            xcrun notarytool log "$(echo "$OUT" | jq -r .id)" \
-              --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
-            exit 1
-          fi
+          for f in apprentice-macos.zip apprentice-macos.dmg; do
+            OUT="$(xcrun notarytool submit "$f" \
+              --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" \
+              --wait --output-format json)"
+            echo "$OUT"
+            STATUS="$(echo "$OUT" | jq -r .status)"
+            if [ "$STATUS" != "Accepted" ]; then
+              xcrun notarytool log "$(echo "$OUT" | jq -r .id)" \
+                --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID"
+              exit 1
+            fi
+          done
+          # The DMG's ticket covers the app inside it.
+          xcrun stapler staple apprentice-macos.dmg
+          spctl --assess --type open --context context:primary-signature -v apprentice-macos.dmg
 
       - name: Checksums
         run: |
-          shasum -a 256 apprentice-macos.zip > SHA256SUMS.txt
+          shasum -a 256 apprentice-macos.dmg apprentice-macos.zip > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
       - name: Write release notes
@@ -145,18 +160,19 @@ jobs:
               echo "Universal binary (Apple Silicon + Intel), macOS 14+."
             fi
             echo
-            echo "**Install (recommended):** clone and build, which also connects your coding agents, links the playbooks and keeps apprentice updated:"
+            echo "**Install:** open \`apprentice-macos.dmg\`, drag Apprentice to Applications and open it. It puts \`apprentice\` on your PATH, brings in the playbooks, connects your coding agents, and tells you when a new release is out (one click installs it)."
+            echo
+            echo "**From source** (to change apprentice and offer fixes back): clone and build, which updates from git instead:"
             echo
             echo '```sh'
             echo "git clone https://github.com/${{ github.repository }}.git ~/.apprentice/src && ~/.apprentice/src/install.sh"
             echo '```'
             echo
-            echo "\`apprentice-macos.zip\` is the bare binary, for when you want it without building from source. It has no agent docs, playbooks or self-update."
+            echo "\`apprentice-macos.zip\` is the bare binary, with no agent docs, playbooks or self-update."
             if [ "$HAS_SIGNING" != "true" ]; then
               echo
               echo "> [!IMPORTANT]"
-              echo "> The binary is **not notarized**, so macOS blocks it on first run. Clear the quarantine flag:"
-              echo "> \`xattr -d com.apple.quarantine ./apprentice\`"
+              echo "> This build is **not notarized**, so macOS blocks the first launch. After dragging Apprentice to Applications, either open *System Settings ▸ Privacy & Security* and click **Open Anyway**, or run \`xattr -dr com.apple.quarantine /Applications/Apprentice.app\`. The app installs later releases itself."
             fi
             echo
             echo "Found a bug? [Open an issue](https://github.com/${{ github.repository }}/issues/new)."
@@ -181,7 +197,7 @@ jobs:
           FLAGS=(--title "apprentice $TAG" --notes-file NOTES.md --generate-notes --target "$GITHUB_SHA")
           if [ "${{ steps.v.outputs.draft }}" = "true" ]; then FLAGS+=(--draft); fi
           case "$TAG" in *-*) FLAGS+=(--prerelease) ;; esac
-          gh release create "$TAG" "${FLAGS[@]}" apprentice-macos.zip SHA256SUMS.txt
+          gh release create "$TAG" "${FLAGS[@]}" apprentice-macos.dmg apprentice-macos.zip SHA256SUMS.txt
 
       - name: Clean up keychain
         if: always() && env.HAS_SIGNING == 'true'

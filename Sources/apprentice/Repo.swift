@@ -18,6 +18,9 @@ enum Repo {
     static var testRoot: URL?
     static var testBuild: (() -> (code: Int32, out: String))?
     static var isGit: Bool { FileManager.default.fileExists(atPath: root.appendingPathComponent(".git").path) }
+    /// Where the repo's own files are read from (`agent/`, `skills/`, `playbooks/`): the release app's copy
+    /// when that is what runs without a clone, else the clone.
+    static var resources: URL { Release.cloneInstalled ? root : (Release.share ?? root) }
     /// install.sh names it `upstream`; an older plain clone only has origin.
     static var upstream: String { git("remote").out.split(separator: "\n").contains("upstream") ? "upstream" : "origin" }
 
@@ -101,6 +104,7 @@ enum Repo {
     /// `update [--check] [--build]`: rebases the local commits onto upstream and rebuilds when the source
     /// changed. `--check` only says whether one is waiting.
     static func update(_ a: Args) throws -> String {
+        if !isGit, Release.isRelease { return try Release.updateCommand(a) }
         guard isGit else { throw Fail(5, "\(root.path) is not a git clone: reinstall with install.sh") }
         let remote = upstream
         guard git("fetch", "-q", remote).code == 0 else { throw Fail(5, "could not fetch \(remote) (\(git("remote", "get-url", remote).out))") }
@@ -142,7 +146,11 @@ enum Repo {
     /// What `session` prints about updates: the last automatic update, or one that is waiting. Only the
     /// daemon starts an update (`start`); a client process would exit in the middle of it.
     static func updateLine(start: Bool = true) -> String? {
-        guard isGit else { return nil }
+        // The DMG's app has no clone: it updates from GitHub releases (`Release`).
+        guard isGit else {
+            if start, Store.vmName == nil { Release.checkInBackground() }
+            return Release.line
+        }
         var lines: [String] = []
         if let n = Store.load(Notice.self, "update.json") {
             lines.append(n.text)
@@ -199,7 +207,8 @@ enum Repo {
 
     /// Fetches off the command queue, then updates when that is on and there is something new.
     static func checkInBackground() {
-        guard isGit, claim() else { return }
+        guard isGit else { return Release.checkInBackground() }
+        guard claim() else { return }
         DispatchQueue.global(qos: .utility).async {
             let remote = upstream
             git("fetch", "-q", remote)

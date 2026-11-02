@@ -64,8 +64,10 @@ The window (`apprentice app`), schedules and away are built; FEATURES.md lists w
 
 ## Install
 
-- CI publishes a universal binary on `v*` tags; notarize it and have `install.sh` prefer it (falling back to building), so most users need no Swift toolchain. Today `install.sh` builds from source and needs the Xcode command-line tools.
-- A first-run window (what apprentice is, the two grants with live check marks, a "try it on Finder" button) needs an app bundle. Until then `doctor --fix` is the interactive terminal checklist.
+- The DMG app's first launch sets up silently (CLI link, playbooks, agents); a first-run screen with the two grants and live check marks, and a "try it on Finder" button, would replace `doctor --fix` for app installs.
+- A release install has no Linux VM set-up yet: `install.sh` installs Tart and provisions the VM; the app should offer the same from the VMs screen.
+- `Release.install` swaps the app in place, which needs write access to the folder holding it (an admin user, for /Applications); a standard user gets an error and must drag the new DMG in by hand.
+- The release install path (download, checksum, signature check, swap, relaunch) is tested only in parts (`selftest`); run it end to end against a real draft release once one exists.
 
 ## Updates
 
@@ -84,8 +86,8 @@ The window (`apprentice app`), schedules and away are built; FEATURES.md lists w
 ## Releases
 
 - The site and README name Devin and Grok, which work through their shells, but `agent/connect.py` doesn't install the apprentice rules for them yet. Add them once their global rules locations are confirmed.
-- `release.yml` ships the binary unsigned until the `MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`, `APPLE_ID`, `APPLE_APP_PASSWORD` and `APPLE_TEAM_ID` secrets are set (a Developer ID account).
-- Installs update from `main`, not from tagged releases. Decide whether `install.sh` and `[update]` should follow the latest release tag instead, so users only get versions that passed the release run.
+- `release.yml` ships the binary and the DMG unsigned until the `MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`, `APPLE_ID`, `APPLE_APP_PASSWORD` and `APPLE_TEAM_ID` secrets are set (a Developer ID account).
+- Clone installs update from `main`; the DMG app updates from tagged releases. Decide whether clones should follow the latest release tag too, so users only get versions that passed the release run.
 
 ## Production readiness follow-ups
 

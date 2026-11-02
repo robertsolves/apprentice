@@ -45,7 +45,7 @@ enum VM {
     /// A VM somewhere else (a hostname or address); nil runs it on this Mac under Tart.
     static var host: String? { settings["host"].map(Toml.unquote).flatMap { $0.isEmpty ? nil : $0 } }
     static var where_: String { host.map { "\(user)@\($0)" } ?? name }
-    static var files: URL { Repo.root.appendingPathComponent("agent/vm") }
+    static var files: URL { Repo.resources.appendingPathComponent("agent/vm") }
 
     static var state: State {
         get { (try? JSONDecoder().decode(State.self, from: Data(contentsOf: dir.appendingPathComponent("state.json")))) ?? State() }

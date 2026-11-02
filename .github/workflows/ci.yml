@@ -40,7 +40,22 @@ jobs:
       - name: Self-test
         run: HOME="$RUNNER_TEMP/home" "$BIN" selftest
 
+      # The DMG release.yml ships, unsigned: a broken bundle shows up on the PR.
+      - name: Package the DMG and check its app
+        run: |
+          scripts/make-dmg.sh "$BIN" "$RUNNER_TEMP/dist"
+          APP="$RUNNER_TEMP/dist/Apprentice.app"
+          for exe in "$APP/Contents/MacOS/apprentice" "$APP/Contents/Helpers/apprentice"; do
+            case "$(lipo -archs "$exe")" in *arm64*x86_64*|*x86_64*arm64*) ;; *) echo "::error::$exe is not universal"; exit 1 ;; esac
+          done
+          VERSION="$(HOME="$RUNNER_TEMP/home" "$APP/Contents/Helpers/apprentice" version)"
+          echo "bundled CLI: $VERSION"
+          case "$VERSION" in *"(release)"*) ;; *) echo "::error::the bundled CLI does not know it is a release install"; exit 1 ;; esac
+          test -f "$APP/Contents/Resources/share/agent/connect.py"
+          test -d "$APP/Contents/Resources/share/playbooks"
+          HOME="$RUNNER_TEMP/home" "$APP/Contents/Helpers/apprentice" playbooks --check
+
       - name: Check the scripts parse
         run: |
-          for f in install.sh kit.sh $(git ls-files 'agent/*.sh'); do bash -n "$f"; done
+          for f in install.sh kit.sh scripts/*.sh $(git ls-files 'agent/*.sh'); do bash -n "$f"; done
           python3 -m py_compile $(git ls-files 'agent/*.py')

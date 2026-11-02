@@ -6,7 +6,8 @@ import SwiftUI
 /// with the local identity, so the Accessibility and Screen Recording grants stay with it across rebuilds.
 enum AppBundle {
     static let identifier = "com.apprentice.app"
-    static var path: URL { Store.dir.appendingPathComponent("Apprentice.app") }
+    /// The release app in /Applications when that is what runs, else the bundle `kit.sh` builds.
+    static var path: URL { Release.bundle ?? Store.dir.appendingPathComponent("Apprentice.app") }
     static var executable: URL { path.appendingPathComponent("Contents/MacOS/apprentice") }
     /// True inside the bundle: then this process is the window, not the CLI.
     static var inBundle: Bool { Bundle.main.bundleIdentifier == identifier }
@@ -23,7 +24,8 @@ enum AppBundle {
             return true
         }
         guard Notify.appBundleExecutable() != nil else { return false }
-        sign()
+        // A release app is signed as it shipped; only the bundle built here is signed here.
+        if Release.bundle == nil { sign() }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         p.arguments = ["-a", path.path]
@@ -37,12 +39,68 @@ enum AppBundle {
         return 0
     }
 
+
+    /// Makes the bundle at `app` from the binary at `source`: the icon, Info.plist and an ad hoc signature
+    /// (`sign` re-signs with an identity). `release` marks the DMG's bundle (`Release.bundle`).
+    static func build(at app: URL, from source: String, release: Bool = false) -> Bool {
+        let fm = FileManager.default
+        let exe = app.appendingPathComponent("Contents/MacOS/apprentice")
+        let res = app.appendingPathComponent("Contents/Resources")
+        let iconset = fm.temporaryDirectory.appendingPathComponent("apprentice-\(getpid()).iconset")
+        do {
+            try? fm.removeItem(at: app)
+            try fm.createDirectory(at: exe.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fm.createDirectory(at: res, withIntermediateDirectories: true)
+            try fm.copyItem(atPath: source, toPath: exe.path)
+            try? fm.removeItem(at: iconset)
+            try fm.createDirectory(at: iconset, withIntermediateDirectories: true)
+            for (name, px) in [("icon_16x16", 16), ("icon_16x16@2x", 32), ("icon_32x32", 32), ("icon_32x32@2x", 64),
+                               ("icon_128x128", 128), ("icon_128x128@2x", 256), ("icon_256x256", 256), ("icon_256x256@2x", 512),
+                               ("icon_512x512", 512), ("icon_512x512@2x", 1024)] {
+                guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: px, pixelsHigh: px, bitsPerSample: 8, samplesPerPixel: 4,
+                                                 hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+                      let ctx = NSGraphicsContext(bitmapImageRep: rep) else { continue }
+                NSGraphicsContext.saveGraphicsState()
+                NSGraphicsContext.current = ctx
+                Ask.icon.draw(in: NSRect(x: 0, y: 0, width: px, height: px))
+                NSGraphicsContext.restoreGraphicsState()
+                try rep.representation(using: .png, properties: [:])?.write(to: iconset.appendingPathComponent(name + ".png"))
+            }
+            let util = Process()
+            util.executableURL = URL(fileURLWithPath: "/usr/bin/iconutil")
+            util.arguments = ["-c", "icns", iconset.path, "-o", res.appendingPathComponent("AppIcon.icns").path]
+            try util.run()
+            util.waitUntilExit()
+            try? fm.removeItem(at: iconset)
+            // One bundle for everything: the window (`apprentice app`, opened from the Dock) and
+            // notifications, so `UNUserNotificationCenter` works and the grants stay with the binary.
+            let plist: [String: Any] = ["CFBundleIdentifier": AppBundle.identifier, "CFBundleName": "apprentice",
+                                        "CFBundleDisplayName": "apprentice",
+                                        "CFBundleExecutable": "apprentice", "CFBundleIconFile": "AppIcon", "CFBundlePackageType": "APPL",
+                                        "CFBundleShortVersionString": Build.number, "CFBundleVersion": Build.number,
+                                        "LSMinimumSystemVersion": "14.0", "NSHighResolutionCapable": true,
+                                        "LSUIElement": false, "ApprenticeRelease": release]
+            try (plist as NSDictionary).write(to: app.appendingPathComponent("Contents/Info.plist"))
+            let sign = Process()
+            sign.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+            // Hardened runtime, so no library can be injected into the one process whose clicks count as the user's.
+            sign.arguments = ["--force", "--deep", "--options", "runtime", "-s", "-", app.path]
+            sign.standardOutput = FileHandle.nullDevice
+            sign.standardError = FileHandle.nullDevice
+            try sign.run()
+            sign.waitUntilExit()
+            return sign.terminationStatus == 0
+        } catch {
+            return false
+        }
+    }
+
     /// Signs the bundle with the local identity where there is one, so its grants survive a rebuild.
     static func sign() {
         let identities = Repo.run("security", ["find-identity", "-p", "codesigning"]).out
         let identity = ProcessInfo.processInfo.environment["APPRENTICE_SIGN_IDENTITY"]
             ?? (identities.contains("\"apprentice\"") ? "apprentice" : "-")
-        _ = Repo.run("codesign", ["--force", "--deep", "-s", identity, path.path])
+        _ = Repo.run("codesign", ["--force", "--deep", "--options", "runtime", "-s", identity, path.path])
     }
 
     /// `apprentice app` from a terminal: the CLI builds the bundle and opens it, so the window is its own process.
@@ -358,11 +416,15 @@ final class AppModel: ObservableObject {
     @Published var revision = 0
     @Published var paletteOpen = false
     @Published var paletteText = ""
+    /// A newer release for the DMG's app (`Release.available`), and how far its install has got.
+    @Published var update: Release.Latest?
+    @Published var updateStep = ""
 
     let home = FileManager.default.homeDirectoryForCurrentUser
 
     init() {
         refresh()
+        checkRelease()
         newTab(preset: "Shell", command: nil)
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.refresh() }
     }
@@ -390,6 +452,7 @@ final class AppModel: ObservableObject {
         awayTasks = Away.all()
         awayOn = Away.mode
         session = Session.stored
+        update = Release.available
         busy = pending.count > 0 || StatusItem.state == .working
         revision += 1
         for tab in tabs { tab.hasApproval = pending.contains { $0.tab == tab.id } }
@@ -473,6 +536,51 @@ final class AppModel: ObservableObject {
         }
     }
 
+    // MARK: - release updates
+
+    /// At launch: the release app's first-run set-up (CLI link, playbooks, agents) and a fresh look at the
+    /// latest release; `force` skips the set-up and the six-hour cache.
+    func checkRelease(force: Bool = false) {
+        guard Release.isRelease else { return }
+        DispatchQueue.global(qos: .utility).async {
+            let notes = force ? [] : Release.setUp()
+            let latest = Release.check(force: force)
+            DispatchQueue.main.async {
+                self.update = Release.available
+                if !notes.isEmpty { self.output = notes.joined(separator: "\n") }
+                if force { self.output = self.update.map { "apprentice \($0.version) is available" }
+                    ?? (latest == nil ? "could not reach GitHub releases" : "up to date: \(Build.number) is the latest release") }
+            }
+        }
+    }
+
+    /// Downloads, verifies and swaps in the new app, stops the daemon (the next command starts the new one)
+    /// and relaunches the window. Not while a step waits for approval.
+    func installUpdate() {
+        guard let latest = update, updateStep.isEmpty else { return }
+        guard pending.isEmpty else { output = "answer the waiting approval first, then install the update"; return }
+        updateStep = "starting…"
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                try Release.install(latest) { step in DispatchQueue.main.async { self.updateStep = step } }
+                _ = Wire.stopDaemon()
+                DispatchQueue.main.async { self.relaunch() }
+            } catch {
+                let message = (error as? Fail)?.message ?? error.localizedDescription
+                DispatchQueue.main.async { self.updateStep = ""; self.output = "update failed: " + message }
+            }
+        }
+    }
+
+    private func relaunch() {
+        guard let bundle = Release.bundle else { return }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-c", "sleep 1; /usr/bin/open \"$0\"", bundle.path]
+        try? p.run()
+        NSApp.terminate(nil)
+    }
+
     /// A VM's proposal is answered by that VM's daemon (`vms/<name>/pending.json`).
     func approve(_ p: Approvals.Pending) { answer("approve", p) }
     func deny(_ p: Approvals.Pending) { answer("deny", p) }
@@ -526,7 +634,7 @@ final class AppModel: ObservableObject {
         newTab(preset: "Log", command: "apprentice log --tail 50 && exec tail -f \(Sessions.runs.path)/$(ls -t \(Sessions.runs.path) | head -1)/steps.jsonl | sed 's/^{//;s/}$//'")
     }
 
-    static var exampleConfig: URL { Repo.root.appendingPathComponent("agent/config.example.toml") }
+    static var exampleConfig: URL { Repo.resources.appendingPathComponent("agent/config.example.toml") }
 }
 
 // MARK: - Navigation
@@ -597,6 +705,9 @@ struct RootView: View {
         } detail: {
             detail
                 .frame(minWidth: 660, minHeight: 460)
+                .safeAreaInset(edge: .top) {
+                    if let latest = model.update { UpdateBanner(model: model, latest: latest) }
+                }
                 .toolbar { toolbar }
         }
         .navigationSplitViewStyle(.balanced)
@@ -2212,6 +2323,40 @@ struct VMsView: View {
 
 // MARK: - Updates and health
 
+/// The one-line notice across the top of the window when the DMG's app has a newer release.
+struct UpdateBanner: View {
+    @ObservedObject var model: AppModel
+    let latest: Release.Latest
+
+    var body: some View {
+        HStack(spacing: Theme.s2) {
+            Image(systemName: "arrow.down.app.fill")
+                .foregroundStyle(Theme.accent)
+            Text("apprentice \(latest.version) is available")
+                .font(.callout.weight(.semibold))
+            Text("you have \(Build.number)")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+            Spacer()
+            if model.updateStep.isEmpty {
+                if let page = latest.page.flatMap(URL.init(string:)) {
+                    Button("What's new") { NSWorkspace.shared.open(page) }
+                        .buttonStyle(.link)
+                }
+                Button { model.installUpdate() } label: { Label("Install and relaunch", systemImage: "arrow.down.circle") }
+                    .buttonStyle(.borderedProminent)
+            } else {
+                ProgressView().controlSize(.small)
+                Text(model.updateStep).font(.callout).foregroundStyle(.secondary)
+            }
+        }
+        .controlSize(.small)
+        .padding(.horizontal, Theme.s4)
+        .padding(.vertical, Theme.s2)
+        .background(Theme.accent.opacity(0.10))
+    }
+}
+
 struct HealthView: View {
     @ObservedObject var model: AppModel
     @State private var checks = ""
@@ -2228,6 +2373,30 @@ struct HealthView: View {
         } content: {
             CardSection(title: "Installed", symbol: "shippingbox", tint: Theme.accent) {
                 FieldRow(label: "version", value: version, mono: true)
+                if Release.isRelease, !Release.cloneInstalled {
+                    FieldRow(label: "app", value: Release.bundle?.path ?? "", mono: true, tint: .secondary)
+                    FieldRow(label: "updates", value: model.update.map { "\($0.version) is available" } ?? "from GitHub releases (\(Release.repo))",
+                             mono: true, tint: model.update == nil ? .secondary : Theme.orange)
+                    HStack(spacing: Theme.s2) {
+                        if model.update != nil {
+                            Button { model.installUpdate() } label: { Label("Install and relaunch", systemImage: "arrow.down.circle") }
+                                .buttonStyle(.borderedProminent)
+                                .disabled(!model.updateStep.isEmpty)
+                        }
+                        Button { model.checkRelease(force: true) } label: {
+                            Label("Check for updates", systemImage: "arrow.triangle.2.circlepath")
+                        }
+                        Button {
+                            checks = "connecting…"
+                            DispatchQueue.global(qos: .userInitiated).async {
+                                let note = Release.connectAgents() ?? "nothing to connect"
+                                DispatchQueue.main.async { checks = note }
+                            }
+                        } label: { Label("Connect agents", systemImage: "point.3.connected.trianglepath.dotted") }
+                        Spacer()
+                    }
+                    .controlSize(.small)
+                } else {
                 if let install = Build.install {
                     FieldRow(label: "clone", value: install.clone, mono: true, tint: .secondary)
                     FieldRow(label: "built", value: install.built ?? "?", mono: true, tint: .secondary)
@@ -2245,6 +2414,7 @@ struct HealthView: View {
                     Spacer()
                 }
                 .controlSize(.small)
+                }
             }
             CardSection(title: "doctor", symbol: "stethoscope", tint: Theme.green) {
                 Text(checks.isEmpty ? "…" : checks)

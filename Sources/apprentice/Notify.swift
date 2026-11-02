@@ -60,62 +60,17 @@ enum Notify {
         try? p.run()
     }
 
-    /// `~/.apprentice/Apprentice.app`: this binary copied into a bundle with the apprentice icon, signed
-    /// ad hoc, and made again whenever the installed binary changes. Nil when it cannot be built.
+    /// The window's bundle: the release app this binary came in, else `~/.apprentice/Apprentice.app`, this
+    /// binary copied into a bundle with the apprentice icon, signed, and made again whenever the installed
+    /// binary changes. Nil when it cannot be built.
     static func appBundleExecutable() -> String? {
+        if let release = Release.bundle { return release.appendingPathComponent("Contents/MacOS/apprentice").path }
         guard let source = Bundle.main.executablePath else { return nil }
-        let fm = FileManager.default
         let app = Store.dir.appendingPathComponent("Apprentice.app")
         let exe = app.appendingPathComponent("Contents/MacOS/apprentice")
-        func stamp(_ path: String) -> Date? { (try? fm.attributesOfItem(atPath: path))?[.modificationDate] as? Date }
+        func stamp(_ path: String) -> Date? { (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date }
         if let have = stamp(exe.path), let want = stamp(source), have >= want { return exe.path }
-        let res = app.appendingPathComponent("Contents/Resources")
-        let iconset = Store.dir.appendingPathComponent("AppIcon.iconset")
-        do {
-            try? fm.removeItem(at: app)
-            try fm.createDirectory(at: exe.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try fm.createDirectory(at: res, withIntermediateDirectories: true)
-            try fm.copyItem(atPath: source, toPath: exe.path)
-            try? fm.removeItem(at: iconset)
-            try fm.createDirectory(at: iconset, withIntermediateDirectories: true)
-            for (name, px) in [("icon_16x16", 16), ("icon_16x16@2x", 32), ("icon_32x32", 32), ("icon_32x32@2x", 64),
-                               ("icon_128x128", 128), ("icon_128x128@2x", 256), ("icon_256x256", 256), ("icon_256x256@2x", 512),
-                               ("icon_512x512", 512), ("icon_512x512@2x", 1024)] {
-                guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: px, pixelsHigh: px, bitsPerSample: 8, samplesPerPixel: 4,
-                                                 hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
-                      let ctx = NSGraphicsContext(bitmapImageRep: rep) else { continue }
-                NSGraphicsContext.saveGraphicsState()
-                NSGraphicsContext.current = ctx
-                Ask.icon.draw(in: NSRect(x: 0, y: 0, width: px, height: px))
-                NSGraphicsContext.restoreGraphicsState()
-                try rep.representation(using: .png, properties: [:])?.write(to: iconset.appendingPathComponent(name + ".png"))
-            }
-            let util = Process()
-            util.executableURL = URL(fileURLWithPath: "/usr/bin/iconutil")
-            util.arguments = ["-c", "icns", iconset.path, "-o", res.appendingPathComponent("AppIcon.icns").path]
-            try util.run()
-            util.waitUntilExit()
-            try? fm.removeItem(at: iconset)
-            // One bundle for everything: the window (`apprentice app`, opened from the Dock) and
-            // notifications, so `UNUserNotificationCenter` works and the grants stay with the binary.
-            let plist: [String: Any] = ["CFBundleIdentifier": AppBundle.identifier, "CFBundleName": "apprentice",
-                                        "CFBundleDisplayName": "apprentice",
-                                        "CFBundleExecutable": "apprentice", "CFBundleIconFile": "AppIcon", "CFBundlePackageType": "APPL",
-                                        "CFBundleShortVersionString": Build.number, "CFBundleVersion": Build.number,
-                                        "LSMinimumSystemVersion": "14.0", "NSHighResolutionCapable": true,
-                                        "LSUIElement": false]
-            try (plist as NSDictionary).write(to: app.appendingPathComponent("Contents/Info.plist"))
-            let sign = Process()
-            sign.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
-            sign.arguments = ["--force", "--deep", "-s", "-", app.path]
-            sign.standardOutput = FileHandle.nullDevice
-            sign.standardError = FileHandle.nullDevice
-            try sign.run()
-            sign.waitUntilExit()
-            return sign.terminationStatus == 0 ? exe.path : nil
-        } catch {
-            return nil
-        }
+        return AppBundle.build(at: app, from: source) ? exe.path : nil
     }
 
     /// The `notify-post` command, run from inside `Apprentice.app`: posts one notification and exits 0 when it was delivered.

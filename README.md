@@ -77,7 +77,11 @@ ok · snap 4 · +2 -0 ~0
 
 ## Install
 
-You need macOS 14 or later and Swift 5.9 (Xcode or the command-line tools: `xcode-select --install`), since the installer builds from source. One command installs it, and running it again updates:
+You need macOS 14 or later.
+
+**The app (recommended):** download [`apprentice-macos.dmg`](https://github.com/robertsolves/apprentice/releases/latest/download/apprentice-macos.dmg), drag Apprentice to Applications and open it. On first launch it puts `apprentice` on your PATH (`~/.local/bin`), brings in the playbooks, and connects your coding agents (that step needs python3 from the command-line tools; the Updates & health screen retries it). When a new release is out, the window says so and one click downloads it, checks it against the release's checksums and signature, and relaunches. `apprentice update` does the same from a terminal. Playbooks you change or learn stay yours across updates.
+
+**From source** (to change apprentice and offer fixes back): you need Swift 5.9 (Xcode or `xcode-select --install`). One command installs it, and running it again updates; a clone install updates from git instead of releases, and takes over from the app when both are on the Mac:
 
 ```sh
 git clone https://github.com/robertsolves/apprentice.git ~/.apprentice/src && ~/.apprentice/src/install.sh
@@ -247,9 +251,9 @@ The source has no package dependencies. It keeps two rules: no app- or site-spec
 
 ## Releasing
 
-Bump the version string in `Sources/apprentice`, commit, then push a `v*` tag (`git tag v0.2.0 && git push origin v0.2.0`). [`release.yml`](.github/workflows/release.yml) builds the universal binary, runs the self-test, signs and notarizes it when the Apple secrets are configured, and attaches `apprentice-macos.zip` and `SHA256SUMS.txt` to a GitHub Release. The release fails if the tag and the version string disagree. *Actions ▸ Release ▸ Run workflow* does the same as a draft, for testing. Pushes to `main` that touch `site/` redeploy the landing page ([`pages.yml`](.github/workflows/pages.yml)).
+Run `scripts/release.sh 0.2.0`: it bumps the version in `Build.swift`, builds, self-tests and packages the DMG locally, then commits and tags, and prints the push that publishes it (`git push origin main v0.2.0`). [`release.yml`](.github/workflows/release.yml) builds the universal binary, runs the self-test, packages `Apprentice.app` into `apprentice-macos.dmg` ([`scripts/make-dmg.sh`](scripts/make-dmg.sh): the window, the CLI in `Contents/Helpers`, and `agent/`, `skills/` and `playbooks/`), signs and notarizes both when the Apple secrets are configured, and attaches the DMG, `apprentice-macos.zip` (the bare binary) and `SHA256SUMS.txt` to a GitHub Release. Installed apps find it through the `releases/latest` API and offer it. The release fails if the tag and the version string disagree. *Actions ▸ Release ▸ Run workflow* does the same as a draft, for testing. Pushes to `main` that touch `site/` redeploy the landing page ([`pages.yml`](.github/workflows/pages.yml)).
 
-Installs made with `install.sh` update from `main`, not from releases.
+Installs made with `install.sh` update from `main`, not from releases. Run `scripts/make-dmg.sh .build/release/apprentice dist` to build an ad hoc signed DMG locally; [`ci.yml`](.github/workflows/ci.yml) builds and checks one on every PR.
 
 ## Contributing
 

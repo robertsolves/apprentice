@@ -147,6 +147,12 @@ case "serve":
     attempt { try Daemon.start(background: rest.contains("--background")) }
 case "app":
     if rest.contains("--install") { exit(AppBundle.install()) }
+    // `app --bundle <path> [--release]`: the DMG's bundle, made by scripts/make-dmg.sh from this binary.
+    if let i = rest.firstIndex(of: "--bundle"), i + 1 < rest.count, let source = Bundle.main.executablePath {
+        let ok = AppBundle.build(at: URL(fileURLWithPath: rest[i + 1]), from: source, release: rest.contains("--release"))
+        print(ok ? "built \(rest[i + 1])" : "could not build \(rest[i + 1])")
+        exit(ok ? 0 : 1)
+    }
     AppBundle.launchFromCLI()
 case "stop":
     // Says what happened, and fails when the daemon is still there (E3).

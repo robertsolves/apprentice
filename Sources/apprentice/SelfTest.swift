@@ -43,6 +43,7 @@ enum SelfTest {
         updates()
         schedules()
         away()
+        release()
         tomlEdits()
         terminal()
         try? FileManager.default.removeItem(at: Store.dir)
@@ -801,6 +802,44 @@ enum SelfTest {
         check(Schedules.preview(daily, count: 5).count == 5, "five future runs are previewed")
         check(Schedules.timeOfDay("09:30") == 570 && Schedules.timeOfDay("24:00") == nil, "a clock time parses strictly")
         check(Schedules.render([s]).contains("[schedule.\"t\"]"), "schedules.toml is written as sections")
+    }
+
+    /// The DMG's update channel: reading GitHub's reply, comparing versions, the checksum file, and
+    /// bringing in a new version's playbooks without overwriting the user's edits.
+    private static func release() {
+        let reply = Data("""
+        {"tag_name":"v0.3.0","draft":false,"html_url":"https://github.com/o/r/releases/tag/v0.3.0","assets":[
+         {"name":"apprentice-macos.dmg","browser_download_url":"https://x/apprentice-macos.dmg"},
+         {"name":"SHA256SUMS.txt","browser_download_url":"https://x/SHA256SUMS.txt"}]}
+        """.utf8)
+        let latest = Release.parse(reply)
+        check(latest?.version == "0.3.0" && latest?.dmg == "https://x/apprentice-macos.dmg" && latest?.sums == "https://x/SHA256SUMS.txt",
+              "a release reply gives the version and its DMG and checksums")
+        check(Release.parse(Data(#"{"tag_name":"v1.0.0","draft":true}"#.utf8)) == nil, "a draft release is never offered")
+        check(Release.newer("0.10.0", than: "0.9.1") && !Release.newer("0.9.1", than: "0.10.0") && !Release.newer("0.2.0", than: "0.2.0"),
+              "versions compare by number, not as text")
+        check(Release.newer("1.0.0", than: "1.0.0-rc1") && !Release.newer("1.0.0-rc1", than: "1.0.0") && Release.newer("1.0.0-rc2", than: "1.0.0-rc1"),
+              "a release is newer than its candidates")
+        let sums = "abc123  apprentice-macos.zip\nDEF456  apprentice-macos.dmg\n"
+        check(Release.expectedDigest(sums, name: "apprentice-macos.dmg") == "def456" && Release.expectedDigest(sums, name: "x") == nil,
+              "the checksum file names the DMG's digest")
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent("apprentice-release-\(getpid())")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let source = base.appendingPathComponent("share/playbooks"), target = base.appendingPathComponent("playbooks")
+        try? FileManager.default.createDirectory(at: source.appendingPathComponent("web"), withIntermediateDirectories: true)
+        try? "v1".write(to: source.appendingPathComponent("web/a.md"), atomically: true, encoding: .utf8)
+        try? "v1".write(to: source.appendingPathComponent("web/b.md"), atomically: true, encoding: .utf8)
+        Store.remove("playbooks-release.json")
+        check(Release.syncPlaybooks(from: source, into: target) == 2, "a first launch brings in every playbook")
+        try? "mine".write(to: target.appendingPathComponent("web/b.md"), atomically: true, encoding: .utf8)
+        try? "v2".write(to: source.appendingPathComponent("web/a.md"), atomically: true, encoding: .utf8)
+        try? "v2".write(to: source.appendingPathComponent("web/b.md"), atomically: true, encoding: .utf8)
+        _ = Release.syncPlaybooks(from: source, into: target)
+        check((try? String(contentsOf: target.appendingPathComponent("web/a.md"), encoding: .utf8)) == "v2",
+              "an untouched playbook follows the new version")
+        check((try? String(contentsOf: target.appendingPathComponent("web/b.md"), encoding: .utf8)) == "mine",
+              "a playbook the user changed is never overwritten")
+        Store.remove("playbooks-release.json")
     }
 
     /// The away queue and the resume rule: a screen that does not match is the user's call, never a guess.
