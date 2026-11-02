@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy · apprentice</title>
+  <meta name="description" content="What apprentice keeps, where it goes, and what the GitHub sign-in is used for. Everything stays on your Mac or in your own private GitHub repos.">
+  <link rel="canonical" href="https://robertsolves.github.io/apprentice/privacy.html">
+  <meta name="theme-color" content="#0a5ce6">
+  <link rel="icon" type="image/svg+xml" href="assets/icon.svg">
+  <link rel="stylesheet" href="assets/page.css">
+</head>
+<body>
+  <main class="wrap">
+    <p><a href="./">← apprentice</a></p>
+    <h1>Privacy</h1>
+    <p class="muted">Last updated 2 November 2026.</p>
+
+    <p>apprentice is an open-source program that runs on your Mac. There is no apprentice server and no account with us: nothing you do in apprentice is sent to its author. This page says what it keeps and where each thing goes.</p>
+
+    <h2>On your Mac</h2>
+    <p>apprentice keeps its settings, your preferences, how you like things written, your typing rhythm (timings only, never what you type, never in password fields), skills it learned, a log of its own commands and up to 50 screenshots a session in <code>~/.apprentice</code>. Logs are pruned after 30 days. Apps you mark as private are kept out of the logs. Passwords and sign-ins for websites stay in your browser; apprentice never stores them.</p>
+
+    <h2>Your GitHub sign-in</h2>
+    <p>Signing in with GitHub is optional. It asks for access to your repositories so that apprentice can create and update your own private repositories: <code>apprentice-home</code> for your settings, and one per project folder. It does not read or change your other repositories. The token is kept in your Mac's login Keychain, is never shown, and is never given to an agent. You can sign out with <code>apprentice account logout</code> and revoke access at any time in GitHub's settings under Applications.</p>
+
+    <h2>What syncs to your GitHub</h2>
+    <p>When you are signed in, apprentice keeps your settings, preferences, voice, typing rhythm, skills, setups, the list of your projects, site counts and its logs as text in your private <code>apprentice-home</code> repo, and each project folder in its own private repo, so they follow you to another Mac. Keys and tokens, the Linux VM's ssh key, session state and screenshots never leave your Mac, and a file that looks like it holds a key is not sent. Turn it off with <code>apprentice sync off</code> or the switch in the window.</p>
+
+    <h2>Other services, only when you use them</h2>
+    <ul>
+      <li><strong>GitHub</strong>: to sign in, sync, and check for updates.</li>
+      <li><strong>The AI model you choose</strong>: your coding agent (Claude Code, Codex and others) or the model you set for <code>apprentice run</code> sees the screen text it works on. That is between you and that provider.</li>
+      <li><strong>ntfy.sh</strong>, if you set up phone notifications: the text of a question waiting for you is pushed to your own private topic. Nothing is sent for apps you mark as private.</li>
+    </ul>
+
+    <h2>Shared with the project</h2>
+    <p>Only if you choose to send a fix with <code>apprentice pr</code>: a scrubbed copy of a session (commands, timings and errors, never typed text, URLs, names on screen, file paths or images) and the skills you changed, which are checked for personal details before they are sent.</p>
+
+    <h2>Contact</h2>
+    <p>Questions about privacy: <a href="https://github.com/robertsolves/apprentice/issues">open an issue</a>.</p>
+  </main>
+</body>
+</html>

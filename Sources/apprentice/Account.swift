@@ -3,18 +3,21 @@ import Foundation
 import Security
 
 /// The user's GitHub account: `account login | status | logout`. Signing in is GitHub's device flow for a
-/// GitHub App: apprentice shows a short code, the user enters it at github.com/login/device, and apprentice
-/// polls until GitHub hands over a token. There is no redirect server and no client secret. The app's own
-/// permissions bound what the token can do, whatever the user's account could do.
+/// OAuth App, with the `repo` scope: apprentice shows a short code, the user enters it at
+/// github.com/login/device and clicks Authorize, and apprentice polls until GitHub hands over a token.
+/// There is no redirect server and no client secret. The token reaches the user's repos so `Sync` can make
+/// and fill their private ones; nothing else uses it.
 ///
 /// The tokens live only in the login Keychain (this device only, never iCloud); `account.json` keeps the
 /// login, the id and the expiry times, never a token. Nothing prints a token: the agent never sees one.
-/// A user token lasts 8 hours and its refresh token 6 months; `token()` refreshes it when it is close to
-/// running out, and each refresh replaces both, so the new refresh token is saved at once.
+/// The OAuth App's token does not expire. An app whose tokens do (a GitHub App: 8 hours, refresh 6 months)
+/// is refreshed by `token()` when close to running out, and each refresh replaces both, so the new refresh
+/// token is saved at once.
 enum Account {
-    /// The GitHub App's client ID (apprentice-cli, owned by @robertsolves; a client ID is public).
-    /// `[account] client_id` or `APPRENTICE_GITHUB_CLIENT_ID` points at another app, such as a fork's.
-    static let defaultClientID = "Iv23lim3xCqHYBRsM23m"
+    /// The OAuth App's client ID (apprentice, owned by @robertsolves; a client ID is public). One sign-in
+    /// with the `repo` scope is all `Sync` needs, with no app to install. `[account] client_id` or
+    /// `APPRENTICE_GITHUB_CLIENT_ID` points at another app, such as a fork's or the older GitHub App.
+    static let defaultClientID = "Ov23li0Tufr3TgadnhtF"
     static let keychainService = "apprentice.github"
     static let deviceURL = "https://github.com/login/device/code"
     static let tokenURL = "https://github.com/login/oauth/access_token"
@@ -147,7 +150,9 @@ enum Account {
         guard !id.isEmpty else {
             throw Fail(5, "no GitHub App is set up yet: register one with device flow on, then set `[account] client_id = \"Iv1…\"` in \(Config.path.path) (or APPRENTICE_GITHUB_CLIENT_ID)")
         }
-        guard let json = post(deviceURL, ["client_id": id]) else { throw Fail(5, "GitHub did not answer: check the network and try again") }
+        // `repo`: one sign-in is all sync needs to make and fill the user's private repos (`Sync`). A GitHub
+        // App ignores it and keeps to its own permissions.
+        guard let json = post(deviceURL, ["client_id": id, "scope": "repo"]) else { throw Fail(5, "GitHub did not answer: check the network and try again") }
         guard let device = parseDevice(json) else {
             // An unknown client ID answers "Not Found".
             if json["error"] as? String == "Not Found" { throw Fail(5, "GitHub does not know the client ID \(id): check `[account] client_id`") }

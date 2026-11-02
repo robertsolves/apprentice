@@ -232,7 +232,7 @@ vision_model = ""
 # Your GitHub account, for what apprentice will send to the project in your name (`apprentice account
 # login`, or Settings ▸ GitHub account in the window). Signing in is a code you enter at
 # github.com/login/device; the token stays in the login Keychain on this Mac and never reaches an agent.
-# client_id is the GitHub App apprentice signs in through (device flow on). Empty uses the built-in one.
+# client_id is the OAuth App apprentice signs in through (device flow on, `repo` scope). Empty uses the built-in one.
 client_id = ""
 
 [update]

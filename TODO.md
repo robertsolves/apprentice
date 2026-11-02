@@ -79,10 +79,9 @@ The window (`apprentice app`), schedules and away are built; FEATURES.md lists w
 
 ## GitHub account
 
-- **Install the `apprentice-cli` GitHub App on `robertsolves/apprentice`** before error reports ship: a user token reaches only repos the app is installed on. GitHub wants a private key generated before an app can be installed; the key is never used (device flow needs none), so delete it after installing. Settings sync would add Contents read and write, which every user then re-approves.
+- **Error reports** will open issues on `robertsolves/apprentice` with the user's own sign-in (`repo` scope): check the scrubbing (`Playbooks.leaks`) before anything is sent, since issues are public.
 - **Error reports to the project's issues** (planned 2026-11-02): apprentice's own failures (a crash, exit 1, a failed update; exit 2 or 5 only when one fingerprint repeats) become a scrubbed fingerprint; an open issue with that fingerprint gets a 👍, else a new one is opened, labelled `auto-report`. `[report] errors = "ask" | "auto" | "off"`, asked once through `confirm` and in `tour`; checked by `Playbooks.leaks` before sending, since issues are public. Upstream, `triage.yml` closes duplicates and keeps a pinned queue, and the Claude Code GitHub Action fixes issues past a threshold as PRs for the owner to merge.
-- **Sync** (`Sync.swift`) still to do:
-  - The GitHub App (`apprentice-cli`) cannot make repos, so sync uses the GitHub CLI's sign-in for that. To need no `gh`, give the app Administration and Contents read and write and have users install it on all their repositories.
+- **Sync** (`Sync.swift`) still to do (sign-in is the `apprentice` OAuth App, `repo` scope, since 2026-11-02; the `apprentice-cli` GitHub App is no longer used):
   - Offer the switch in `tour` too (it is on by default, and on the window's GitHub card).
   - A file left out as a secret keeps the round's rebase on a stash; if the repo changed the same file, the stash may not pop cleanly.
 - `account status` reads only the login; once reports exist, show what was reported from this Mac.
