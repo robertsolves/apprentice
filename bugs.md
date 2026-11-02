@@ -23,7 +23,3 @@ Filed by `apprentice bug` while working. Each has a suggested fix to review; non
 ### F5 · `do <flow>` echoes filled step text, so a value passed as a var reaches the chat and the log — 2026-11-01
 - Cause: `Commands.runFlow` prints the step after `fill`, so `type #textbox "..." "{password}" --enter` appears in its ✓ and ✗ lines with the value substituted, unlike `type`, whose log rows never carry typed text.
 - Suggested fix: print the unresolved step (`{password}`) and mask values whose key contains `password`, `token` or `secret`.
-
-### F6 · `usage()` still advertises `settings [github | local | sync]` — 2026-11-01
-- Cause: `Settings` no longer has a GitHub sync (`Settings.run` accepts only `local`), and `agent/SKILL.md` and `agent/AGENTS.md` still describe `settings github` and `pr`.
-- Suggested fix: drop the removed subcommands from `usage()` and both agent docs in the same change that removes them from the code, so the exit-code and command lists stay in sync.

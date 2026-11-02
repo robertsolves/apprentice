@@ -30,18 +30,23 @@ There is no XCTest target and no linter. `apprentice selftest` runs the built-in
 There's one executable target, `Sources/apprentice`. It has no package dependencies: argument parsing (`Args` in `Commands.swift`) and TOML parsing (`Toml` in `Config.swift`) are hand-written. `SPEC.md`'s repo layout (separate modules, Swift ArgumentParser, a Python `run/` loop) doesn't match the code. The code is the source of truth.
 
 **Process split** (`main.swift`):
-- These commands run in the client process: `serve`, `stop`, `route`, `notes`, `learn`, `run`, `replay` and `mcp`.
+- These commands run in the client process: `serve`, `stop`, `route`, `notes`, `learn`, `bug`, `commit`, `update`, `settings`, `repo`, `policy`, `budget`, `activity`, `flag`, `grow`, `sessions`, `doctor`, `pr`, `uninstall`, `vm`, `run`, `replay` and `mcp`. Most log their own row (`loggedHere` in `main.swift`), so `log --session` and `grow` see them.
 - Every other command becomes a `Request{cmd,args}` and goes as one JSON line over the unix socket `~/.apprentice/sock` (`Wire.swift`).
 - `Wire.send` starts the daemon on demand if the socket doesn't answer.
 - The daemon (`Daemon.swift`) is an `NSApplication` with the accessory policy. It routes each request through `Commands.dispatch` and maps a thrown `Fail(code, message)` to the exit code and output text.
 - Commands run one at a time on `Daemon.queue`, not on main, so the kill switch and Borrow's key monitor can fire mid-command. Anything that needs the main thread (NSEvent monitors, the `ask` window) hops there with `DispatchQueue.main.sync`.
+- `Commands.asides` (`ask`, `confirm`, local `show`, `log`, `pending`) run off that queue (`Daemon.queue(for:)`), so an open question never holds up `approve` or another agent. They must not touch per-command state (`Timing`, `Approvals.request`, `notice`); anything on screen hops back with `Daemon.serial` or `Daemon.command`.
+- Each `Request` carries the caller's `model` (`APPRENTICE_MODEL`, or `run --model`); the daemon sets `Store.model` and every log row names it.
+- `StatusItem.swift` is the menu-bar item (idle, working, waiting for you, needs approval) with approve/deny for the pending step. `[agent] menu_bar = false` hides it.
 - To add a daemon command, add a `case` in `Commands.dispatch`, add a line to `usage()` in `main.swift`, add it to `MCP.swift` if agents should see it as a tool, and update `agent/SKILL.md` and `agent/AGENTS.md`.
 
 **State is files in `~/.apprentice/`** (`Store` in `State.swift`), not memory:
 - `session.json` holds the bound app pid and window id.
 - `snap.json` holds the last snapshot.
 - `config.toml`, `routes.toml` and `replays/` hold configuration and saved runs.
-- `runs/<date>-<session>/steps.jsonl` is the step log, pruned after 30 days.
+- `runs/<date>-<session>/steps.jsonl` is the step log, pruned after 30 days; screenshots are capped at 50 per session (`Sessions.capShots`).
+- `install.json` (written by `kit.sh`) names the clone and the commit that was installed: `Repo.root` reads it and `apprentice version` prints the commit.
+- `Sessions.swift`: `sessions` and `log --session` read the runs back. When a session ends (the next `session`, an update, `pr`), `Sessions.archive` writes a scrubbed copy to the clone's `sessions/<date>-<session>.jsonl` and commits it: commands, diffs, timings, errors without quoted text, hosts, model and task; never URLs, element names, typed text or images. `[storage] sessions = "scrubbed" | "full" | "off"`.
 
 Commands re-read these files on each call. That's why client-side code such as `AgentLoop` can read the session directly.
 
@@ -67,8 +72,10 @@ Commands re-read these files on each call. That's why client-side code such as `
 Exit codes are part of the agent contract. They're listed in `SPEC.md` and `usage()` and must stay in sync with `agent/*.md`.
 
 **Other pieces**:
-- `Routes.swift` checks for faster routes using built-in entries plus `~/.apprentice/routes.toml`.
-- `Notes.swift` reads `notes/` (Markdown with front matter; format in `notes/README.md`). `kit.sh` links `~/.apprentice/notes` to it, so `git pull` updates notes and `learn` writes into the working tree. `session`, `open` and `run` print matching key facts; `learn` drafts a flow from `steps.jsonl` (rows carry label, name and flags, never typed text). Notes are trusted input to the LLM, so nothing read from a screen may be written into them. `do <flow>` (`Flows.swift`) runs a flow's backticked steps with one plan approval (`Approvals.planActive`), resolving `#label "name"` to ids at run time and handing back the screen at the first failing step.
+- `Routes.swift` checks for faster routes using built-in entries plus `~/.apprentice/routes.toml`, and `notes/routes-learned.toml`, which `do` appends to (and commits) the first time a model runs a flow to the end. A learned route is shown only to the model that learned it (or `model = "any"`).
+- `Doctor.swift`: `doctor [--fix]` (grants, signature, PATH, clone, settings, smoke test on Finder; `install.sh` runs it) and `uninstall [--all] --yes`, which also runs `agent/connect.py --remove`.
+- `PR.swift`: `pr` offers the local commits upstream: clean tree, `selftest` passes, a `fix/<slug>` branch, push to a fork remote (`fork`, `--fork` or `APPRENTICE_FORK`; never `upstream`, never forced), then `gh pr create`; `--local` writes `~/.apprentice/PR.md` and prints a compare URL. It refuses a branch that changes only `BUGS.md`, `TODO.md` or `sessions/`.
+- `Notes.swift` reads `notes/` (Markdown with front matter; format in `notes/README.md`). `kit.sh` links `~/.apprentice/notes` to it, so `git pull` updates notes and `learn` writes into the working tree. `session`, `open` and `run` print matching key facts; `learn` drafts a flow from `steps.jsonl` (rows carry label, name and flags, never typed text). Notes are trusted input to the LLM, so nothing read from a screen may be written into them. `do <flow>` (`Flows.swift`) runs a flow's backticked steps with one plan approval (`Approvals.planActive`), resolving `#label "name"` to ids at run time and handing back the screen at the first failing step. A `sh: <command>` step runs in the user's login shell (refused under UI only). Flows carry `model:` (`learn` writes it from `--model`, `APPRENTICE_MODEL` or the session's rows); `Notes.rank` leaves out other models' flows, ranks this model's first, and `do --explain "task"` prints the pick and its score. `Notes.all` caches parsed notes by modification date.
 - In front mode, `Watch` (`Input.swift`) waits for the person to be idle and stops the command on their own keys or clicks; apprentice's posted events carry `Keys.tag` so they are ignored. `choose` drives system open/save panels, which ignore events posted to the app: real keys, with the Go to Folder path set through AX.
 - `Capture.swift` handles ScreenCaptureKit window capture and Vision OCR for `shot` and `ocr`.
 - `AgentLoop.swift` holds the `run` loop and `replay`. `run` uses an OpenAI-compatible `/chat/completions` endpoint, takes one action per reply in a tiny grammar, and stops at 40 steps, 15 minutes, or 3 identical actions in a row.
@@ -94,7 +101,7 @@ apprentice improves from use. When you start work in this repo:
 4. After a fix lands, delete its field report from `BUGS.md` and update any note that described the workaround.
 5. Commit each small change on its own with `apprentice commit "what and why"` (it rebuilds and restarts apprentice when the source changed). `bug` and `learn` commit themselves.
 
-Each install is a local clone made by `install.sh`, with `upstream` as a fetch-only remote (any git URL; an older clone uses `origin`). Local commits stay local. The daemon fetches every `[update] check_hours` (6) and, unless `[update] auto = false`, rebases the local commits onto upstream on a clean tree, runs `kit.sh` (build, `selftest`, sign, swap) and restarts between commands. A failed build or self-test resets to the old commit and keeps the old binary. `session` prints the result once (`Repo.updateLine`). `apprentice update` does the same by hand. There's no GitHub step: no forks, `gh` or pull requests.
+Each install is a local clone made by `install.sh`, with `upstream` as a fetch-only remote (any git URL; an older clone uses `origin`). Local commits stay local. The daemon fetches every `[update] check_hours` (6) and, unless `[update] auto = false`, rebases the local commits onto upstream on a clean tree, runs `kit.sh` (build, `selftest`, sign, swap) and restarts between commands. A failed build or self-test resets to the old commit and keeps the old binary. `session` prints the result once (`Repo.updateLine`). `apprentice update` does the same by hand. The daemon updates itself only from an https or ssh upstream (`Repo.trusted`), and restarts into a new build only when no proposal or question is waiting and the last command is a minute old (`Repo.restartWhenIdle`). Sharing a fix upstream is `apprentice pr`, the only command that pushes, and only to a fork.
 
 `apprentice selftest` (`SelfTest.swift`) checks the pure parts: TOML, args, pace limits, the wire format, VM routing, `diff`, the approval gate and its warnings, site budgets and policies, allowlists, flow steps and notes. Add a check there when you fix a bug in one of them. `kit.sh` runs it on the new binary before installing it.
 

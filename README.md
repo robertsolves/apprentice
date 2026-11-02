@@ -40,14 +40,17 @@ nothing was done. approve: apprentice approve 7c2e · deny: apprentice deny 7c2e
 
   When you are away from the Mac (`apprentice away on`, or nobody answers within a minute), the question comes back with exit 9 and the agent asks you in the chat instead.
 - **It fixes itself.** apprentice runs from your own local clone. When it gets something wrong, the agent fixes the note or the code and commits each small change with `apprentice commit`, which rebuilds, self-tests and restarts apprentice with the fix. Your commits stay in your clone.
-- **It updates itself.** Every few hours it checks its upstream. When there's something new, it rebases your commits onto it, rebuilds, runs its self-test and restarts between commands, and the next `session` tells you. If the build or test fails, it stays on the old version. Set `[update] auto = false` to only be told, then run `apprentice update`.
+- **It updates itself.** Every few hours it checks its upstream. When there's something new, it rebases your commits onto it, rebuilds, runs its self-test and restarts once nothing is waiting on you (no pending approval, no open question, no command in the last minute). The next `session` tells you. If the build or test fails, it stays on the old version. Set `[update] auto = false` to only be told, then run `apprentice update`.
+- **It shares fixes in one command.** `apprentice pr` takes your local commits, checks the tree is clean and the self-test passes, pushes a `fix/…` branch to your fork and opens a pull request with `gh`. `apprentice pr --local` writes the description and prints a compare URL instead.
+- **It shows what it is doing.** A menu-bar item reads `α` when idle, `α …` while working, `α ?` while a question waits for you and `α !` when a step needs approval. Its menu approves or denies that step, opens the session's log and stops apprentice.
 - **It can keep the browser off your desktop, and drive Linux too.** A small Linux VM (about 2 GB, under a gigabyte to download) runs Chromium, a terminal and any Linux app you install, with its own screen, cursor and keyboard, so the agent works while you keep working. Terminal first: the agent runs commands over plain ssh (`apprentice vm shell`) and takes the screen (`session --app <name> --on linux`) only where no command does it. Approvals, budgets and logs stay on your Mac; `apprentice vm look` shows you the VM, and `apprentice vm call "what"` asks you into it when a site needs a person. The VM is Linux only for now; a macOS VM, for Mac apps and Safari, is planned.
 - **One VM per job.** `APPRENTICE_VM=linkedin apprentice vm setup` makes another VM, and an agent session started with `APPRENTICE_VM=linkedin` works only there, so two agents run side by side without touching each other's browser. Each site's budgets and cooldowns count across all of them. Uploads and downloads move files between your Mac and the VM, and questions open on the VM's screen.
-- **It learns.** Notes about apps and sites live in this repo under `notes/`, so updates share them. `learn` turns a task that worked into a flow. `do <flow>` reruns it with one approval for the whole plan, and hands back to the agent if a step fails. Whenever asking you solved a problem, the note gets updated and a code fix is filed.
+- **It learns, per model.** Notes about apps and sites live in this repo under `notes/`, so updates share them. `learn` turns a task that worked into a flow tagged with the model that did it. Next time, the same model finds its own flow first (`do --explain "task"` shows the pick and why), and `do <flow>` reruns it with one approval for the whole plan, handing back if a step fails. Whenever asking you solved a problem, the note gets updated and a code fix is filed. See [How the next run gets faster](#how-the-next-run-gets-faster).
+- **It logs every session.** Every command is logged, including the ones that don't touch the screen (`learn`, `bug`, `route`), with the model and the exit code. `apprentice sessions` lists recent sessions, and `apprentice log --session` replays one on a single screen.
 
 ## Install
 
-You need macOS 14 or later and Swift 5.9 (Xcode or the command-line tools). One command installs it, and running it again updates:
+You need macOS 14 or later and Swift 5.9 (Xcode or the command-line tools: `xcode-select --install`), since the installer builds from source. One command installs it, and running it again updates:
 
 ```sh
 git clone https://github.com/robertsolves/apprentice.git ~/.apprentice/src && ~/.apprentice/src/install.sh
@@ -66,7 +69,11 @@ git clone https://github.com/robertsolves/apprentice.git ~/.apprentice/src && ~/
 
 `install.sh` also installs Tart and sets up the Linux VM (`APPRENTICE_SKIP_VM=1` skips it). There is no macOS VM yet.
 
-Then grant **Accessibility** and **Screen Recording** to `~/.local/bin/apprentice` in System Settings → Privacy & Security, and run `apprentice stop` so the next command starts a fresh daemon.
+Last, `install.sh` runs `apprentice doctor --fix`. It checks the install, opens **Accessibility** and then **Screen Recording** in System Settings → Privacy & Security, waits while you switch apprentice on in each, restarts the daemon and runs a smoke test on Finder. Run `apprentice doctor` any time to see what's missing.
+
+If `kit.sh` can't add its signing identity to your keychain, it signs the binary ad hoc. Then every rebuild or update drops the two permission grants. `doctor` warns about this; fix it by setting `APPRENTICE_SIGN_IDENTITY` to an identity you have, then re-running `kit.sh`.
+
+`apprentice uninstall` lists everything apprentice installed, and `apprentice uninstall --yes` removes it: the binary, the agent skills and rules sections, the MCP entries, the signing identity, the PATH lines, the VMs and `~/.apprentice`. Your clone stays, since it holds your commits and notes; `--all` removes it too.
 
 The first `session` after the daemon starts opens an options window:
 - **UI only:** no shell commands for macOS tasks;
@@ -78,7 +85,8 @@ The first `session` after the daemon starts opens an options window:
 
 | Command | Does |
 | --- | --- |
-| `session --app <name> [--new-window] [--allow a.com,b.com]` | Attach to one app window; prints the policy and notes for that app or site |
+| `doctor [--fix]` | Check permissions, signature, PATH, clone and settings; `--fix` opens the panes and runs a smoke test |
+| `session --app <name> [--new-window] [--allow a.com,b.com] [--task "…"]` | Attach to one app window; prints the policy and notes for that app or site. `--task` records what you asked for in the log |
 | `read [--max 80] [--filter text]` | The numbered list of what is on screen |
 | `click <id>` · `click --on "text"` · `click --at x,y` | Click an element, visible text (OCR if it is not listed) or a point |
 | `type <id\|focused> "text" [--enter]` | Click into a field, then type, key by key |
@@ -88,13 +96,15 @@ The first `session` after the daemon starts opens an options window:
 | `upload <id> <file>` · `download <id> <path>` · `choose <path>` | Files, through the system's own dialogs |
 | `approve <token>` · `deny <token>` · `confirm <token>` · `pending` | Approvals |
 | `ask "question" [--choices "A\|B"] [--multi] [--text]` · `show "what"` | Ask the user in the little window |
-| `notes "words"` · `learn "task"` · `do <flow> --key value` | Learned notes and flows |
+| `notes "words"` · `learn "task" [--model m]` · `do <flow> --key value` · `do --explain "task"` | Learned notes and flows; `--explain` shows which flow this model would pick, and why |
 | `route "task"` | Check for a faster route (an API, `gh`, a connector) before using the screen |
-| `shot` · `ocr` · `log` | A screenshot, OCR of the window, recent steps |
+| `shot` · `ocr` · `log [--tail n]` · `log --session [<id>]` · `sessions` | A screenshot, OCR of the window, recent steps, one whole session, recent sessions |
 | `policy` · `away on\|off` · `awake on\|off` | Settings for shell use, remote questions and keep-awake |
 | `grow` · `bug "summary" --fix "…"` | What to improve next, and field reports |
-| `settings [github \| local \| sync]` | Keep settings on this Mac, or in a private GitHub repo shared by your Macs |
-| `commit "what and why"` · `update [--check]` · `selftest` · `repo` | A small commit (rebuilds on a source change), upstream fixes in by hand (it also updates itself), the built-in tests, and where the clone is |
+| `settings [local]` | Where the settings are; `local` moves an older synced copy back to this Mac |
+| `commit "what and why"` · `update [--check]` · `selftest` · `repo` · `version` | A small commit (rebuilds on a source change), upstream fixes in by hand (it also updates itself), the built-in tests, where the clone is, and the installed commit |
+| `pr [--title t] [--draft] [--fork remote] [--local]` | Offer your local commits upstream as a pull request, from your fork |
+| `uninstall [--all] [--yes]` | List, then remove, everything apprentice installed |
 | `vm setup` · `vm on`/`off` · `vm up`/`down` · `vm shell` · `vm look` · `vm call "what"` · `vm install` | The Linux VM: make it, send browser sessions to it, start or stop it, print its ssh config, see it, bring the user into it, update what runs in it |
 | `run "task" --model <name>` · `mcp` | A built-in loop for any OpenAI-compatible model, and an MCP server |
 
@@ -127,10 +137,41 @@ Settings are `config.toml` (see `agent/config.example.toml`), `routes.toml` and 
   - `keep_awake` keeps the Mac awake while a task runs;
   - `ask_in` (`both`, `window` or `terminal`) and `ask_window_s` decide where questions go;
   - `ask_sound` is the ping, or `"none"`;
-  - `ask_on_start` shows the options window.
+  - `ask_on_start` shows the options window;
+  - `menu_bar = false` hides the menu-bar item.
+- **`[update]`:** `auto = false` to only be told about updates; `check_hours` (6).
+- **`[storage]`:** `sessions = "scrubbed"` (the default), `"full"` or `"off"`: what the clone keeps of each session (see below).
 - **`[run]`:** the model endpoint for `apprentice run`.
 
-`APPRENTICE_HOME` moves all state out of `~/.apprentice`. `APPRENTICE_UI_ONLY`, `APPRENTICE_MODEL`, `APPRENTICE_BASE_URL` and `APPRENTICE_API_KEY` override the file for one shell.
+Site rules ship as defaults and live in your own files:
+- `budgets.json` caps each kind of action per site, per hour and per day, with a minimum gap. It starts with conservative caps for LinkedIn, X, Reddit, Instagram, Facebook and TikTok.
+- `[pace."<site>"]` profiles set a person's pace (dwell, bursts, rests) for LinkedIn, X and Reddit.
+- `[policy."<site>"]` in `routes.toml` records whether a site's terms allow automation. Instagram, Facebook, Messenger and TikTok are built in as forbidden, so apprentice refuses them.
+
+The counts behind budgets and cooldowns are kept in `~/.apprentice/limits.json`, shared by every session and VM. `apprentice budget` shows what is left.
+
+`APPRENTICE_HOME` moves all state out of `~/.apprentice`. Set `APPRENTICE_MODEL` to the name of the model driving apprentice, so the log and learned flows know which model did what. `APPRENTICE_UI_ONLY`, `APPRENTICE_MODEL`, `APPRENTICE_BASE_URL` and `APPRENTICE_API_KEY` override the file for one shell.
+
+## Security and privacy
+
+- `~/.apprentice` is readable only by you (`0700`). It holds URLs, page titles, screenshots and maybe an API key; `doctor` warns if it or `config.toml` can be read by others.
+- Auto-update runs code from your `upstream` without review: that is what "updates itself" means. It only does so from an `https` or `ssh` remote. A folder, `file://`, `git://` or `http://` upstream is updated by hand with `apprentice update`. Turn it off with `[update] auto = false`.
+- Logs never contain typed text. Password managers, banking and health apps are never logged.
+- The scrubbed session copies in the clone hold commands, diffs, timings, errors (with quoted text removed), hosts, the model and the task. They never hold URLs, element names, typed text or images. `pr` says how many it would publish and which hosts they touch. Set `[storage] sessions = "off"` to keep them out.
+- `pr` pushes only to a fork remote, never to `upstream` and never with force.
+
+## How the next run gets faster
+
+Everything apprentice learns is kept in your clone, where updates and `pr` can share it:
+
+| What | Where | Written by | Read by |
+| --- | --- | --- | --- |
+| Key facts about an app or site | `notes/macos/`, `notes/web/`, `notes/linux/` | you or the agent, after a question or a fix | `session` and `open` print them |
+| Flows: a task as steps, tagged with the model | `notes/flows/<slug>.md` | `learn "task"` drafts one from the session's approved steps | `do --explain` picks one for this model; `do <flow>` runs it with one approval |
+| Learned routes | `notes/routes-learned.toml` | `do`, the first time a model gets through a flow | `route "task"` sends that model straight to the flow |
+| Session copies | `sessions/<date>-<session>.jsonl` | the daemon, when a session ends | you, `grow`, and anyone reviewing a `pr` |
+
+The raw logs (`~/.apprentice/runs/`, with screenshots) stay on the Mac and are pruned after 30 days. `apprentice grow` reads them to say what to fix next.
 
 ## Notes and flows
 
@@ -143,7 +184,10 @@ notes/
 
 Notes are plain Markdown with a little front matter. `session` prints each matching note's **Key facts**. A flow step is one backticked command, which `do` runs:
 - `#label "name"` finds that element on screen when the step runs;
-- `{key}` takes its value from `--key value`.
+- `{key}` takes its value from `--key value`;
+- `` `sh: <command>` `` runs a shell command under the same approval (refused when the policy is UI only).
+
+A flow's `model:` line names the model that learned it. Another model skips the flow unless it says `model: any`.
 
 `notes/README.md` has the format and the rules. The main one: notes record what worked and what failed, never text copied from a screen.
 
