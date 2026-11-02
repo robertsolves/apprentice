@@ -31,3 +31,10 @@
 {"cmd":"stop","model":"claude-opus-5-5","ts":"2026-11-02T11:41:17.816+10:00"}
 {"client":true,"cmd":"budget","code":0,"model":"claude-opus-5-5","ms":16,"ts":"2026-11-02T11:43:58.352+10:00"}
 {"code":5,"error":"scroll <up|down|left|right> [n] [--in id | --at x,y]","failed":"scroll","model":"claude-opus-5-5","ts":"2026-11-02T11:49:54.018+10:00"}
+{"model":"claude-opus-5-5","ts":"2026-11-02T11:50:54.915+10:00"}
+{"code":5,"error":"scroll <up|down|left|right> [n] [--in id | --at x,y]","failed":"scroll","model":"claude-opus-5-5","ts":"2026-11-02T11:56:20.082+10:00"}
+{"client":true,"cmd":"playbooks","code":0,"model":"claude-opus-5-5","ms":1825,"ts":"2026-11-02T12:05:41.934+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-opus-5-5","ms":156,"ts":"2026-11-02T12:56:32.166+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-opus-5-5","ms":1059,"ts":"2026-11-02T12:56:33.237+10:00"}
+{"cmd":"stop","model":"claude-opus-5-5","ms":3620101,"ts":"2026-11-02T12:56:40.183+10:00"}
+{"client":true,"cmd":"doctor","code":7,"model":"claude-opus-5-5","ms":604,"ts":"2026-11-02T12:56:41.107+10:00"}
