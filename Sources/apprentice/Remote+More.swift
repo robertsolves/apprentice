@@ -344,31 +344,56 @@ extension Remote {
     /// The choice that opens the VM's screen for the user (`show`, `vm call`).
     static let openTheVM = "Open the VM"
 
-    /// `ask`, `confirm` and the start-up options for a session in the VM open on the VM's screen (agent/vm/
-    /// ask.py), and this Mac shows a notification saying so. Nil when the session is not in a VM or the VM
-    /// cannot show it, so the Mac's window opens instead; `.some(nil)` is a timeout. Called on the main
-    /// thread, which keeps turning so the kill switch still works while the user answers.
+    /// A question for a session in the VM, open on the VM's screen (agent/vm/ask.py) while this Mac's
+    /// window asks it too: the user answers on whichever screen they are looking at.
+    final class VMAsk {
+        private let lock = NSLock()
+        private var reply: [String: Any]?
+        private var finished = false
+        private let done = DispatchSemaphore(value: 0)
+
+        fileprivate init(_ request: [String: Any], timeout: Double) {
+            DispatchQueue.global().async {
+                let r = try? Remote.query(request, timeout: timeout + 20)
+                self.lock.lock()
+                self.reply = r
+                self.finished = true
+                self.lock.unlock()
+                self.done.signal()
+            }
+        }
+
+        /// The answer given in the VM, once there is one: nil while waiting, and for a timeout or a failure.
+        var answer: Ask.Reply? {
+            lock.lock()
+            defer { lock.unlock() }
+            guard finished, let reply, reply["timeout"] == nil else { return nil }
+            return Ask.Reply(chosen: reply["chosen"] as? [String] ?? [], text: (reply["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+                             skipped: reply["skipped"] as? Bool == true)
+        }
+
+        /// Closes the VM's window once the Mac's was answered, and waits for the helper's reply, so it is
+        /// never read as the reply to the next query. Keeps the run loop turning for the kill switch.
+        func close() {
+            lock.lock()
+            let open = !finished
+            lock.unlock()
+            if open, let ip = try? VM.address() { _ = VM.ssh(ip, "pkill -f '/opt/apprentice/[a]sk.py'") }
+            let until = Date().addingTimeInterval(5)
+            while done.wait(timeout: .now()) != .success, Date() < until {
+                RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+            }
+        }
+    }
+
+    /// Opens the question on the VM's screen too, for a session in the VM. Nil when the session is not
+    /// in a VM or the VM cannot be reached, or when the question is the one asking to open the VM.
     static func askInVM(_ question: String, choices: [String], multi: Bool, withText: Bool, timeout: Double,
-                        sendTitle: String, checked: Set<String>, placeholder: String?, initialText: String) -> Ask.Reply?? {
-        // A question whose answer opens the VM is for a user who is not looking at it: it stays on this Mac.
+                        sendTitle: String, checked: Set<String>, placeholder: String?, initialText: String) -> VMAsk? {
         guard Session.stored?.vm == true, !choices.contains(openTheVM), (try? connect()) != nil else { return nil }
-        let where_ = Store.vmName.map { "the VM \($0)" } ?? "the VM"
-        Site.notify("apprentice is asking in \(where_)", "\(clip(question, 120)) · `apprentice\(Store.vmName.map { " --vm \($0)" } ?? "") vm look` shows it")
         var request: [String: Any] = ["op": "ask", "question": question, "choices": choices, "multi": multi, "withText": withText,
                                       "timeout": timeout, "sendTitle": sendTitle, "checked": Array(checked), "initialText": initialText]
         if let placeholder { request["placeholder"] = placeholder }
-        var reply: [String: Any]?
-        let finished = DispatchSemaphore(value: 0)
-        DispatchQueue.global().async {
-            reply = try? query(request, timeout: timeout + 20)
-            finished.signal()
-        }
-        while finished.wait(timeout: .now()) != .success {
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
-        }
-        guard let reply else { return nil }
-        if reply["timeout"] != nil { return .some(nil) }
-        return .some(Ask.Reply(chosen: reply["chosen"] as? [String] ?? [], text: (reply["text"] as? String ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
-                               skipped: reply["skipped"] as? Bool == true))
+        return VMAsk(request, timeout: timeout)
     }
 }

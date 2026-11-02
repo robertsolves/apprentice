@@ -1,0 +1,98 @@
+# What the window's Settings screen offers, out of everything in config.toml, in the order shown.
+# apprentice reads this file, then ~/.apprentice/settings-screen.toml, where a setting with the same
+# section and key replaces this one and a new one is added: any config.toml key can be put on the screen.
+#
+# [group.<section>]  title: the heading over that section's settings.
+# [setting."<section>.<key>"]  label, help, and kind: toggle, number (min, max), choice (choices) or text.
+# fallback: the value the file has when the key is absent, written as TOML.
+
+[group.agent]
+title = "While apprentice works"
+
+[setting."agent.notifications"]
+label = "Desktop notifications"
+help = "A notification when a question or an approval is waiting for you."
+kind = "toggle"
+fallback = false
+
+[setting."agent.sounds"]
+label = "Sounds"
+help = "A short sound when something happens: a hand-off to you, a pause, a failure."
+kind = "toggle"
+fallback = true
+
+[setting."agent.menu_bar"]
+label = "Menu bar icon"
+help = "Shows whether apprentice is idle, working or waiting for you; its menu approves a step."
+kind = "toggle"
+fallback = true
+
+[setting."agent.dock_icon"]
+label = "Dock icon while this window is closed"
+help = "The background service shows in the Dock when the window is not open."
+kind = "toggle"
+fallback = true
+
+[setting."agent.overlay"]
+label = "Small status box on screen"
+help = "An always-on-top box that says when apprentice is working or handed back to you."
+kind = "toggle"
+fallback = true
+
+[setting."agent.keep_awake"]
+label = "Keep the Mac awake during tasks"
+help = "No display sleep or lock while a task runs, and for two minutes after."
+kind = "toggle"
+fallback = false
+
+[setting."agent.ui_only"]
+label = "Screen only, no shell"
+help = "Agents do everything through the screen, never with shell commands."
+kind = "toggle"
+fallback = false
+
+[setting."agent.optional_questions"]
+label = "Occasional optional questions"
+help = "A small window you may answer or leave, so apprentice learns how you like things done."
+kind = "toggle"
+fallback = true
+
+[group.typing]
+title = "Typing"
+
+[setting."typing.learn"]
+label = "Learn my typing rhythm"
+help = "Timings only, never what you type, and never in password fields."
+kind = "toggle"
+fallback = true
+
+[group.update]
+title = "Updates"
+
+[setting."update.auto"]
+label = "Install updates automatically"
+help = "Off: you are told, and install from the Updates screen."
+kind = "toggle"
+fallback = true
+
+[group.app]
+title = "This window"
+
+[setting."app.theme"]
+label = "Appearance"
+kind = "choice"
+choices = ["system", "light", "dark"]
+fallback = "system"
+
+[setting."app.font"]
+label = "Terminal font"
+help = "Any installed monospaced font."
+kind = "text"
+fallback = "SF Mono"
+
+[setting."app.font_size"]
+label = "Terminal font size"
+kind = "number"
+min = 8
+max = 32
+fallback = 12

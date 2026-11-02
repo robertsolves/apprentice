@@ -943,7 +943,9 @@ struct RootView: View {
         .scrollContentBackground(.hidden)
         .safeAreaInset(edge: .top) {
             VStack(alignment: .leading, spacing: Theme.s3) {
-                HStack(alignment: .firstTextBaseline, spacing: Theme.s2) {
+                HStack(alignment: .center, spacing: Theme.s2) {
+                    Image(nsImage: NSApp.applicationIconImage ?? Ask.icon)
+                        .resizable().interpolation(.high).frame(width: 18, height: 18)
                     Text("apprentice").font(.system(size: 13, weight: .bold)).lineLimit(1).fixedSize()
                     Text("v\(Build.version)").font(Theme.monoSmall).foregroundStyle(.secondary)
                         .lineLimit(1).truncationMode(.tail)
@@ -1306,7 +1308,7 @@ struct SchedulesView: View {
     @State private var adding = false
 
     var body: some View {
-        SplitPane(id: "schedules") {
+        SplitPane(id: "schedules", help: .schedules) {
             VStack(spacing: 0) {
                 HStack {
                     Text("\(model.schedules.count) schedule\(model.schedules.count == 1 ? "" : "s")")
@@ -1345,11 +1347,7 @@ struct SchedulesView: View {
                     ScreenPage(title: "Schedules", subtitle: "") {
                         AnyView(IconButton("New schedule", "plus", prominent: true) { adding = true })
                     } content: {
-                        Explainer(icon: Section.schedules.icon, title: "What is a schedule?",
-                                  text: "A schedule runs something later, or again and again: a prompt for your agent, a pipeline, or a command. It asks for the same approvals as anything you start yourself.",
-                                  points: ["It runs while this Mac is on and awake, even with this window closed.",
-                                           "A run missed while the Mac slept is skipped, not repeated in a burst.",
-                                           "To run with nobody at the Mac, keep it plugged in and turn on Keep the Mac awake in Settings."])
+                        Explainer.schedules
                         Panel(title: "At login") {
                             Text("Schedules run from apprentice's background service. Start it at login so they run even when this window is closed.")
                                 .font(Theme.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -2091,20 +2089,64 @@ struct UpdatesView: View {
                     .controlSize(.small)
                 }
             }
-            Panel(title: "Permissions and checks") {
-                Output(text: checks)
-                HStack(spacing: Theme.s2) {
-                    Button("Fix permissions") { model.run("doctor", ["--fix"]) { _, out in checks = out } }
-                    Button("Set-up steps") { model.welcomeOpen = true }
-                }
-                .controlSize(.small)
+            if !checks.isEmpty {
+                Panel(title: "Result") { Output(text: checks) }
             }
+            GrantsPanel(model: model)
         }
-        .onAppear(perform: load)
     }
 
     private func load() {
-        model.run("doctor") { _, out in checks = out }
+        if Release.isRelease, !Release.cloneInstalled { checks = ""; model.checkRelease(force: true) }
+        else { model.run("update", ["--check"]) { _, out in checks = out } }
+    }
+}
+
+/// The two macOS permissions, each with what it is for and one button while it is off. Everything else
+/// `doctor` prints is for the terminal: a person can do nothing with a signature or a PATH line.
+struct GrantsPanel: View {
+    @ObservedObject var model: AppModel
+    @State private var accessibility: Bool?
+    @State private var screen: Bool?
+    private let tick = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        Panel(title: "Permissions") {
+            row("Accessibility", "Lets apprentice see a window's buttons and fields, and move the cursor and type for you.",
+                on: accessibility, ask: "accessibility")
+            row("Screen Recording", "For screenshots and reading text that has no label. Nothing leaves this Mac.",
+                on: screen, ask: "screen")
+        }
+        .onAppear(perform: check)
+        .onReceive(tick) { _ in if accessibility != true || screen != true { check() } }
+    }
+
+    @ViewBuilder private func row(_ title: String, _ why: String, on: Bool?, ask: String) -> some View {
+        HStack(alignment: .top, spacing: Theme.s3) {
+            Image(systemName: on == true ? "checkmark.circle.fill" : "exclamationmark.circle")
+                .foregroundStyle(on == true ? Theme.accent : Theme.warn)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title + (on == nil ? "" : on! ? ": on" : ": off")).font(Theme.heading)
+                Text(why).font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            if on == false {
+                Button("Open System Settings") { model.run("doctor", ["--ask", ask]) { _, _ in } }.controlSize(.small)
+            }
+        }
+    }
+
+    /// A fresh CLI process each time: a grant does not show in a process that started before it.
+    private func check() {
+        model.run("doctor", ["--grants"]) { _, out in
+            let a = out.contains("accessibility=true"), s = out.contains("screen=true")
+            // A daemon started before a grant does not see it; the next command starts a new one.
+            if (accessibility == false && a) || (screen == false && s) {
+                DispatchQueue.global(qos: .utility).async { _ = Wire.stopDaemon() }
+            }
+            accessibility = a
+            screen = s
+        }
     }
 }
 

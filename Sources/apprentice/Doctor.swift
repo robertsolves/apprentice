@@ -32,7 +32,11 @@ enum Doctor {
         out.append(Check(ok: !adhoc, line: adhoc ? "signature: ad hoc" : "signature: a stable identity",
                          fix: adhoc ? "every rebuild drops the permission grants; run kit.sh so it signs with the local \"apprentice\" identity, or set APPRENTICE_SIGN_IDENTITY" : nil))
 
-        let onPath = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").contains { URL(fileURLWithPath: String($0)).standardizedFileURL.path == URL(fileURLWithPath: bin).deletingLastPathComponent().standardizedFileURL.path }
+        // On PATH means `apprentice` there is this binary, directly or through a link (the release app's ~/.local/bin one).
+        let resolved = URL(fileURLWithPath: bin).resolvingSymlinksInPath().path
+        let onPath = (ProcessInfo.processInfo.environment["PATH"] ?? "").split(separator: ":").contains {
+            URL(fileURLWithPath: String($0)).appendingPathComponent("apprentice").resolvingSymlinksInPath().path == resolved
+        }
         out.append(Check(ok: onPath, line: "on PATH", fix: "open a new terminal, or add \(URL(fileURLWithPath: bin).deletingLastPathComponent().path) to PATH in ~/.zprofile"))
 
         let daemon = Wire.ping()
@@ -45,7 +49,9 @@ enum Doctor {
         out.append(Check(ok: lists.isEmpty, line: "site lists: " + (lists.isEmpty ? SiteLists.files[0].path : lists.joined(separator: ", ")),
                          fix: "reinstall, or restore agent/sites.toml in the clone", blocking: true))
 
-        if Repo.isGit {
+        if Release.isRelease, !Release.cloneInstalled {
+            out.append(Check(ok: true, line: "updates: from GitHub releases"))
+        } else if Repo.isGit {
             let remote = Repo.upstream
             let url = Repo.git("remote", "get-url", remote).out
             let line = "clone: \(Repo.root.path) · \(remote) \(url) · auto-update \(Repo.auto ? "on" : "off")"

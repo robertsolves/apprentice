@@ -64,7 +64,7 @@ struct SkillsView: View {
     }
 
     var body: some View {
-        SplitPane(id: "skills") {
+        SplitPane(id: "skills", help: .skills) {
             VStack(spacing: 0) {
                 HStack(spacing: Theme.s2) {
                     TextField("Search", text: $query).textFieldStyle(.roundedBorder).controlSize(.small)
@@ -96,12 +96,7 @@ struct SkillsView: View {
                         IconButton("New skill", "plus", prominent: true) { adding = true }
                     })
                 } content: {
-                    Explainer(icon: Section.skills.icon, title: "What is a skill?",
-                              text: "A skill is what an agent knows before it acts: how a website or an app works, the steps for a task, how a person behaves on a site, or a rule for everything. Agents find the right ones by themselves.",
-                              points: ["Yours: written by you. Agents follow them.",
-                                       "Learned by apprentice: written by apprentice as it works, so the next run is faster. Agents treat them as hints, and you can edit or forget any of them.",
-                                       "Built in: come with apprentice. To change one, make your own copy; yours is used instead.",
-                                       "Keep names, handles and anything personal out. For those, apprentice keeps your preferences separately."])
+                    Explainer.skills
                     Panel(title: "How apprentice learns") {
                         Text("When a task works, apprentice saves its steps; when saved steps break and the agent finishes by hand, it saves the repaired steps; and an agent can save one-line facts about a site or app. Each learned skill is small: at most \(Skills.maxFacts) facts or \(Skills.maxSteps) steps, and at most \(Skills.maxLearned) learned skills in all, the least used removed first.")
                             .font(Theme.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -250,18 +245,21 @@ struct SkillEditor: View {
 struct SplitPane<Left: View, Right: View>: View {
     @AppStorage private var width: Double
     @State private var start: Double?
+    @State private var helping = false
+    let help: Explainer?
     let left: () -> Left
     let right: () -> Right
 
-    init(id: String, ideal: Double = 290, @ViewBuilder left: @escaping () -> Left, @ViewBuilder right: @escaping () -> Right) {
+    init(id: String, ideal: Double = 290, help: Explainer? = nil, @ViewBuilder left: @escaping () -> Left, @ViewBuilder right: @escaping () -> Right) {
         _width = AppStorage(wrappedValue: ideal, "split.\(id)")
+        self.help = help
         self.left = left
         self.right = right
     }
 
     var body: some View {
         HStack(spacing: 0) {
-            left().frame(width: width)
+            left().frame(width: width).frame(maxHeight: .infinity)
             Rectangle()
                 .fill(Theme.hairline)
                 .frame(width: 1)
@@ -278,6 +276,14 @@ struct SplitPane<Left: View, Right: View>: View {
                             .onEnded { _ in start = nil })
                 )
             right().frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay(alignment: .topTrailing) {
+                    if let help {
+                        Button { helping.toggle() } label: { Image(systemName: "questionmark.circle") }
+                            .buttonStyle(.plain).foregroundStyle(.secondary).help("What is this?")
+                            .padding(Theme.s3)
+                            .popover(isPresented: $helping, arrowEdge: .bottom) { help.frame(width: 380).padding(Theme.s2) }
+                    }
+                }
         }
     }
 }

@@ -85,11 +85,11 @@ enum Ask {
                      sendTitle: String = "Send", checked: Set<String> = [], placeholder: String? = nil,
                      initialText: String = "", caller: Int32? = nil, secure: Bool = false, onMac: Bool = false) -> Reply? {
         Notify.local(question)
-        // A session in a VM asks on the VM's screen, where the work is; this Mac shows a notification.
-        if !secure, !onMac, let answer = Remote.askInVM(question, choices: choices, multi: multi, withText: withText, timeout: timeout,
-                                       sendTitle: sendTitle, checked: checked, placeholder: placeholder, initialText: initialText) {
-            return answer
-        }
+        // A session in a VM asks on the VM's screen as well as here, so the user answers on whichever they
+        // are looking at; the first answer closes the other window.
+        let inVM = secure || onMac ? nil : Remote.askInVM(question, choices: choices, multi: multi, withText: withText, timeout: timeout,
+                                                          sendTitle: sendTitle, checked: checked, placeholder: placeholder, initialText: initialText)
+        defer { inVM?.close() }
         // Wider for a long question or long choices, so neither is cut short.
         let longest = max(question.count / 3, choices.map(\.count).max() ?? 0)
         let width: CGFloat = min(max(420, CGFloat(longest) * 7), 620)
@@ -130,7 +130,9 @@ enum Ask {
         let skip = NSButton(title: "Skip ⎋", target: handler, action: #selector(Handler.skip))
         skip.keyEquivalent = "\u{1b}"
         skip.setAccessibilityLabel("Skip, Escape")
-        let buttons = NSStackView(views: [Sound.muteButton(), NSView(), skip, send])
+        // Opens the VM's screen, where the same question waits beside the work; this window stays open.
+        let look = NSButton(title: Remote.openTheVM, target: handler, action: #selector(Handler.look))
+        let buttons = NSStackView(views: [Sound.muteButton()] + (inVM == nil ? [] : [look]) + [NSView(), skip, send])
         buttons.spacing = 12
         buttons.alignment = .centerY
         rows.append(buttons)
@@ -165,10 +167,20 @@ enum Ask {
             if !waiting(caller) { NSApplication.shared.stopModal(withCode: .stop) }
         }
         if caller != nil { RunLoop.main.add(watch, forMode: .modalPanel) }
+        let vmAnswered = NSApplication.ModalResponse(rawValue: 1_001)
+        let vm = Timer(timeInterval: 0.2, repeats: true) { _ in
+            if inVM?.answer != nil { NSApplication.shared.stopModal(withCode: vmAnswered) }
+        }
+        if inVM != nil { RunLoop.main.add(vm, forMode: .modalPanel) }
         var response = NSApplication.shared.runModal(for: panel)
         timer.invalidate()
         again.invalidate()
         watch.invalidate()
+        vm.invalidate()
+        if response == vmAnswered, let answer = inVM?.answer {
+            panel.orderOut(nil)
+            return answer
+        }
         if response == .stop {
             // Say so in the window rather than leave a question nobody will read the answer to.
             Store.log(["ask_abandoned": clip(question, 120)])
@@ -264,6 +276,9 @@ enum Ask {
         @objc func picked() {}
         @objc func send() { NSApplication.shared.stopModal(withCode: .OK) }
         @objc func skip() { NSApplication.shared.stopModal(withCode: .cancel) }
+        @objc func look() {
+            do { try VM.openViewer() } catch { Store.log(["vm_look": "failed", "why": "\(error)"]) }
+        }
     }
 }
 

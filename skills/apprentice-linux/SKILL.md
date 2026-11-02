@@ -7,7 +7,7 @@ metadata:
 
 # The Linux VM through apprentice
 
-Load the `apprentice` skill first. The VM has its own screen, cursor and keyboard, so nothing done there moves the Mac's. The user watches with `apprentice vm look`, and `ask`/`confirm` windows open on the VM's screen.
+Load the `apprentice` skill first. The VM has its own screen, cursor and keyboard, so nothing done there moves the Mac's. The user watches with `apprentice vm look`, `ask` opens on the VM's screen and the Mac at once, and `confirm` stays on the Mac.
 
 ## Terminal work is ssh
 - `apprentice vm shell` prints the ssh config. Then run commands with plain `ssh` (apt, files, services) over the daemon's shared connection, as you would in your own shell.

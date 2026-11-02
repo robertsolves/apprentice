@@ -131,7 +131,7 @@ struct ProjectsView: View {
     @State private var selected: String?
 
     var body: some View {
-        SplitPane(id: "projects") {
+        SplitPane(id: "projects", help: .projects) {
             ListColumn(count: "\(model.projects.count) project\(model.projects.count == 1 ? "" : "s")", newTitle: "New",
                        new: { model.newProject = .empty }) {
                 if model.projects.isEmpty {
@@ -159,12 +159,7 @@ struct ProjectsView: View {
                             IconButton("New project", "plus", prominent: true) { model.newProject = .empty }
                         })
                     } content: {
-                        Explainer(icon: Section.projects.icon, title: "What is a project?",
-                                  text: "A project is one piece of work, like running a shop's Instagram or sending the weekly invoices. It is a folder on this Mac with the project's files, its notes for agents and its pipelines. Any agent you open in it knows what the project is and which VM to use.",
-                                  points: ["New project makes the folder, and can make a VM just for it.",
-                                           "Open starts your agent in the project's folder.",
-                                           "Save keeps a version. Save to GitHub puts it online, private, so you can open it on another Mac.",
-                                           "In a terminal: apprentice project list, new, open and save."])
+                        Explainer.projects
                     }
                 }
             }
@@ -376,7 +371,7 @@ struct PipelinesView: View {
     @ObservedObject var model: AppModel
 
     var body: some View {
-        SplitPane(id: "pipelines") {
+        SplitPane(id: "pipelines", help: .pipelines) {
             ListColumn(count: "\(model.pipelines.count) pipeline\(model.pipelines.count == 1 ? "" : "s")", newTitle: "New",
                        new: { model.editPipeline(Pipelines.Pipeline(name: "")) }) {
                 if model.pipelines.isEmpty {
@@ -404,11 +399,7 @@ struct PipelinesView: View {
                     ScreenPage(title: "Pipelines", subtitle: "") {
                         AnyView(IconButton("New pipeline", "plus", prominent: true) { model.editPipeline(Pipelines.Pipeline(name: "")) })
                     } content: {
-                        Explainer(icon: Section.pipelines.icon, title: "What is a pipeline?",
-                                  text: "A pipeline is a list of prompts that run one after another. Each step goes to your agent, and the agent sees what the step before it found.",
-                                  points: ["For example: 1. Get the new comments on my Instagram post. 2. Answer the ones that ask about prices by email. 3. Write me a two-line summary.",
-                                           "Run it now, or put it on a schedule: every morning, every Monday.",
-                                           "Each pipeline is a file in its project's pipelines folder. In a terminal: apprentice pipeline list, run and new."])
+                        Explainer.pipelines
                     }
                 }
             }
@@ -606,7 +597,7 @@ struct VMsView: View {
     @State private var selected: String?
 
     var body: some View {
-        SplitPane(id: "vms") {
+        SplitPane(id: "vms", help: .vms) {
             ListColumn(count: "\(model.machines.count) VM\(model.machines.count == 1 ? "" : "s")", newTitle: "New", new: { newName = ""; adding = true }) {
                 if model.machines.isEmpty {
                     Text("No VMs yet").font(Theme.caption).foregroundStyle(.secondary)
@@ -660,11 +651,7 @@ struct VMsView: View {
         ScreenPage(title: "VMs", subtitle: "") {
             AnyView(IconButton("New VM", "plus", prominent: true) { newName = ""; adding = true })
         } content: {
-            Explainer(icon: Section.vms.icon, title: "What is a VM?",
-                      text: "A VM is a small Linux computer that runs inside this Mac. It has its own screen, mouse and keyboard, so an agent can use websites there while you keep using your Mac.",
-                      points: ["Make one per project to keep each project's accounts apart.",
-                               "Look at its screen any time to see what the agent is doing.",
-                               "A VM only runs while this Mac is on and awake."])
+            Explainer.vms
             Panel(title: "Browsers outside a project") {
                 Text("When an agent opens a website and its project has no VM, it uses the default VM if this is on, else this Mac.")
                     .font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

@@ -177,3 +177,21 @@ Filed by `apprentice bug` while working. Each has a suggested fix to review; non
 - Cause: Judgement skills are read from the clone's `skills/<name>/SKILL.md` (`Playbooks.skillsDir`), and that folder is not one of `Skills.roots` — the roots are `~/.apprentice/skills/{yours,learned}` and the playbooks folder. So the copy `copy()` writes to `~/.apprentice/skills/yours/<name>/SKILL.md` is never consulted by `skills(host:system:)`, `hintLines` or `search`: agents still get the built-in one, though the editor says "your copy is used instead of this one". The window also lists the copy as a separate `yours` playbook beside the built-in it came from, since `SkillItem.load` tags every file from `skillsDir` as built-in by path, so the same skill appears twice.
 - Suggested fix: Read judgement skills from `yours`, then `learned`, then the clone's `skills/`, so a copy shadows the built-in as a flow's does, and list each skill once, from wherever it won.
 
+### F81 · A cron field like `/5` crashes the command, and a hand-edited one crashes the daemon every tick — 2026-11-02
+- Severity: medium
+- Where: `Sources/apprentice/Schedules.swift:324-349` (`cronField`; the `ends[0]` at :340), called by `nextCron` (:352-382) and validated at :757
+- Cause: a field that begins with `/` leaves `range` empty, and `"".split(separator: "-")` is an empty array, so `ends[0]` traps with "Index out of range" and the process dies instead of returning nil. `apprentice schedule add … --cron "/5 * * * *"` crashes before the `nextCron(raw, after:) != nil` check at :757 can refuse it, and `cron = "/5 * * * *"` typed into `schedules.toml` by hand takes the daemon down inside `Schedules.tick` on its next pass, then again every 20 s.
+- Suggested fix: treat an empty range as bad input — `guard !range.isEmpty, let a = ends.first` … — so `cronField` returns nil and the existing "takes five fields" error stands.
+
+### F82 · A schedule prompt with a quote or a backslash in it reads back with the escapes in it, and they double on every save — 2026-11-02
+- Severity: medium
+- Where: `Sources/apprentice/Schedules.swift:123-129` (`q`, which escapes `\` and `"`), :142 (`target = \(q(…))`), :94-98 (`text`, which reads every value through `Toml.unquote`), `Sources/apprentice/Config.swift:64-70` (`unquote`)
+- Cause: the writer escapes and the reader never undoes it. `q` turns `"` into `\"` and `\` into `\\`, but `unquote` only drops the outer quotes, so the value a schedule runs with still holds the backslashes: `apprentice schedule add … --prompt 'say "hi"' --daily 09:00` fires a prompt whose text is `say \"hi\"`, and `schedule list`/`show` print them. The next edit re-escapes what it read — `\\"` on the second save, then more — so a prompt or `--sh` command containing a quote or a backslash drifts further from what the person typed every time anything writes the file (`add`, `toggle`, `advance` after each run).
+- Suggested fix: make the pair symmetric — after dropping the outer quotes, turn `\\` back into `\` and `\"` into `"` — or give the writers one `Toml.quote`/`Toml.unquote` pair that every escaped value goes through.
+
+### F83 · One queued away task for this Mac silences the whole away queue once `[away] host` is off — 2026-11-02
+- Severity: low
+- Where: `Sources/apprentice/Away.swift:301-302` (`tick`: `if next.host == true, !hostAllowed { return }` and the guard after it)
+- Cause: `tick` looks only at the oldest queued task, and when that one wants this Mac and `[away] host` is now false it `return`s — without marking the task, skipping it, or logging anything. The task stays `queued` in `away status` for ever and every task behind it, VM ones included, never starts, with no note to say why. Reachable by queueing while `host = true` (or by an agent's `away add --host` while it is on) and then turning it back off, which is exactly the setting the docs tell people to flip.
+- Suggested fix: skip that one task rather than the whole queue — mark it failed with "this Mac runs away work only with [away] host = true", as `add` refuses at :448, and continue to the next.
+

@@ -14,7 +14,7 @@ struct SitesView: View {
     private var ready: [SiteSettings.Preset] { spec.presets.filter { !sites.contains($0.site) } }
 
     var body: some View {
-        SplitPane(id: "sites") {
+        SplitPane(id: "sites", help: Explainer(icon: Section.sites.icon, title: spec.text("explainer_title"), text: spec.about, points: spec.points)) {
             ListColumn(count: spec.text("set_up_count", ["count": "\(sites.count)"]), newTitle: spec.text("add"), new: { adding = true }) {
                 List(selection: $selected) {
                     SwiftUI.Section(header: Text(spec.text("set_up_group")).eyebrow()) {
@@ -46,11 +46,6 @@ struct SitesView: View {
                     AnyView(IconButton(spec.text("add_site"), "plus", prominent: true) { adding = true })
                 } content: {
                     Explainer(icon: Section.sites.icon, title: spec.text("explainer_title"), text: spec.about, points: spec.points)
-                    if !ready.isEmpty {
-                        Panel(title: spec.text("ready_group")) {
-                            PresetGrid(presets: ready) { preset in setUp(preset) }
-                        }
-                    }
                 }
             }
         }

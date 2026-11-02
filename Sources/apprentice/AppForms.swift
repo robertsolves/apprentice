@@ -25,41 +25,53 @@ struct Setting: Identifiable {
 
     var id: String { "\(section).\(key)" }
 
-    /// The list the Settings screen shows, in order, grouped by `section`.
-    static let shown: [Setting] = [
-        Setting(section: "agent", key: "notifications", label: "Desktop notifications",
-                help: "A notification when a question or an approval is waiting for you.", kind: .toggle, fallback: "false"),
-        Setting(section: "agent", key: "sounds", label: "Sounds",
-                help: "A short sound when something happens: a hand-off to you, a pause, a failure.", kind: .toggle, fallback: "true"),
-        Setting(section: "agent", key: "menu_bar", label: "Menu bar icon",
-                help: "Shows whether apprentice is idle, working or waiting for you; its menu approves a step.", kind: .toggle, fallback: "true"),
-        Setting(section: "agent", key: "dock_icon", label: "Dock icon while this window is closed",
-                help: "The background service shows in the Dock when the window is not open.", kind: .toggle, fallback: "true"),
-        Setting(section: "agent", key: "overlay", label: "Small status box on screen",
-                help: "An always-on-top box that says when apprentice is working or handed back to you.", kind: .toggle, fallback: "true"),
-        Setting(section: "agent", key: "keep_awake", label: "Keep the Mac awake during tasks",
-                help: "No display sleep or lock while a task runs, and for two minutes after.", kind: .toggle, fallback: "false"),
-        Setting(section: "agent", key: "ui_only", label: "Screen only, no shell",
-                help: "Agents do everything through the screen, never with shell commands.", kind: .toggle, fallback: "false"),
-        Setting(section: "agent", key: "optional_questions", label: "Occasional optional questions",
-                help: "A small window you may answer or leave, so apprentice learns how you like things done.", kind: .toggle, fallback: "true"),
-        Setting(section: "typing", key: "learn", label: "Learn my typing rhythm",
-                help: "Timings only, never what you type, and never in password fields.", kind: .toggle, fallback: "true"),
-        Setting(section: "update", key: "auto", label: "Install updates automatically",
-                help: "Off: you are told, and install from the Updates screen.", kind: .toggle, fallback: "true"),
-        Setting(section: "app", key: "theme", label: "Appearance", help: "", kind: .choice(["system", "light", "dark"]), fallback: "\"system\""),
-        Setting(section: "app", key: "font", label: "Terminal font", help: "Any installed monospaced font.", kind: .text, fallback: "\"SF Mono\""),
-        Setting(section: "app", key: "font_size", label: "Terminal font size", help: "", kind: .number(8...32), fallback: "12"),
-    ]
+    /// The list the Settings screen shows, in order, grouped by `section`: `agent/settings-screen.toml`, then
+    /// the user's `~/.apprentice/settings-screen.toml`, where the same section and key replaces an entry and a
+    /// new one is added.
+    static var shown: [Setting] { load().settings }
 
-    static func title(_ section: String) -> String {
-        switch section {
-        case "agent": return "While apprentice works"
-        case "typing": return "Typing"
-        case "update": return "Updates"
-        case "app": return "This window"
-        default: return section
+    static var files: [URL] {
+        [Repo.shipped("agent/settings-screen.toml"), Settings.dir.appendingPathComponent("settings-screen.toml")]
+    }
+
+    /// The heading over a section's settings (`[group.<section>] title`).
+    static func title(_ section: String) -> String { load().titles[section] ?? section }
+
+    static func load(_ files: [URL] = files) -> (settings: [Setting], titles: [String: String]) {
+        var settings: [Setting] = [], titles: [String: String] = [:]
+        for file in files {
+            let more = parse((try? String(contentsOf: file, encoding: .utf8)) ?? "")
+            for s in more.settings {
+                if let i = settings.firstIndex(where: { $0.id == s.id }) { settings[i] = s } else { settings.append(s) }
+            }
+            titles.merge(more.titles) { _, new in new }
         }
+        return (settings, titles)
+    }
+
+    /// The `[setting."<section>.<key>"]` sections in the order written; one with an unknown kind is left out.
+    static func parse(_ text: String) -> (settings: [Setting], titles: [String: String]) {
+        let table = Toml.parse(text)
+        var settings: [Setting] = [], titles: [String: String] = [:]
+        for line in text.components(separatedBy: "\n") {
+            guard let h = Toml.header(line).map(Toml.canonical), let v = table[h] else { continue }
+            if h.hasPrefix("group.") { titles[String(h.dropFirst(6))] = v["title"].map(Toml.unquote) ?? "" }
+            let parts = h.split(separator: ".", maxSplits: 2).map(String.init)
+            guard parts.count == 3, parts[0] == "setting", !settings.contains(where: { $0.id == "\(parts[1]).\(parts[2])" }) else { continue }
+            let kind: Kind
+            switch v["kind"].map(Toml.unquote) {
+            case "toggle": kind = .toggle
+            case "number":
+                let lo = v["min"].flatMap { Int(Toml.unquote($0)) } ?? 0, hi = v["max"].flatMap { Int(Toml.unquote($0)) } ?? 100_000
+                kind = .number(lo...max(lo, hi))
+            case "choice": kind = .choice(v["choices"].flatMap(Toml.array) ?? [])
+            case "text": kind = .text
+            default: continue
+            }
+            settings.append(Setting(section: parts[1], key: parts[2], label: v["label"].map(Toml.unquote) ?? parts[2],
+                                    help: v["help"].map(Toml.unquote) ?? "", kind: kind, fallback: v["fallback"] ?? "\"\""))
+        }
+        return (settings, titles)
     }
 
     /// The TOML literal for what the editor holds.

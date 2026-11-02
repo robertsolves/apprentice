@@ -520,11 +520,26 @@ enum SelfTest {
         check(parsed?.days == [6, 1] && parsed?.minutes == 18 * 60 + 30, "a weekly line reads back into days and minutes")
         check(WeekTime.parseWeekly("someday 09:00") == nil, "an unknown day is refused")
         check(WeekTime.clock(5) == "00:05", "a clock is zero-padded")
-        check(Set(Setting.shown.map(\.id)).count == Setting.shown.count, "every setting the window offers has its own key")
-        let font = Setting.shown.first { $0.key == "font" }
+        let screen = Setting.parse("[group.app]\ntitle = \"This window\"\n[setting.\"app.font\"]\nlabel = \"Font\"\nkind = \"text\"\nfallback = \"SF Mono\"\n"
+            + "[setting.\"app.font_size\"]\nkind = \"number\"\nmin = 8\nmax = 32\nfallback = 12\n[setting.\"app.x\"]\nkind = \"slider\"\n")
+        check(screen.settings.map(\.id) == ["app.font", "app.font_size"] && screen.titles["app"] == "This window" && screen.settings[1].kind == .number(8...32),
+              "settings screen: read from its file in order, an unknown kind left out")
+        let font = screen.settings.first { $0.key == "font" }
         check(font?.literal("Menlo") == "\"Menlo\"", "a text setting is written quoted")
-        let size = Setting.shown.first { $0.key == "font_size" }
+        let size = screen.settings.first { $0.key == "font_size" }
         check(size?.literal("abc") == "12", "a number setting falls back to its default on nonsense")
+        let mine = Store.dir.appendingPathComponent("settings-mine.toml")
+        try? "[setting.\"app.font\"]\nlabel = \"Mine\"\nkind = \"text\"\n[setting.\"run.model\"]\nkind = \"text\"\n".write(to: mine, atomically: true, encoding: .utf8)
+        defer { try? FileManager.default.removeItem(at: mine) }
+        if FileManager.default.fileExists(atPath: Setting.files[0].path) {
+            let shipped = Setting.load([Setting.files[0]])
+            check(!shipped.settings.isEmpty && Set(shipped.settings.map(\.id)).count == shipped.settings.count
+                  && Set(shipped.settings.map(\.section)).isSubset(of: Set(shipped.titles.keys)),
+                  "settings screen: the shipped file reads cleanly, one entry per key, a title for every group")
+            let both = Setting.load([Setting.files[0], mine]).settings
+            check(both.first { $0.id == "app.font" }?.label == "Mine" && both.last?.id == "run.model" && both.count == shipped.settings.count + 1,
+                  "settings screen: the user's file replaces an entry and adds one")
+        }
         let book = NewPlaybookSheet.text(scope: "site", match: "example.com", title: "", notes: "Login is top right\n- Orders under Account", day: "2026-11-02")
         check(book.hasPrefix("---\nscope: site\nmatch: example.com\n") && book.contains("# example.com\n") && book.contains("- Login is top right\n- Orders under Account\n"),
               "a new playbook has front matter, the match as its title and one bullet per note")
