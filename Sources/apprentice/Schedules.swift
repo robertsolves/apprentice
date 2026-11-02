@@ -496,16 +496,8 @@ enum Schedules {
             .map { ($0.lastPathComponent, $0) }
     }
 
-    /// One prompt for an agent CLI, run to its end without a terminal. `claude -p` refuses every tool that
-    /// is not allowed beforehand, so apprentice's own commands are: each one still goes through the gate.
-    static func agentArgv(_ agent: String, _ prompt: String) -> [String] {
-        switch agent.lowercased() {
-        case "claude", "claude-code": return ["claude", "-p", prompt, "--allowedTools", "Bash(apprentice:*)"]
-        case "codex": return ["codex", "exec", prompt]
-        case "opencode", "kilo": return [agent.lowercased(), "run", prompt]
-        default: return [agent, "-p", prompt]
-        }
-    }
+    /// One prompt for an agent CLI, run to its end without a terminal, as `agent/agents.toml` says.
+    static func agentArgv(_ agent: String, _ prompt: String) -> [String] { AgentCLIs.argv(agent, prompt) }
 
     /// The command line for a run: the agent CLI with the prompt, `apprentice run` / `do`, or the shell.
     static func command(_ s: Schedule) -> [String] {
@@ -513,7 +505,7 @@ enum Schedules {
         let vm = s.vm.map { ["--vm", $0] } ?? []
         switch s.kind {
         case .prompt:
-            return agentArgv(s.agent ?? "claude", s.target)
+            return agentArgv(s.agent ?? AgentCLIs.defaultID, s.target)
         case .pipeline:
             return [binary] + vm + ["pipeline", "run", s.target]
         case .run:
@@ -765,7 +757,7 @@ enum Schedules {
             guard let raw = a.value("cron"), nextCron(raw, after: Date()) != nil else { throw Fail(6, "schedule add: --cron takes five fields, \"0 9 * * mon\"") }
             (s.at, s.every, s.daily, s.weekly, s.cron) = (nil, nil, nil, nil, raw)
         }
-        s.agent = a.value("agent") ?? (kind == .prompt ? "claude" : nil)
+        s.agent = a.value("agent") ?? (kind == .prompt ? AgentCLIs.defaultID : nil)
         s.jitter = max(0, a.int("jitter", 15))
         s.site = a.value("site")
         s.dir = a.value("dir").map { ($0 as NSString).expandingTildeInPath }

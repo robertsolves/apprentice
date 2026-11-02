@@ -38,7 +38,7 @@ enum Pipelines {
 
     struct Pipeline {
         var name: String
-        var agent = "claude"
+        var agent = AgentCLIs.defaultID
         var vm: String?
         var about = ""
         var steps: [Step] = []
@@ -209,7 +209,7 @@ enum Pipelines {
                 waited += 15
             }
             var argv: [String]
-            if let command = step.shell ?? (p.agent == "shell" ? step.prompt : nil) {
+            if let command = step.shell ?? (AgentCLIs.find(p.agent)?.shell == true ? step.prompt : nil) {
                 if Config.current.uiOnly { throw Fail(5, "step \(i + 1) is a shell command, and shells are off under [agent] ui_only") }
                 argv = ["/bin/zsh", "-lc", command]
             } else {
@@ -276,7 +276,7 @@ enum Pipelines {
 
     // MARK: - CLI
 
-    static let usage = "pipeline list · show <name> · new <name> [\"step\" …] [--project <name>] [--agent claude|codex|opencode|kilo|shell] [--vm <name>] · add <name> \"what to do\" [--title \"…\"] · run <name> [--from N] [--keep-going] · path <name> · rm <name>   (on a schedule: apprentice schedule add <name> --daily 09:00 --pipeline <name>)"
+    static let usage = "pipeline list · show <name> · new <name> [\"step\" …] [--project <name>] [--agent <one of agents.toml>] [--vm <name>] · add <name> \"what to do\" [--title \"…\"] · run <name> [--from N] [--keep-going] · path <name> · rm <name>   (on a schedule: apprentice schedule add <name> --daily 09:00 --pipeline <name>)"
 
     static func command(_ a: Args) throws -> String {
         let name = a.pos.dropFirst().first
@@ -306,7 +306,7 @@ enum Pipelines {
             }
             var p = Pipeline(name: name)
             p.project = project
-            p.agent = (a.value("agent") ?? Projects.here()?.agent ?? "claude").lowercased()
+            p.agent = (a.value("agent") ?? Projects.here()?.agent ?? AgentCLIs.defaultID).lowercased()
             p.vm = a.value("vm")
             p.steps = a.pos.dropFirst(2).enumerated().map { Step(title: "Step \($0.offset + 1)", prompt: $0.element) }
             let url = (project.map { $0.appendingPathComponent("pipelines") } ?? homeDir).appendingPathComponent(slug(name) + ".md")

@@ -34,7 +34,6 @@ enum Projects {
     static var listFile: URL { Store.dir.appendingPathComponent("projects.json") }
     /// Where new projects go unless the user picks another folder.
     static var defaultRoot: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Apprentice") }
-    static let agents = ["claude", "codex", "opencode", "kilo", "shell"]
 
     // MARK: - the list
 
@@ -56,7 +55,7 @@ enum Projects {
         guard FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDir), isDir.boolValue else { return nil }
         let v = Toml.load(settingsFile(folder))["project"] ?? [:]
         func text(_ key: String) -> String? { v[key].map(Toml.unquote).flatMap { $0.isEmpty ? nil : $0 } }
-        return Info(name: text("name") ?? folder.lastPathComponent, folder: folder, vm: text("vm"), agent: text("agent") ?? "claude")
+        return Info(name: text("name") ?? folder.lastPathComponent, folder: folder, vm: text("vm"), agent: text("agent") ?? AgentCLIs.defaultID)
     }
 
     static func settingsFile(_ folder: URL) -> URL { folder.appendingPathComponent(".apprentice/project.toml") }
@@ -143,7 +142,7 @@ enum Projects {
 
     // MARK: - CLI
 
-    static let usage = "project new <name> [--dir <folder>] [--from <git url>] [--vm <name>] [--agent claude|codex|opencode|kilo|shell] [--about \"…\"] · list · open [name] · save [name] [--message \"…\"] [--push] · add <folder> · forget <name> · init · status"
+    static let usage = "project new <name> [--dir <folder>] [--from <git url>] [--vm <name>] [--agent <one of agents.toml>] [--about \"…\"] · list · open [name] · save [name] [--message \"…\"] [--push] · add <folder> · forget <name> · init · status"
 
     static func command(_ a: Args) throws -> String {
         switch a.pos.first ?? "status" {
@@ -183,8 +182,10 @@ enum Projects {
 
     private static func new(_ a: Args) throws -> String {
         guard let name = a.pos.dropFirst().first?.trimmingCharacters(in: .whitespaces), !name.isEmpty else { throw Fail(5, usage) }
-        let agent = (a.value("agent") ?? "claude").lowercased()
-        guard agents.contains(agent) else { throw Fail(6, "--agent is one of \(agents.joined(separator: ", "))") }
+        let agents = AgentCLIs.all()
+        guard let agent = AgentCLIs.find(a.value("agent") ?? AgentCLIs.defaultID, in: agents)?.id else {
+            throw Fail(6, "--agent is one of \(agents.map(\.id).joined(separator: ", ")) (agent/agents.toml, ~/.apprentice/agents.toml)")
+        }
         let vm = a.value("vm").map { String($0.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "-" }.prefix(40)) }.flatMap { $0.isEmpty ? nil : $0 }
         let folder = a.value("dir").map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath).standardizedFileURL }
             ?? defaultRoot.appendingPathComponent(folderName(name))

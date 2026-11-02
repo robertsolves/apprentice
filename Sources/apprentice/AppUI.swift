@@ -1077,11 +1077,7 @@ struct TerminalWorkspace: View {
                     }
                 }
                 Divider()
-                Button("Shell") { model.newTab(preset: "Shell", command: nil) }
-                Button("Claude Code") { model.newTab(preset: "Claude Code", command: "claude") }
-                Button("Codex") { model.newTab(preset: "Codex", command: "codex") }
-                Button("opencode") { model.newTab(preset: "opencode", command: "opencode") }
-                Button("Kilo") { model.newTab(preset: "Kilo", command: "kilo") }
+                ForEach(AgentCLIs.all()) { cli in Button(cli.label) { model.newTab(preset: cli.label, command: cli.open) } }
                 Divider()
                 Button("Help: ask about apprentice") { model.openHelpTab() }
                 Button("Log (following)") { model.openLogTab() }
@@ -1418,7 +1414,7 @@ struct ScheduleEditor: View {
     @State private var name = ""
     @State private var kind = "prompt"
     @State private var target = ""
-    @State private var agent = "claude"
+    @State private var agent = AgentCLIs.defaultID
     @State private var trigger = "daily"
     @State private var at = Date().addingTimeInterval(3600)
     @State private var every = 60
@@ -1459,7 +1455,7 @@ struct ScheduleEditor: View {
                 if kind == "prompt" {
                     LabeledField("Agent") {
                         Picker("", selection: $agent) {
-                            ForEach(["claude", "codex", "opencode", "kilo"], id: \.self) { Text($0).tag($0) }
+                            ForEach(AgentCLIs.all().filter { !$0.shell }) { Text($0.label).tag($0.id) }
                         }
                         .labelsHidden().pickerStyle(.segmented).frame(maxWidth: 320)
                     }
@@ -1547,7 +1543,7 @@ struct ScheduleEditor: View {
         name = s.name
         kind = s.kind == .flow ? "do" : s.kind.rawValue
         target = s.target
-        agent = s.agent ?? "claude"
+        agent = s.agent ?? AgentCLIs.defaultID
         if let d = s.at { trigger = "at"; at = d }
         if let v = s.every { trigger = "every"; every = v }
         if let v = s.daily, let m = Schedules.timeOfDay(v) { trigger = "daily"; clock = m }

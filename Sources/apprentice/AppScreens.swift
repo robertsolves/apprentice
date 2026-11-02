@@ -119,10 +119,10 @@ struct ListColumn<Rows: View>: View {
 
 /// The agent CLI a project or pipeline names, as a tab's start command (nil: a plain shell).
 enum AgentChoice {
-    static let all: [(id: String, label: String)] = [("claude", "Claude Code"), ("codex", "Codex"), ("opencode", "opencode"), ("kilo", "Kilo"), ("shell", "Shell")]
+    static var all: [AgentCLIs.CLI] { AgentCLIs.all() }
 
-    static func command(_ agent: String) -> String? { agent == "shell" ? nil : agent }
-    static func label(_ agent: String) -> String { all.first { $0.id == agent }?.label ?? agent }
+    static func command(_ agent: String) -> String? { AgentCLIs.find(agent).map(\.open) ?? agent }
+    static func label(_ agent: String) -> String { AgentCLIs.label(agent) }
 }
 
 // MARK: - Projects
@@ -266,7 +266,7 @@ struct NewProjectSheet: View {
     @State private var fromGitHub = false
     @State private var source = ""
     @State private var parent = (Projects.defaultRoot.path as NSString).abbreviatingWithTildeInPath
-    @State private var agent = "claude"
+    @State private var agent = AgentCLIs.defaultID
     @State private var place = ""
     @State private var newVM = ""
     @State private var about = ""
@@ -423,7 +423,7 @@ struct PipelineEditor: View {
     struct EditStep: Identifiable { let id = UUID(); var title: String; var prompt: String }
 
     @State private var name = ""
-    @State private var agent = "claude"
+    @State private var agent = AgentCLIs.defaultID
     @State private var project = ""
     @State private var vm = ""
     @State private var steps: [EditStep] = []

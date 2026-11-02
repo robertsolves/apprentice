@@ -40,6 +40,7 @@ enum SelfTest {
         skillKinds()
         oneAtATime()
         sitesScreen()
+        agentList()
         prefs()
         allowlist()
         flows()
@@ -1088,6 +1089,23 @@ enum SelfTest {
               && PaceConfig().literal("quiet_hours") == "[]", "sites: a pace value shown is the value the reader reads back")
         try? "[pace.\"example.org\"]\nfidget = 0.3\n".write(to: Config.path, atomically: true, encoding: .utf8)
         check(Config.load().profiles["example.org"]?.mode == "human", "a website's own pace starts from every website's, never the apps' fastest")
+    }
+
+    /// The agent CLIs come from files: order kept, the user's entry replaces the shipped one with its id.
+    private static func agentList() {
+        let shipped = Store.dir.appendingPathComponent("agents-test.toml"), mine = Store.dir.appendingPathComponent("agents-mine.toml")
+        defer { try? FileManager.default.removeItem(at: shipped); try? FileManager.default.removeItem(at: mine) }
+        try? "[agent.a]\nlabel = \"A\"\nrun = [\"a\", \"-p\", \"{prompt}\"]\naliases = [\"a-cli\"]\n[agent.sh]\nopen = \"\"\nshell = true\n"
+            .write(to: shipped, atomically: true, encoding: .utf8)
+        try? "[agent.a]\nlabel = \"Mine\"\nrun = [\"mine\", \"{prompt}\"]\n[agent.b]\n".write(to: mine, atomically: true, encoding: .utf8)
+        let list = AgentCLIs.all([shipped, mine])
+        check(list.map(\.id) == ["a", "sh", "b"] && list[0].label == "Mine" && list[1].open == nil && list[1].shell && list[2].open == "b",
+              "agents: shipped order, the user's entry replaces one and adds another")
+        check(AgentCLIs.argv("A", "do it", in: list) == ["mine", "do it"] && AgentCLIs.argv("zz", "x", in: list) == ["zz", "x"],
+              "agents: a prompt goes where {prompt} is; an unknown agent gets it as its argument")
+        if FileManager.default.fileExists(atPath: AgentCLIs.files[0].path) {
+            check(AgentCLIs.all([AgentCLIs.files[0]]).allSatisfy { !$0.run.isEmpty && !$0.label.isEmpty }, "agents: every shipped agent has a label and a run line")
+        }
     }
 
     /// Skills come in three kinds by folder; learned facts stay small, dated and deduplicated.

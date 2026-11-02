@@ -1,0 +1,37 @@
+# The agent CLIs apprentice offers: in the window's pickers and new-tab menu, for projects, pipelines and
+# schedules, in the order written here; the first is the default. Add one in ~/.apprentice/agents.toml
+# (same format; an id that is here already replaces it) and every picker shows it, with no code change.
+#
+#   label   what the window calls it
+#   open    the command a terminal tab starts; "" for a plain shell
+#   run     one prompt run to its end without a terminal, {prompt} where the prompt goes
+#   aliases other names it answers to in --agent
+#   shell   true when the "prompt" is a shell command, run as one (refused under [agent] ui_only)
+
+[agent.claude]
+label = "Claude Code"
+open = "claude"
+# `claude -p` refuses every tool not allowed beforehand, so apprentice's own commands are; each still goes through the gate.
+run = ["claude", "-p", "{prompt}", "--allowedTools", "Bash(apprentice:*)"]
+aliases = ["claude-code"]
+
+[agent.codex]
+label = "Codex"
+open = "codex"
+run = ["codex", "exec", "{prompt}"]
+
+[agent.opencode]
+label = "opencode"
+open = "opencode"
+run = ["opencode", "run", "{prompt}"]
+
+[agent.kilo]
+label = "Kilo"
+open = "kilo"
+run = ["kilo", "run", "{prompt}"]
+
+[agent.shell]
+label = "Shell"
+open = ""
+run = ["/bin/zsh", "-lc", "{prompt}"]
+shell = true
