@@ -1,0 +1,64 @@
+name: Bug report
+description: Something is broken or behaves unexpectedly.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please **never paste API keys, passwords or personal screen text** here.
+        Security issues go to [private reporting](https://github.com/robertsolves/apprentice/security/advisories/new) instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: The commands you ran, in order, with their exit codes.
+      placeholder: |
+        1. apprentice session --app Safari
+        2. apprentice read
+        3. apprentice click 4   → exit 2, stale
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where it ran
+      options:
+        - macOS app
+        - Browser on macOS
+        - Linux VM (vm on / --on linux)
+        - Not screen-specific (install, update, config, MCP)
+    validations:
+      required: true
+  - type: input
+    id: target
+    attributes:
+      label: App or site
+      placeholder: Safari 18, Finder, github.com, …
+  - type: input
+    id: os
+    attributes:
+      label: macOS version
+      placeholder: macOS 15.3
+  - type: input
+    id: agent
+    attributes:
+      label: Coding agent
+      placeholder: Claude Code, Codex, opencode, apprentice run with …
+  - type: input
+    id: version
+    attributes:
+      label: apprentice version
+      description: Output of `apprentice version`.
+      placeholder: 0.1.0 (a1b2c3d)
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output / logs
+      description: Command output, `apprentice log`, screenshots. Redact anything sensitive.

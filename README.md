@@ -164,3 +164,7 @@ The source has no package dependencies. It keeps two rules: no app- or site-spec
 Bump the version string in `Sources/apprentice`, commit, then push a `v*` tag (`git tag v0.2.0 && git push origin v0.2.0`). [`release.yml`](.github/workflows/release.yml) builds the universal binary, runs the self-test, signs and notarizes it when the Apple secrets are configured, and attaches `apprentice-macos.zip` and `SHA256SUMS.txt` to a GitHub Release. The release fails if the tag and the version string disagree. *Actions ▸ Release ▸ Run workflow* does the same as a draft, for testing. Pushes to `main` that touch `site/` redeploy the landing page ([`pages.yml`](.github/workflows/pages.yml)).
 
 Installs made with `install.sh` update from `main`, not from releases.
+
+## Contributing
+
+Issues and PRs are welcome: see [`CONTRIBUTING.md`](CONTRIBUTING.md), and report security problems through [`SECURITY.md`](SECURITY.md). apprentice is [MIT licensed](LICENSE).
