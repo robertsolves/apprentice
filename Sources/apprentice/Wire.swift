@@ -168,7 +168,8 @@ enum Wire {
     static func binaryPath() -> String {
         // The app's bundle only ever opens the window, so from there the CLI is the installed binary.
         if AppBundle.inBundle {
-            let bin = Build.install?.bin ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/apprentice").path
+            let bin = Build.install?.bin ?? Release.cli?.path
+                ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".local/bin/apprentice").path
             if FileManager.default.isExecutableFile(atPath: bin) { return bin }
         }
         if let path = Bundle.main.executablePath { return path }

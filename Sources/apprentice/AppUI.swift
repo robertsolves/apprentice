@@ -421,6 +421,8 @@ final class AppModel: ObservableObject {
     @Published var updateStep = ""
     /// The GitHub account signed in on this Mac (`account.json`; the token stays in the Keychain).
     @Published var account: Account.Profile?
+    /// The first-run steps (GitHub, Accessibility, Screen Recording), until the user finishes them once.
+    @Published var welcomeOpen = !Welcome.done
 
     let home = FileManager.default.homeDirectoryForCurrentUser
 
@@ -718,6 +720,7 @@ struct RootView: View {
         .sheet(isPresented: $model.paletteOpen) {
             CommandPalette(model: model)
         }
+        .background(Color.clear.sheet(isPresented: $model.welcomeOpen) { WelcomeView(model: model) })
         .background(shortcuts)
         .onAppear { model.refresh() }
     }
@@ -2534,6 +2537,9 @@ struct HealthView: View {
                     Button { checks = "running…"; model.run("selftest") { _, out in checks = out } } label: {
                         Label("Self-test", systemImage: "checkmark.seal")
                     }
+                    Button { model.welcomeOpen = true } label: {
+                        Label("Set-up steps", systemImage: "list.number")
+                    }
                     Spacer()
                 }
                 .controlSize(.small)
@@ -2573,6 +2579,108 @@ struct HealthView: View {
     private func todoCount() -> Int {
         ((try? String(contentsOf: Repo.root.appendingPathComponent("TODO.md"), encoding: .utf8)) ?? "")
             .components(separatedBy: "\n").filter { $0.hasPrefix("- ") }.count
+    }
+}
+
+// MARK: - Welcome
+
+/// What a first run needs, without the terminal: sign in to GitHub, then the two grants the CLI and daemon
+/// need. The grants belong to the CLI (`Contents/Helpers` in the release app), not this window, so each
+/// step runs `doctor --ask` through it and the check marks come from `doctor --grants` in a fresh process,
+/// which is the only place a new grant shows. "Later" comes back next launch; "Done" does not.
+enum Welcome {
+    static var done: Bool { FileManager.default.fileExists(atPath: Store.url("welcome-done").path) }
+    static func finish() { FileManager.default.createFile(atPath: Store.url("welcome-done").path, contents: Data()) }
+}
+
+struct WelcomeView: View {
+    @ObservedObject var model: AppModel
+    @State private var accessibility = false
+    @State private var screen = false
+    @State private var granted: String?
+    private let tick = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.s4) {
+            HStack(spacing: Theme.s3) {
+                IconTile(symbol: "hand.point.up.left", tint: Theme.accent, size: 36, solid: true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Welcome to apprentice").font(Theme.title(18))
+                    Text("Three steps and it is ready. Each one can wait: Settings and Updates & health have them too.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            step(1, "Sign in with GitHub", done: model.account != nil) {
+                AccountCard(model: model)
+            }
+            step(2, "Let apprentice read the screen", done: accessibility) {
+                grant("Accessibility lets apprentice see the window's buttons and fields, and move the cursor and type for you.",
+                      ask: "accessibility", done: accessibility)
+            }
+            step(3, "Let apprentice see what is drawn", done: screen) {
+                grant("Screen Recording is for screenshots and reading text that has no label. Nothing leaves this Mac.",
+                      ask: "screen", done: screen)
+            }
+            Text("Agents run in the window's Terminal tabs, with apprentice already wired in.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            HStack {
+                Button("Later") { model.welcomeOpen = false }
+                    .keyboardShortcut(.cancelAction)
+                Spacer()
+                Button(model.account != nil && accessibility && screen ? "Start" : "Done for now") { finish() }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(Theme.s6)
+        .frame(width: 560)
+        .onAppear(perform: check)
+        .onReceive(tick) { _ in check() }
+    }
+
+    private func step<Content: View>(_ n: Int, _ title: String, done: Bool, @ViewBuilder content: () -> Content) -> some View {
+        HStack(alignment: .top, spacing: Theme.s3) {
+            Image(systemName: done ? "checkmark.circle.fill" : "\(n).circle")
+                .font(.system(size: 20))
+                .foregroundStyle(done ? Theme.green : Theme.slate)
+            VStack(alignment: .leading, spacing: Theme.s2) {
+                Text(title).font(.system(size: 13, weight: .semibold))
+                content()
+            }
+        }
+    }
+
+    @ViewBuilder private func grant(_ why: String, ask: String, done: Bool) -> some View {
+        Text(why)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+        if !done {
+            Button { model.run("doctor", ["--ask", ask]) { _, _ in } } label: {
+                Label("Open System Settings", systemImage: "gearshape")
+            }
+            .controlSize(.small)
+        }
+    }
+
+    /// A fresh CLI process each time: a grant does not show in a process that started before it.
+    private func check() {
+        model.run("doctor", ["--grants"]) { _, out in
+            accessibility = out.contains("accessibility=true")
+            screen = out.contains("screen=true")
+            if granted == nil { granted = out }
+        }
+    }
+
+    private func finish() {
+        Welcome.finish()
+        model.welcomeOpen = false
+        // A daemon started before the grants does not see them; the next command starts a new one.
+        if let before = granted, before != "accessibility=\(accessibility) screen=\(screen)" {
+            DispatchQueue.global(qos: .utility).async { _ = Wire.stopDaemon() }
+        }
     }
 }
 

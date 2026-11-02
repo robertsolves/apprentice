@@ -86,6 +86,20 @@ enum Doctor {
     /// `doctor [--fix]`. Exit 7 while a grant is missing.
     static func run(_ a: Args) throws -> String {
         if a.has("grants") { return "accessibility=\(accessibility) screen=\(screenRecording)" }
+        // The window's welcome steps: ask once, which puts this binary in the list, and open the pane.
+        if let which = a.value("ask") {
+            switch which {
+            case "accessibility":
+                _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary)
+                NSWorkspace.shared.open(URL(string: accessibilityPane)!)
+            case "screen":
+                _ = CGRequestScreenCaptureAccess()
+                NSWorkspace.shared.open(URL(string: screenPane)!)
+            default:
+                throw Fail(5, "doctor --ask accessibility|screen")
+            }
+            return "opened the \(which == "screen" ? "Screen Recording" : "Accessibility") pane: switch apprentice on there"
+        }
         var list = checks()
         guard a.has("fix") else {
             let out = render(list)
@@ -154,7 +168,8 @@ enum Doctor {
         guard !a.has("all") || isClone else { throw Fail(5, "\(clone) is not an apprentice clone, so --all will not remove it; run uninstall without --all") }
         let cloneInside = isClone && clone.hasPrefix(Store.dir.path + "/")
         var plan = ["stop the daemons", "\(bin)", "the agent skills, rules sections and MCP entries kit.sh added (agent/connect.py --remove)",
-                    "the signing identity \"apprentice\" in the login keychain", "the PATH lines kit.sh added to ~/.zprofile or ~/.bash_profile"]
+                    "the signing identity \"apprentice\" in the login keychain", "the GitHub sign-in in the login keychain",
+                    "the PATH lines kit.sh added to ~/.zprofile or ~/.bash_profile"]
         let vms = VM.tartPath == nil ? [] : tartVMs()
         if !vms.isEmpty { plan.append("the VMs " + vms.joined(separator: ", ")) }
         plan.append(Store.dir.path + (cloneInside && !a.has("all") ? " except the clone \(clone)" : ""))
@@ -171,6 +186,8 @@ enum Doctor {
         if fm.fileExists(atPath: connect) { done.append(Repo.run("python3", [connect, bin, "--remove"], in: Store.dir).out) }
         for vm in vms { _ = VM.tart(["stop", vm]); _ = VM.tart(["delete", vm]); done.append("deleted VM \(vm)") }
         if Repo.run("security", ["delete-identity", "-c", "apprentice"], in: Store.dir).code == 0 { done.append("removed the signing identity") }
+        if let login = Account.profile?.login { done.append("signed out of GitHub (@\(login))") }
+        Account.clear()
         for profile in [home + "/.zprofile", home + "/.bash_profile"] {
             guard let text = try? String(contentsOfFile: profile, encoding: .utf8) else { continue }
             let block = "\n# apprentice\nexport PATH=\"$HOME/.local/bin:$PATH\"\n"
