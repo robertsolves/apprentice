@@ -35,7 +35,7 @@ extension Commands {
         // Steps start with a backtick, so the command is the word after it.
         let flagged = Set(steps.indices.filter { i in
             let body = steps[i].drop { $0 == "`" }
-            return shell.contains(i) || Gate.matches(steps[i]) || ["upload", "choose", "key"].contains { body.hasPrefix($0) }
+            return shell.contains(i) || Gate.matches(gateText(steps[i])) || ["upload", "choose", "key"].contains { body.hasPrefix($0) }
                 || steps[i].contains("--enter") || steps[i].contains("--gate")
         })
         for i in flagged.sorted() where !shell.contains(i) { warn.append("step \(i + 1) may be irreversible: \(steps[i])") }
@@ -111,6 +111,18 @@ extension Commands {
     }
 
     /// The command of a `sh: …` step, or nil for a screen step.
+    /// The part of a step the gate words are matched against: nothing for a step that only looks or
+    /// scrolls, the menu path for `menu`, the elements' names where it names them, else the whole step.
+    /// A post's text in `scroll --in #text "…an update…"` is not an irreversible step.
+    static func gateText(_ step: String) -> String {
+        let body = String(step.drop { $0 == "`" }.prefix { $0 != "`" })
+        guard let words = try? tokenize(body), let cmd = words.first else { return step }
+        if ["scroll", "browse", "hover", "wait-for", "read", "look", "shot", "ocr", "find"].contains(cmd) { return "" }
+        if cmd == "menu" { return words.dropFirst().joined(separator: " ") }
+        let names = words.indices.dropFirst().filter { words[$0 - 1].hasPrefix("#") }.map { words[$0] }
+        return names.isEmpty ? body : names.joined(separator: " ")
+    }
+
     static func shellCommand(_ step: String) -> String? {
         guard step.hasPrefix("`sh:") else { return nil }
         return String(step.dropFirst(4).prefix { $0 != "`" }).trimmingCharacters(in: .whitespaces)

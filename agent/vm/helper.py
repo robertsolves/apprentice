@@ -82,7 +82,8 @@ def classify(a, role):
         return label, "input"
     if role == "heading":
         return "heading", "heading"
-    if role == "image":
+    if role in ("image", "canvas"):
+        # A canvas (a sketch pad, a map) is listed as an image, so a flow can name it.
         return "image", "image"
     if role == "static":
         return "text", "text"
@@ -129,6 +130,21 @@ def deep_text(a, budget=10):
         else:
             stack += list(reversed(children(el)))
     return " ".join(words[:budget])
+
+
+def selected_name(a):
+    """The name of the selected option under a combo box (a <select>), looked for a few levels down."""
+    stack, seen = list(children(a)), 0
+    while stack and seen < 200:
+        el = stack.pop(0)
+        seen += 1
+        if el is None:
+            continue
+        if el.get_role_name() in ("menu item", "list item", "option", "check menu item", "radio menu item") \
+                and states(el).contains(S.SELECTED) and (el.get_name() or "").strip():
+            return el.get_name()
+        stack += children(el)
+    return None
 
 
 def children(a):
@@ -272,10 +288,15 @@ def walk(a, path, depth, bounds, out, offscreen, field=None, seen=None):
             name = clip(a.get_name() or attributes(a).get("placeholder-text", ""), 60)
         else:
             name = clip(a.get_name() or "", 60) or clip(deep_text(a), 60)
+            if not name and role == "canvas":
+                name = "canvas"
         if (name or k == "input") and (onscreen or offscreen) and f:
             value = None
             if k == "input" and label not in ("password", "terminal"):
                 value = clip(text_of(a) or "", 40)
+                # Chromium leaves a <select>'s text empty: its choice is the selected option's name.
+                if label == "combobox" and not value:
+                    value = clip(selected_name(a) or "", 40)
             if k == "control" and label in ("link", "button"):
                 f = hit_box(a, f, bounds)
             if label in ("checkbox", "radio", "tab"):

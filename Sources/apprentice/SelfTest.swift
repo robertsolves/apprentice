@@ -542,6 +542,17 @@ enum SelfTest {
         let trailing = #"C:\dir\"#
         let written = "click #button \"" + trailing.replacingOccurrences(of: "\\", with: "\\\\") + "\""
         check((try? Commands.tokenize(written)) == ["click", "#button", trailing], "a name ending in a backslash round-trips through learn's quoting")
+        check(!Gate.matches(Commands.gateText(#"`scroll down 40 --in #text "Post 1 · a short update about it"`"#))
+              && Gate.matches(Commands.gateText(#"`click #button "Delete draft"`"#))
+              && !Gate.matches(Commands.gateText(#"`type #textbox "Notes" "update the list"`"#))
+              && Gate.matches(Commands.gateText("`menu File > Delete`")), "F3: a flow's gate words match the element it acts on, not text it only scrolls past")
+        check(!Walker.clickable(CGRect(x: 300, y: 10, width: 1, height: 1)) && Walker.clickable(CGRect(x: 0, y: 0, width: 12, height: 8)),
+              "F1: an element under 2×2 px is not offered as on screen")
+        check(samePage("chrome://newtab/", "chrome://new-tab-page/") && samePage("about:blank", "chrome://newtab/")
+              && !samePage("chrome://newtab/", "https://example.com/"), "F5: Chrome's two new-tab addresses are one page")
+        let flowArgs = Args.parse(["post", "--text", "hello there", "--force", "yes"], switches: [])
+        check(flowArgs.value("text") == "hello there" && flowArgs.value("force") == "yes" && flowArgs.pos == ["post"],
+              "F4: do fills a {text} placeholder from --text")
         if case .request(let r, _)? = AgentLoop.parse("browse 20 --forever"), case .request(let bare, _)? = AgentLoop.parse("browse") {
             check(r.cmd == "browse" && r.args == ["20"] && bare.args.isEmpty, "run's grammar takes browse with only its seconds")
         } else { check(false, "run's grammar takes browse") }

@@ -373,7 +373,7 @@ enum Remote {
         Config.activate(Config.profileKey(session: session, url: session.url))
         let now = try snapshot()
         let page = Page(url: now.url, title: now.title, scope: now.scope)
-        if let was = session.url, let url = now.url, was != url {
+        if let was = session.url, let url = now.url, !samePage(was, url) {
             // As on the Mac: reading takes the new page in, an action is refused until the caller has read it.
             guard Commands.reads.contains(Approvals.request.cmd) else {
                 throw Fail(2, "stale: the page changed to \(url) without apprentice. The user may be using the VM. Nothing was done: `read` the page and decide again")

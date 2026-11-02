@@ -14,7 +14,9 @@ struct Args {
         "multi", "text", "force", "background", "all",
     ]
 
-    static func parse(_ raw: [String]) -> Args {
+    /// `switches` are the flags that never take a value; `do` passes none, so a flow's `{text}` or
+    /// `{force}` placeholder takes `--text "…"` like any other.
+    static func parse(_ raw: [String], switches: Set<String> = Args.switches) -> Args {
         var a = Args()
         var i = 0
         while i < raw.count {
@@ -173,12 +175,24 @@ func requireSession() throws -> Session {
     return session
 }
 
+/// A browser's blank and new-tab pages are one page: Chrome opens `chrome://newtab/` and then reports
+/// `chrome://new-tab-page/` for the same tab, which is not someone else using the window (F5).
+func samePage(_ a: String, _ b: String) -> Bool {
+    func blank(_ u: String) -> Bool {
+        let u = u.lowercased()
+        return u == "about:blank" || u.hasPrefix("about:newtab") || u.hasPrefix("about:home") || u.hasPrefix("chrome-search://local-ntp")
+            || ["newtab", "new-tab-page", "startpageshared"].contains { u.hasPrefix("chrome://\($0)") || u.hasPrefix("edge://\($0)")
+                || u.hasPrefix("brave://\($0)") || u.hasPrefix("vivaldi://\($0)") || u.hasPrefix("arc://\($0)") }
+    }
+    return a == b || (blank(a) && blank(b))
+}
+
 func prepare(checkAllow: Bool = true) throws -> (Session, Target, Snapshot?) {
     var session = try requireSession()
     let target = try locate(session)
     // apprentice records every page it leads to, so any other change came from someone else. Reading
     // takes the new page in; an action is refused, since its ids and its plan belong to the old page.
-    if let was = session.url, let now = target.url, was != now {
+    if let was = session.url, let now = target.url, !samePage(was, now) {
         guard Commands.reads.contains(Approvals.request.cmd) else {
             throw Fail(2, "stale: the page changed to \(now) without apprentice. The user or another tool may be using this window. Nothing was done: `read` the page and decide again")
         }
@@ -419,7 +433,7 @@ enum Commands {
         case "drag": return try drag(a)
         case "upload": return try upload(a)
         case "choose": return try choose(a)
-        case "do": return try runFlow(a)
+        case "do": return try runFlow(Args.parse(req.args, switches: []))
         case "awake": return try Awake.run(a)
         case "typing": return try Typing.command(a)
         case "voice": return try Voice.command(a)

@@ -105,6 +105,8 @@ final class Walker {
     var out: [Element] = []
     var visited = 0
 
+    static func clickable(_ f: CGRect) -> Bool { f.width >= 2 && f.height >= 2 }
+
     init(bounds: CGRect, includeOffscreen: Bool) {
         self.bounds = bounds
         self.includeOffscreen = includeOffscreen
@@ -117,7 +119,9 @@ final class Walker {
         // Text inside a field that repeats its value; anything else in there (suggestions) is kept.
         if let fieldValue, i.role == "AXStaticText", let t = i.value.flatMap(stringify) ?? i.title,
            fieldValue.contains(t) { return }
-        let onscreen = i.frame.map { $0.width > 0 && $0.height > 0 && $0.intersects(bounds) } ?? false
+        // Under 2×2 px is not on screen: a screen-reader-only link, or a child of a transformed, clipped
+        // parent whose AX frame lags at the parent's edge (F1). A click there hits the wrong spot.
+        let onscreen = i.frame.map { Walker.clickable($0) && $0.intersects(bounds) } ?? false
         if let (label, kind) = classify(i.role, i.subrole) {
             let name = elementName(i, kind)
             var value: String?
@@ -307,6 +311,9 @@ func resolve(_ id: Int, _ t: Target) throws -> (AXUIElement?, Element) {
     // An element now wholly outside the view would be clicked or typed into at a point on whatever
     // lies there instead (another window, the Dock): the agent scrolls to it first.
     func inView(_ found: Element) throws -> Element {
+        guard Walker.clickable(found.rect) else {
+            throw Fail(2, "stale: element \(e.short) has no clickable box now (\(Int(found.rect.width))×\(Int(found.rect.height)) px; the page may have moved it with a transform): `read` again, or `ocr` and click what it shows")
+        }
         guard t.bounds.width > 0, t.bounds.height > 0, !found.rect.intersects(t.bounds) else { return found }
         throw Fail(2, "stale: element \(e.short) is out of view now: scroll it into view, then retry")
     }
