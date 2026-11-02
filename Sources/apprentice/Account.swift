@@ -12,9 +12,9 @@ import Security
 /// A user token lasts 8 hours and its refresh token 6 months; `token()` refreshes it when it is close to
 /// running out, and each refresh replaces both, so the new refresh token is saved at once.
 enum Account {
-    /// The GitHub App's client ID. Empty until the app is registered: `[account] client_id` or
-    /// `APPRENTICE_GITHUB_CLIENT_ID` sets one.
-    static let defaultClientID = ""
+    /// The GitHub App's client ID (apprentice-cli, owned by @robertsolves; a client ID is public).
+    /// `[account] client_id` or `APPRENTICE_GITHUB_CLIENT_ID` points at another app, such as a fork's.
+    static let defaultClientID = "Iv23lim3xCqHYBRsM23m"
     static let keychainService = "apprentice.github"
     static let deviceURL = "https://github.com/login/device/code"
     static let tokenURL = "https://github.com/login/oauth/access_token"

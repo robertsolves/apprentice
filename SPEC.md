@@ -544,7 +544,7 @@ Platform notes:
 
 ## GitHub account
 
-`account login` signs the user in to GitHub through a GitHub App's device flow (`Account.swift`): apprentice asks GitHub for a short code, the user enters it at github.com/login/device, and apprentice polls until GitHub hands over a user token. There is no redirect server and no client secret, and the app's own permissions bound what the token can do, whatever the account could. `[account] client_id` (or `APPRENTICE_GITHUB_CLIENT_ID`) names the app; until one is registered, sign-in says so and does nothing.
+`account login` signs the user in to GitHub through a GitHub App's device flow (`Account.swift`): apprentice asks GitHub for a short code, the user enters it at github.com/login/device, and apprentice polls until GitHub hands over a user token. There is no redirect server and no client secret, and the app's own permissions bound what the token can do, whatever the account could. The app is `apprentice-cli` (owned by @robertsolves: device flow on, expiring user tokens, no webhook, Issues read and write as its only permission), and its client ID is built in; `[account] client_id` (or `APPRENTICE_GITHUB_CLIENT_ID`) points at another app, such as a fork's.
 
 - **Where it is kept.** The access and refresh tokens are generic passwords in the login Keychain, this device only. `account.json` keeps the login, the user id and the two expiry times, never a token. No command prints a token, so an agent never sees one.
 - **Refresh.** A user token lasts 8 hours and its refresh token 6 months. `Account.token()` refreshes the token when it has less than 5 minutes left, and saves the new refresh token at once, since GitHub retires the old one. When the refresh token runs out, the user signs in again.
