@@ -6,21 +6,17 @@ import Foundation
 enum Grow {
     static func digest(days: Int) -> String {
         let cutoff = Date().addingTimeInterval(-Double(max(days, 1)) * 86_400)
-        let runs = Store.dir.appendingPathComponent("runs")
-        let folders = (try? FileManager.default.contentsOfDirectory(at: runs, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
         var errors: [String: (count: Int, example: String)] = [:]
         var asked: [String] = []
         var flows: [String: Int] = [:]
         var learning: [String: Int] = [:]
         var models: [String: Int] = [:]
         var pace = Pace()
-        for folder in folders {
+        for folder in Sessions.folders() {
             let date = (try? folder.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-            guard date >= cutoff, let text = try? String(contentsOf: folder.appendingPathComponent("steps.jsonl"), encoding: .utf8) else { continue }
+            guard date >= cutoff else { continue }
             pace.previous = nil
-            for row in text.split(separator: "\n") {
-                guard let data = row.data(using: .utf8),
-                      let r = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+            for r in Sessions.rows(folder) {
                 pace.take(r)
                 if let cmd = r["cmd"] as? String, ["learn", "bug", "commit", "pr", "do"].contains(cmd) { learning[cmd, default: 0] += 1 }
                 if r["cmd"] != nil, let m = r["model"] as? String { models[m, default: 0] += 1 }
@@ -76,15 +72,8 @@ enum Grow {
         var count = 0
         var reads = 0
 
-        static let parse: (String) -> Date? = {
-            let ms = ISO8601DateFormatter()
-            ms.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            let s = ISO8601DateFormatter()
-            return { ms.date(from: $0) ?? s.date(from: $0) }
-        }()
-
         mutating func take(_ r: [String: Any]) {
-            guard let ts = (r["ts"] as? String).flatMap(Pace.parse) else { return }
+            guard let ts = (r["ts"] as? String).flatMap(Events.date) else { return }
             let cmd = r["cmd"] as? String
             defer { previous = (ts, cmd) }
             if r["proposed"] != nil {

@@ -7,10 +7,7 @@ enum Sessions {
     static var runs: URL { Store.dir.appendingPathComponent("runs") }
 
     static func rows(_ folder: URL) -> [[String: Any]] {
-        guard let text = try? String(contentsOf: folder.appendingPathComponent("steps.jsonl"), encoding: .utf8) else { return [] }
-        return text.split(separator: "\n").compactMap {
-            $0.data(using: .utf8).flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
-        }
+        Store.readLines(folder.appendingPathComponent("steps.jsonl"))
     }
 
     /// Run folders, newest first.
@@ -38,7 +35,7 @@ enum Sessions {
     static func summarize(_ name: String, _ rows: [[String: Any]]) -> Summary {
         var s = Summary(name: name)
         for r in rows {
-            if let t = (r["ts"] as? String).flatMap(Grow.Pace.parse) { s.first = s.first ?? t; s.last = t }
+            if let t = (r["ts"] as? String).flatMap(Events.date) { s.first = s.first ?? t; s.last = t }
             if r["cmd"] as? String == "session", let app = r["app"] as? String { s.app = app }
             if let h = (r["host"] as? String) ?? hostOf(r["url"] as? String), !h.isEmpty, !s.hosts.contains(h) { s.hosts.append(h) }
             if let m = r["model"] as? String, !s.models.contains(m) { s.models.append(m) }
@@ -129,7 +126,7 @@ enum Sessions {
     static let secret = ["api_key", "apikey", "token", "password", "secret", "path"]
     /// What a scrubbed row may keep.
     static let kept: Set<String> = ["ts", "cmd", "code", "failed", "error", "diff", "ms", "waits", "app", "model", "task", "kind",
-                                    "vm", "label", "approved", "client", "tier", "found", "direction", "count", "combo", "menu"]
+                                    "vm", "label", "approved", "client", "found", "direction", "count", "combo", "menu"]
 
     static func scrub(_ row: [String: Any], mode: String) -> [String: Any]? {
         var r = row.filter { key, _ in !secret.contains { key.lowercased().contains($0) } }

@@ -502,12 +502,7 @@ enum Borrow {
             }
         }
         // `gate` usually brought the window forward already; raising again only costs time.
-        if NSWorkspace.shared.frontmostApplication?.processIdentifier != t.pid {
-            t.app.set(kAXFrontmostAttribute, kCFBooleanTrue)
-            t.window.set(kAXMainAttribute, kCFBooleanTrue)
-            t.window.perform(kAXRaiseAction)
-            Pace.sleep(Rand.uniform(0.25...0.6))
-        }
+        t.raise()
         defer {
             active = false
             if let monitor { DispatchQueue.main.sync { NSEvent.removeMonitor(monitor) } }

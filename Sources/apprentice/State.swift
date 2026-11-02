@@ -67,14 +67,26 @@ enum Store {
     /// Runs `body` holding a lock on `name` that other apprentice processes respect, for a shared file
     /// that several VMs' daemons read, change and write back.
     static func locked<T>(_ name: String, _ body: () throws -> T) rethrows -> T {
-        let fd = open(dir.appendingPathComponent(name + ".lock").path, O_CREAT | O_RDWR, 0o600)
+        try locked(at: dir.appendingPathComponent(name), body)
+    }
+
+    /// The same lock for a file outside the state folder, such as a project's.
+    static func locked<T>(at file: URL, _ body: () throws -> T) rethrows -> T {
+        let fd = open(file.path + ".lock", O_CREAT | O_RDWR, 0o600)
         if fd >= 0 { flock(fd, LOCK_EX) }
         defer { if fd >= 0 { flock(fd, LOCK_UN); close(fd) } }
         return try body()
     }
 
+    private static let dayFormat: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withFullDate]
+        return f
+    }()
+
     static func day() -> String {
-        ISO8601DateFormatter.string(from: Date(), timeZone: .current, formatOptions: [.withFullDate])
+        dayFormat.timeZone = .current
+        return dayFormat.string(from: Date())
     }
 
     /// Local time with its offset, matching the local-date run folders (B16).
@@ -107,12 +119,16 @@ enum Store {
         if entry["cmd"] != nil {
             for (k, v) in Timing.fields where e[k] == nil { e[k] = v }
         }
-        guard var line = try? JSONSerialization.data(withJSONObject: e, options: [.sortedKeys]) else { return }
-        line.append(0x0A)
         // Questions are answered off the command queue, so two rows can arrive at once.
         logLock.lock()
         defer { logLock.unlock() }
-        let file = runFolder(session).appendingPathComponent("steps.jsonl")
+        appendLine(e, to: runFolder(session).appendingPathComponent("steps.jsonl"))
+    }
+
+    /// Appends one JSON object as a line of a `.jsonl` file.
+    static func appendLine(_ row: [String: Any], to file: URL) {
+        guard var line = try? JSONSerialization.data(withJSONObject: row, options: [.sortedKeys]) else { return }
+        line.append(0x0A)
         if let h = try? FileHandle(forWritingTo: file) {
             h.seekToEndOfFile()
             h.write(line)
@@ -124,9 +140,16 @@ enum Store {
         }
     }
 
+    /// The JSON objects in a `.jsonl` file, skipping lines that don't parse.
+    static func readLines(_ file: URL) -> [[String: Any]] {
+        guard let text = try? String(contentsOf: file, encoding: .utf8) else { return [] }
+        return text.split(separator: "\n").compactMap {
+            (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any]
+        }
+    }
+
     static func pruneLogs(days: Int = 30) {
-        let runs = dir.appendingPathComponent("runs")
-        guard let items = try? FileManager.default.contentsOfDirectory(at: runs, includingPropertiesForKeys: [.contentModificationDateKey]) else { return }
+        guard let items = try? FileManager.default.contentsOfDirectory(at: Sessions.runs, includingPropertiesForKeys: [.contentModificationDateKey]) else { return }
         let cutoff = Date().addingTimeInterval(-Double(days) * 86_400)
         for item in items {
             let date = (try? item.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
@@ -146,6 +169,8 @@ enum Privacy {
 }
 
 struct Session: Codable {
+    static func newId() -> String { String(UUID().uuidString.prefix(6)).lowercased() }
+
     var app: String
     var bundle: String?
     var pid: pid_t
@@ -403,6 +428,15 @@ enum Gate {
         return ["/settings", "/account", "/billing", "/security", "/admin", "/password"].contains { u.contains($0) }
     }
 
+    /// A step only the user may approve (`[gate] user_only`, and any password field): a payment, a
+    /// CAPTCHA, closing an account. The agent's `approve` is refused; `confirm` and the menu-bar item work.
+    static func userOnly(_ e: Element?) -> Bool {
+        guard let e else { return false }
+        if e.label == "password" { return true }
+        let padded = " " + "\(e.label) \(e.name)".lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).joined(separator: " ") + " "
+        return Config.current.userOnly.contains { padded.contains(" \($0) ") }
+    }
+
     /// Why an action deserves extra care. The caller can add `--gate`, never remove a warning.
     static func warnings(_ element: Element?, _ t: Page, force: Bool = false) -> [String] {
         var out: [String] = []
@@ -434,14 +468,39 @@ enum Approvals {
         var at: Double
         /// The element the proposal names (label|name), checked again on approval.
         var element: String?
+        /// Set when the proposal was put in front of the user, who may take longer than `ttl` to answer.
+        var until: Double?
+
+        var expires: Double { until ?? at + Approvals.ttl }
     }
 
     static let ttl = 300.0
+    /// How many proposals wait at once. A new one no longer drops the one the user is deciding on.
+    static let kept = 5
     /// The request being dispatched, and the approved one while it runs.
     static var request = Request(cmd: "")
     static var granted: Pending?
 
-    static var pending: Pending? { Store.load(Pending.self, "pending.json") }
+    /// The proposals still open, oldest first, each answered by its own token.
+    static var all: [Pending] {
+        let now = Date().timeIntervalSince1970
+        return stored.filter { now < $0.expires }
+    }
+    /// The newest open proposal.
+    static var pending: Pending? { all.last }
+    static func find(_ token: String) -> Pending? { all.last { $0.token == token } }
+
+    /// Every saved proposal, expired ones too. An older pending.json held a single one.
+    private static var stored: [Pending] {
+        Store.load([Pending].self, "pending.json") ?? Store.load(Pending.self, "pending.json").map { [$0] } ?? []
+    }
+
+    private static func store(_ list: [Pending]) {
+        if list.isEmpty { Store.remove("pending.json") } else { Store.save(Array(list.suffix(kept)), "pending.json") }
+    }
+
+    static func add(_ p: Pending) { store(all.filter { $0.token != p.token } + [p]) }
+    static func drop(_ token: String) { store(all.filter { $0.token != token }) }
 
     /// Set while an approved `do` runs its steps: the plan was approved as a whole.
     static var planActive = false
@@ -464,7 +523,7 @@ enum Approvals {
         let token = String(UUID().uuidString.prefix(4)).lowercased()
         let p = Pending(token: token, cmd: request.cmd, args: request.args, summary: summary,
                         snap: SnapStore.current?.snap, at: Date().timeIntervalSince1970, element: element)
-        Store.save(p, "pending.json")
+        add(p)
         Store.log(["proposed": summary, "token": token, "warnings": warnings])
         var out = ["approve? \(summary)"] + details.map { "  \($0)" } + warnings.map { "⚠ \($0)" }
         out.append("nothing was done. approve: apprentice approve \(token) · deny: apprentice deny \(token)")
@@ -474,12 +533,9 @@ enum Approvals {
     /// Takes the pending proposal for `token`. Reading the screen first is fine: the element is checked
     /// again when the approved command runs (I1).
     static func take(_ token: String) throws -> Pending {
-        guard let p = pending, p.token == token else { throw Fail(5, "no pending action \(token): run the command again") }
-        guard Date().timeIntervalSince1970 - p.at < ttl else {
-            Store.remove("pending.json")
-            throw Fail(5, "approval \(token) expired: run the command again")
-        }
-        Store.remove("pending.json")
+        guard let p = stored.last(where: { $0.token == token }) else { throw Fail(5, "no pending action \(token): run the command again") }
+        drop(token)
+        guard Date().timeIntervalSince1970 < p.expires else { throw Fail(5, "approval \(token) expired: run the command again") }
         return p
     }
 }

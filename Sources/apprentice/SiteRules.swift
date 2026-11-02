@@ -2,10 +2,10 @@ import AppKit
 import Foundation
 
 /// Working within each site's rules (`SPEC.md`, Site rules): per-kind budgets, a cooldown when a site
-/// throttles the account, a stop when it shows a challenge, site policies, and a long record of all
-/// three. The daemon enforces these; agents cannot lift them.
+/// throttles the account, a stop when it shows a challenge, and a long record of all three. The daemon
+/// enforces these; agents cannot lift them. Site policies are notes on a site's terms and never refuse it.
 enum Site {
-    /// The site a host belongs to for budgets, cooldowns, policies and pace: www.linkedin.com and
+    /// The site a host belongs to for budgets, cooldowns and pace: www.linkedin.com and
     /// linkedin.com count together, and so do a site's old and new names (twitter.com is x.com).
     static func domain(_ host: String) -> String {
         var h = host.lowercased()
@@ -42,17 +42,17 @@ enum Site {
         try Challenge.stillThere(host, read: read)
     }
 
-    /// Looks at the screen after an action: a challenge or a throttling message stops work on the site.
+    /// Looks at the screen after an action: a challenge or a throttling message stops work on the site,
+    /// or with `on_challenge` / `on_soft_block = "warn"` comes back as a Fail with code 0, a warning.
     /// The throttling check reads only what the action brought up on the same page, outside text
     /// fields: a new page, a scrolled feed or the user's own words that merely mention "rate limit"
     /// do not cool the site down.
     static func inspect(_ command: String, _ old: Snapshot?, _ new: Snapshot, session: Session) -> Fail? {
         guard let host = hostOf(new.url) else { return nil }
-        if let marker = Challenge.find(new) { return Challenge.start(host, marker, session: session) }
-        guard let old, old.url == new.url, !["scroll", "browse", "hover", "open"].contains(command) else { return nil }
-        let fields: Set<String> = ["textbox", "textarea", "searchbox", "combobox", "password"]
+        if Config.current.onChallenge != "off", let marker = Challenge.find(new) { return Challenge.start(host, marker, session: session) }
+        guard Config.current.onSoftBlock != "off", let old, old.url == new.url, !["scroll", "browse", "hover", "open"].contains(command) else { return nil }
         let before = Set(old.elements.map(\.key))
-        let fresh = new.elements.filter { !before.contains($0.key) && !fields.contains($0.label) }
+        let fresh = new.elements.filter { !before.contains($0.key) && !Element.fieldLabels.contains($0.label) }
         let texts = fresh.map { $0.name.lowercased() }
         for phrase in Config.current.softBlockPhrases where !phrase.isEmpty {
             if texts.contains(where: { $0.count < 400 && $0.contains(phrase) }) {
@@ -92,24 +92,6 @@ enum Budgets {
         var min_gap_s: Double?
     }
 
-    /// Used when budgets.json is missing or unreadable: the default of `agent/budgets.example.json`.
-    /// Never no limits.
-    static let builtIn: [String: [String: Cap]] = [
-        "default": [
-            "post": Cap(hour: 2, day: 5, min_gap_s: 600),
-            "comment": Cap(hour: 5, day: 20, min_gap_s: 90),
-            "like": Cap(hour: 20, day: 100, min_gap_s: 20),
-            "follow": Cap(hour: 5, day: 20, min_gap_s: 120),
-            "unfollow": Cap(hour: 5, day: 20, min_gap_s: 120),
-            "message": Cap(hour: 5, day: 20, min_gap_s: 120),
-            "upload": Cap(hour: 3, day: 10, min_gap_s: 300),
-            "settings": Cap(hour: 3, day: 10, min_gap_s: 60),
-        ],
-    ]
-
-    /// Any other gated action, when neither the site nor the default names a cap for it.
-    static let gated = Cap(hour: 120, day: 500)
-
     /// A kind with no cap of its own counts against a close one: an upvote is a like.
     static let alias = ["upvote": "like", "story": "post", "group_post": "post", "repost": "post",
                         "connect": "follow", "friend_request": "follow", "endorse": "like", "join": "follow"]
@@ -117,9 +99,15 @@ enum Budgets {
     static var path: URL { Settings.dir.appendingPathComponent("budgets.json") }
 
     /// budgets.json maps each site to its caps per kind. Keys starting with "_" and "inherit" are notes.
-    static func table(_ file: URL = path) -> [String: [String: Cap]] {
-        guard let data = try? Data(contentsOf: file),
-              let raw = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return builtIn }
+    /// Only the caps in the file apply: no file, no caps. `kit.sh` installs careful ones.
+    static func table(_ file: URL = path) -> [String: [String: Cap]] { (try? load(file)) ?? [:] }
+
+    /// Throws when the file is there but cannot be read, so a typo stops work instead of lifting every cap.
+    static func load(_ file: URL) throws -> [String: [String: Cap]] {
+        guard let data = try? Data(contentsOf: file) else { return [:] }
+        guard let raw = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else {
+            throw Fail(4, "budget: \(file.path) is not valid JSON. Fix it; until then apprentice takes no budgeted actions")
+        }
         var out: [String: [String: Cap]] = [:]
         for (site, value) in raw where !site.hasPrefix("_") {
             guard let kinds = value as? [String: Any] else { continue }
@@ -129,18 +117,18 @@ enum Budgets {
                 out[site, default: [:]][kind] = Cap(hour: n("hour"), day: n("day"), week: n("week"), min_gap_s: n("min_gap_s"))
             }
         }
-        return out["default"] == nil ? builtIn : out
+        return out
     }
 
     /// The cap for one kind on one site: the site's own entry, else the default's, else the cap of
-    /// its alias, else the cap for any gated action.
+    /// its alias, else the default's "default" entry, else none.
     static func cap(_ domain: String, _ kind: String, table t: [String: [String: Cap]] = table()) -> Cap {
         let site = t.keys.filter { $0 != "default" && Site.matches(domain, $0) }.max { $0.count < $1.count }
         for k in [kind, alias[kind]].compactMap({ $0 }) {
             if let site, let c = t[site]?[k] { return c }
             if let c = t["default"]?[k] { return c }
         }
-        return t["default"]?["default"] ?? gated
+        return t["default"]?["default"] ?? Cap()
     }
 
     /// Kinds in the order they are tested, so "unfollow" wins over "follow" and "add friend" over "add".
@@ -173,11 +161,20 @@ enum Budgets {
         let kind = alias[raw] ?? raw
         // A project folder adds its own count and caps; the account-wide ones below always apply too.
         let project = Project.dir
-        let projectCaps = project.map(projectTable)
+        let caps = try load(path)
+        let projectCaps = try project.map { try Budgets.projectCaps($0, fallback: caps) }
         if let project, let projectCaps {
-            try Project.update(project) { try count(&$0, domain, kind, cap(domain, kind, table: projectCaps), record: false, scope: "in this project") }
+            var l = Project.limits(project)
+            _ = try count(&l, domain, kind, cap(domain, kind, table: projectCaps), record: false, scope: "in this project")
         }
-        let wait = try Limits.update { try count(&$0, domain, kind, cap(domain, kind), record: record, scope: nil) }
+        // Only a recorded step changes the shared counts, so only it takes the lock and writes them.
+        let wait: Double
+        if record {
+            wait = try Limits.update { try count(&$0, domain, kind, cap(domain, kind, table: caps), record: true, scope: nil) }
+        } else {
+            var l = Limits.stored
+            wait = try count(&l, domain, kind, cap(domain, kind, table: caps), record: false, scope: nil)
+        }
         if record, let project, let projectCaps {
             _ = try? Project.update(project) { try count(&$0, domain, kind, cap(domain, kind, table: projectCaps), record: true, scope: "in this project") }
         }
@@ -185,9 +182,13 @@ enum Budgets {
     }
 
     /// A project's own budgets.json, else the account-wide caps.
-    static func projectTable(_ project: URL) -> [String: [String: Cap]] {
+    static func projectTable(_ project: URL, fallback: @autoclosure () -> [String: [String: Cap]] = table()) -> [String: [String: Cap]] {
+        (try? projectCaps(project, fallback: fallback())) ?? [:]
+    }
+
+    static func projectCaps(_ project: URL, fallback: @autoclosure () throws -> [String: [String: Cap]]) throws -> [String: [String: Cap]] {
         let file = project.appendingPathComponent("budgets.json")
-        return FileManager.default.fileExists(atPath: file.path) ? table(file) : table()
+        return FileManager.default.fileExists(atPath: file.path) ? try load(file) : try fallback()
     }
 
     /// Checks one kind's count against `cap` and, with `record`, counts it; returns how long to wait first.
@@ -225,9 +226,10 @@ enum Budgets {
 
     /// `apprentice budget [domain]`: what is left today and this hour, per kind, for the sites used lately.
     static func report(_ only: String?) -> String {
-        var out = report(only, Limits.stored, table(), title: "budget")
+        let caps = table()
+        var out = report(only, Limits.stored, caps, title: "budget")
         if let project = Project.dir {
-            out += "\n" + report(only, Project.limits(project), projectTable(project), title: "project budget (\(project.deletingLastPathComponent().lastPathComponent))")
+            out += "\n" + report(only, Project.limits(project), projectTable(project, fallback: caps), title: "project budget (\(project.deletingLastPathComponent().lastPathComponent))")
         }
         return out
     }
@@ -266,18 +268,27 @@ enum Cooldown {
         let domain = Site.domain(host)
         let l = Limits.stored
         guard let c = l.cooling?.first(where: { Site.matches(domain, $0.key) })?.value,
-              c.until > Date().timeIntervalSince1970 else { return }
+              c.until > Date().timeIntervalSince1970, Config.current.onSoftBlock == "stop" else { return }
         throw Fail(4, "soft block: \(domain), cooling until \(Site.time(c.until)). Stop work on this site and tell the user; only they can clear it early")
     }
 
-    /// Holds off 1 hour the first time, 6 hours the second, then 24. A week without a block resets it.
+    /// The ⚠ line on a proposal while a site cools down under `on_soft_block = "warn"`.
+    static func warning(_ host: String?) -> String? {
+        guard let host, Config.current.onSoftBlock == "warn",
+              let c = Limits.stored.cooling?.first(where: { Site.matches(Site.domain(host), $0.key) })?.value,
+              c.until > Date().timeIntervalSince1970 else { return nil }
+        return "this site asked to slow down; cooling until \(Site.time(c.until)) (on_soft_block = \"warn\")"
+    }
+
+    /// Holds off `[sites] cooldown_hours` (1, 6, then 24 by default). A week without a block resets it.
     static func start(_ host: String, _ phrase: String, session: Session) -> Fail {
         let domain = Site.domain(host)
         let now = Date().timeIntervalSince1970
         let c = Limits.update { l -> Limits.Cooling in
             var c = l.cooling?[domain] ?? Limits.Cooling(until: 0, strikes: 0, last: 0)
             if now - c.last > 7 * 86_400 { c.strikes = 0 }
-            let hold = [3600.0, 21_600, 86_400][min(c.strikes, 2)]
+            let hours = Config.current.cooldownHours
+            let hold = hours[min(c.strikes, hours.count - 1)] * 3600
             c.strikes += 1
             c.last = now
             c.until = now + hold
@@ -288,6 +299,10 @@ enum Cooldown {
         }
         Events.add(domain, "soft_block", ["phrase": phrase, "strike": c.strikes, "until": Site.time(c.until),
                                           "steps": Events.lastSteps(), "shot": Events.shot(session, "soft-block") ?? ""])
+        if Config.current.onSoftBlock == "warn" {
+            Site.notify("\(domain) asked apprentice to slow down", "The site said \"\(phrase)\". Work goes on (on_soft_block = warn).")
+            return Fail(0, "soft block: \(domain) showed \"\(phrase)\". on_soft_block is \"warn\", so work may go on; slow down and tell the user")
+        }
         Site.notify("apprentice stopped on \(domain)", "The site said \"\(phrase)\". Cooling until \(Site.time(c.until)).")
         return Fail(4, "soft block: \(domain) showed \"\(phrase)\", cooling until \(Site.time(c.until)). Stop work on this site and tell the user")
     }
@@ -352,6 +367,13 @@ enum Challenge {
             l.challenged = all
             return first
         }
+        if Config.current.onChallenge == "warn" {
+            if first {
+                Events.add(domain, "challenge", ["marker": marker, "mode": "warn", "steps": Events.lastSteps(), "shot": Events.shot(session, "challenge") ?? ""])
+                Site.notify("apprentice needs you on \(domain)", "A check is on screen (\(marker)). Only you can complete it.")
+            }
+            return Fail(0, "challenge: \(domain) shows a check only the user may complete (\(marker)). Do not touch it and tell the user; on_challenge is \"warn\", so other work may go on")
+        }
         if first {
             Events.add(domain, "challenge", ["marker": marker, "steps": Events.lastSteps(), "shot": Events.shot(session, "challenge") ?? ""])
             Site.notify("apprentice needs you on \(domain)", "A check is on screen (\(marker)). Only you can complete it.")
@@ -365,6 +387,7 @@ enum Challenge {
         guard Limits.stored.challenged?[domain] != nil else { return }
         let snap = read()
         if let marker = find(snap) {
+            guard Config.current.onChallenge == "stop" else { return }
             throw Fail(4, "challenge: \(domain) still shows a check only the user may complete (\(marker)). Wait for them")
         }
         clear(domain)
@@ -451,27 +474,16 @@ enum Events {
         e["ts"] = stamp.string(from: Date())
         e["domain"] = domain
         e["event"] = kind
-        guard var line = try? JSONSerialization.data(withJSONObject: e, options: [.sortedKeys]) else { return }
-        line.append(0x0A)
-        if let h = try? FileHandle(forWritingTo: file) {
-            h.seekToEndOfFile()
-            h.write(line)
-            try? h.close()
-        } else {
-            try? line.write(to: file)
-        }
+        Store.appendLine(e, to: file)
     }
 
-    static func all() -> [[String: Any]] {
-        guard let text = try? String(contentsOf: file, encoding: .utf8) else { return [] }
-        return text.split(separator: "\n").compactMap {
-            (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any]
-        }
-    }
+    static func all() -> [[String: Any]] { Store.readLines(file) }
 
     static func prune(days: Double = 180) {
         let cutoff = Date().addingTimeInterval(-days * 86_400)
-        let keep = all().filter { ($0["ts"] as? String).flatMap(date).map { $0 >= cutoff } ?? false }
+        let rows = all()
+        let keep = rows.filter { ($0["ts"] as? String).flatMap(date).map { $0 >= cutoff } ?? false }
+        guard keep.count < rows.count else { return }
         let lines = keep.compactMap { try? JSONSerialization.data(withJSONObject: $0, options: [.sortedKeys]) }
             .map { String(decoding: $0, as: UTF8.self) }
         try? (lines.joined(separator: "\n") + (lines.isEmpty ? "" : "\n")).write(to: file, atomically: true, encoding: .utf8)
@@ -509,13 +521,11 @@ enum Events {
         let cutoff = Date().addingTimeInterval(-Double(days) * 86_400)
         let dayOf = { (ts: String) in String(ts.prefix(10)) }
         var counts: [String: [String: Int]] = [:]
-        let runs = Store.dir.appendingPathComponent("runs")
-        for folder in (try? FileManager.default.contentsOfDirectory(at: runs, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [] {
+        for folder in Sessions.folders() {
             let modified = (try? folder.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? Date()
-            guard modified >= cutoff, let text = try? String(contentsOf: folder.appendingPathComponent("steps.jsonl"), encoding: .utf8) else { continue }
-            for line in text.split(separator: "\n") {
-                guard let row = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
-                      let host = row["host"] as? String, Site.matches(host, domain),
+            guard modified >= cutoff else { continue }
+            for row in Sessions.rows(folder) {
+                guard let host = row["host"] as? String, Site.matches(host, domain),
                       let cmd = row["cmd"] as? String, let ts = row["ts"] as? String,
                       let when = date(ts), when >= cutoff else { continue }
                 counts[dayOf(ts), default: [:]][row["kind"] as? String ?? cmd, default: 0] += 1

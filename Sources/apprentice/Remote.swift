@@ -407,7 +407,7 @@ enum Remote {
         // Chromium takes a few seconds to come up after the VM starts or is updated.
         guard let snap = poll(timeout: 20, interval: 0.5, { try? snapshot() }) else { _ = try snapshot(); throw Fail(5, "Chromium did not start in the VM") }
         var s = Session(app: "Chromium", bundle: "org.chromium.Chromium", pid: 0, wid: 0, allow: Config.current.allow,
-                        id: String(UUID().uuidString.prefix(6)).lowercased(), url: snap.url, vm: true)
+                        id: Session.newId(), url: snap.url, vm: true)
         if focusing, let keep = Session.stored { s.id = keep.id; s.allow = keep.allow; s.uiOnly = keep.uiOnly }
         if let allow = a.value("allow") { s.allow = Config.parseAllow(allow) }
         if let url = s.url { try allowCheck(s, url) }
@@ -468,7 +468,7 @@ enum Remote {
         guard poll(timeout: 10, interval: 0.4, { try? snapshot() }) != nil else { _ = try snapshot(); throw Fail(5, "\(app.name) has no window in the VM") }
         let focusing = !launch
         var s = Session(app: app.name, bundle: nil, pid: pid_t(app.pid), wid: 0, allow: Config.current.allow,
-                        id: String(UUID().uuidString.prefix(6)).lowercased(), url: nil, vm: true)
+                        id: Session.newId(), url: nil, vm: true)
         if focusing, let keep = Session.stored { s.id = keep.id; s.allow = keep.allow; s.uiOnly = keep.uiOnly }
         if let allow = a.value("allow") { s.allow = Config.parseAllow(allow) }
         try allowCheck(s, nil)
@@ -518,7 +518,7 @@ enum Remote {
 
     static func click(_ a: Args) throws -> String {
         let right = a.has("right"), double = a.has("double")
-        let verb = right ? "right-click" : double ? "double-click" : "click"
+        let verb = Commands.clickVerb(right: right, double: double)
         let (session, page, old) = try prepare()
         if let raw = a.value("at") {
             let parts = raw.split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
@@ -541,7 +541,7 @@ enum Remote {
             let snap = try snapshot()
             SnapStore.save(snap)
             guard let hit = snap.elements.first(where: { $0.name.lowercased() == needle })
-                ?? snap.elements.first(where: { $0.name.lowercased().contains(needle) && !["textbox", "textarea", "combobox", "searchbox", "password"].contains($0.label) })
+                ?? snap.elements.first(where: { $0.name.lowercased().contains(needle) && !Element.fieldLabels.contains($0.label) })
             else { throw Fail(5, "no \"\(words)\" in the list (the VM has no OCR yet): try `read --filter`") }
             e = hit
             extra = ["→ \"\(words)\""]
@@ -688,9 +688,7 @@ enum Remote {
             throw Fail(5, "open goes to the VM's browser: `apprentice focus Chromium --on linux` first")
         }
         let (session, page, old) = try prepare(checkAllow: false)
-        guard session.allows(url: raw) else {
-            throw Fail(4, "blocked by allowlist: \(hostname) is not in \(session.allow.joined(separator: ","))")
-        }
+        try allowCheck(session, raw)
         try keepLocal(raw)
         try Cooldown.check(hostname)
         try gate(session, page, nil, "open \(raw)")
@@ -709,7 +707,7 @@ enum Remote {
         Pace.sleep(0.6)
         let arrived = poll(timeout: 8, interval: 0.4) { () -> String? in
             guard let now = try? snapshot().url, let host = hostOf(now) else { return nil }
-            return host == hostname || host.hasSuffix("." + hostname) || hostname.hasSuffix("." + host) ? now : nil
+            return Site.matches(host, hostname) || Site.matches(hostname, host) ? now : nil
         }
         guard arrived != nil else {
             throw Fail(5, "the browser did not go to \(hostname): it shows \((try? snapshot())?.url ?? "no page"). Check it with `read`")

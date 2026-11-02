@@ -233,11 +233,9 @@ enum Notes {
     }
 
     private static func lastError() -> String? {
-        guard let session = Session.stored,
-              let text = try? String(contentsOf: Store.runFolder(session).appendingPathComponent("steps.jsonl"), encoding: .utf8) else { return nil }
-        for row in text.split(separator: "\n").reversed() {
-            guard let data = row.data(using: .utf8), let r = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let error = r["error"] as? String else { continue }
+        guard let session = Session.stored else { return nil }
+        for r in Sessions.rows(Store.runFolder(session)).reversed() {
+            guard let error = r["error"] as? String else { continue }
             return "\(r["failed"] ?? "?") → exit \(r["code"] ?? "?"): \(error.split(separator: "\n").first ?? "")"
         }
         return nil
@@ -272,13 +270,11 @@ enum Notes {
     }
 
     static func stepLines(_ session: Session) -> [String] {
-        let file = Store.runFolder(session).appendingPathComponent("steps.jsonl")
-        guard let text = try? String(contentsOf: file, encoding: .utf8) else { return [] }
+        let rows = Sessions.rows(Store.runFolder(session))
+        guard !rows.isEmpty else { return [] }
         var out = ["`session --app \"\(session.app)\"`"]
-        for row in text.split(separator: "\n") {
-            guard let data = row.data(using: .utf8),
-                  let r = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let cmd = r["cmd"] as? String, actions.contains(cmd), r["diff"] != nil else { continue }
+        for r in rows {
+            guard let cmd = r["cmd"] as? String, actions.contains(cmd), r["diff"] != nil else { continue }
             func el(_ prefix: String = "") -> String {
                 let label = r[prefix + "label"] as? String ?? "element"
                 if label.hasPrefix("focused") { return "focused" }

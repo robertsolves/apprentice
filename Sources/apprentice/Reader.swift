@@ -2,6 +2,9 @@ import AppKit
 import ApplicationServices
 
 struct Element: Codable {
+    /// Labels of the fields a person types into.
+    static let fieldLabels: Set<String> = ["textbox", "textarea", "combobox", "searchbox", "password"]
+
     var id: Int
     var path: [Int]
     var label: String
@@ -141,6 +144,15 @@ final class Walker {
 }
 
 struct Target {
+    /// Brings the window forward unless its app is already frontmost.
+    func raise() {
+        guard NSWorkspace.shared.frontmostApplication?.processIdentifier != pid else { return }
+        app.set(kAXFrontmostAttribute, kCFBooleanTrue)
+        window.set(kAXMainAttribute, kCFBooleanTrue)
+        window.perform(kAXRaiseAction)
+        Pace.sleep(Rand.uniform(0.25...0.6))
+    }
+
     let pid: pid_t
     let app: AXUIElement
     let window: AXUIElement

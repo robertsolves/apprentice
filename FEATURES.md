@@ -86,7 +86,7 @@ Verdicts: **keep** (used and pays off), **watch** (too new or too little data), 
 | Project budgets and counts (`.apprentice/` on top of the account) | `Project.swift`, `SiteRules.swift` `projectTable` | `project status` use; project-limit refusals | Projects that need tighter caps use it | watch |
 | Cooldowns, soft-block detection | `SiteRules.swift` `Cooldown` | `events.jsonl` soft blocks; false alarms | Real blocks caught, few false ones | keep |
 | Challenge hand-off | `SiteRules.swift` `Challenge` | `events.jsonl` challenges | Part of the product | keep |
-| Site policies (terms notes, never refuse) | `SiteRules.swift` `Policies` | Policy refusals | Part of the product | keep |
+| Site policy notes: user-set `terms_url`, `checked` date and `api` per domain, printed under `session`/`open`; nothing is refused since 6f958ba | `SiteRules.swift` `Policies`, `lines(for:)` | `policy <domain>` calls, and whether the six-month warning leads to a re-check | People add entries and act on the stale warning | watch |
 | Allowlist per session | `allowCheck` | Allowlist refusals | Used in the start-up window | keep |
 | Kill switch | `Daemon.swift` `KillSwitch` | Not logged: add a row when it trips | It gets used, or stays as insurance | keep |
 | Privacy scrubbing | `State.swift` `Privacy` | Not measured | Required | keep |
@@ -111,14 +111,15 @@ Verdicts: **keep** (used and pays off), **watch** (too new or too little data), 
 | --- | --- | --- | --- | --- |
 | Notes | `Notes.swift`, `notes/` | Notes printed by `session` / `open`, then used | Questions about the same page stop | keep |
 | Flows (`do`): one approval, `{vars}`, `#label` resolution, hand-back at the first failure | `Flows.swift` | Flows run, steps completed vs stopped (grow) | Most runs complete; they replace agent steps | keep |
+| Per-model flow ranking: a flow's `model:` tag, other models' flows left out, `do --explain` prints the pick and score | `Notes.swift` `rank`, `explain` | Which model ran which flow; skips by other models | The model that learned a flow finds it first | keep |
 | `sh:` steps inside flows | `Flows.swift` `shellCommand`, `runShell` | `cmd: sh` rows with the flow path | Tool flows run without the screen | watch |
 | `do --explain` (which flow this model picks, and why) | `Notes.explain` | `--explain` calls | Agents check before running a flow blind | watch |
 | `learn` | `Notes.learn` | Flows drafted that later ran | Drafts turn into used flows | watch |
 | Routes (`route`) and route hints on `session` / `open` | `Routes.swift` | `route` calls, hints followed | Agents take the route; no calls in the log means cut it | cut? |
-| `run` loop (`--model`, `--base-url`, `--screen-anyway`, `--save`) | `AgentLoop.swift` | `run` sessions, steps, stops | Someone runs tasks without a coding agent; no uses means cut it | cut? |
+| `run` loop (`--model`, `--base-url`, `--screen-anyway`, `--save`; stops at 40 steps, 15 minutes or 3 identical actions) | `AgentLoop.swift` | `run` sessions, steps, stops | Someone runs tasks without a coding agent; no uses means cut it | cut? |
 | `replay <name> [--from n] [--approve]` | `AgentLoop.swift` `Replay` | `replay` runs, checks failed | Saved runs get replayed; none means cut it | cut? |
 | Model and agent detection (`APPRENTICE_MODEL`, transcripts, configs, MCP) | `Agent.swift` | `model` on rows; `models` in grow | Flows are picked per model and it is the right model | keep |
-| `grow`, `bug`, `commit`, self-update | `Grow.swift`, `Repo.swift` | Fixes made from grow items; failed updates | The tool keeps improving from use | keep |
+| `grow`, `bug`, `commit` | `Grow.swift`, `Repo.swift` | Fixes made from grow items; commits that needed a rebuild | The tool keeps improving from use | keep |
 | `pr`: local commits offered upstream from a fork, `--local`, session-copy disclosure | `PR.swift` | `pr` runs and PRs opened | Fixes reach upstream without force-pushing | watch |
 
 ## Logs, sessions and review
@@ -129,7 +130,7 @@ Verdicts: **keep** (used and pays off), **watch** (too new or too little data), 
 | `sessions [--limit]` | `Sessions.swift` | `sessions` calls | Someone reviews runs | keep |
 | `events.jsonl` (180 days), `activity`, `flag` | `SiteRules.swift` `Events` | `flag` rows; `activity` calls | Used after a warning | watch |
 | Scrubbed session copies committed to the clone (`[storage] sessions = scrubbed / full / off`) | `Sessions.swift` `archive`, `scrub` | Which mode `doctor` reports; `pr`'s session line | Copies exist to learn from, without URLs or typed text | keep |
-| Session-copy pruning and shot caps | `Sessions.swift` `capShots`, `Store.pruneLogs` | Folder and file counts | The clone stays small | keep |
+| Step-log pruning (30 days) and shot caps (50 per session) | `State.swift` `pruneLogs`, `Sessions.swift` `capShots` | Folder and file counts, age of the oldest run | `~/.apprentice/runs` and the clone stay small | keep |
 | `--json` for every command | `Wire.swift`, `main.swift` | Requests with `json` | Scripts use it | watch |
 
 ## Platforms and integration
@@ -151,6 +152,10 @@ Verdicts: **keep** (used and pays off), **watch** (too new or too little data), 
 | CLI agent docs and installer wiring (`SKILL.md`, `AGENTS.md`, `connect.py`) | `agent/` | Agent errors from misuse (bad flags, wrong order) | Misuse errors fall | keep |
 | `project init`, `project status`, `APPRENTICE_PROJECT` | `Project.swift` | `project` calls; project-limit hits | Used by projects that need tighter caps | watch |
 | `settings [local]` | `Settings.swift` | `settings` calls | Old synced installs move back cleanly | watch |
+| `install.sh` and `kit.sh`: release build, `selftest` gate, signing with a local `apprentice` identity, install to `~/.local/bin`, PATH, example configs, VM install, `doctor --fix` | `install.sh`, `kit.sh`, `Doctor.swift`, `agent/connect.py` | Install runs, failed builds, the ad-hoc signing warning `doctor` prints | People install once and keep their grants across rebuilds | keep |
+| Self-update: fetch every `[update] check_hours` (6), rebase local commits, rebuild, self-test, roll back on failure, restart when idle, `https`/`ssh` upstream only | `Repo.swift`, `Build.swift` | Update rows, rollbacks, the update line `session` prints | Updates land without losing commits or permissions | watch |
+| `install.json` and `version` (the installed commit); CI builds the universal binary and runs `selftest`, releases on `v*` tags | `Build.swift`, `.github/workflows/` | `version` calls; CI and release failures | `version` matches the tag and CI stays green | keep |
+| `[vm] host` (a guest on another machine), `[vm] local` (sites kept on this Mac even with `vm on`), `[agent] notify`, `menu_bar`, `ask_on_start`, `keep_awake`, and the `APPRENTICE_*` overrides | `Config.swift`, `Remote+More.swift`, `VM.swift`, `Notify.swift` | Which keys and overrides a run used (add them to rows) | People configure a VM host or keep a site local, and it works | watch |
 | `doctor [--fix]`, `uninstall [--all] [--yes]`, `selftest`, `repo`, `version` | `Doctor.swift`, `SelfTest.swift`, `Repo.swift`, `Build.swift` | `doctor` gaps reported; selftest failures; uninstall runs | First runs succeed and selftest stays green | keep |
 
 ## Coverage map
@@ -188,7 +193,7 @@ Every source file, and where its features are listed above. Nothing in `Sources/
 | `SelfTest.swift` | `selftest` |
 | `Sessions.swift` | `sessions`, `log --session`, scrubbing, archiving, shot caps, storage mode |
 | `Settings.swift` | `settings`, `settings local` |
-| `SiteRules.swift` | Budgets, cooldowns, soft blocks, challenges, policies, dwell, `cool`, `budget`, `activity`, `flag`, notifications |
+| `SiteRules.swift` | Budgets, cooldowns, soft blocks, challenges, policy notes, dwell, `cool`, `budget`, `activity`, `flag`, notifications |
 | `State.swift` | Store and locking, sessions, logging, privacy, rate and nav limits, gate, approvals |
 | `StatusItem.swift` | Menu-bar item and its menu |
 | `VM.swift` | `vm` subcommands, ssh, screen viewer |
@@ -221,7 +226,7 @@ Every command the CLI accepts, and the section that scopes it. `help` and `versi
 | `notes ["words"]` / `learn "task" [--name] [--model] [--force]` / `route "task"` | Learning and reuse |
 | `run "task" [--model] [--base-url] [--screen-anyway] [--save]` / `replay <name>` | Learning and reuse |
 | `grow [--days]` / `bug "summary" [--repro] [--cause] [--fix]` / `commit "why"` / `pr [--title] [--draft] [--fork] [--local]` | Learning and reuse |
-| `policy [domain]` / `budget [domain]` / `cool [--clear]` | Safety |
+| `policy [domain]` (notes on a site's terms; the bare form sets whether shell commands are allowed) / `budget [domain]` / `cool [--clear]` | Safety |
 | `activity <domain> [--days]` / `flag <domain> "note"` | Logs, sessions and review |
 | `log [--tail] \| --session [<id>]` / `sessions [--limit]` | Logs, sessions and review |
 | `settings [local]` / `repo` / `version` / `selftest` | Platforms and integration |
@@ -244,7 +249,7 @@ These features can't be measured yet:
 - How a session started (CLI, MCP or `run`); `run` logs `via: run`, MCP logs nothing of its own.
 - Menu-bar approvals, denials, log opens and stops.
 - Phone pushes: whether they arrived, and whether the user answered from the phone.
-- `pr`, `project`, `settings`, `doctor`, `uninstall` and `selftest` calls, apart from their `client` rows.
+- Detail beyond `cmd` and exit code for the client-side commands: `pr`, `project`, `policy`, `settings`, `doctor`, `update`, `replay`, `phone` and `vm` log only that row. `selftest`, `uninstall`, `mcp` and `serve` are not in `loggedHere`; `stop` logs its own row from the daemon.
 - `sh:` flow steps against screen steps in the same flow.
 - Whether the `--tier` flag does anything at all: it is accepted and then unused (the only read, `Commands.swift:1197`, prints a `tier` field nothing writes), so either implement it or delete it from `usage()`.
 

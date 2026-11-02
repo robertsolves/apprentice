@@ -215,6 +215,7 @@ extension Remote {
         formatter.dateFormat = "HHmmss"
         let url = Store.runFolder(session).appendingPathComponent("shots/vm-\(formatter.string(from: Date())).png")
         try Capture.save(image, to: url)
+        Sessions.capShots(Store.runFolder(session))
         Store.log(["cmd": "shot", "vm": true, "path": url.path, "marks": marked != nil])
         return url.path + (marked.map { " · snap \($0.snap) · \($0.elements.filter { !$0.offscreen }.count) ids marked" } ?? "")
     }

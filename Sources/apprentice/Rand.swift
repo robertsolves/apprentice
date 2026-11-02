@@ -61,7 +61,6 @@ enum Rand {
 
     static func chance(_ p: Double) -> Bool { unit() < p }
 
-    static func bool() -> Bool { next() >> 63 == 1 }
 
     /// Standard normal, Box–Muller.
     static func gaussian() -> Double {

@@ -12,6 +12,20 @@ It runs: Debian guests under Tart (2 GB disk, 2 GB memory each) or on a server (
 - The VM's question window (`agent/vm/ask.py`) has no apprentice icon and does not notice when the caller stops waiting, unlike the Mac's (`Ask.waiting`).
 - Only `ask` and `confirm` watch their caller. The other windows (start-up options, challenge and cooldown checks in `SiteRules`, the VM's "show me") stay open after the agent gives up; pass `caller:` to `Ask.show` there too.
 
+## Code structure
+
+From a `/simplify` pass on 2026-11-02; the small shared helpers landed, these were left because they change behaviour or reach across many files:
+
+- **Each action command has a Mac body and a VM body** (`Commands.swift` open…hover against `Remote.swift`, and `Remote+More.swift`). They have drifted: VM `type` lacks the "still shows what it had before" check, `click --on` falls back to OCR only on the Mac, `menu` reads `a.pos.joined` on the Mac but `a.pos.first` in the VM. A `Surface` (prepare, resolve, act, settle, bounds, focused field) with a local and a Remote side would let each command be written once.
+- **Command properties are scattered** across about ten sets and `cmd ==` checks (`Site.inspect`, `Fidget`, `approveStep`, `Commands.asides`, `Daemon.queue(for:)`, `Remote.commands`, `Notes.actions`, `Grow.Pace.actions`, `loggedHere`). One table keyed by command name (looks, sends, navigates, fidgets, queue, vm, budget kind). `Notes.actions` and `Grow.Pace.actions` already disagree on `download` and `do`.
+- **Session binding and the banner are written three times** (`Commands.attach`/`session`, `Remote.session`, `Remote.appSession`).
+- **"Chromium" is hard-coded as the VM's browser** in about six places (`State.swift` `isBrowser`, `Remote.inBrowser`, `Remote.session`, the `open` error); one `VM.browser` constant, and `session.isBrowser` instead of `inBrowser`.
+- The VM challenge hint is added by matching `fail.message.contains("challenge")` (`Remote.swift`); `Challenge.start` has the session and could add it itself.
+- A ⚠ proposal in the VM keeps no gate screenshot (`approveStep` skips it); one capture helper that picks `Capture.window` or `Remote.screen`.
+- `choosePath` sleeps a flat 1.5 s after each paste; poll for the field's value instead.
+- The Mac `settle` has no grace for a page that starts loading late, unlike `Remote.done(navigates:)`.
+- Daemon start-up prunes logs and events before the socket listens; run them after `server.start()`.
+
 ## Pacing
 
 - Try `browse`, fidgets and the new path shapes live, on this Mac and in the VM, and tune the ranges in `Fidget.swift` and `Mouse.stroke` from what they look like (only `selftest` has run them so far).

@@ -105,12 +105,15 @@ enum VM {
         NSWorkspace.shared.open(url)
     }
 
+    /// Tart's VMs, as `tart list --format json` describes them.
+    static func tartList() -> [[String: Any]] {
+        (try? JSONSerialization.jsonObject(with: Data(tart(["list", "--format", "json"]).text.utf8))) as? [[String: Any]] ?? []
+    }
+
     static var running: Bool {
         if let host { return ssh(host, "true").code == 0 }
         guard tartPath != nil else { return false }
-        let list = tart(["list", "--format", "json"]).text
-        return ((try? JSONSerialization.jsonObject(with: Data(list.utf8))) as? [[String: Any]])?
-            .contains { ($0["Name"] as? String) == name && ($0["State"] as? String) == "running" } ?? false
+        return tartList().contains { ($0["Name"] as? String) == name && ($0["State"] as? String) == "running" }
     }
 
     // MARK: transport
@@ -256,17 +259,17 @@ enum VM {
 
     /// Every VM: the default one, the Tart ones named apprentice-<name>, and `[vm.<name>]` hosts.
     static func list() -> String {
-        let tartVMs = ((try? JSONSerialization.jsonObject(with: Data(tart(["list", "--format", "json"]).text.utf8))) as? [[String: Any]] ?? [])
+        let tartVMs = tartList()
             .filter { ($0["Source"] as? String) == "local" }
             .compactMap { vm -> (String, String)? in
                 guard let n = vm["Name"] as? String, n.hasPrefix("apprentice-") else { return nil }
                 return (n, vm["State"] as? String ?? "?")
             }
         var names = Set(tartVMs.map { $0.0 == "apprentice-browser" ? "" : String($0.0.dropFirst("apprentice-".count)) })
-        for key in Toml.load(Config.path).keys where key.hasPrefix("vm.") { names.insert(String(key.dropFirst(3))) }
+        let all = Toml.load(Config.path)
+        for key in all.keys where key.hasPrefix("vm.") { names.insert(String(key.dropFirst(3))) }
         guard !names.isEmpty else { return "no VMs: run `apprentice vm setup`" }
         let states = Dictionary(tartVMs, uniquingKeysWith: { a, _ in a })
-        let all = Toml.load(Config.path)
         return names.sorted().map { n -> String in
             let label = n.isEmpty ? "default" : n
             let use = n.isEmpty ? "agent sessions without APPRENTICE_VM, with `vm on`" : "APPRENTICE_VM=\(n)"
@@ -279,9 +282,7 @@ enum VM {
     static func status() -> String {
         if host != nil { return "vm \(where_) · \(running ? "reachable" : "not reachable") · routing \(state.on ? "on" : "off")" }
         guard tartPath != nil else { return "vm: tart is not installed · run `apprentice vm setup`" }
-        let list = tart(["list", "--format", "json"]).text
-        let entry = (try? JSONSerialization.jsonObject(with: Data(list.utf8)) as? [[String: Any]])?
-            .first { ($0["Name"] as? String) == name }
+        let entry = tartList().first { ($0["Name"] as? String) == name }
         guard let entry else { return "vm: none yet · run `apprentice vm setup`" }
         let s = state
         return "vm \(name) · \(entry["State"] as? String ?? "?") · routing \(s.on ? "on" : "off")" + (s.ip.map { " · \($0)" } ?? "")

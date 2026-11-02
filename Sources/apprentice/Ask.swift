@@ -389,7 +389,7 @@ extension Ask {
 extension Ask {
     static func confirm(_ a: Args) throws -> String {
         guard let token = a.pos.first else { throw Fail(5, "confirm <token>") }
-        guard let p = Approvals.pending, p.token == token else { throw Fail(5, "no pending action \(token): run the command again") }
+        guard let p = Approvals.find(token) else { throw Fail(5, "no pending action \(token): run the command again") }
         let approve = "Approve", deny = "Deny"
         let why = a.value("why").map { "\n\nWhy: \($0)" } ?? ""
         let remote = ["question: approve this step? \(p.summary)\(why.replacingOccurrences(of: "\n\n", with: " "))",

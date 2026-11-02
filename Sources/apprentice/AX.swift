@@ -19,12 +19,6 @@ extension AXUIElement {
 
     var children: [AXUIElement] { attr(kAXChildrenAttribute) as? [AXUIElement] ?? [] }
 
-    var actionNames: [String] {
-        var names: CFArray?
-        guard AXUIElementCopyActionNames(self, &names) == .success else { return [] }
-        return names as? [String] ?? []
-    }
-
     var frame: CGRect? {
         guard let p = attr(kAXPositionAttribute), let s = attr(kAXSizeAttribute) else { return nil }
         return makeFrame(p, s)
@@ -109,6 +103,22 @@ func info(_ el: AXUIElement) -> Info {
     return i
 }
 
+private let searchNames = [kAXRoleAttribute, kAXSubroleAttribute, kAXTitleAttribute, kAXChildrenAttribute] as CFArray
+
+/// Only what `findFirst` matches on, so a search doesn't copy every value (a text area's whole document) or frame.
+private func searchInfo(_ el: AXUIElement) -> Info {
+    var out: CFArray?
+    AXUIElementCopyMultipleAttributeValues(el, searchNames, AXCopyMultipleAttributeOptions(rawValue: 0), &out)
+    let values = out as? [AnyObject] ?? []
+    func get(_ i: Int) -> AnyObject? { i < values.count ? values[i] : nil }
+    var i = Info()
+    i.role = get(0) as? String ?? ""
+    i.subrole = get(1) as? String
+    i.title = get(2) as? String
+    i.children = get(3) as? [AXUIElement] ?? []
+    return i
+}
+
 func appElement(_ pid: pid_t) -> AXUIElement { AXUIElementCreateApplication(pid) }
 
 /// Chrome and Electron build their web accessibility tree only when asked.
@@ -121,7 +131,7 @@ func windows(of app: AXUIElement) -> [AXUIElement] {
     app.attr(kAXWindowsAttribute) as? [AXUIElement] ?? []
 }
 
-/// Breadth-first search, bounded so a huge tree can't stall the caller.
+/// Breadth-first search on role, subrole and title, bounded so a huge tree can't stall the caller.
 func findFirst(_ root: AXUIElement, limit: Int = 4000, where match: (Info) -> Bool) -> AXUIElement? {
     // An index into the queue, not removeFirst, which made the search quadratic (B21).
     var queue = [root]
@@ -131,7 +141,7 @@ func findFirst(_ root: AXUIElement, limit: Int = 4000, where match: (Info) -> Bo
         let el = queue[head]
         head += 1
         seen += 1
-        let i = info(el)
+        let i = searchInfo(el)
         if match(i) { return el }
         queue.append(contentsOf: i.children)
     }

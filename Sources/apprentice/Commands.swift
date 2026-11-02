@@ -134,7 +134,7 @@ func windowURL(_ window: AXUIElement) -> String? {
 func makeSession(app: NSRunningApplication, window: AXUIElement) throws -> Session {
     // Without a window id, every later lookup would have to guess which window was meant.
     guard let wid = window.windowID else { throw Fail(5, "could not get the window id of \(app.localizedName ?? "the app")'s window") }
-    let id = String(UUID().uuidString.prefix(6)).lowercased()
+    let id = Session.newId()
     return Session(app: app.localizedName ?? "app", bundle: app.bundleIdentifier, pid: app.processIdentifier,
                    wid: wid, allow: Config.current.allow, id: id, url: windowURL(window))
 }
@@ -213,16 +213,17 @@ func finish(_ command: String, _ session: Session, url: String?, _ old: Snapshot
     if let kind = Commands.charged { row["kind"] = kind }
     Commands.charged = nil
     Store.log(row)
-    if let stop = Site.inspect(command, old, new, session: session) { throw Fail(stop.code, out + "\n" + stop.message) }
+    if let stop = Site.inspect(command, old, new, session: session) {
+        // Code 0 is a warning (`on_challenge` / `on_soft_block = "warn"`): the action stands.
+        if stop.code == 0 { return out + "\n⚠ " + stop.message }
+        throw Fail(stop.code, out + "\n" + stop.message)
+    }
     return out
 }
 
 func saveGateShot(_ session: Session, _ action: String) {
-    guard !Privacy.blocked(session), Capture.permission(), let image = Capture.window(session.wid) else { return }
-    let stamp = Int(Date().timeIntervalSince1970)
-    let url = Store.runFolder().appendingPathComponent("shots/gate-\(stamp).png")
-    try? Capture.save(image, to: url)
-    Store.log(["gate_shot": url.path, "action": action])
+    guard let path = Events.shot(session, "gate") else { return }
+    Store.log(["gate_shot": path, "action": action])
 }
 
 /// Every state-changing command passes here before it acts. Until the caller approves this exact
@@ -231,12 +232,7 @@ func gate(_ session: Session, _ target: Target, _ e: Element?, _ summary: String
           details: [String] = [], warn: [String] = [], force: Bool = false) throws {
     let kind = try approveStep(session, target.page, e, summary, details: details, warn: warn, force: force)
     try Watch.begin()
-    if NSWorkspace.shared.frontmostApplication?.processIdentifier != session.pid {
-        target.app.set(kAXFrontmostAttribute, kCFBooleanTrue)
-        target.window.set(kAXMainAttribute, kCFBooleanTrue)
-        target.window.perform(kAXRaiseAction)
-        Pace.sleep(Rand.uniform(0.25...0.6))
-    }
+    target.raise()
     if kind != nil { Site.dwell() }
 }
 
@@ -245,7 +241,7 @@ func gate(_ session: Session, _ target: Target, _ e: Element?, _ summary: String
 @discardableResult
 func approveStep(_ session: Session, _ target: Page, _ e: Element?, _ summary: String,
                  details: [String] = [], warn: [String] = [], force: Bool = false) throws -> String? {
-    let warnings = Gate.warnings(e, target, force: force) + warn
+    let warnings = Gate.warnings(e, target, force: force) + warn + [Cooldown.warning(hostOf(target.url))].compactMap { $0 }
     // A like, follow, comment or other budgeted action is checked against the site's budget before it
     // is proposed, and counted once approved. Typing counts only when return sends it.
     let host = hostOf(target.url)
@@ -314,7 +310,7 @@ enum Commands {
         if req.cmd == "session" { Sessions.archiveCurrent() }
         let result = Result { try Awake.busy { try dispatch(req) } }
         // `session --task "…"` records what the user asked for, so the log reads as a task, not just steps.
-        if req.cmd == "session", (try? result.get()) != nil, let task = Args.parse(req.args).value("task") ?? Args.parse(req.args).value("goal") {
+        if req.cmd == "session", (try? result.get()) != nil, case let a = Args.parse(req.args), let task = a.value("task") ?? a.value("goal") {
             Store.log(["task": task])
         }
         if Watch.end() {
@@ -340,7 +336,9 @@ enum Commands {
         case "confirm": return try Ask.confirm(a)
         case "show": return try Ask.pointAt(a)
         case "log": return try log(a)
-        default: return Approvals.pending.map { "pending \($0.token) · \($0.summary)" } ?? "nothing pending"
+        default:
+            let open = Approvals.all
+            return open.isEmpty ? "nothing pending" : open.map { "pending \($0.token) · \($0.summary)" }.joined(separator: "\n")
         }
     }
 
@@ -348,12 +346,12 @@ enum Commands {
         Config.reloadIfChanged()
         Approvals.request = req
         if let out = try Remote.dispatch(req) { return out }
+        if asides.contains(req.cmd) { return try aside(req) }
         let a = Args.parse(req.args)
         switch req.cmd {
         case "ping": return "pong"
         case "approve": return try approve(a)
         case "deny": return try deny(a)
-        case "pending": return Approvals.pending.map { "pending \($0.token) · \($0.summary)" } ?? "nothing pending"
         case "session": return try session(a)
         case "focus": return try focus(a)
         case "open": return try open(a)
@@ -369,9 +367,6 @@ enum Commands {
         case "upload": return try upload(a)
         case "choose": return try choose(a)
         case "do": return try runFlow(a)
-        case "ask": return try Ask.run(a)
-        case "show": return try Ask.pointAt(a)
-        case "confirm": return try Ask.confirm(a)
         case "awake": return try Awake.run(a)
         case "away": return try Ask.awayCommand(a)
         case "phone": return try Notify.phone(a, tty: false)
@@ -379,7 +374,6 @@ enum Commands {
         case "wait-for": return try waitFor(a)
         case "ocr": return try ocr(a)
         case "shot": return try shot(a)
-        case "log": return try log(a)
         case "cool": return try Cooldown.command(a)
         case "route": return Routes.answer(a.pos.joined(separator: " "))
         default: throw Fail(5, "unknown command \"\(req.cmd)\"")
@@ -403,7 +397,7 @@ enum Commands {
             guard p.cmd == "type" else {
                 // Nothing was done, so the proposal stays pending: a flag in the wrong command must
                 // not throw away the approval the caller meant to give.
-                Store.save(p, "pending.json")
+                Approvals.add(p)
                 throw Fail(5, "--text only applies to a pending type")
             }
             let o = Args.parse(p.args)
@@ -419,8 +413,8 @@ enum Commands {
 
     static func deny(_ a: Args) throws -> String {
         guard let token = a.pos.first else { throw Fail(5, "deny <token>") }
-        guard let p = Approvals.pending, p.token == token else { throw Fail(5, "no pending action \(token)") }
-        Store.remove("pending.json")
+        guard let p = Approvals.find(token) else { throw Fail(5, "no pending action \(token)") }
+        Approvals.drop(token)
         Store.log(["gate": p.summary, "approved": false, "token": token])
         return "denied · \(p.summary) · nothing was done"
     }
@@ -529,9 +523,7 @@ enum Commands {
         guard let url = URL(string: raw), let hostname = url.host else { throw Fail(5, "bad URL \"\(raw)\"") }
         let (session, target, old) = try prepare(checkAllow: false)
         guard session.isBrowser else { throw Fail(5, "open works in browser sessions; in \(session.app), use its own controls") }
-        guard session.allows(url: raw) else {
-            throw Fail(4, "blocked by allowlist: \(hostname) is not in \(session.allow.joined(separator: ","))")
-        }
+        try allowCheck(session, raw)
         try Cooldown.check(hostname)
         try gate(session, target, nil, "open \(raw)")
         // The profile for the page being opened sets the navigation gap and reload cap, not the
@@ -554,7 +546,7 @@ enum Commands {
         // The page must actually be the one asked for, or later commands act on a stale screen (B8).
         let arrived = poll(timeout: 8, interval: 0.4) { () -> String? in
             guard let now = try? locate(session).url, let host = hostOf(now) else { return nil }
-            return host == hostname || host.hasSuffix("." + hostname) || hostname.hasSuffix("." + host) ? now : nil
+            return Site.matches(host, hostname) || Site.matches(hostname, host) ? now : nil
         }
         guard arrived != nil else {
             throw Fail(5, "the window did not go to \(hostname): it shows \((try? locate(session).url) ?? "no page"). Check it with `read`")
@@ -596,7 +588,7 @@ enum Commands {
         let (session, target, old) = try prepare()
         let (el, e) = try resolve(id, target)
         let right = a.has("right"), double = a.has("double")
-        let verb = right ? "right-click" : double ? "double-click" : "click"
+        let verb = clickVerb(right: right, double: double)
         try gate(session, target, e, "\(verb) \(e.short)", force: a.has("gate"))
         try beforeAction(session, url: target.url)
         let (_, rect) = liveRect(el, e, target)
@@ -703,7 +695,7 @@ enum Commands {
         SnapStore.save(snap)
         let listed = snap.elements.first { $0.name.lowercased() == needle }
             ?? snap.elements.first { e in
-                e.name.lowercased().contains(needle) && !["textbox", "textarea", "combobox", "searchbox", "password"].contains(e.label)
+                e.name.lowercased().contains(needle) && !Element.fieldLabels.contains(e.label)
             }
         var rect = listed?.rect
         var how = listed.map { "listed as \($0.short)" } ?? ""
@@ -733,7 +725,7 @@ enum Commands {
         let (session, target, old) = try prepare()
         guard target.window.frame?.contains(point) ?? false else { throw Fail(4, "\(raw) is outside the session window") }
         let right = a.has("right"), double = a.has("double")
-        try gate(session, target, nil, "\(right ? "right-click" : double ? "double-click" : "click") at \(raw)", force: a.has("gate"))
+        try gate(session, target, nil, "\(clickVerb(right: right, double: double)) at \(raw)", force: a.has("gate"))
         try beforeAction(session, url: target.url)
         try Borrow.run(target) {
             Mouse.move(to: point)
@@ -918,6 +910,10 @@ enum Commands {
         let parts = raw.split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
         guard parts.count == 2, parts.allSatisfy(\.isFinite) else { throw Fail(5, usage) }
         return CGPoint(x: parts[0], y: parts[1])
+    }
+
+    static func clickVerb(right: Bool, double: Bool) -> String {
+        right ? "right-click" : double ? "double-click" : "click"
     }
 
     static func browseSeconds(_ a: Args) throws -> Double {
@@ -1225,20 +1221,16 @@ enum Commands {
     static func log(_ a: Args) throws -> String {
         if a.has("session") { return try Sessions.story(a.value("session")) }
         let tail = try a.count("tail", 20)
-        let file = Store.runFolder().appendingPathComponent("steps.jsonl")
-        guard let text = try? String(contentsOf: file, encoding: .utf8) else { return "no steps yet" }
-        let rows = text.split(separator: "\n").suffix(tail)
+        let rows = Sessions.rows(Store.runFolder())
+        guard !rows.isEmpty else { return "no steps yet" }
         var out: [String] = []
-        for row in rows {
-            guard let data = row.data(using: .utf8),
-                  let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
+        for obj in rows.suffix(tail) {
             // "2026-11-01T12:34:56+10:00" → "12:34:56", in the local time the stamp was written in
             let time = (obj["ts"] as? String).flatMap { $0.split(separator: "T").last.map { String($0.prefix(8)) } } ?? ""
             let cmd = obj["cmd"] as? String ?? obj["gate"] as? String
                 ?? (obj["proposed"] as? String).map { "proposed \($0)" }
                 ?? (obj["error"] as? String).map { "\(obj["failed"] ?? "?") failed: \($0.split(separator: "\n").first ?? "")" } ?? "step"
             var bits = ["\(time)", cmd]
-            if let tier = obj["tier"] { bits.append("tier \(tier)") }
             if let snap = obj["snap"] { bits.append("snap \(snap)") }
             if let diff = obj["diff"] { bits.append("\(diff)") }
             if let id = obj["id"] { bits.append("#\(id)") }

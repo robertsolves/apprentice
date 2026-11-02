@@ -184,7 +184,7 @@ enum Doctor {
     }
 
     private static func tartVMs() -> [String] {
-        ((try? JSONSerialization.jsonObject(with: Data(VM.tart(["list", "--format", "json"]).text.utf8))) as? [[String: Any]] ?? [])
+        VM.tartList()
             .filter { ($0["Source"] as? String) == "local" }
             .compactMap { $0["Name"] as? String }.filter { $0.hasPrefix("apprentice-") }
     }

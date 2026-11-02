@@ -36,13 +36,12 @@ enum Project {
     @discardableResult
     static func update<T>(_ dir: URL, _ body: (inout Limits) throws -> T) rethrows -> T {
         let file = dir.appendingPathComponent("limits.json")
-        let fd = open(dir.appendingPathComponent("limits.json.lock").path, O_CREAT | O_RDWR, 0o600)
-        if fd >= 0 { flock(fd, LOCK_EX) }
-        defer { if fd >= 0 { flock(fd, LOCK_UN); close(fd) } }
-        var l = (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode(Limits.self, from: $0) } ?? Limits()
-        let result = try body(&l)
-        if let data = try? JSONEncoder().encode(l) { try? data.write(to: file, options: .atomic) }
-        return result
+        return try Store.locked(at: file) {
+            var l = limits(dir)
+            let result = try body(&l)
+            if let data = try? JSONEncoder().encode(l) { try? data.write(to: file, options: .atomic) }
+            return result
+        }
     }
 
     static func limits(_ dir: URL) -> Limits {

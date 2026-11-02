@@ -183,3 +183,33 @@ Findings from reading all of `Sources/apprentice`, `agent/`, the shell entry poi
 - Where: `Doctor.swift:173-181`.
 - Cause: the per-item loop is `try? fm.removeItem(atPath: path)`, and the closing `done.append("removed \(Store.dir.path)…")` is unconditional, as is the final `try? fm.removeItem(atPath: Store.dir.path)`. Anything that cannot be removed — a file held open by a running daemon, a `vms/` mount still attached, a folder another user owns — leaves the folder in place while the output says it is gone.
 - Suggested fix: keep a `failed: [String]` list, add to it when `removeItem` throws, and print those paths with the reason at the end (exit non-zero if any remain) instead of the blanket "removed".
+
+### F32 · `pr` titles the pull request after an auto-written session commit — 2026-11-02
+- Severity: medium (a PR opened without `--title` is called "Session 2026-11-02-ab12cd: 9 steps on example.com", and its list of changes is mostly session copies).
+- Where: `PR.swift:11` (archive first), `PR.swift:18` (the commit range), `PR.swift:30` (`title = a.value("title") ?? subjects[0]`), `PR.swift:68-79`; `Sessions.swift:80`.
+- Cause: `PR.run` calls `Sessions.archiveCurrent()` before it looks at the log, and `Sessions.archive` writes `sessions/<run>.jsonl` and commits it itself with `Repo.commit("Session …: N steps on …", paths:)`. `Repo.commit` uses that message verbatim, so those auto-written commits sit inside `remote/<base>..HEAD` and are part of `subjects`. `title` defaults to `subjects.first` — the *oldest* local commit, which is usually one of them — and `body()` lists every subject under `## Changes`, so the reviewer's summary of a fix is mostly "Session …" lines.
+- Suggested fix: keep the session commits in the range (they are meant to be published) but filter `hasPrefix("Session ")` when choosing the title and when writing `## Changes`; fall back to the newest non-session subject, then to the branch name.
+
+### F33 · `wait-for` cannot be interrupted and holds the command queue for its whole timeout — 2026-11-02
+- Severity: medium (`wait-for text --timeout 600` wedges the daemon for ten minutes: every other command queues behind it, and the kill switch does nothing until it returns).
+- Where: `Commands.swift:1121-1140`.
+- Cause: it polls with `poll(timeout:interval:)`, which only sleeps and re-reads the snapshot. It never calls `Borrow.checkpoint()`, never reads `KillSwitch.tripped` and never begins `Watch`, while `Daemon` runs commands one at a time from a single queue — so a press during a long wait is not seen until the poll ends, and a second command cannot start. `--timeout` is also read as `a.value("timeout").flatMap(Double.init) ?? 10`, so `--timeout 6oo` silently becomes 10 s instead of being an error the way `a.count` is.
+- Suggested fix: read the timeout with `try a.count("timeout", 10, min: 1)` and cap it; check the kill switch and `Borrow.interrupted` inside the loop (throwing exit 6) so a press stops the wait.
+
+### F34 · A command interrupted after a page-change note prepends that note to the next command — 2026-11-02
+- Severity: low (unrelated output such as `read` or `click` opens with "note: the page changed to …" for a page it has nothing to do with).
+- Where: `Commands.swift:295` (the static), `Commands.swift:154` (where it is set), `Commands.swift:320-329`.
+- Cause: `notice` is cleared only by `defer { notice = nil }`, registered *after* the two interrupt checks (`Watch.end()` and the kill switch). A command that sets the note in `prepare()` and is then interrupted throws exit 6 with `notice` still set, and the daemon keeps the static for the next request.
+- Suggested fix: clear `notice` with the other per-command state at the top of `run`, beside `charged = nil`.
+
+### F35 · The cached VM address is never re-checked, so a new DHCP lease breaks every VM command — 2026-11-02
+- Severity: medium (screen, `upload`, `download` and `vm call` stop working against a VM that is running, and the error blames the wrong thing).
+- Where: `VM.swift:135-144`; callers `Remote.swift:93`, `Remote+More.swift:148,157,163`.
+- Cause: `address(fresh: false)` returns `state.ip` from `state.json` without any check, and only `vm down` clears it. The guest's address is a DHCP lease: after a Mac reboot, a lease change, or the VM being started or restarted outside apprentice, the cached IP stays wrong for good — `tart list` reports the VM as running while every ssh to the stale address fails, and `address()`'s own failure says "the VM is not running: start it with `apprentice vm up`".
+- Suggested fix: confirm a cached address before using it (`answers(ip)` or `ssh(ip, "true").code == 0`), fall back to `tart ip … --wait` and store the result; say "not running" only when `running` is false, and "running but not reachable at <ip>" otherwise.
+
+### F36 · Two `shot` commands in the same second overwrite each other — 2026-11-02
+- Severity: low (the path the first command printed, and logged, ends up showing the second picture).
+- Where: `Commands.swift:1170-1173`.
+- Cause: the file is `shots/shot-<HHmmss>.png`, and `Capture.save` overwrites an existing file without complaint. Two captures inside one second — the usual before/after pair, since a `shot` of a small window is fast — get the same name, so the pair an agent compares is two copies of the later image.
+- Suggested fix: put the snapshot number in the name (`shot-\(snap)-…`) or a millisecond/random suffix, so a path is never reused.

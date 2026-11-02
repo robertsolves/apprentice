@@ -213,6 +213,15 @@ enum SelfTest {
         Store.save(Approvals.Pending(token: "old1", cmd: "click", args: ["3"], summary: "click 3", snap: nil,
                                      at: Date().timeIntervalSince1970 - Approvals.ttl - 1, element: nil), "pending.json")
         check((try? Approvals.take("old1")) == nil && Approvals.pending == nil, "an expired approval is refused and dropped")
+        var tokens: [String] = []
+        for id in ["5", "6"] {
+            Approvals.request = Request(cmd: "click", args: [id])
+            _ = try? Approvals.check("click \(id)", details: [], warnings: [])
+            tokens.append(Approvals.pending?.token ?? "")
+        }
+        check(Approvals.find(tokens[0])?.args == ["5"] && (try? Approvals.take(tokens[1])) != nil && Approvals.pending?.token == tokens[0],
+              "a new proposal keeps the one before it")
+        Approvals.drop(tokens[0])
         Approvals.request = Request(cmd: "")
     }
 

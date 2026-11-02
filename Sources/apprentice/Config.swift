@@ -95,9 +95,6 @@ struct PaceConfig {
     var browseMin = 10.0
     var browseMax = 40.0
 
-    /// The `style` presets, fastest first. Each sets every timing key; keys listed beside it win.
-    static let styles = ["fastest", "fast", "steady", "careful"]
-
     init() {}
 
     /// `style = "fastest" | "fast" | "steady" | "careful"`: the timing keys at once. `fast` is the
@@ -252,6 +249,21 @@ struct Config {
         "temporarily blocked", "unusual activity", "we limit how often", "rate limit", "too many requests",
         "action blocked", "suspicious activity", "temporarily limited", "over the daily limit",
     ]
+    /// What a soft block does: "stop" cools the site down and refuses actions there until it ends,
+    /// "warn" only says so, "off" does not look.
+    var onSoftBlock = "stop"
+    /// How long each cooldown lasts in hours: the first, the second, then every later one.
+    var cooldownHours = [1.0, 6, 24]
+    /// What a CAPTCHA or identity check does: "stop" refuses actions on the site while it is on screen,
+    /// "warn" only says so, "off" does not look. apprentice never completes one in any mode.
+    var onChallenge = "stop"
+    /// Words and phrases that make a step one only the user can approve, in the little window: the
+    /// agent's `approve` is refused. Matched as whole words in the element's label and name.
+    var userOnly = [
+        "pay", "pay now", "buy", "buy now", "purchase", "checkout", "check out", "place order", "order now",
+        "donate", "transfer", "upgrade", "captcha", "not a robot", "verify you are human", "delete account",
+        "close account", "deactivate", "password",
+    ]
     /// Signs of a CAPTCHA or identity check, which only the user may complete.
     var challengeMarkers = [
         "captcha", "verify you are human", "verify you're human", "i'm not a robot", "i am not a robot",
@@ -342,6 +354,10 @@ struct Config {
         if let v = toml["agent"]?["browsers"].flatMap(Toml.array) { c.browsers = v }
         if let v = toml["sites"]?["soft_block"].flatMap(Toml.array) { c.softBlockPhrases = v.map { $0.lowercased() } }
         if let v = toml["sites"]?["challenge"].flatMap(Toml.array) { c.challengeMarkers = v.map { $0.lowercased() } }
+        if let v = toml["sites"]?["on_soft_block"].map(Toml.unquote), ["stop", "warn", "off"].contains(v) { c.onSoftBlock = v }
+        if let v = toml["sites"]?["cooldown_hours"].flatMap(Toml.doubles), !v.isEmpty { c.cooldownHours = v }
+        if let v = toml["sites"]?["on_challenge"].map(Toml.unquote), ["stop", "warn", "off"].contains(v) { c.onChallenge = v }
+        if let v = toml["gate"]?["user_only"].flatMap(Toml.array) { c.userOnly = v.map { $0.lowercased() }.filter { !$0.isEmpty } }
         if let v = toml["agent"]?["ask_window_s"].flatMap({ Double(Toml.unquote($0)) }) { c.askWindowSeconds = v }
         if let r = toml["run"] {
             if let v = r["base_url"] { c.runURL = Toml.unquote(v) }
