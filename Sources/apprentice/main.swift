@@ -89,8 +89,8 @@ func usage() {
       apprentice route "task"
       apprentice skills ["words"] | <name> | list | --paths | forget <path> | share <path> | --check   what agents know: built in, learned by apprentice (unreviewed hints) and yours; --check looks for anything personal (`playbooks` is the old name)
       apprentice prefs ["words"]                what the user uses (their gym's site, their handles): this device's, then its parent's
-      apprentice remember <key> "<value>" --from you|task [--on mac]   save one on this device: the user's words, or the site or app the task ran on
-      apprentice forget <key> [--on mac]        drop one from this device; a parent's value then applies
+      apprentice remember <key> "<value>" --from you|task [--on mac|project]   save one on this device: the user's words, or the site or app the task ran on
+      apprentice forget <key> [--on mac|project]   drop one from this device; a parent's value then applies
       apprentice learn "task" [--name slug] [--model m] [--force] | --fact "one line" [--for site-or-app]   save this session's steps, or one fact, as a learned skill on this Mac
       apprentice do --explain "task"            which flow a task would pick for this model, and why
       apprentice run "task" --model <name> [--base-url url] [--screen-anyway] [--save name]

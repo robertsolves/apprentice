@@ -10,5 +10,6 @@ git clone https://github.com/robertsolves/apprentice.git ~/.apprentice/src && ~/
 
 It needs macOS 14 or later and Swift (Xcode or the command-line tools). Then just ask your agent to do things on your Mac, in a Linux VM, or on the web. Questions reach you in a small window on the Mac, or on your phone once `apprentice phone` is set up.
 
+- [Website](https://robertsolves.github.io/apprentice/): overview and install
 - [GitHub](https://github.com/robertsolves/apprentice): source and install
 - [Issues](https://github.com/robertsolves/apprentice/issues)

@@ -533,17 +533,14 @@ struct Config {
 
     static var current = Config.load()
     static var path: URL { Settings.dir.appendingPathComponent("config.toml") }
-    private static var loadedAt: Date?
-    private static var loadedOverlay: String?
+    private static var loaded: String?
 
-    /// Re-reads config.toml only when it, or the VM's own one over it (`Layers`), changed, and starts each
-    /// command on the default pace.
+    /// Re-reads config.toml only when it, or a project's or VM's own one over it (`Layers`), changed, and
+    /// starts each command on the default pace.
     static func reloadIfChanged() {
-        let stamp = (try? path.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
-        let overlay = Layers.local == .vm ? Layers.read("config.toml", .vm) : nil
-        if stamp != loadedAt || overlay != loadedOverlay {
-            loadedAt = stamp
-            loadedOverlay = overlay
+        let stamp = Layers.stamp()
+        if stamp != loaded {
+            loaded = stamp
             current = load()
         }
         current.pace = current.defaultPace

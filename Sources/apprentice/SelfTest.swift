@@ -1280,7 +1280,7 @@ enum SelfTest {
     /// Prefs: the nearest device wins, only the user's words or the task's own site are saved, and lookups match words.
     private static func prefs() {
         let p = { (v: String) in Prefs.Pref(value: v, from: "you", at: "2026-11-02") }
-        let seen = Prefs.merge([(.vm, ["gym": p("vm-gym.com")]), (.mac, ["gym": p("mac-gym.com"), "linkedin": p("in/sam")])])
+        let seen = Prefs.merge([(.vm(nil), ["gym": p("vm-gym.com")]), (.mac, ["gym": p("mac-gym.com"), "linkedin": p("in/sam")])])
         check(seen.count == 2 && seen.first { $0.key == "gym" }?.pref.value == "vm-gym.com", "a VM's own pref wins over the Mac's")
         check(seen.first { $0.key == "linkedin" }?.place == .mac, "a pref only the Mac has is inherited")
         check(Prefs.key("My Gym!") == "my-gym" && Prefs.key("") == nil, "keys are lower case words joined by dashes")
@@ -1300,5 +1300,15 @@ enum SelfTest {
                                     ["pace.default": ["max": "3"]])
         check(config["pace.default"] == ["min": "1", "max": "3"] && config["agent"]?["ui_only"] == "false",
               "a VM's config.toml overrides key by key and inherits the rest")
+        let child = Layers.childOnly(["vm": ["name": "x"], "vm.linkedin": ["host": "h"], "update": ["auto": "false"],
+                                      "agent": ["menu_bar": "false", "sounds": "false"]])
+        check(child == ["agent": ["sounds": "false"]], "a project or VM never changes how this Mac runs: [vm], [update], the menu bar")
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("apprentice-layers-\(UUID().uuidString)/.apprentice")
+        defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent()); Project.dir = nil }
+        Project.dir = dir
+        try? Layers.write("config.toml", "[agent]\nsounds = false\n", .project(dir))
+        check(Layers.chain.first == .project(dir) && Layers.chain.last == .mac, "a project's settings are read first, this Mac's last")
+        check(Layers.config()["agent"]?["sounds"] == "false", "a project's own value wins over the levels above it")
+        check(Layers.Place.vm(nil).folder != Layers.Place.vm("vm").folder, "the default VM's settings are never a named VM's")
     }
 }

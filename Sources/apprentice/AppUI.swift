@@ -1717,62 +1717,129 @@ struct NewPlaybookSheet: View {
 
 struct SettingsView: View {
     @ObservedObject var model: AppModel
-    @State private var values: [String: String] = [:]
+    /// Whose settings the screen shows: this Mac's (everything else falls back to them), a VM's or a project's.
+    @State private var scope: Layers.Place = .mac
+    /// The values set at this level, and what it would get from the levels above it, with where from.
+    @State private var own: [String: String] = [:]
+    @State private var inherited: [String: (value: String, from: Layers.Place)] = [:]
     @State private var status = ""
+
+    /// Settings this level may change: a VM or a project never changes the window, updates or the menu bar.
+    private var settings: [Setting] {
+        scope == .mac ? Setting.shown : Setting.shown.filter { !Layers.isRootOnly($0.section, $0.key) }
+    }
 
     private var sections: [String] {
         var seen: [String] = []
-        for s in Setting.shown where !seen.contains(s.section) { seen.append(s.section) }
+        for s in settings where !seen.contains(s.section) { seen.append(s.section) }
         return seen
     }
+
+    /// This Mac, each VM and each project, in the order they fall back.
+    private var scopes: [(place: Layers.Place, name: String)] {
+        var out: [(Layers.Place, String)] = [(.mac, "This Mac, for everything")]
+        if FileManager.default.fileExists(atPath: VM.key.path) { out.append((.vm(nil), "The default VM")) }
+        out += model.vmNames.map { (.vm($0), "The VM \($0)") }
+        out += model.projects.map { (.project($0.folder.appendingPathComponent(".apprentice")), "The project \($0.name)") }
+        return out
+    }
+
+    private var file: URL { Layers.file("config.toml", scope) }
 
     var body: some View {
         ScreenPage(title: "Settings", subtitle: "") {
             AnyView(
                 HStack(spacing: Theme.s2) {
                     if !status.isEmpty { Text(status).font(Theme.caption).foregroundStyle(.secondary) }
-                    IconButton("Open the settings file", "doc.text") { NSWorkspace.shared.open(Config.path) }
+                    IconButton("Open the settings file", "doc.text") { open() }
                 }
             )
         } content: {
             Explainer(icon: Section.settings.icon, title: "What are settings?",
                       text: "How apprentice behaves while it works: sounds, notifications, keeping the Mac awake, how this window looks. Each change is saved the moment you make it.",
-                      points: ["Everything else is in the settings file, for when someone technical needs it."])
-            AccountCard(model: model)
+                      points: ["A project or a VM can have its own. Whatever it leaves alone comes from the level above: a project from its VM, a VM from this Mac.",
+                               "Everything else is in the settings file, for when someone technical needs it."])
+            if scopes.count > 1 {
+                Panel(title: "Settings for") {
+                    Picker("", selection: $scope) {
+                        ForEach(scopes, id: \.place) { Text($0.name).tag($0.place) }
+                    }
+                    .labelsHidden().pickerStyle(.menu).frame(maxWidth: 320, alignment: .leading)
+                }
+            }
+            if scope == .mac { AccountCard(model: model) }
             ForEach(sections, id: \.self) { section in
                 Panel(title: Setting.title(section)) {
-                    ForEach(Setting.shown.filter { $0.section == section }) { setting in
+                    let rows = settings.filter { $0.section == section }
+                    ForEach(rows) { setting in
                         SettingRow(setting: setting, value: Binding(
-                            get: { values[setting.id] ?? Toml.unquote(setting.fallback) },
-                            set: { new in values[setting.id] = new; write(setting, new) }))
-                        if setting.id != Setting.shown.filter({ $0.section == section }).last?.id { Divider() }
+                            get: { own[setting.id] ?? inherited[setting.id]?.value ?? Toml.unquote(setting.fallback) },
+                            set: { new in write(setting, new) }),
+                                   from: own[setting.id] != nil || scope == .mac ? nil : inherited[setting.id]?.from ?? .mac,
+                                   reset: scope == .mac || own[setting.id] == nil ? nil : { reset(setting) },
+                                   parent: Layers.parents(of: scope).first)
+                        if setting.id != rows.last?.id { Divider() }
                     }
                 }
             }
-            Text(Config.path.path).font(Theme.monoSmall).foregroundStyle(.tertiary)
+            Text(file.path).font(Theme.monoSmall).foregroundStyle(.tertiary)
         }
         .onAppear(perform: load)
+        .onChange(of: scope) { _ in load() }
     }
 
     private func load() {
-        let table = Toml.load(Config.path)
+        let mine = Toml.parse(Layers.read("config.toml", scope) ?? "")
+        var from: [String: (String, Layers.Place)] = [:]
+        // The nearest level above that sets a key is the one this level gets it from.
+        for place in Layers.parents(of: scope).reversed() {
+            let table = Toml.parse(Layers.read("config.toml", place) ?? "")
+            for s in Setting.shown { if let v = table[s.section]?[s.key] { from[s.id] = (Toml.unquote(v), place) } }
+        }
         var out: [String: String] = [:]
-        for s in Setting.shown { out[s.id] = Toml.unquote(table[s.section]?[s.key] ?? s.fallback) }
-        values = out
+        for s in Setting.shown { if let v = mine[s.section]?[s.key] { out[s.id] = Toml.unquote(v) } }
+        own = out
+        inherited = from.mapValues { (value: $0.0, from: $0.1) }
     }
 
     private func write(_ setting: Setting, _ shown: String) {
-        AppModel.backup(Config.path)
-        _ = Toml.set(Config.path, setting.section, setting.key, setting.literal(shown))
+        if scope == .mac { AppModel.backup(file) }
+        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        _ = Toml.set(file, setting.section, setting.key, setting.literal(shown))
+        own[setting.id] = shown
+        saved()
+    }
+
+    /// Drops this level's own value, so the one above applies again.
+    private func reset(_ setting: Setting) {
+        Toml.remove(file, setting.section, setting.key)
+        own[setting.id] = nil
+        saved()
+    }
+
+    private func saved() {
         Config.reloadIfChanged()
         status = "saved"
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) { if status == "saved" { status = "" } }
+    }
+
+    /// A level's file may not exist until something is set there; opening it makes it, with a line saying what it is.
+    private func open() {
+        if !FileManager.default.fileExists(atPath: file.path) {
+            try? Layers.write("config.toml", "# Settings for \(scope.label). Anything not set here comes from the level above.\n", scope)
+        }
+        NSWorkspace.shared.open(file)
     }
 }
 
 private struct SettingRow: View {
     let setting: Setting
     @Binding var value: String
+    /// The level the value comes from when this one does not set it.
+    var from: Layers.Place?
+    /// Drops this level's own value; nil when it has none, or on this Mac.
+    var reset: (() -> Void)?
+    var parent: Layers.Place?
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.s4) {
@@ -1780,6 +1847,12 @@ private struct SettingRow: View {
                 Text(setting.label).font(Theme.body)
                 if !setting.help.isEmpty {
                     Text(setting.help).font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+                if let from {
+                    Text("From \(from.label)").font(Theme.caption).foregroundStyle(.tertiary)
+                } else if let reset, let parent {
+                    Button("Set here · use \(parent.label)'s instead", action: reset)
+                        .buttonStyle(.link).font(Theme.caption)
                 }
             }
             Spacer(minLength: Theme.s3)
