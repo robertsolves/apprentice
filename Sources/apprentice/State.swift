@@ -418,6 +418,9 @@ enum Gate {
         "share", "grant", "donate", "reset", "sign", "register", "book", "reserve", "cancel", "unsubscribe",
     ]
 
+    /// The warning only the user can approve: `approve` refuses it unless it comes from `confirm` or the menu.
+    static let credential = "a password or security-code field"
+
     static func matches(_ text: String) -> Bool {
         let tokens = text.lowercased().split(whereSeparator: { !$0.isLetter })
         return tokens.contains { words.contains(String($0)) }
@@ -443,11 +446,11 @@ enum Gate {
         if force { out.append("marked --gate") }
         if sensitivePage(t.url) || sensitivePage(t.title) { out.append("settings, account or billing page") }
         if let e = element, matches(e.name) || matches(e.label) { out.append("may be irreversible: \(e.label) \"\(e.name)\"") }
-        // Credentials always stop for a person (I3).
+        // Credentials always stop for a person (I3): `approve` takes them only from the user.
         if let e = element {
             let n = e.name.lowercased()
             if e.label == "password" || ["password", "passcode", "2fa", "one-time", "verification code"].contains(where: n.contains) {
-                out.append("a password or security-code field")
+                out.append(credential)
             }
         }
         // Controls inside a dialog or sheet usually confirm something (I2).
@@ -470,8 +473,11 @@ enum Approvals {
         var element: String?
         /// Set when the proposal was put in front of the user, who may take longer than `ttl` to answer.
         var until: Double?
+        var warnings: [String]?
 
         var expires: Double { until ?? at + Approvals.ttl }
+        /// A credential step runs only once the user approves it themselves.
+        var needsUser: Bool { warnings?.contains(Gate.credential) == true }
     }
 
     static let ttl = 300.0
@@ -482,6 +488,8 @@ enum Approvals {
     /// The request being dispatched, and the approved one while it runs.
     static var request = Request(cmd: "")
     static var granted: Pending?
+    /// The token the user is approving right now, in the `confirm` window or the menu bar.
+    static var byUser: String?
 
     /// The proposals still open, oldest first, each answered by its own token.
     static var all: [Pending] {
@@ -534,7 +542,7 @@ enum Approvals {
         }
         let token = String(UUID().uuidString.prefix(4)).lowercased()
         let p = Pending(token: token, cmd: request.cmd, args: request.args, summary: summary,
-                        snap: SnapStore.current?.snap, at: Date().timeIntervalSince1970, element: element)
+                        snap: SnapStore.current?.snap, at: Date().timeIntervalSince1970, element: element, warnings: warnings)
         add(p)
         Store.log(["proposed": summary, "token": token, "warnings": warnings])
         var out = ["approve? \(summary)"] + details.map { "  \($0)" } + warnings.map { "⚠ \($0)" }

@@ -383,6 +383,9 @@ enum Commands {
     /// Runs the pending request for `token`. `--text` replaces the text of a pending `type`.
     static func approve(_ a: Args) throws -> String {
         guard let token = a.pos.first else { throw Fail(5, "approve <token> [--text \"edited text\"]") }
+        if let p = Approvals.find(token), p.needsUser, Approvals.byUser != token {
+            throw Fail(8, "only the user can approve \(token): \(p.summary) is \(Gate.credential). Run `apprentice confirm \(token) --why \"…\"` so they decide in the window. Nobody can approve it for them, nor from the chat")
+        }
         var p = try Approvals.take(token)
         // `--text` is a bare switch (it turns on the reply field for `ask --text`), so the parser
         // leaves the replacement text in the positional list: `approve 7c2e --text "new words"`

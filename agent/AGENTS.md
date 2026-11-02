@@ -22,7 +22,7 @@ apprentice type 16 "new bio" --enter
 
 Approval:
 - Changing commands exit 8 with `approve? …` and a token; nothing is done yet. `apprentice approve <token>` (`--text` edits a pending type) or `deny <token>`.
-- Approve only what the task needs. For a `⚠` step the user did not ask for in those words, `apprentice confirm <token> --why "…"`: they decide in the little window (exit 3 if they deny).
+- Approve only what the task needs. For a `⚠` step the user did not ask for in those words, `apprentice confirm <token> --why "…"`: they decide in the little window (exit 3 if they deny). A password or security-code step runs only through `confirm`. Tokens are single-use and expire in 5 minutes, or an hour once handed to the user.
 
 Asking the user:
 - Use the little window for every decision that is their: options, risks, unclear instructions, and when stuck. It pings when it opens.

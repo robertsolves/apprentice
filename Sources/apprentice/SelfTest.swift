@@ -228,6 +228,16 @@ enum SelfTest {
         check(Approvals.find("old2").map { $0.expires > Date().timeIntervalSince1970 + 3000 } == true,
               "a step handed to the user stays open for an hour")
         Approvals.drop("old2")
+        Approvals.request = Request(cmd: "type", args: ["7", "x"])
+        _ = try? Approvals.check("type into 7", details: [], warnings: [Gate.credential])
+        let secret = Approvals.pending?.token ?? ""
+        do {
+            _ = try Commands.approve(Args.parse([secret]))
+            check(false, "only the user approves a password field")
+        } catch let f as Fail {
+            check(f.code == 8 && Approvals.find(secret) != nil, "only the user approves a password field; it stays pending")
+        } catch {}
+        Approvals.drop(secret)
         Approvals.request = Request(cmd: "")
     }
 

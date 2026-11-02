@@ -392,8 +392,11 @@ extension Ask {
         guard let p = Approvals.find(token) else { throw Fail(5, "no pending action \(token): run the command again") }
         let approve = "Approve", deny = "Deny"
         let why = a.value("why").map { "\n\nWhy: \($0)" } ?? ""
-        let remote = ["question: approve this step? \(p.summary)\(why.replacingOccurrences(of: "\n\n", with: " "))",
-                      "if they say yes in the chat: `apprentice approve \(token)`; if no: `apprentice deny \(token)`. Nothing is done until then; the step stays open for an hour."]
+        let remote = p.needsUser
+            ? ["question: approve this step? \(p.summary)\(why.replacingOccurrences(of: "\n\n", with: " "))",
+               "it is \(Gate.credential), so only the user can approve it, at the Mac: when they are back, run `apprentice confirm \(token)` again. A yes in the chat cannot run it. The step stays open for an hour."]
+            : ["question: approve this step? \(p.summary)\(why.replacingOccurrences(of: "\n\n", with: " "))",
+               "if they say yes in the chat: `apprentice approve \(token)`; if no: `apprentice deny \(token)`. Nothing is done until then; the step stays open for an hour."]
         // The user may answer from the chat or their phone long after the usual five minutes.
         func handBack() -> Fail {
             Daemon.serial { Approvals.extend(token, by: Approvals.userTTL) }
@@ -419,6 +422,6 @@ extension Ask {
             throw Fail(3, (reply == nil ? "no answer: nothing was done" : "The user denied: \(p.summary)") + note)
         }
         Store.log(["confirm": p.summary, "by": "user"])
-        return try Daemon.command(Request(cmd: "approve", args: [token])) + note
+        return try Daemon.command(Request(cmd: "approve", args: [token]), byUser: true) + note
     }
 }

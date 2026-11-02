@@ -40,9 +40,16 @@ enum Daemon {
     }
 
     /// Runs `req` as a command: on the command queue, or in place when already on it (a flow's `confirm` step).
-    static func command(_ req: Request) throws -> String {
-        if DispatchQueue.getSpecific(key: onQueue) == true { return try Commands.dispatch(req) }
-        return try queue.sync { try Commands.run(req) }
+    /// `byUser`: the user's own approval (the `confirm` window, the menu bar), which a credential step needs.
+    static func command(_ req: Request, byUser: Bool = false) throws -> String {
+        func run(_ body: () throws -> String) rethrows -> String {
+            guard byUser else { return try body() }
+            Approvals.byUser = req.args.first
+            defer { Approvals.byUser = nil }
+            return try body()
+        }
+        if DispatchQueue.getSpecific(key: onQueue) == true { return try run { try Commands.dispatch(req) } }
+        return try queue.sync { try run { try Commands.run(req) } }
     }
 
     /// Runs `body` on the command queue, or in place when already on it.

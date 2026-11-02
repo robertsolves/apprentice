@@ -94,7 +94,7 @@ enum StatusItem {
             guard let token = sender.representedObject as? String else { return }
             DispatchQueue.global(qos: .userInitiated).async {
                 Store.log(["confirm": cmd, "by": "user", "via": "menu", "token": token])
-                _ = try? Daemon.command(Request(cmd: cmd, args: [token]))
+                _ = try? Daemon.command(Request(cmd: cmd, args: [token]), byUser: true)
                 StatusItem.busy(false)
             }
         }
