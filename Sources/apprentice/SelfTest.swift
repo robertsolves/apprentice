@@ -39,6 +39,7 @@ enum SelfTest {
         pipelines()
         skillKinds()
         oneAtATime()
+        sitesScreen()
         prefs()
         allowlist()
         flows()
@@ -1018,6 +1019,75 @@ enum SelfTest {
         check((try? Device.check(user, now: now + 20)) != nil, "device: the user's own click is never refused")
         check((try? Device.check(b, now: now + 10 + Device.busySeconds + 1)) != nil, "device: a quiet holder lets the next agent in")
         check(Device.busy(vm: nil, for: "tab:B") == nil && Device.busy(vm: nil, for: "schedule:x") != nil, "device: schedules see who holds it")
+    }
+
+    /// The Sites screen: its spec reads cleanly, and every control writes where the commands read.
+    private static func sitesScreen() {
+        let fm = FileManager.default
+        let files = SiteSettings.Files(config: Store.dir.appendingPathComponent("sites-test.toml"),
+                                       budgets: Store.dir.appendingPathComponent("sites-test.json"))
+        defer { try? fm.removeItem(at: files.config); try? fm.removeItem(at: files.budgets); try? fm.removeItem(at: Config.path) }
+        let shipped = SiteSettings.specFile
+        if fm.fileExists(atPath: shipped.path) {
+            let spec = SiteSettings.spec(shipped)
+            let problems = SiteSettings.problems(spec)
+            check(problems.isEmpty && !spec.fields.isEmpty && spec.preset("instagram.com") != nil,
+                  "sites: the shipped spec reads cleanly (\(problems.prefix(2).joined(separator: "; ")))")
+        }
+        let spec = SiteSettings.parse("""
+        [group.pace]
+        title = "Pace"
+        [field.style]
+        group = "pace"
+        store = "style"
+        type = "choice"
+        key = "style"
+        label = "Pace"
+        choices = ["careful", "steady", "fast"]
+        labels = ["Careful", "Steady", "Fast"]
+        [field.dwell]
+        group = "pace"
+        store = "pace"
+        type = "range"
+        key = "dwell_s"
+        label = "Reading"
+        [field.like]
+        group = "pace"
+        store = "budget"
+        type = "cap"
+        key = "like"
+        label = "Likes"
+        [preset."instagram.com"]
+        label = "Instagram"
+        style = "careful"
+        like = { hour = 20, day = 100, min_gap_s = 30 }
+        """)
+        check(SiteSettings.problems(spec).isEmpty && spec.fields.map(\.id) == ["style", "dwell", "like"], "sites: fields keep the spec's order")
+        try? "# mine\n[agent]\nsounds = true\n".write(to: files.config, atomically: true, encoding: .utf8)
+        let style = spec.fields[0], dwell = spec.fields[1], like = spec.fields[2]
+        _ = try? SiteSettings.apply(spec.presets[0], spec: spec, files)
+        let toml = Toml.load(files.config)
+        check(Toml.array(toml["pace.styles"]?["careful"] ?? "") == ["instagram.com"]
+              && Budgets.cap("www.instagram.com", "like", table: Budgets.table(files.budgets)).day == 100
+              && SiteSettings.explicit("instagram.com", like, files) == "{ hour = 20, day = 100, min_gap_s = 30 }"
+              && SiteSettings.sites(files) == ["instagram.com"], "sites: a preset writes the style list and the caps")
+        check((try? SiteSettings.set("instagram.com", style, "\"fast\"", files)) == nil, "sites: a social site never goes below steady")
+        try? SiteSettings.set("example.org", dwell, "[2, 9]", files)
+        check(SiteSettings.explicit("example.org", dwell, files) == "[2, 9]" && SiteSettings.explicit("example.org", style, files) == nil
+              && SiteSettings.usual("example.org", style, files: files) == "\"steady\"", "sites: one key for a site, the rest usual")
+        try? SiteSettings.set("example.org", dwell, nil, files)
+        try? SiteSettings.remove("instagram.com", files)
+        let left = (try? String(contentsOf: files.config, encoding: .utf8)) ?? ""
+        check(left == "# mine\n[agent]\nsounds = true\n" && SiteSettings.sites(files).isEmpty, "sites: removing a site leaves the rest of the file as it was")
+        check(SiteSettings.cap("{ hour = 2, min_gap_s = 30 }").map { $0.count } == 2 && SiteSettings.cap("{}") == nil
+              && SiteSettings.capLiteral(["day": 5, "hour": 1]) == "{ hour = 1, day = 5 }", "sites: caps read and write")
+        let careful = PaceConfig.preset("careful", on: PaceConfig())!
+        let keys = ["move_ms", "between_actions_ms", "nav_min_gap_s", "actions_per_min", "dwell_s", "key_error_rate", "browse",
+                    "quiet_hours", "session_max_min", "break_min", "actions_per_day", "rest_s", "fidget"]
+        check(keys.allSatisfy { k in careful.literal(k).map { PaceConfig([k: $0]).literal(k) == $0 } == true }
+              && PaceConfig().literal("quiet_hours") == "[]", "sites: a pace value shown is the value the reader reads back")
+        try? "[pace.\"example.org\"]\nfidget = 0.3\n".write(to: Config.path, atomically: true, encoding: .utf8)
+        check(Config.load().profiles["example.org"]?.mode == "human", "a website's own pace starts from every website's, never the apps' fastest")
     }
 
     /// Skills come in three kinds by folder; learned facts stay small, dated and deduplicated.

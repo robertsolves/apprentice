@@ -609,7 +609,8 @@ struct Config {
         for (section, values) in toml where section.hasPrefix("pace.") && !["pace.default", "pace.styles"].contains(section) {
             // Lower case, as the lookups are, so `[pace."LinkedIn.com"]` and `[pace."Safari"]` match in any spelling.
             let key = String(section.dropFirst("pace.".count)).lowercased()
-            c.profiles[key] = PaceConfig(values, base: styled[key] ?? c.pace)
+            // A website with no style of its own starts from every website's, never from the apps' `fastest`.
+            c.profiles[key] = PaceConfig(values, base: styled[key] ?? (key.contains(".") ? styled["web"] : nil) ?? c.pace)
         }
         if let s = toml["session"] {
             if let a = s["allow"].flatMap(Toml.array) { c.allow = a }

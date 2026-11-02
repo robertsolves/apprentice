@@ -841,6 +841,7 @@ enum Section: String, CaseIterable, Identifiable {
     case pipelines = "Pipelines"
     case schedules = "Schedules"
     case skills = "Skills"
+    case sites = "Sites"
     case vms = "VMs"
     case settings = "Settings"
     case updates = "Updates"
@@ -854,6 +855,7 @@ enum Section: String, CaseIterable, Identifiable {
         case .pipelines: return "list.number"
         case .schedules: return "calendar"
         case .skills: return "book.closed.fill"
+        case .sites: return "globe"
         case .vms: return "server.rack"
         case .settings: return "gearshape.fill"
         case .updates: return "arrow.down.circle.fill"
@@ -958,6 +960,7 @@ struct RootView: View {
         case .terminal: TerminalWorkspace(model: model)
         case .schedules: SchedulesView(model: model)
         case .skills: SkillsView(model: model)
+        case .sites: SitesView(model: model)
         case .vms: VMsView(model: model)
         case .settings: SettingsView(model: model)
         case .updates: UpdatesView(model: model)

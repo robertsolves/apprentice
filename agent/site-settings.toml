@@ -1,0 +1,314 @@
+# The Sites screen in the window draws itself from this file. Each [field.<id>] is one control, shown in
+# the order written here under its [group.<id>]; each [preset."<site>"] is what "Set up" writes for a site.
+# Add a field or a preset here and the window shows it with no code change.
+#
+# A field's `key` is the key it writes: in config.toml's [pace."<site>"] section (store = "pace"), in its
+# [pace.styles] lists (store = "style", the same lists `apprentice pace <site> <style>` edits), or a kind's
+# caps in budgets.json (store = "budget"). Types:
+#   choice   one of `choices`, each with a `labels` and a `notes` entry
+#   number   one number; `zero` names what 0 means ("no limit"), `scale` divides what the file holds
+#   range    two numbers, from and to, written [a, b]
+#   percent  a share from 0 to `max`, shown as a percentage
+#   hours    quiet hours [from, to], or off
+#   cap      a kind's caps: { hour, day, week, min_gap_s }, each optional
+# `only` limits a field to the sites listed. Preset values are written as the file takes them.
+
+[screen]
+title = "Sites"
+subtitle = "How apprentice behaves on each website"
+about = "Each website can have its own pace, hours and limits, so apprentice works there the way a careful person would. Social sites already run at a careful pace; setting one up adds the daily limits that keep the account safe."
+points = ["Pick a site on the left, or set one up from the ready-made presets.", "Every change is saved at once. A value you changed shows Reset, which puts back the usual one.", "Every website covers the sites with no settings of their own."]
+
+[group.pace]
+title = "Pace"
+about = "How quickly apprentice moves, types and reads on this site."
+
+[group.day]
+title = "A person's day"
+about = "Hours and amounts a person would keep to on this site."
+
+[group.caps]
+title = "Limits per action"
+about = "How many of each action apprentice may take here. When one is reached it stops that action and says when it can go on. Empty means no limit."
+
+[field.style]
+group = "pace"
+store = "style"
+type = "choice"
+key = "style"
+label = "Overall pace"
+help = "Sets every timing below at once. Social sites never go below steady."
+choices = ["careful", "steady", "fast", "fastest"]
+labels = ["Careful", "Steady", "Fast", "Fastest"]
+notes = ["Reads before acting, takes breaks, rests between bursts. The safest for an account.", "Like a person who knows the site: no rush, no long pauses.", "Moves straight on, still with real mouse paths and typing.", "Short moves and pasted text. Only for a site you read without signing in."]
+
+[field.between]
+group = "pace"
+store = "pace"
+type = "range"
+key = "between_actions_ms"
+label = "Pause between actions"
+help = "A random wait from one click or key to the next."
+unit = "seconds"
+scale = 1000
+min = 0
+max = 60
+step = 0.5
+
+[field.dwell]
+group = "pace"
+store = "pace"
+type = "range"
+key = "dwell_s"
+label = "Reading a page"
+help = "How long it looks at a new page before it acts there."
+unit = "seconds"
+min = 0
+max = 120
+step = 1
+
+[field.per_minute]
+group = "pace"
+store = "pace"
+type = "number"
+key = "actions_per_min"
+label = "Actions a minute, at most"
+help = "Clicks, typing and scrolls together."
+unit = "a minute"
+min = 1
+max = 120
+step = 1
+
+[field.page_gap]
+group = "pace"
+store = "pace"
+type = "number"
+key = "nav_min_gap_s"
+label = "Time between page loads"
+help = "The shortest wait from opening one page to opening the next."
+unit = "seconds"
+min = 0
+max = 600
+step = 1
+
+[field.typos]
+group = "pace"
+store = "pace"
+type = "percent"
+key = "key_error_rate"
+label = "Typing slips"
+help = "Now and then a wrong key, noticed and fixed, as a person types."
+max = 0.1
+
+[field.browse]
+group = "pace"
+store = "pace"
+type = "percent"
+key = "browse"
+label = "Reading the feed"
+help = "How often it scrolls down the feed and back after an action, as a person mostly reads."
+max = 0.2
+
+[field.quiet]
+group = "day"
+store = "pace"
+type = "hours"
+key = "quiet_hours"
+label = "Quiet hours"
+help = "No actions on this site between these hours, by this Mac's clock."
+
+[field.sitting]
+group = "day"
+store = "pace"
+type = "number"
+key = "session_max_min"
+label = "Longest sitting"
+help = "After this long on the site it takes a break."
+unit = "minutes"
+zero = "no breaks"
+min = 0
+max = 600
+step = 5
+
+[field.break]
+group = "day"
+store = "pace"
+type = "range"
+key = "break_min"
+label = "Break length"
+help = "How long a break after a long sitting lasts."
+unit = "minutes"
+min = 1
+max = 240
+step = 5
+
+[field.per_day]
+group = "day"
+store = "pace"
+type = "number"
+key = "actions_per_day"
+label = "Actions a day, at most"
+help = "Everything it does on the site in one day."
+unit = "a day"
+zero = "no limit"
+min = 0
+max = 5000
+step = 50
+
+[field.post]
+group = "caps"
+store = "budget"
+type = "cap"
+key = "post"
+label = "Posts"
+
+[field.story]
+group = "caps"
+store = "budget"
+type = "cap"
+key = "story"
+label = "Stories"
+only = ["instagram.com", "facebook.com"]
+
+[field.comment]
+group = "caps"
+store = "budget"
+type = "cap"
+key = "comment"
+label = "Comments and replies"
+
+[field.like]
+group = "caps"
+store = "budget"
+type = "cap"
+key = "like"
+label = "Likes"
+
+[field.upvote]
+group = "caps"
+store = "budget"
+type = "cap"
+key = "upvote"
+label = "Upvotes"
+only = ["reddit.com"]
+
+[field.repost]
+group = "caps"
+store = "budget"
+type = "cap"
+key = "repost"
+label = "Reposts"
+only = ["x.com", "threads.net", "threads.com", "bsky.app"]
+
+[field.follow]
+group = "caps"
+store = "budget"
+type = "cap"
+key = "follow"
+label = "Follows"
+
+[field.unfollow]
+group = "caps"
+store = "budget"
+type = "cap"
+key = "unfollow"
+label = "Unfollows"
+
+[field.connect]
+group = "caps"
+store = "budget"
+type = "cap"
+key = "connect"
+label = "Invitations to connect"
+only = ["linkedin.com"]
+
+[field.friend_request]
+group = "caps"
+store = "budget"
+type = "cap"
+key = "friend_request"
+label = "Friend requests"
+only = ["facebook.com"]
+
+[field.join]
+group = "caps"
+store = "budget"
+type = "cap"
+key = "join"
+label = "Joining groups or communities"
+only = ["reddit.com", "facebook.com"]
+
+[field.message]
+group = "caps"
+store = "budget"
+type = "cap"
+key = "message"
+label = "Messages"
+
+[preset."instagram.com"]
+label = "Instagram"
+icon = "camera"
+style = "careful"
+post = { hour = 1, day = 3, min_gap_s = 1800 }
+story = { hour = 3, day = 10, min_gap_s = 300 }
+comment = { hour = 5, day = 20, min_gap_s = 120 }
+like = { hour = 20, day = 100, min_gap_s = 30 }
+follow = { hour = 5, day = 20, min_gap_s = 180 }
+unfollow = { hour = 5, day = 20, min_gap_s = 180 }
+message = { hour = 5, day = 20, min_gap_s = 180 }
+
+[preset."linkedin.com"]
+label = "LinkedIn"
+icon = "briefcase"
+style = "careful"
+post = { hour = 1, day = 2, min_gap_s = 3600 }
+comment = { hour = 4, day = 15, min_gap_s = 180 }
+like = { hour = 15, day = 50, min_gap_s = 30 }
+connect = { hour = 3, day = 15, week = 80, min_gap_s = 300 }
+follow = { hour = 5, day = 20, min_gap_s = 180 }
+message = { hour = 5, day = 20, min_gap_s = 180 }
+
+[preset."x.com"]
+label = "X"
+icon = "bubble.left"
+style = "careful"
+post = { hour = 3, day = 10, min_gap_s = 600 }
+comment = { hour = 5, day = 20, min_gap_s = 120 }
+repost = { hour = 5, day = 20, min_gap_s = 120 }
+like = { hour = 25, day = 100, min_gap_s = 15 }
+follow = { hour = 5, day = 20, min_gap_s = 180 }
+unfollow = { hour = 5, day = 20, min_gap_s = 180 }
+message = { hour = 5, day = 20, min_gap_s = 180 }
+
+[preset."facebook.com"]
+label = "Facebook"
+icon = "person.2"
+style = "careful"
+post = { hour = 1, day = 5, min_gap_s = 1800 }
+comment = { hour = 5, day = 20, min_gap_s = 120 }
+like = { hour = 20, day = 100, min_gap_s = 20 }
+friend_request = { hour = 3, day = 10, min_gap_s = 300 }
+follow = { hour = 5, day = 20, min_gap_s = 180 }
+message = { hour = 5, day = 20, min_gap_s = 180 }
+
+[preset."reddit.com"]
+label = "Reddit"
+icon = "text.bubble"
+style = "careful"
+post = { hour = 1, day = 3, min_gap_s = 1800 }
+comment = { hour = 5, day = 20, min_gap_s = 120 }
+upvote = { hour = 25, day = 100, min_gap_s = 15 }
+join = { hour = 3, day = 10, min_gap_s = 300 }
+follow = { hour = 3, day = 10, min_gap_s = 300 }
+message = { hour = 3, day = 10, min_gap_s = 300 }
+
+[preset."tiktok.com"]
+label = "TikTok"
+icon = "music.note"
+style = "careful"
+post = { hour = 1, day = 3, min_gap_s = 3600 }
+comment = { hour = 5, day = 20, min_gap_s = 120 }
+like = { hour = 25, day = 100, min_gap_s = 20 }
+follow = { hour = 5, day = 25, min_gap_s = 150 }
+unfollow = { hour = 5, day = 25, min_gap_s = 150 }
+message = { hour = 5, day = 15, min_gap_s = 180 }
