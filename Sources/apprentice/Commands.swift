@@ -300,30 +300,38 @@ func saveGateShot(_ session: Session, _ action: String) {
 /// Every state-changing command passes here before it acts. Until the caller approves this exact
 /// request, it throws exit 8 with a proposal; flagged proposals also keep a screenshot in the log.
 func gate(_ session: Session, _ target: Target, _ e: Element?, _ summary: String,
-          details: [String] = [], warn: [String] = [], force: Bool = false) throws {
-    let kind = try approveStep(session, target.page, e, summary, details: details, warn: warn, force: force)
+          details: [String] = [], warn: [String] = [], force: Bool = false,
+          submits: Bool = false, focus: Element? = nil) throws {
+    let kind = try approveStep(session, target.page, e, summary, details: details, warn: warn, force: force,
+                               submits: submits, focus: focus)
     try Watch.begin()
     target.raise()
     if kind != nil { Site.dwell() }
 }
 
 /// The approval and the site's budget for one step, wherever it runs. Returns the budgeted kind it
-/// was counted as, if any.
+/// was counted as, if any. `submits` is set by a step that sends what it acts on (return pressed by `key`
+/// or `type --enter`), and `focus` names what return lands on when the step has no element of its own,
+/// so a reply sent with return is charged the same kind as one sent with a click (F12).
 @discardableResult
 func approveStep(_ session: Session, _ target: Page, _ e: Element?, _ summary: String,
-                 details: [String] = [], warn: [String] = [], force: Bool = false) throws -> String? {
+                 details: [String] = [], warn: [String] = [], force: Bool = false,
+                 submits: Bool = false, focus: Element? = nil) throws -> String? {
     // The person may be working in the tab a session was attached to. Apprentice only changes a tab it opened.
     if session.isBrowser, session.vm != true, session.ownsTab != true {
         throw Fail(4, "this session is attached to a tab you had open, and apprentice never navigates, types in, clicks in or closes a tab it did not open: you may be using it. Run `apprentice session --new-tab` and work in that tab. `read`, `scroll` and `browse` still work here")
     }
-    let warnings = Gate.warnings(e, target, force: force) + warn + [Cooldown.warning(hostOf(target.url))].compactMap { $0 }
+    // A step can name the same warning twice (a drag's source and target in one dialog): show it once.
+    var seen = Set<String>()
+    let warnings = (Gate.warnings(e, target, force: force) + warn + [Cooldown.warning(hostOf(target.url))].compactMap { $0 })
+        .filter { seen.insert($0).inserted }
     // A like, follow, comment or other budgeted action is checked against the site's budget before it
     // is proposed, and counted once approved. Typing counts only when return sends it.
     let host = hostOf(target.url)
     let request = Approvals.request
-    let sends = request.cmd == "click" || (request.cmd == "type" && Args.parse(request.args).has("enter"))
+    let sends = submits || request.cmd == "click" || (request.cmd == "type" && Args.parse(request.args).has("enter"))
     let onSettings = Gate.sensitivePage(target.url) || Gate.sensitivePage(target.title)
-    var kind = sends ? Budgets.kind(e.map { "\($0.label) \($0.name)" } ?? summary, gated: !warnings.isEmpty || e?.gated == true) : nil
+    var kind = sends ? Budgets.kind((e ?? focus).map { "\($0.label) \($0.name)" } ?? summary, gated: !warnings.isEmpty || e?.gated == true) : nil
     if request.cmd == "upload" { kind = "upload" } else if kind == "default", onSettings { kind = "settings" }
     if let host, let kind { try Budgets.check(host, kind, record: false) }
     if !warnings.isEmpty, !Approvals.approved, session.vm != true { saveGateShot(session, summary) }
@@ -495,13 +503,25 @@ enum Commands {
             throw Fail(8, "only the user can approve \(token): \(p.summary) · \(why). Run `apprentice confirm \(token) --why \"…\"` so they decide in the window. Nobody can approve it for them, nor from the chat")
         }
         var p = try Approvals.take(token)
+        // The step runs through `dispatch`, past the daemon's own screen check, so it is checked here: another
+        // agent holding this screen refuses it, and the proposal stays pending (F13). The user's approval passes.
+        var step = Request(cmd: p.cmd, args: p.args)
+        step.model = Store.model
+        step.project = Project.dir?.path
+        step.tab = p.tab
+        step.user = Approvals.byUser == token ? true : nil
+        do { try Device.check(step) } catch { Approvals.add(p); throw error }
         // `--text` is a bare switch (it turns on the reply field for `ask --text`), so the parser
         // leaves the replacement text in the positional list: `approve 7c2e --text "new words"`
         // is the token, then the words. Reading only the flag silently typed the old text (I4).
         var edited = a.value("text")
         if edited == nil, a.has("text") {
             let words = a.pos.dropFirst().joined(separator: " ")
-            guard !words.isEmpty else { throw Fail(5, "approve <token> --text \"edited text\"") }
+            guard !words.isEmpty else {
+                // Nothing was done, so the proposal stays pending (F1).
+                Approvals.add(p)
+                throw Fail(5, "approve <token> --text \"edited text\"")
+            }
             edited = words
         }
         if let edited {
@@ -732,7 +752,7 @@ enum Commands {
                 let stop = Challenge.start(host, marker, session: session)
                 throw Fail(stop.code, out + "\n" + stop.message)
             }
-            if Limits.stored.challenged?[Site.domain(host)] != nil {
+            if let recorded = Limits.stored.challenged?[Site.domain(host)], Challenge.gone(snapshot, recorded: recorded) {
                 Challenge.clear(Site.domain(host))
                 return out + "\nchallenge gone: \(Site.domain(host)) can be used again"
             }
@@ -929,13 +949,13 @@ enum Commands {
             // A saved sign-in or the user's code: read only once approved, never shown or logged.
             let summary = try Login.check(secret, url: target.url, field: e)
             try gate(session, target, e, summary, details: enter ? ["then presses return"] : [],
-                     warn: ["signs in (login.auto)"] + (enter ? ["return may submit or send"] : []), force: a.has("gate"))
+                     warn: ["signs in (login.auto)"] + (enter ? ["return may submit or send"] : []), force: a.has("gate"), submits: enter)
             text = try Login.value(secret, url: target.url, a)
         } else {
             try gate(session, target, e, "type into \(e.short)",
                      details: (e.value.map { ["current text: \($0)"] } ?? []) + ["replaces it with: \(text)"]
                         + (enter ? ["then presses return"] : []),
-                     warn: enter ? ["return may submit or send"] : [], force: a.has("gate"))
+                     warn: enter ? ["return may submit or send"] : [], force: a.has("gate"), submits: enter)
         }
         try beforeAction(session, url: target.url)
         // Apps run `fastest` (pasted text) by default. A web page is typed at a person's gaps, a keystroke-timing
@@ -988,7 +1008,10 @@ enum Commands {
         _ = try Keys.parse(combo)
         let (session, target, old) = try prepare()
         let submits = ["return", "enter"].contains { combo.lowercased().contains($0) }
-        try gate(session, target, nil, "press \(combo)", warn: submits ? ["\(combo) may submit or send"] : [])
+        // Return on a focused Post button or in a comment box sends it: budgeted like a click (F12).
+        let focus = submits ? (try? focusedElement(target))?.1 : nil
+        try gate(session, target, nil, "press \(combo)", warn: submits ? ["\(combo) may submit or send"] : [],
+                 submits: submits, focus: focus)
         try beforeAction(session, url: target.url)
         try Borrow.run(target) { try Keys.press(combo) }
         Pace.sleep(0.1)
@@ -1142,7 +1165,7 @@ enum Commands {
         let (_, src) = try resolve(from, target)
         let (_, dst) = try resolve(to, target)
         try gate(session, target, src, "drag \(src.short) onto \(dst.short)",
-                 warn: Gate.warnings(dst, target.page).filter { $0.hasPrefix("may") })
+                 warn: Gate.warnings(dst, target.page))
         try beforeAction(session, url: target.url)
         try Borrow.run(target) {
             let start = Mouse.landing(in: src.rect)

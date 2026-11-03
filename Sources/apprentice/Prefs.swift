@@ -21,10 +21,33 @@ enum Prefs {
 
     static let file = "prefs.json"
 
-    /// One device's prefs; nil when the VM can't be reached.
+    /// One level's prefs.json: missing or blank is no prefs yet, but text that does not read as prefs is
+    /// `unreadable`, never an empty map, or the next `remember` would write over what it holds (F15).
+    enum Loaded { case prefs([String: Pref]), unreachable, unreadable }
+
+    static func parse(_ text: String) -> [String: Pref]? {
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return [:] }
+        return try? JSONDecoder().decode([String: Pref].self, from: Data(text.utf8))
+    }
+
+    static func loaded(_ place: Layers.Place) -> Loaded {
+        guard let text = Layers.read(file, place) else { return .unreachable }
+        return parse(text).map(Loaded.prefs) ?? .unreadable
+    }
+
+    /// One device's prefs; nil when the VM can't be reached or its file does not parse.
     static func load(_ place: Layers.Place) -> [String: Pref]? {
-        guard let text = Layers.read(file, place) else { return nil }
-        return (try? JSONDecoder().decode([String: Pref].self, from: Data(text.utf8))) ?? [:]
+        if case .prefs(let p) = loaded(place) { return p }
+        return nil
+    }
+
+    /// The prefs at `place` to change, or the reason nothing may be written there.
+    static func writable(_ place: Layers.Place, _ verb: String) throws -> [String: Pref] {
+        switch loaded(place) {
+        case .prefs(let p): return p
+        case .unreachable: throw Fail(5, "not \(verb): could not reach \(place.label). Is it up? `apprentice vm status`")
+        case .unreadable: throw Fail(5, "not \(verb): \(file) for \(place.label) does not parse, so saving would drop what is in it. Fix or move the file, then try again")
+        }
     }
 
     /// Every pref this device sees, the nearest device's value for each key, sorted by key.
@@ -92,12 +115,18 @@ enum Prefs {
         return (merge(layers), missing)
     }
 
+    /// The warning for a level whose prefs were left out.
+    static func missingLine(_ place: Layers.Place) -> String {
+        if case .unreadable = loaded(place) { return "warning: \(file) for \(place.label) does not parse; its prefs are left out" }
+        return "warning: could not reach \(place.label); its prefs are left out"
+    }
+
     /// `prefs ["words"]`.
     static func list(_ a: Args) -> String {
         let (seen, missing) = visible()
         let found = matching(seen, a.pos.joined(separator: " "))
         var out = ["prefs · \(Layers.chain.map(\.label).joined(separator: ", then "))"]
-        out += missing.map { "warning: could not reach \($0.label); its prefs are left out" }
+        out += missing.map(missingLine)
         out += found.isEmpty ? [seen.isEmpty ? "none yet: `apprentice remember <key> \"<value>\" --from you|task`" : "none match"] : found.map(line)
         return out.joined(separator: "\n")
     }
@@ -150,7 +179,7 @@ enum Prefs {
             throw Fail(5, "not saved: say where it came from, --from you (the user's words) or --from task (the site or app the task ran on). Never from other screen text")
         }
         let place = try target(a)
-        guard var mine = load(place) else { throw Fail(5, "not saved: could not reach \(place.label). Is it up? `apprentice vm status`") }
+        var mine = try writable(place, "saved")
         let pref = Pref(value: value, from: from, at: Store.day())
         if mine[k] == pref { return "already remembered on \(place.label): \(k) = \(value)" }
         mine[k] = pref
@@ -168,7 +197,7 @@ enum Prefs {
     static func forget(_ a: Args) throws -> String {
         guard let raw = a.pos.first, let k = key(raw) else { throw Fail(5, "forget <key> [--on mac|project]") }
         let place = try target(a)
-        guard var mine = load(place) else { throw Fail(5, "could not reach \(place.label). Is it up? `apprentice vm status`") }
+        var mine = try writable(place, "forgotten")
         var out: [String] = []
         if mine.removeValue(forKey: k) != nil {
             try Layers.write(file, String(decoding: Wire.json(mine), as: UTF8.self), place)

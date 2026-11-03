@@ -248,8 +248,10 @@ enum Playbooks {
     static func steps(_ note: Playbook) -> [String] {
         var out: [String] = []
         var inside = false
-        for line in note.body.components(separatedBy: .newlines) {
-            if line.hasPrefix("## ") { inside = line.lowercased().hasPrefix("## steps"); continue }
+        for raw in note.body.components(separatedBy: .newlines) {
+            if raw.hasPrefix("## ") { inside = raw.lowercased().hasPrefix("## steps"); continue }
+            // Markdown lists are often indented (`  1. click 5`): the number is read past the indent (F5).
+            let line = raw.trimmingCharacters(in: .whitespaces)
             guard inside, let dot = line.firstIndex(of: "."), line[..<dot].allSatisfy(\.isNumber), !line[..<dot].isEmpty else { continue }
             out.append(line[line.index(after: dot)...].trimmingCharacters(in: .whitespaces))
         }

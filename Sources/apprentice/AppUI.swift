@@ -2219,7 +2219,7 @@ private struct SettingRow: View {
         case .number(let range):
             IntField(value: Binding(get: { Int(value) ?? range.lowerBound }, set: { value = "\($0)" }), range: range)
         case .choice(let choices):
-            Picker("", selection: Binding(get: { choices.contains(value) ? value : choices[0] }, set: { value = $0 })) {
+            Picker("", selection: Binding(get: { choices.contains(value) ? value : choices.first ?? "" }, set: { value = $0 })) {
                 ForEach(choices, id: \.self) { Text($0).tag($0) }
             }
             .labelsHidden().pickerStyle(.segmented).frame(width: 200)

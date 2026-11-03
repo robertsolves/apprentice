@@ -75,9 +75,7 @@ enum Pipelines {
             for line in lines[1..<end] {
                 guard let colon = line.firstIndex(of: ":") else { continue }
                 let key = line[..<colon].trimmingCharacters(in: .whitespaces).lowercased()
-                var value = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
-                if let hash = value.range(of: " #") { value = String(value[..<hash.lowerBound]).trimmingCharacters(in: .whitespaces) }
-                meta[key] = value
+                meta[key] = metaValue(line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces))
             }
             lines = Array(lines[(end + 1)...])
         }
@@ -119,9 +117,33 @@ enum Pipelines {
         return p
     }
 
+    /// A front-matter value: a quoted one is read to its closing quote (so `"Budget #2"` keeps its `#`),
+    /// and only an unquoted one loses a trailing ` # comment` (F6).
+    static func metaValue(_ raw: String) -> String {
+        if raw.hasPrefix("\"") {
+            var escaped = false
+            for i in raw.indices.dropFirst() {
+                let ch = raw[i]
+                if escaped { escaped = false } else if ch == "\\" { escaped = true } else if ch == "\"" {
+                    return Toml.unquote(String(raw[...i]))
+                }
+            }
+        }
+        guard let hash = raw.range(of: " #") else { return raw }
+        return String(raw[..<hash.lowerBound]).trimmingCharacters(in: .whitespaces)
+    }
+
+    /// Quotes a front-matter value when reading it back plain would change it.
+    static func metaQuoted(_ v: String) -> String {
+        let plain = !v.contains("#") && !v.hasPrefix("\"") && v == v.trimmingCharacters(in: .whitespaces)
+        if plain { return v }
+        let escaped = v.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"" + escaped + "\""
+    }
+
     static func render(_ p: Pipeline) -> String {
-        var out = ["---", "name: \(p.name)", "agent: \(p.agent)"]
-        if let vm = p.vm, !vm.isEmpty { out.append("vm: \(vm)") }
+        var out = ["---", "name: \(metaQuoted(p.name))", "agent: \(metaQuoted(p.agent))"]
+        if let vm = p.vm, !vm.isEmpty { out.append("vm: \(metaQuoted(vm))") }
         out += ["---", "# \(p.name)", ""]
         if !p.about.isEmpty { out += [p.about, ""] }
         for (i, step) in p.steps.enumerated() {
