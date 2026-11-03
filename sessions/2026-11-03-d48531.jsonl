@@ -1,0 +1,7 @@
+{"app":"Google Chrome","cmd":"session","host":"newtab","model":"claude-sonnet-5-5","ms":1118,"pace":"facebook.com fast","ts":"2026-11-03T13:25:30.709+10:00"}
+{"cmd":"browse","diff":"+32 -0 ~0","host":"new-tab-page","model":"claude-sonnet-5-5","ms":28678,"pace":"web human","ts":"2026-11-03T13:25:59.416+10:00","waits":{"idle":12011,"move":619,"settle":312}}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":9,"pace":"web human","ts":"2026-11-03T13:25:59.469+10:00"}
+{"cmd":"ocr","model":"claude-sonnet-5-5","ms":497,"pace":"web human","ts":"2026-11-03T13:25:59.999+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T13:26:29.533+10:00"}
+{"cmd":"browse","diff":"+32 -11 ~0","host":"new-tab-page","model":"claude-sonnet-5-5","ms":11952,"pace":"web human","ts":"2026-11-03T13:26:29.994+10:00","waits":{"idle":0,"move":224,"settle":282}}
+{"code":5,"error":"window 80036 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"read","model":"claude-sonnet-5-5","ts":"2026-11-03T13:26:32.061+10:00"}
