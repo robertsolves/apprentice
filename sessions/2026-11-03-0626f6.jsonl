@@ -1,0 +1,6 @@
+{"app":"Google Chrome","cmd":"session","host":"newtab","model":"claude-sonnet-5-5","ms":1093,"pace":"web fast","ts":"2026-11-03T13:26:33.380+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T13:26:33.423+10:00"}
+{"cmd":"stop","model":"claude-sonnet-5-5","ms":132007,"pace":"web fast","ts":"2026-11-03T13:28:45.416+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":154,"pace":"default fast","ts":"2026-11-03T13:29:11.527+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":2237,"pace":"default fast","ts":"2026-11-03T13:29:13.781+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T13:49:33.675+10:00"}
