@@ -30,13 +30,10 @@ Load `apprentice` and `apprentice-web` first. For current labels and steps, run 
 - "You can't use this feature right now", "We limit how often…", "Your account is restricted", posts that fail to publish, or a checkpoint asking to confirm identity: stop all actions on the site and tell the user. apprentice starts the cooldown. Checkpoints and identity checks are the user's.
 - A new or long-quiet account gets a smaller allowance. Build up over weeks.
 
-## Reading a feed for recent posts (looking for work, leads, requests)
-- A group feed is not in date order, even with "New posts" or `?sorting_setting=CHRONOLOGICAL`: pinned, boosted and "most relevant" posts come first, and scrolling only ever goes further back in time. Never scroll on hoping for something newer.
-- Read the date of every post before you read the post. It sits beside the poster's name ("2h", "Yesterday", "November 1 at 7:36 PM", "Sep 3", a year). A post with no date is treated as old.
-- Keep a post only if it is under 3 days old, and only the newest 2 or 3 days count for a request that says "tomorrow" or "today".
-- Stop a group after 3 posts in a row older than 7 days, or after 4 screens, or after 5 minutes, whichever is first. Write "nothing new" in the log and move on. A day later, the same group may have new posts.
-- Never act on an old post (reply, message, quote a price). A request from March is a stale lead: skip it, however good it looks.
-- Count the dates you saw. If most posts in a group are older than a week, the group is quiet: drop it from the regular scan.
+## Reading a feed
+- A group feed is not in date order, even with "New posts" or `?sorting_setting=CHRONOLOGICAL`: pinned and boosted posts come first, and scrolling only goes further back in time. Never scroll on hoping for something newer.
+- Read a post's date before its content. It sits beside the poster's name ("2h", "Yesterday", "November 1 at 7:36 PM", "Sep 3"). A post with no date is treated as old.
+- Decide how recent counts before you start, and stop at 3 old posts in a row, 4 screens or 5 minutes. Don't act on a post you couldn't date.
 
 ## Budgets
 `apprentice budget facebook.com` shows what's left today, including `friend_request` and `group_post`.
