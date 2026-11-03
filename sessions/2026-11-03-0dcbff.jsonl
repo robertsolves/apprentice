@@ -1,0 +1,16 @@
+{"app":"Google Chrome","cmd":"session","host":"www.facebook.com","model":"claude-sonnet-5-5","ms":430,"pace":"facebook.com fast","ts":"2026-11-03T11:44:36.013+10:00"}
+{"model":"claude-sonnet-5-5","task":"Half hour read-only scan of joined Facebook groups for ute, pickup, tip run and assembly requests near Reedy Creek","ts":"2026-11-03T11:44:36.013+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T11:44:36.056+10:00"}
+{"approved":true,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T11:44:36.082+10:00"}
+{"cmd":"open","diff":"+0 -0 ~0","host":"facebook.com","model":"claude-sonnet-5-5","ms":3129,"pace":"facebook.com human","ts":"2026-11-03T11:44:39.211+10:00","waits":{"idle":0,"settle":255}}
+{"cmd":"browse","diff":"+87 -0 ~0","host":"facebook.com","model":"claude-sonnet-5-5","ms":23682,"pace":"facebook.com human","ts":"2026-11-03T11:45:10.942+10:00","waits":{"idle":0,"move":677,"settle":381}}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":10,"pace":"facebook.com human","ts":"2026-11-03T11:45:10.988+10:00"}
+{"cmd":"ocr","model":"claude-sonnet-5-5","ms":685,"pace":"facebook.com human","ts":"2026-11-03T11:45:11.709+10:00"}
+{"cmd":"browse","diff":"+97 -27 ~0","host":"facebook.com","model":"claude-sonnet-5-5","ms":23464,"pace":"facebook.com human","ts":"2026-11-03T11:45:45.229+10:00","waits":{"idle":0,"move":311,"settle":433}}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":9,"pace":"facebook.com human","ts":"2026-11-03T11:45:45.276+10:00"}
+{"cmd":"ocr","model":"claude-sonnet-5-5","ms":636,"pace":"facebook.com human","ts":"2026-11-03T11:45:45.948+10:00"}
+{"cmd":"browse","diff":"+102 -28 ~1","host":"facebook.com","model":"claude-sonnet-5-5","ms":23224,"pace":"facebook.com human","ts":"2026-11-03T11:46:24.220+10:00","waits":{"idle":0,"move":289,"settle":415}}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":18,"pace":"facebook.com human","ts":"2026-11-03T11:46:24.317+10:00"}
+{"cmd":"ocr","model":"claude-sonnet-5-5","ms":923,"pace":"facebook.com human","ts":"2026-11-03T11:46:25.295+10:00"}
+{"code":5,"error":"window 144 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"browse","model":"claude-sonnet-5-5","ts":"2026-11-03T11:46:49.379+10:00"}
+{"code":5,"error":"window 144 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"read","model":"claude-sonnet-5-5","ts":"2026-11-03T11:46:51.443+10:00"}
