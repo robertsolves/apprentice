@@ -179,6 +179,33 @@ enum Overlay {
         p.setFrameTopLeftPoint(NSPoint(x: screen.maxX - p.frame.width - 16, y: screen.maxY - 12))
     }
 
+    /// The cursor is about to land on `point` (screen coordinates, origin top left, as events use them). When the
+    /// box would cover it, the click would hit the box instead of the page, so the box steps aside first: to the
+    /// corner of that screen that is farthest from the point. It stays there; the person can drag it back.
+    static func stepAside(for point: CGPoint) {
+        guard Config.current.overlay else { return }
+        DispatchQueue.main.sync {
+            guard let p = panel, p.isVisible, let primary = NSScreen.screens.first else { return }
+            let flipY = primary.frame.height
+            func cg(_ f: NSRect) -> CGRect { CGRect(x: f.minX, y: flipY - f.maxY, width: f.width, height: f.height) }
+            // A margin, so a target just beside the box is not clipped by its shadow or the pointer's size.
+            guard cg(p.frame).insetBy(dx: -28, dy: -28).contains(point) else { return }
+            let screen = NSScreen.screens.first { cg($0.frame).contains(point) } ?? NSScreen.main ?? primary
+            let v = screen.visibleFrame, w = p.frame.width, h = p.frame.height, gap: CGFloat = 16
+            let corners = [NSPoint(x: v.maxX - w - gap, y: v.maxY - h - gap), NSPoint(x: v.maxX - w - gap, y: v.minY + gap),
+                           NSPoint(x: v.minX + gap, y: v.minY + gap), NSPoint(x: v.minX + gap, y: v.maxY - h - gap)]
+            let free = corners.filter { !cg(NSRect(origin: $0, size: p.frame.size)).insetBy(dx: -28, dy: -28).contains(point) }
+            guard let best = free.max(by: { a, b in
+                hypot(a.x + w / 2 - (point.x), (flipY - (a.y + h / 2)) - point.y) < hypot(b.x + w / 2 - (point.x), (flipY - (b.y + h / 2)) - point.y)
+            }) else { return }
+            p.setFrameOrigin(best)
+            p.orderFrontRegardless()
+            Store.log(["overlay": "stepped aside"])
+        }
+        // The window server needs a moment before the click lands on what was under the box.
+        Pace.sleep(0.15)
+    }
+
     /// One sound for each lasting change of state. A state must hold 0.8 s before it counts (the mouse
     /// jittering or a command ending must not chatter), the way back is heard only after a hand-off was,
     /// and a hand-off is announced at most once every 10 s.

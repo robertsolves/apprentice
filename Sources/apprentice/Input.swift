@@ -595,6 +595,8 @@ enum Mouse {
     /// fast reach that stops a little short of or past the target (`overshoot` of the time), then a
     /// slower correction onto it, sometimes in two steps.
     static func move(to target: CGPoint, size: CGSize = CGSize(width: 20, height: 20)) {
+        // The box must not sit on what is about to be clicked.
+        Overlay.stepAside(for: target)
         let began = Date()
         defer { Timing.add("move", Date().timeIntervalSince(began)) }
         let start = location
