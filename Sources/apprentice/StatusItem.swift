@@ -23,9 +23,6 @@ enum StatusItem {
         item.menu = NSMenu()
         item.menu?.delegate = menu
         self.item = item
-        let mark = (Ask.icon.copy() as? NSImage) ?? Ask.icon
-        mark.size = NSSize(width: 18, height: 18)
-        item.button?.image = mark
         item.button?.imagePosition = .imageLeading
         render()
     }
@@ -50,9 +47,40 @@ enum StatusItem {
         return working ? .working : .idle
     }
 
+    /// The apprentice mark as a line drawing in the menu bar's own text colour (so it suits light and dark bars),
+    /// with a small dot for the state: grey idle, green working, yellow waiting for you, orange needs approval.
+    private static func tray(_ state: State) -> NSImage {
+        NSImage(size: NSSize(width: 20, height: 18), flipped: true) { _ in
+            let s: CGFloat = 16 / 64
+            let a = NSBezierPath()
+            func p(_ x: CGFloat, _ y: CGFloat) -> NSPoint { NSPoint(x: 1 + x * s, y: 1 + y * s) }
+            a.move(to: p(45.5, 20))
+            a.curve(to: p(27, 44), controlPoint1: p(42, 32), controlPoint2: p(37.5, 44))
+            a.curve(to: p(16.5, 33), controlPoint1: p(20.5, 44), controlPoint2: p(16.5, 39))
+            a.curve(to: p(27, 22), controlPoint1: p(16.5, 27), controlPoint2: p(20.5, 22))
+            a.curve(to: p(45.5, 44), controlPoint1: p(37.5, 22), controlPoint2: p(42, 34))
+            a.lineWidth = 2.1
+            a.lineCapStyle = .round
+            a.lineJoinStyle = .round
+            NSColor.labelColor.setStroke()
+            a.stroke()
+            let color: NSColor = switch state {
+            case .idle: .systemGray
+            case .working: .systemGreen
+            case .waiting: .systemYellow
+            case .approval: .systemOrange
+            }
+            let dot = NSRect(x: 12.5, y: 11, width: 6, height: 6)
+            color.setFill()
+            NSBezierPath(ovalIn: dot).fill()
+            return true
+        }
+    }
+
     private static func render() {
         guard let button = item?.button else { return }
-        let marks: [State: String] = [.idle: "", .working: " …", .waiting: " ?", .approval: " !"]
+        button.image = tray(state)
+        let marks: [State: String] = [.idle: "", .working: "", .waiting: "", .approval: ""]
         button.title = (Store.vmName.map { " \($0)" } ?? "") + (marks[state] ?? "")
         button.toolTip = "apprentice: \(state.rawValue)"
         button.setAccessibilityLabel("apprentice, \(state.rawValue)")
