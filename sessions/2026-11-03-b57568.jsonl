@@ -1,0 +1,3 @@
+{"app":"Google Chrome","cmd":"session","host":"www.facebook.com","model":"claude-sonnet-5-5","ms":492,"pace":"facebook.com fast","ts":"2026-11-03T11:44:25.285+10:00"}
+{"model":"claude-sonnet-5-5","task":"Half hour read-only scan of joined Facebook groups for ute, pickup, tip run and assembly requests near Reedy Creek","ts":"2026-11-03T11:44:25.286+10:00"}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":76,"pace":"facebook.com human","ts":"2026-11-03T11:44:25.387+10:00"}
