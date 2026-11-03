@@ -20,7 +20,7 @@ enum Peer {
         let data = withUnsafeBytes(of: &token) { Data($0) }
         var code: SecCode?
         guard SecCodeCopyGuestWithAttributes(nil, [kSecGuestAttributeAudit: data] as CFDictionary, [], &code) == errSecSuccess,
-              let code, SecCodeCheckValidity(code, [], nil) == errSecSuccess,
+              let code, SecCodeCheckValidity(code, [], nil) == errSecSuccess, startedAsWindow(token),
               let info = signing(code), info[kSecCodeInfoIdentifier as String] as? String == AppBundle.identifier else { return false }
         if let mine = leaf(selfInfo()) { return leaf(info) == mine }
         // Ad hoc: only the code of the bundle `apprentice app` installed.
@@ -28,6 +28,19 @@ enum Peer {
         guard SecStaticCodeCreateWithPath(AppBundle.path as CFURL, [], &bundle) == errSecSuccess, let bundle,
               let installed = staticSigning(bundle)?[kSecCodeInfoUnique as String] as? Data else { return false }
         return info[kSecCodeInfoUnique as String] as? Data == installed
+    }
+
+    /// The window and the CLI are one executable, so the identity alone no longer says which one this is:
+    /// the window is the copy started with no arguments, as the Dock and Spotlight start it.
+    private static func startedAsWindow(_ token: audit_token_t) -> Bool {
+        let pid = Int32(bitPattern: token.val.5)
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size = 0
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size >= MemoryLayout<Int32>.size else { return false }
+        var buf = [UInt8](repeating: 0, count: size)
+        guard sysctl(&mib, 3, &buf, &size, nil, 0) == 0, size >= MemoryLayout<Int32>.size else { return false }
+        let argc = buf.withUnsafeBytes { $0.load(as: Int32.self) }
+        return argc <= 1
     }
 
     private static func signing(_ code: SecCode) -> [String: Any]? {

@@ -66,7 +66,7 @@ enum Notify {
     static func appBundleExecutable() -> String? {
         if let release = Release.bundle { return release.appendingPathComponent("Contents/MacOS/apprentice").path }
         guard let source = Bundle.main.executablePath else { return nil }
-        let app = Store.dir.appendingPathComponent("Apprentice.app")
+        let app = AppBundle.path
         let exe = app.appendingPathComponent("Contents/MacOS/apprentice")
         func stamp(_ path: String) -> Date? { (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date }
         if let have = stamp(exe.path), let want = stamp(source), have >= want { return exe.path }

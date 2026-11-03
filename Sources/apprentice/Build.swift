@@ -20,7 +20,7 @@ enum Build {
     static var version: String {
         if Release.isRelease { return "\(number) (release)" }
         guard let i = install else { return number }
-        if let bin = i.bin, URL(fileURLWithPath: bin).standardizedFileURL.path != URL(fileURLWithPath: Wire.binaryPath()).standardizedFileURL.path {
+        if let bin = i.bin, URL(fileURLWithPath: bin).resolvingSymlinksInPath().path != URL(fileURLWithPath: Wire.binaryPath()).resolvingSymlinksInPath().path {
             return "\(number) (dev build; installed: \(i.commit))"
         }
         return "\(number) (\(i.commit))"

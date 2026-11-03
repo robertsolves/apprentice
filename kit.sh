@@ -64,6 +64,8 @@ else
   echo "         so Accessibility and Screen Recording grants survive rebuilds."
 fi
 
+# A link left by an earlier packaged install: replace it with the new file, repackaged below.
+[ -L "$bin" ] && rm -f "$bin"
 mv -f "$new" "$bin"
 
 # What was installed, from where: `apprentice version` prints the commit, and apprentice finds its clone here.
@@ -74,6 +76,26 @@ printf '{"clone":"%s","commit":"%s","built":"%s","bin":"%s"}\n' "$root" "$commit
 # The window app: the same binary in a real bundle, signed with the same identity, so the Accessibility and
 # Screen Recording grants stay with it across rebuilds (`apprentice app` opens it).
 "$bin" app --install || echo "warning: could not build ~/.apprentice/Apprentice.app"
+# One executable, one package: Apprentice.app's own binary is the window (no arguments) and the CLI and
+# daemon (with arguments), and ~/.local/bin/apprentice only links to it. The Accessibility and Screen
+# Recording entries then belong to the one app, signed once with one identity, so dragging Apprentice.app into
+# the two lists is all it takes and a rebuild never leaves a stale grant behind.
+app="/Applications/Apprentice.app"
+local_app="$HOME/.apprentice/Apprentice.app"
+exe="$app/Contents/MacOS/apprentice"
+if [ -d "$local_app" ]; then
+  rm -rf "$app"
+  ditto "$local_app" "$app" && rm -rf "$local_app"
+fi
+if [ -x "$exe" ]; then
+  rm -rf "$app/Contents/Helpers"
+  codesign --force --options runtime --sign "${id:--}" "$app"
+  rm -f "$bin"
+  ln -sfn "$exe" "$bin"
+  printf '{"clone":"%s","commit":"%s","built":"%s","bin":"%s"}\n' "$root" "$commit" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$exe" \
+    >"$HOME/.apprentice/install.json"
+  echo "packaged: $bin → $exe"
+fi
 # State holds URLs, page titles, screenshots and perhaps an API key: this user only.
 chmod 700 "$HOME/.apprentice"
 

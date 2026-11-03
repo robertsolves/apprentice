@@ -7,7 +7,13 @@ import SwiftUI
 enum AppBundle {
     static let identifier = "com.apprentice.app"
     /// The release app in /Applications when that is what runs, else the bundle `kit.sh` builds.
-    static var path: URL { Release.bundle ?? Store.dir.appendingPathComponent("Apprentice.app") }
+    static var path: URL {
+        if let release = Release.bundle { return release }
+        // `kit.sh` installs the one app in /Applications, so that is the one to drag into the Privacy lists.
+        let applications = URL(fileURLWithPath: "/Applications/Apprentice.app")
+        if FileManager.default.isExecutableFile(atPath: applications.appendingPathComponent("Contents/MacOS/apprentice").path) { return applications }
+        return Store.dir.appendingPathComponent("Apprentice.app")
+    }
     static var executable: URL { path.appendingPathComponent("Contents/MacOS/apprentice") }
     /// True inside the bundle: then this process is the window, not the CLI.
     static var inBundle: Bool { Bundle.main.bundleIdentifier == identifier }
