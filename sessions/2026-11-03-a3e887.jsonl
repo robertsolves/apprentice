@@ -10,3 +10,5 @@
 {"cmd":"read","model":"claude-sonnet-5-5","ms":73,"pace":"facebook.com human","ts":"2026-11-03T11:11:14.771+10:00","vm":true}
 {"cmd":"read","model":"claude-sonnet-5-5","ms":73,"pace":"facebook.com human","ts":"2026-11-03T11:11:14.875+10:00","vm":true}
 {"cmd":"read","model":"claude-sonnet-5-5","ms":89,"pace":"facebook.com human","ts":"2026-11-03T11:11:18.516+10:00","vm":true}
+{"code":5,"error":"Google Chrome has no window: open one, or run `apprentice session --new-window`","failed":"session","model":"claude-sonnet-5-5","ts":"2026-11-03T11:11:24.944+10:00"}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":140,"pace":"facebook.com human","ts":"2026-11-03T11:11:25.109+10:00","vm":true}
