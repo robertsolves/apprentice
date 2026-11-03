@@ -1,0 +1,4 @@
+{"app":"Google Chrome","cmd":"session","host":"newtab","model":"claude-sonnet-5-5","ms":1056,"pace":"web fast","ts":"2026-11-03T12:22:07.301+10:00"}
+{"model":"claude-sonnet-5-5","task":"test the own-tab rule","ts":"2026-11-03T12:22:07.301+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T12:22:07.342+10:00"}
+{"approved":false,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T12:22:12.652+10:00"}
