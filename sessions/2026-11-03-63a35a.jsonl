@@ -1,0 +1,6 @@
+{"app":"Google Chrome","cmd":"session","host":"newtab","model":"claude-sonnet-5-5","ms":1210,"pace":"facebook.com fast","ts":"2026-11-03T12:21:50.782+10:00"}
+{"model":"claude-sonnet-5-5","task":"test the own-tab rule","ts":"2026-11-03T12:21:50.783+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T12:21:50.822+10:00"}
+{"code":5,"error":"no pending action 1b25","failed":"deny","model":"claude-sonnet-5-5","ts":"2026-11-03T12:21:55.071+10:00"}
+{"approved":false,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T12:21:55.095+10:00"}
+{"cmd":"stop","model":"claude-sonnet-5-5","ms":969,"pace":"web human","ts":"2026-11-03T12:22:05.084+10:00","waits":{"idle":0,"move":326}}
