@@ -501,7 +501,7 @@ enum Overlay {
             Handback.showAgent(pid: r.agentPid, wid: r.agentWid)
         }
         @objc func watch(_ sender: NSButton) {
-            DispatchQueue.global().async { try? VM.openViewer() }
+            VMView.show()
         }
         @objc func togglePause(_ sender: NSButton) {
             let marker = dir(row(sender)).appendingPathComponent("paused")

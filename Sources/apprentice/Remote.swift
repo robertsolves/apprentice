@@ -411,6 +411,8 @@ enum Remote {
 
     static func session(_ a: Args) throws -> String {
         try connect()
+        // A task begins here, as on the Mac: where the person is now, to give back at the end.
+        if Approvals.request.cmd != "focus" { Handback.capture() }
         let focusing = Approvals.request.cmd == "focus"
         let wanted = (focusing ? a.pos.first : nil) ?? a.value("app")
         if let wanted, !VM.isBrowser(wanted) { return try appSession(wanted, a, launch: !focusing) }

@@ -488,7 +488,7 @@ struct Config {
     var overlay = true
     var sounds = true
     /// A VM session opens Screen Sharing on the VM once per run, so its pointer and typing can be seen.
-    var watchVM = true
+    var watchVM = false
     var notifications = false
     var dockIcon = true
     /// Where questions go: "both" (the window, then the chat if unanswered), "window", or "terminal".

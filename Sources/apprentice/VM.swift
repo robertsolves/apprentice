@@ -106,7 +106,7 @@ enum VM {
     static func watch() {
         guard Config.current.watchVM, !watching else { return }
         watching = true
-        DispatchQueue.global().async { try? openViewer(activate: false) }
+        VMView.show(activate: false)
     }
 
     /// Screen Sharing to the guest's VNC server; the password is the VM's.

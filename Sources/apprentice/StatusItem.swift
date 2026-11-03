@@ -189,10 +189,20 @@ enum DockIcon {
     /// The Dock icon follows what the rows say: the apprentice icon with a dot in the state's colour, and a badge
     /// ("VM" when a task runs in a VM, a number when several are active), so the Dock shows where and how it stands.
     static func show(_ rows: [LiveRow]) {
-        guard wanted, let top = rows.min(by: { ($0.rank, $0.key) < ($1.rank, $1.key) }) else { return }
-        let active = rows.filter { $0.head != "Ready" }
+        guard wanted, !rows.isEmpty else { return }
+        // Three colours to read from across the room: orange needs you, green is running, grey is waiting.
+        func level(_ r: LiveRow) -> Int {
+            switch r.head {
+            case "Needs approval", "Waiting for you", "Stopped", "Agent stopped", "Paused": return 2
+            case "Working", "Yours": return 1
+            default: return 0
+            }
+        }
+        let top = rows.map(level).max() ?? 0
+        let color: NSColor = [NSColor.systemGray, .systemGreen, .systemOrange][top]
+        let active = rows.filter { level($0) > 0 }
         let badge = active.isEmpty ? "" : (active.contains { $0.inVM } ? "VM" : "") + (active.count > 1 ? "\(active.count)" : "")
-        let sig = "\(top.tone)|\(badge)"
+        let sig = "\(top)|\(badge)"
         guard sig != lastTile else { return }
         lastTile = sig
         let tile = NSImage(size: NSSize(width: 128, height: 128), flipped: false) { rect in
@@ -200,7 +210,7 @@ enum DockIcon {
             let dot = NSRect(x: 84, y: 8, width: 36, height: 36)
             NSColor.white.setFill()
             NSBezierPath(ovalIn: dot.insetBy(dx: -4, dy: -4)).fill()
-            top.color.setFill()
+            color.setFill()
             NSBezierPath(ovalIn: dot).fill()
             return true
         }
