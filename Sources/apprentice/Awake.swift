@@ -65,8 +65,12 @@ enum Awake {
     /// `awake on|off|status`.
     static func run(_ a: Args) throws -> String {
         switch a.pos.first ?? "status" {
-        case "on": set(true)
-        case "off": set(false)
+        // Saved too, as the start-up window and `tour` save it, so a restart keeps the answer (F16).
+        case "on", "off":
+            let wanted = a.pos.first == "on"
+            set(wanted)
+            Config.remember("agent", "keep_awake", wanted ? "true" : "false")
+            Config.reloadIfChanged()
         case "status": break
         default: throw Fail(5, "awake on|off|status")
         }
