@@ -1,0 +1,28 @@
+{"app":"Google Chrome","cmd":"session","host":"www.facebook.com","model":"claude-sonnet-5-5","ms":1043,"pace":"default fast","ts":"2026-11-03T11:27:20.717+10:00"}
+{"model":"claude-sonnet-5-5","task":"test pause and resume","ts":"2026-11-03T11:27:20.718+10:00"}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":167,"pace":"facebook.com human","ts":"2026-11-03T11:27:25.367+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T11:27:29.612+10:00"}
+{"approved":true,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T11:27:29.643+10:00"}
+{"cmd":"click","diff":"+1 -1 ~0","host":"facebook.com","kind":"join","label":"button","model":"claude-sonnet-5-5","ms":35110,"pace":"facebook.com human","ts":"2026-11-03T11:28:04.753+10:00","waits":{"idle":32695,"move":813,"settle":357}}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T11:28:13.284+10:00"}
+{"approved":true,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T11:28:13.321+10:00"}
+{"cmd":"click","diff":"+4 -0 ~0","host":"facebook.com","kind":"join","label":"button","model":"claude-sonnet-5-5","ms":10636,"pace":"facebook.com human","ts":"2026-11-03T11:28:23.956+10:00","waits":{"fidget":8728,"idle":0,"move":7972,"settle":360}}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":9,"pace":"facebook.com human","ts":"2026-11-03T11:28:24.007+10:00"}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":59,"pace":"facebook.com human","ts":"2026-11-03T11:28:27.504+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T11:28:32.390+10:00"}
+{"approved":true,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T11:28:32.434+10:00"}
+{"cmd":"click","diff":"+0 -4 ~0","host":"facebook.com","label":"link","model":"claude-sonnet-5-5","ms":1501,"pace":"facebook.com human","ts":"2026-11-03T11:28:33.919+10:00","waits":{"idle":0,"move":553,"settle":366}}
+{"cmd":"wait-for","found":true,"model":"claude-sonnet-5-5","ms":88,"pace":"facebook.com human","ts":"2026-11-03T11:28:34.064+10:00"}
+{"cmd":"browse","diff":"+39 -45 ~1","host":"facebook.com","model":"claude-sonnet-5-5","ms":31735,"pace":"facebook.com human","ts":"2026-11-03T11:29:05.834+10:00","waits":{"gap":9848,"idle":0,"move":679,"settle":393}}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":27,"pace":"facebook.com human","ts":"2026-11-03T11:29:05.873+10:00"}
+{"cmd":"browse","diff":"+14 -14 ~0","host":"facebook.com","model":"claude-sonnet-5-5","ms":41541,"pace":"facebook.com human","ts":"2026-11-03T11:29:52.324+10:00","waits":{"idle":0,"move":274,"settle":389}}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":12,"pace":"facebook.com human","ts":"2026-11-03T11:29:52.392+10:00"}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":9,"pace":"facebook.com human","ts":"2026-11-03T11:29:52.434+10:00"}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":9,"pace":"facebook.com human","ts":"2026-11-03T11:29:52.475+10:00"}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":8,"pace":"facebook.com human","ts":"2026-11-03T11:29:52.517+10:00"}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":8,"pace":"facebook.com human","ts":"2026-11-03T11:29:52.557+10:00"}
+{"code":5,"error":"window 71585 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"open","model":"claude-sonnet-5-5","ts":"2026-11-03T11:37:56.703+10:00"}
+{"code":5,"error":"approve <token> [--text \"…\"]","failed":"approve","model":"claude-sonnet-5-5","ts":"2026-11-03T11:37:56.732+10:00"}
+{"code":5,"error":"window 71585 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"wait-for","model":"claude-sonnet-5-5","ts":"2026-11-03T11:37:58.804+10:00"}
+{"code":5,"error":"window 71585 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"read","model":"claude-sonnet-5-5","ts":"2026-11-03T11:38:00.873+10:00"}
+{"code":5,"error":"window 71585 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"read","model":"claude-sonnet-5-5","ts":"2026-11-03T11:38:02.944+10:00"}
