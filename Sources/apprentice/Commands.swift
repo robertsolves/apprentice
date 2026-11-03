@@ -614,6 +614,13 @@ enum Commands {
             // A fresh daemon may see the app's windows half-described until it is active.
             app.activate()
             picked = poll(timeout: 2) { pickWindow(appElement(app.processIdentifier)) }
+            // `activate()` does nothing on macOS 14+ unless this process is the active one, and a browser in
+            // the background (another Space, behind the terminal) lists no windows until it is in front.
+            // Opening the app is what the Dock does, and it works from anywhere.
+            if picked == nil, let url = app.bundleURL {
+                _ = Repo.run("/usr/bin/open", [url.path])
+                picked = poll(timeout: 4) { pickWindow(appElement(app.processIdentifier)) }
+            }
         }
         guard let window = picked else {
             throw Fail(5, "\(name) has no window: open one, or run `apprentice session --new-window`")
