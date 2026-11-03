@@ -1,0 +1,6 @@
+{"app":"Google Chrome","cmd":"session","host":"www.facebook.com","model":"claude-sonnet-5-5","ms":534,"pace":"default fast","ts":"2026-11-03T11:21:19.330+10:00"}
+{"model":"claude-sonnet-5-5","task":"test background window","ts":"2026-11-03T11:21:19.330+10:00"}
+{"code":5,"error":"window 71585 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"open","model":"claude-sonnet-5-5","ts":"2026-11-03T11:22:16.434+10:00"}
+{"code":5,"error":"approve <token> [--text \"…\"]","failed":"approve","model":"claude-sonnet-5-5","ts":"2026-11-03T11:22:16.478+10:00"}
+{"code":5,"error":"window 71585 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"wait-for","model":"claude-sonnet-5-5","ts":"2026-11-03T11:22:18.546+10:00"}
+{"code":5,"error":"window 71585 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"read","model":"claude-sonnet-5-5","ts":"2026-11-03T11:22:20.621+10:00"}
