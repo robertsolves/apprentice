@@ -384,6 +384,18 @@ enum Overlay {
         return out.sorted { $0.key == "mac" ? $1.key != "mac" : ($1.key == "mac" ? false : $0.key < $1.key) }
     }
 
+    /// Every live daemon's row, for the window's process (which has no row of its own).
+    static func liveRows() -> [LiveRow] {
+        var out: [LiveRow] = []
+        let now = Date().timeIntervalSince1970
+        for f in (try? FileManager.default.contentsOfDirectory(at: liveDir, includingPropertiesForKeys: nil)) ?? [] where f.pathExtension == "json" {
+            guard let d = try? Data(contentsOf: f), let r = try? JSONDecoder().decode(LiveRow.self, from: d),
+                  now - r.at < 4, kill(r.pid, 0) == 0 else { continue }
+            out.append(r)
+        }
+        return out.sorted { $0.key < $1.key }
+    }
+
     private static func publish(_ row: LiveRow) {
         var r = row
         r.at = 0

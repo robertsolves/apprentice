@@ -171,6 +171,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.window = window
         NSApp.mainMenu = MainMenu.make()
         TerminalKeys.install()
+        // This process owns the Dock icon while the window is open: it shows the daemons' state, read from `live/`.
+        let tile = Timer(timeInterval: 1, repeats: true) { _ in DockIcon.show(Overlay.liveRows()) }
+        RunLoop.main.add(tile, forMode: .common)
+        DockIcon.show(Overlay.liveRows())
         if let out = ProcessInfo.processInfo.environment["APPRENTICE_APP_KEYTEST"] { KeyTest.run(model: model, window: window, out: out) }
     }
 
