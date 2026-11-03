@@ -1,0 +1,18 @@
+{"app":"Google Chrome","cmd":"session","host":"newtab","model":"claude-sonnet-5-5","ms":16426,"pace":"default fast","ts":"2026-11-03T12:51:44.169+10:00"}
+{"model":"claude-sonnet-5-5","task":"Demo of the hand-back","ts":"2026-11-03T12:51:44.169+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T12:51:44.223+10:00"}
+{"approved":true,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T12:51:44.248+10:00"}
+{"cmd":"open","diff":"+32 -0 ~0","host":"new-tab-page","model":"claude-sonnet-5-5","ms":124271,"pace":"web human","ts":"2026-11-03T12:53:48.519+10:00","waits":{"idle":121334,"settle":285}}
+{"cmd":"wait-for","found":false,"model":"claude-sonnet-5-5","ms":10303,"pace":"web human","ts":"2026-11-03T12:54:01.883+10:00"}
+{"code":5,"error":"timeout: \"…\" not found in 10 s","failed":"wait-for","model":"claude-sonnet-5-5","ts":"2026-11-03T12:54:01.885+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T12:54:07.105+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T12:54:13.394+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T12:54:18.141+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T12:54:18.178+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T12:54:23.196+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T12:54:28.363+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T13:00:44.318+10:00"}
+{"cmd":"stop","model":"claude-sonnet-5-5","ms":437249,"pace":"web fast","ts":"2026-11-03T13:01:35.392+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":118,"pace":"default fast","ts":"2026-11-03T13:02:01.653+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":2092,"pace":"default fast","ts":"2026-11-03T13:02:03.765+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T13:02:04.449+10:00"}
