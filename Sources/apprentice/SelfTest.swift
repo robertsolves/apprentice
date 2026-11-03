@@ -1084,6 +1084,8 @@ enum SelfTest {
         let listed = Projects.ordered([general, Projects.Info(name: "shop", folder: shop, vm: nil, agent: "claude"),
                                        Projects.Info(name: "Accounts", folder: shop.appendingPathComponent("a"), vm: "acc", agent: "claude")])
         check(listed.map(\.name) == ["Accounts", "shop", "General"], "projects: listed by name, General last (\(listed.map(\.name)))")
+        check(Projects.vmName(Projects.folderName("Shop Socials!")) == "shop-socials" && Projects.vmName("  ") == nil,
+              "projects: a new project's own VM is named after it")
     }
 
     /// The Sites screen: its spec reads cleanly, and every control writes where the commands read.

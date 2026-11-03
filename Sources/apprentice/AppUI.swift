@@ -213,7 +213,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func show(_ r: AppShow.Request) {
         guard let model else { return }
         if r.section == "vms" {
-            model.show(section: .vms)
+            // A VM is shown on the screen of the project that works in it; one no project uses, in Settings.
+            if let p = model.projects.first(where: { $0.vm != nil && $0.vm == r.vm }) { model.show(project: p, tab: .work) }
+            else { model.show(section: .settings) }
             model.selectedVM = r.vm
             model.refreshMachines()
         }
@@ -1072,8 +1074,8 @@ enum Section: String, CaseIterable, Identifiable {
     }
 
     /// The screens that belong to no project, listed under the projects. Terminal, Pipelines and Schedules
-    /// are tabs inside each project instead.
-    static var global: [Section] { ordered.filter { ![.projects, .terminal, .pipelines, .schedules].contains($0) } }
+    /// are tabs inside each project instead, and each project's VM is on its screen (the list is in Settings).
+    static var global: [Section] { ordered.filter { ![.projects, .terminal, .pipelines, .schedules, .vms].contains($0) } }
 }
 
 /// The tabs along the top of a project's screen.
@@ -1264,7 +1266,7 @@ struct RootView: View {
             case .projects, .pipelines, .terminal, .schedules: ProjectWorkspace(model: model, project: model.workProject)
             case .skills: SkillsView(model: model)
             case .sites: SitesView(model: model)
-            case .vms: VMsView(model: model)
+            case .vms: SettingsView(model: model)
             case .settings: SettingsView(model: model)
             case .updates: UpdatesView(model: model)
             }
@@ -2111,7 +2113,10 @@ struct SettingsView: View {
                     .labelsHidden().pickerStyle(.menu).frame(maxWidth: 320, alignment: .leading)
                 }
             }
-            if scope == .mac { AccountCard(model: model) }
+            if scope == .mac {
+                AccountCard(model: model)
+                VMsPanel(model: model)
+            }
             ForEach(sections, id: \.self) { section in
                 Panel(title: Setting.title(section)) {
                     let rows = settings.filter { $0.section == section }
