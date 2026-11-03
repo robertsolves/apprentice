@@ -7,7 +7,7 @@ Xvfb :0 -screen 0 1280x800x24 -nolisten tcp &
 for _ in $(seq 50); do [ -e /tmp/.X11-unix/X0 ] && break; sleep 0.1; done
 
 # Only inside the guest: the user's Mac reaches it through an ssh tunnel (`apprentice vm look`).
-x11vnc -display :0 -localhost -forever -shared -rfbport 5900 -rfbauth "$HOME/.vnc/passwd" -quiet -bg -o /tmp/x11vnc.log
+x11vnc -display :0 -desktop "apprentice VM" -localhost -forever -shared -rfbport 5900 -rfbauth "$HOME/.vnc/passwd" -quiet -bg -o /tmp/x11vnc.log
 
 # Windows get a frame, focus and a front; apps started over ssh or by the helper join this screen.
 openbox >/tmp/openbox.log 2>&1 &
