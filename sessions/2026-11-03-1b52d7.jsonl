@@ -1,0 +1,12 @@
+{"app":"Google Chrome","cmd":"session","host":"www.facebook.com","model":"claude-sonnet-5-5","ms":547,"pace":"facebook.com fast","ts":"2026-11-03T12:15:00.972+10:00"}
+{"cmd":"browse","diff":"+64 -0 ~0","host":"facebook.com","model":"claude-sonnet-5-5","ms":69107,"pace":"facebook.com human","ts":"2026-11-03T12:16:10.109+10:00","waits":{"idle":51720,"move":783,"settle":381}}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":10,"pace":"facebook.com human","ts":"2026-11-03T12:16:10.151+10:00"}
+{"cmd":"ocr","model":"claude-sonnet-5-5","ms":655,"pace":"facebook.com human","ts":"2026-11-03T12:16:10.842+10:00"}
+{"cmd":"stop","model":"claude-sonnet-5-5","ms":8014,"pace":"facebook.com human","ts":"2026-11-03T12:16:18.200+10:00"}
+{"cmd":"browse","diff":"+57 -18 ~1","host":"facebook.com","model":"claude-sonnet-5-5","ms":39707,"pace":"facebook.com human","ts":"2026-11-03T12:17:07.873+10:00","waits":{"idle":22404,"move":691,"settle":362}}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":11,"pace":"facebook.com human","ts":"2026-11-03T12:17:07.919+10:00"}
+{"cmd":"ocr","model":"claude-sonnet-5-5","ms":830,"pace":"facebook.com human","ts":"2026-11-03T12:17:08.785+10:00"}
+{"cmd":"browse","diff":"+55 -15 ~0","host":"facebook.com","model":"claude-sonnet-5-5","ms":16262,"pace":"facebook.com human","ts":"2026-11-03T12:17:47.085+10:00","waits":{"idle":0,"move":324,"settle":365}}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":10,"pace":"facebook.com human","ts":"2026-11-03T12:17:47.127+10:00"}
+{"cmd":"ocr","model":"claude-sonnet-5-5","ms":704,"pace":"facebook.com human","ts":"2026-11-03T12:17:47.867+10:00"}
+{"cmd":"learn","model":"claude-sonnet-5-5","ms":29,"pace":"facebook.com human","ts":"2026-11-03T12:18:13.111+10:00"}
