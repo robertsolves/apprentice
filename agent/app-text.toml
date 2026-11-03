@@ -71,7 +71,7 @@ explainer_title = "What is a VM?"
 about = "A VM is a small Linux computer that runs inside this Mac. It has its own screen, mouse and keyboard, so an agent can use websites there while you keep using your Mac."
 points = [
     "Make one per project to keep each project's accounts apart.",
-    "Look at its screen any time to see what the agent is doing.",
+    "Choose a running VM to watch its screen here, live, with its pointer. Look at its screen to click or type in it.",
     "A VM only runs while this Mac is on and awake.",
 ]
 

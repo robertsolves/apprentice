@@ -102,11 +102,12 @@ enum VM {
 
     private static var watching = false
 
-    /// Opens the VM's screen once per daemon run (`[agent] watch_vm`) behind everything, ready for the "Watch" button.
+    /// Opens the window on this VM once per daemon run (`[agent] watch_vm`), behind everything and only when the
+    /// window is closed, ready for the "Watch" button.
     static func watch() {
         guard Config.current.watchVM, !watching else { return }
         watching = true
-        VMDock.open(activate: false)
+        AppShow.vm(activate: false, ifClosed: true)
     }
 
     /// Screen Sharing to the guest's VNC server; the password is the VM's.
@@ -290,8 +291,11 @@ enum VM {
             return s.on ? "vm: on · browser sessions run in \(name), with its own cursor and keyboard; other apps stay on this Mac unless `--on linux`"
                         : "vm: off · everything runs on this Mac"
         case "watch":
-            VMDock.open()
-            return "opened the apprentice VM window (a picture of \(name)'s screen with the pointer; `vm look` is the one you can click in)"
+            AppShow.vm(sync: true)
+            return "opened apprentice's window on \(name) (a live picture of its screen with the pointer; `vm look` is the one you can click in)"
+        case "frames":
+            // The window's live picture of this VM (`VMFeed`); not for agents.
+            VMFrames.run()
         case "look":
             try openViewer()
             return "opened Screen Sharing to \(name) (\(try address()))"

@@ -143,7 +143,7 @@ With `[agent] ask_on_start = true`, the first `session` after the daemon starts 
 | `commit "what and why"` · `update [--check]` · `selftest` · `repo` · `version` | A small commit (rebuilds on a source change), upstream fixes in by hand (it also updates itself), the built-in tests, where the clone is, and the installed commit |
 | `pr [--title t] [--draft] [--fork remote] [--local]` | Offer your local commits upstream as a pull request, from your fork |
 | `uninstall [--all] [--yes]` | List, then remove, everything apprentice installed |
-| `vm setup` · `vm on`/`off` · `vm up`/`down` · `vm list` · `vm shell` · `vm look` · `vm call "what"` · `vm install` | The Linux VM: make it, send browser sessions to it, start or stop it, print its ssh config, see it, bring the user into it, update what runs in it |
+| `vm setup` · `vm on`/`off` · `vm up`/`down` · `vm list` · `vm shell` · `vm watch` · `vm look` · `vm call "what"` · `vm install` | The Linux VM: make it, send browser sessions to it, start or stop it, print its ssh config, watch it in apprentice's window or click in it with Screen Sharing, bring the user into it, update what runs in it |
 | `run "task" --model <name>` · `mcp` | A built-in loop for any OpenAI-compatible model, and an MCP server |
 
 Add `--json` for the raw reply on the commands that go through the daemon, and on `route` and `playbooks`.

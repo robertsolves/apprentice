@@ -24,9 +24,10 @@ enum AppBundle {
     }
 
     /// Builds the bundle if the binary changed, then opens it. False when it could not be built.
-    static func open() -> Bool {
+    /// `activate: false` opens it behind the person's work (`open -g`).
+    static func open(activate: Bool = true) -> Bool {
         if let running = runningInstance {
-            running.activate()
+            if activate { running.activate() }
             return true
         }
         guard Notify.appBundleExecutable() != nil else { return false }
@@ -34,7 +35,7 @@ enum AppBundle {
         if Release.bundle == nil { sign() }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        p.arguments = ["-a", path.path]
+        p.arguments = (activate ? [] : ["-g"]) + ["-a", path.path]
         return (try? p.run()) != nil
     }
 
@@ -153,9 +154,15 @@ enum AppMain {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var window: NSWindow?
 
+    private var model: AppModel?
+    private var showObserver: NSObjectProtocol?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
-        NSApp.activate(ignoringOtherApps: true)
+        // A daemon that opened the window on a VM behind the person's work (`AppShow.vm`) leaves it there.
+        let request = AppShow.take()
+        if request?.activate != false { NSApp.activate(ignoringOtherApps: true) }
         let model = AppModel()
+        self.model = model
         let root = RootView(model: model)
         let hosting = NSHostingView(rootView: root)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 780),
@@ -169,11 +176,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.contentView = hosting
         window.setFrameAutosaveName("apprentice.window")
         window.center()
-        window.makeKeyAndOrderFront(nil)
+        if request?.activate == false { window.orderFront(nil) } else { window.makeKeyAndOrderFront(nil) }
         self.window = window
+        if let request { show(request) }
+        showObserver = DistributedNotificationCenter.default().addObserver(forName: AppShow.note, object: nil, queue: .main) { [weak self] _ in
+            guard let self, let r = AppShow.take() else { return }
+            self.show(r)
+        }
+        DispatchQueue.global(qos: .utility).async { AppShow.retireDockApps() }
         NSApp.mainMenu = MainMenu.make()
         TerminalKeys.install()
         if let out = ProcessInfo.processInfo.environment["APPRENTICE_APP_KEYTEST"] { KeyTest.run(model: model, window: window, out: out) }
+    }
+
+    /// A daemon asked for a screen: the VMs screen with one VM chosen, its live picture on it.
+    private func show(_ r: AppShow.Request) {
+        guard let model else { return }
+        if r.section == "vms" {
+            model.section = .vms
+            model.selectedVM = r.vm
+            model.refreshMachines()
+        }
+        if r.activate { window?.makeKeyAndOrderFront(nil) }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
@@ -563,6 +587,8 @@ final class AppModel: ObservableObject {
     @Published var pipelines: [Pipelines.Pipeline] = []
     /// The VMs (`VM.inventory`), read off the main thread: Tart takes a moment to answer.
     @Published var machines: [VM.Machine] = []
+    /// The VM chosen on the VMs screen ("" is the default VM); a daemon's Watch button chooses it too.
+    @Published var selectedVM: String?
     /// The New project sheet, open on an empty folder or a GitHub clone.
     @Published var newProject: NewProjectSheet.Start?
     /// The pipeline open in the Pipelines screen (unsaved when it has no file), and a counter that

@@ -594,7 +594,6 @@ struct VMsView: View {
     @State private var output = ""
     @State private var adding = false
     @State private var newName = ""
-    @State private var selected: String?
 
     var body: some View {
         SplitPane(id: "vms", help: .vms) {
@@ -603,7 +602,7 @@ struct VMsView: View {
                     Text("No VMs yet").font(Theme.caption).foregroundStyle(.secondary)
                         .padding(Theme.s4).frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    List(selection: $selected) {
+                    List(selection: $model.selectedVM) {
                         ForEach(model.machines) { m in
                             IconRow(icon: m.host == nil ? Section.vms.icon : "network", title: m.label, detail: m.host ?? m.state).tag(m.id)
                         }
@@ -613,7 +612,7 @@ struct VMsView: View {
                 }
             }
         } right: {
-            if let id = selected, let m = model.machines.first(where: { $0.id == id }) {
+            if let id = model.selectedVM, let m = model.machines.first(where: { $0.id == id }) {
                 detail(m)
             } else {
                 intro
@@ -621,7 +620,7 @@ struct VMsView: View {
         }
         .background(Theme.canvas)
         .onAppear { model.refreshMachines() }
-        .onChange(of: selected) { _, _ in output = "" }
+        .onChange(of: model.selectedVM) { _, _ in output = "" }
         .sheet(isPresented: $adding) {
             SheetFrame(title: "New VM", subtitle: "Its own Linux computer inside this Mac, with Chromium for websites.", idealHeight: 320, idealWidth: 520) {
                 Panel(title: "VM") {
@@ -690,6 +689,8 @@ struct VMsView: View {
                     if let host = m.host { Text(host).font(Theme.monoSmall).foregroundStyle(.secondary) }
                 }
             }
+            // The VM inside the window: its screen and pointer, live while this page is open.
+            if running || m.host != nil { VMScreen(name: m.name) }
             Panel(title: "Projects that work in it") {
                 if projects.isEmpty {
                     Text("None. A project picks its VM when it is made.").font(Theme.caption).foregroundStyle(.secondary)
