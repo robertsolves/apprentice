@@ -374,7 +374,8 @@ enum Commands {
         if req.cmd == "session", (try? result.get()) != nil, case let a = Args.parse(req.args), let task = a.value("task") ?? a.value("goal") {
             Store.log(["task": task])
         }
-        if Watch.end() {
+        // A command that finished is not an error because the person touched something at the very end.
+        if Watch.end(), case .failure = result {
             throw Fail(6, "interrupted: you used the keyboard or mouse while apprentice acted in front, so it stopped. Check the screen with `read`, then retry")
         }
         if KillSwitch.tripped {

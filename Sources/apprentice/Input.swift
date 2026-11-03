@@ -388,8 +388,13 @@ enum Keys {
         }
         defer { if !Remote.active { release() } }
         for (index, ch) in chars.enumerated() {
-            if KillSwitch.tripped || Watch.stopped {
-                throw Fail(6, "interrupted after \(sent) of \(text.count) characters: you used the keyboard or mouse. Check the field before retrying")
+            if KillSwitch.tripped {
+                throw Fail(6, "interrupted after \(sent) of \(text.count) characters: " + KillSwitch.message)
+            }
+            if Watch.stopped {
+                // Hold every key up, wait for the person to finish, then carry on with the next character.
+                release()
+                try Borrow.pause()
             }
             sent += 1
             sincePause += 1
@@ -871,13 +876,32 @@ enum Borrow {
 
     static func waitIdle(_ seconds: Double = 1) throws {
         Pause.wait()
-        let deadline = Date().addingTimeInterval(30)
+        // The person is working too: apprentice waits for them as long as they need (15 minutes at most),
+        // asking for a few quiet seconds once it has had to wait, so it does not grab the cursor mid-thought.
+        let deadline = Date().addingTimeInterval(900)
+        var waited = false
         try Timing.measure("idle") {
-            while humanIdle < seconds {
-                if Date() > deadline { throw Fail(6, "interrupted: you were active for 30 s, try again") }
+            while humanIdle < (waited ? max(seconds, 3) : seconds) {
+                waited = true
+                if KillSwitch.tripped { throw Fail(6, "interrupted: " + KillSwitch.message) }
+                if Date() > deadline { throw Fail(6, "interrupted: you were active for 15 minutes, try again") }
                 Pace.sleep(0.2)
             }
         }
+    }
+
+    /// The window the running action works on, so a pause can bring it back in front.
+    static var target: Target?
+
+    /// The person touched the keyboard or mouse mid-action: hold still until they stop, put the window back
+    /// in front and carry on from where it was. Only the kill switch ends it.
+    static func pause() throws {
+        if KillSwitch.tripped { throw Fail(6, "interrupted: " + KillSwitch.message) }
+        try waitIdle(3)
+        interrupted = false
+        recent = [CGEvent(source: nil)?.location].compactMap { $0 }
+        target?.raise()
+        Store.log(["resumed": "after the person stopped"])
     }
 
     /// Every action runs here: wait until the person is idle, bring the session window forward, then
@@ -897,13 +921,23 @@ enum Borrow {
         }
         // `gate` usually brought the window forward already; raising again only costs time.
         t.raise()
+        target = t
         defer {
+            target = nil
             active = false
             if let monitor { DispatchQueue.main.sync { NSEvent.removeMonitor(monitor) } }
         }
         // A person takes a moment to see the screen before the hand moves (BOT_DETECTION P13).
         if Config.current.pace.mode != "fast" { Pace.sleep(min(max(Rand.logNormal(median: 0.22, sigma: 0.35), 0.1), 0.9)) }
-        return try body()
+        // A checkpoint stop means nothing was committed yet, so once the person has stopped the same body
+        // simply runs again; there is no limit but their patience and the kill switch.
+        var resumes = 0
+        while true {
+            do { return try body() } catch let f as Fail where f.code == 6 && f.message.contains("nothing was done") && !KillSwitch.tripped && resumes < 40 {
+                resumes += 1
+                try pause()
+            }
+        }
     }
 }
 
