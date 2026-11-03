@@ -612,7 +612,7 @@ enum Schedules {
 
     // MARK: - CLI
 
-    static let usage = "schedule add <name> (--at|<date>|--every <min>|--daily <HH:MM>|--weekly \"mon,wed 09:00\"|--cron \"m h dom mon dow\") (--prompt \"…\" [--agent claude] | --run \"…\" | --do <flow> | --sh \"…\" | --pipeline <name>) [--dir] [--vm] [--model] [--jitter min] [--site] · list | show <id> | pause <id> | resume <id> | rm <id> | now <id> | agent on|off"
+    static let usage = "schedule add <name> (--at|<date>|--every <min>|--daily <HH:MM>|--weekly \"mon,wed 09:00\"|--cron \"m h dom mon dow\") (--prompt \"…\" [--agent claude] | --run \"…\" | --do <flow> | --sh \"…\" | --pipeline <name>) [--project <name>] [--dir] [--vm] [--model] [--jitter min] [--site] · list | show <id> | pause <id> | resume <id> | rm <id> | now <id> | agent on|off"
 
     static func command(_ a: Args) throws -> String {
         // An MCP client or an older caller names the schedule with --id; the subcommands take it as a word.
@@ -731,8 +731,15 @@ enum Schedules {
         }
         let kind: Kind = kindFlag == "prompt" ? .prompt : kindFlag == "run" ? .run : kindFlag == "do" ? .flow
             : kindFlag == "pipeline" ? .pipeline : .sh
-        let target = a.value(kindFlag) ?? ""
+        var target = a.value(kindFlag) ?? ""
         guard !target.isEmpty else { throw Fail(6, "schedule add: \(kindFlag) needs a value") }
+        // `--project` runs it in that project: its folder, its VM, and a pipeline name read as one of its own.
+        var project: Projects.Info?
+        if let named = a.value("project") {
+            guard let p = Projects.find(named) else { throw Fail(5, "schedule add: no project \(named) · apprentice project list") }
+            project = p
+            if kind == .pipeline, !target.contains("/") { target = Projects.folderName(p.name) + "/" + target }
+        }
         if kind == .pipeline { _ = try Pipelines.find(target) }
 
         var s = Schedule(id: id, name: name, kind: kind, target: target)
@@ -761,8 +768,8 @@ enum Schedules {
         s.agent = a.value("agent") ?? (kind == .prompt ? (existing?.agent ?? AgentCLIs.defaultID) : nil)
         s.jitter = max(0, a.int("jitter", existing?.jitter ?? 15))
         s.site = a.value("site") ?? existing?.site
-        s.dir = a.value("dir").map { ($0 as NSString).expandingTildeInPath } ?? existing?.dir
-        s.vm = a.value("vm") ?? existing?.vm
+        s.dir = a.value("dir").map { ($0 as NSString).expandingTildeInPath } ?? project?.folder.path ?? existing?.dir
+        s.vm = a.value("vm") ?? (kind == .sh ? nil : project?.vm) ?? existing?.vm
         s.model = a.value("model") ?? existing?.model
         if kind == .sh, s.vm != nil { throw Fail(6, "schedule add: --vm does not apply to --sh; the command would run on this Mac") }
         s.enabled = true

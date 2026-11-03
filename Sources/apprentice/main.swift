@@ -73,7 +73,7 @@ func usage() {
       apprentice policy [domain]                may the LLM use shell commands for macOS tasks? With a domain: notes on its terms
       apprentice budget [domain]                what is left of this hour's, today's and this week's caps per site and kind
       apprentice pace [site [fastest|fast|steady|careful|default]]   how fast a site or app goes; fastest (pasted text, no waits) suits logged-out scouting. Apps are fastest, web pages steady, social sites careful
-      apprentice project new "name" [--from <git url>] [--vm <name>] [--agent claude] | list | open | save [--push] | add <folder> | forget   a folder for one piece of work: notes agents read, its pipelines, its VM; save commits it, --push puts it on GitHub
+      apprentice project new "name" [--from <git url>] [--vm <name> | --no-vm] [--agent claude] | list | open | set [--vm|--no-vm|--agent|--name] | save [--push] | add <folder> | forget   a folder for one piece of work: notes agents read, its pipelines, its VM; save commits it, --push puts it on GitHub
       apprentice project [init | status]        a project's own .apprentice/ folder: its own site counts and tighter caps, on top of the account-wide ones
       apprentice pipeline list | show | new "name" "step" … | add <name> "step" | run <name> [--from N] | rm   prompts that run one after another, now or on a schedule (schedule add … --pipeline <name>)
       apprentice cool [--clear domain]          sites cooling down after a rate limit; clearing asks the user
@@ -102,7 +102,7 @@ func usage() {
       apprentice vm setup | install | up | down | on | off | watch | look | call "what" | shell | ssh | status | list   a small Linux VM with its own screen, cursor and keyboard: its browser and Linux apps (--on linux); shell prints the ssh command for its terminal
       apprentice device [free]                  who is using this Mac's (or --vm's) screen right now; free lets another agent use it. One agent per screen at a time
       apprentice app                            the window: projects, terminal tabs where agents run, pipelines, schedules, skills, VMs and settings
-      apprentice schedule add|list|show|pause|resume|rm|now|agent   prompts and tasks that run later or again
+      apprentice schedule add|list|show|pause|resume|rm|now|agent   prompts and tasks that run later or again (--project <name>: in its folder and VM)
       apprentice away on|off|status|wait|add|list|cancel   work that runs only while you are away, and stops when you are back
       apprentice serve [--background] | stop
       apprentice uninstall [--all] [--keep-vms] [--yes]   list, then remove, everything apprentice installed (--all: the clone too; --keep-vms: the VMs stay)
