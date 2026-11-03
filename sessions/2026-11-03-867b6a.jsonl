@@ -1,0 +1,17 @@
+{"app":"Google Chrome","cmd":"session","host":"newtab","model":"claude-sonnet-5-5","ms":1492,"pace":"default fast","ts":"2026-11-03T12:41:15.651+10:00"}
+{"model":"claude-sonnet-5-5","task":"test the hand-back","ts":"2026-11-03T12:41:15.651+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T12:41:17.719+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T12:41:21.911+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T12:41:24.494+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T12:41:34.416+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T12:41:39.352+10:00"}
+{"cmd":"stop","model":"claude-sonnet-5-5","ms":238944,"pace":"default fast","ts":"2026-11-03T12:45:16.653+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":143,"pace":"default fast","ts":"2026-11-03T12:47:22.580+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":1953,"pace":"default fast","ts":"2026-11-03T12:47:24.555+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T12:47:24.959+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T12:47:25.196+10:00"}
+{"cmd":"stop","model":"claude-sonnet-5-5","ms":110694,"pace":"default fast","ts":"2026-11-03T12:49:15.826+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":112,"pace":"default fast","ts":"2026-11-03T12:49:42.194+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":1798,"pace":"default fast","ts":"2026-11-03T12:49:44.010+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T12:49:44.310+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T12:49:44.413+10:00"}
