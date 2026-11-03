@@ -1,0 +1,3 @@
+{"app":"Google Chrome","cmd":"session","host":"www.hays.com.au","model":"claude-sonnet-5-5","ms":7583,"pace":"default fast","ts":"2026-11-03T14:31:26.744+10:00"}
+{"model":"claude-sonnet-5-5","task":"group tab test","ts":"2026-11-03T14:31:26.744+10:00"}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":73,"pace":"web human","ts":"2026-11-03T14:31:26.842+10:00"}
