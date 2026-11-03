@@ -1,0 +1,3 @@
+{"app":"Google Chrome","cmd":"session","host":"newtab","model":"claude-sonnet-5-5","ms":583,"pace":"default fast","ts":"2026-11-03T12:22:06.175+10:00"}
+{"model":"claude-sonnet-5-5","task":"test the own-tab rule","ts":"2026-11-03T12:22:06.176+10:00"}
+{"code":4,"error":"this session is attached to a tab you had open, and apprentice never navigates, types in, clicks in or closes a tab it did not open: you may be using it. Run `a","failed":"open","model":"claude-sonnet-5-5","ts":"2026-11-03T12:22:06.221+10:00"}
