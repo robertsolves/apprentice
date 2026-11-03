@@ -1,0 +1,4 @@
+{"app":"Google Chrome","cmd":"session","host":"www.facebook.com","model":"claude-sonnet-5-5","ms":587,"pace":"facebook.com fast","ts":"2026-11-03T11:48:16.486+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T11:48:35.100+10:00"}
+{"cmd":"browse","diff":"+51 -0 ~0","host":"facebook.com","model":"claude-sonnet-5-5","ms":19328,"pace":"facebook.com human","ts":"2026-11-03T11:48:35.848+10:00","waits":{"idle":0,"move":494,"settle":377}}
+{"code":5,"error":"window 144 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"read","model":"claude-sonnet-5-5","ts":"2026-11-03T11:48:37.940+10:00"}
