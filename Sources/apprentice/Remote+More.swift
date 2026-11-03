@@ -265,7 +265,7 @@ extension Remote {
         guard a.pos.count >= 2, let from = Int(a.pos[0]), let to = Int(a.pos[1]) else { throw Fail(5, Commands.dragUsage) }
         let (session, page, old) = try prepare()
         let src = try resolve(from), dst = try resolve(to)
-        try gate(session, page, src, "drag \(src.short) onto \(dst.short)", warn: Gate.warnings(dst, page).filter { $0.hasPrefix("may") })
+        try gate(session, page, src, "drag \(src.short) onto \(dst.short)", warn: Gate.warnings(dst, page))
         try beforeAction(session, url: page.url)
         try act {
             let start = Mouse.landing(in: src.rect)

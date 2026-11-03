@@ -334,6 +334,8 @@ enum Sync {
         guard let data = try? Data(contentsOf: url) else { return true }
         let text = String(decoding: data, as: UTF8.self)
         if text.contains("\n<<<<<<< ") || text.hasPrefix("<<<<<<< ") { return false }
+        // prefs.json must also be prefs: a well-formed file of another shape would be erased by the next `remember` (F15).
+        if url.lastPathComponent == Prefs.file { return Prefs.parse(text) != nil }
         if url.pathExtension == "json" { return (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])) != nil }
         return true
     }

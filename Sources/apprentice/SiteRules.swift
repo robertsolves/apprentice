@@ -313,17 +313,21 @@ enum Budgets {
 enum Cooldown {
     static func check(_ host: String) throws {
         let domain = Site.domain(host)
-        let l = Limits.stored
-        guard let c = l.cooling?.first(where: { Site.matches(domain, $0.key) })?.value,
-              c.until > Date().timeIntervalSince1970, Config.current.onSoftBlock == "stop" else { return }
+        guard let c = live(domain), Config.current.onSoftBlock == "stop" else { return }
         throw Fail(4, "soft block: \(domain), cooling until \(Site.time(c.until)). Stop work on this site and tell the user; only they can clear it early")
+    }
+
+    /// The most specific cooldown still running for `domain`. Dictionary order is unspecified, so an
+    /// expired parent entry must never hide a subdomain that is still cooling (F4).
+    static func live(_ domain: String, now: Double = Date().timeIntervalSince1970) -> Limits.Cooling? {
+        Limits.stored.cooling?.filter { $0.value.until > now && Site.matches(domain, $0.key) }
+            .max { $0.key.count < $1.key.count }?.value
     }
 
     /// The ⚠ line on a proposal while a site cools down under `on_soft_block = "warn"`.
     static func warning(_ host: String?) -> String? {
         guard let host, Config.current.onSoftBlock == "warn",
-              let c = Limits.stored.cooling?.first(where: { Site.matches(Site.domain(host), $0.key) })?.value,
-              c.until > Date().timeIntervalSince1970 else { return nil }
+              let c = live(Site.domain(host)) else { return nil }
         return "this site asked to slow down; cooling until \(Site.time(c.until)) (on_soft_block = \"warn\")"
     }
 
@@ -439,13 +443,39 @@ enum Challenge {
     /// Refuses actions while the site's challenge is still on screen, and clears it once it is gone.
     static func stillThere(_ host: String, read: () -> Snapshot) throws {
         let domain = Site.domain(host)
-        guard Limits.stored.challenged?[domain] != nil else { return }
+        guard let recorded = Limits.stored.challenged?[domain] else { return }
         let snap = read()
         if let marker = find(snap) {
             guard Config.current.onChallenge == "stop", !(Login.allowed(host) && Login.isCodePrompt(marker)) else { return }
             throw Fail(4, "challenge: \(domain) still shows a check only the user may complete (\(marker)). Wait for them")
         }
-        clear(domain)
+        if gone(snap, recorded: recorded) { clear(domain); return }
+        // Not proof the check is over (a sign-in page after "confirm it's you"): the pause stays. A site
+        // the user let apprentice sign in to may go on with that, and the record clears on the next plain page.
+        guard Config.current.onChallenge == "stop", !Login.allowed(host) else { return }
+        throw Fail(4, "challenge: \(domain) was showing a check (\(recorded)) and this page does not show it is over. Tell the user; once they say it is done, run `apprentice read`, or they can run `apprentice cool --clear \(domain)`")
+    }
+
+    /// True only when a page proves the recorded check is over: no marker on it, the marker the check
+    /// started with is not on it either, and it is not a sign-in page. A "confirm it's you" check usually
+    /// lands on a password or code page, where `find` says nil for another reason, so that page keeps
+    /// the record (F3).
+    static func gone(_ s: Snapshot, recorded: String) -> Bool {
+        guard find(s) == nil else { return false }
+        let texts = [s.title.lowercased()] + s.elements.map { $0.name.lowercased() }.filter { $0.count < 160 }
+        if s.elements.contains(where: { $0.label == "password" }) { return false }
+        if Login.codeMarkers.contains(where: { m in texts.contains { $0.contains(m) } }) { return false }
+        return !shows(s, recorded, texts: texts)
+    }
+
+    /// Whether the marker a challenge was recorded with (`address /x` or a quoted phrase) is on the page.
+    private static func shows(_ s: Snapshot, _ marker: String, texts: [String]) -> Bool {
+        if marker.hasPrefix("address ") {
+            let path = String(marker.dropFirst("address ".count))
+            return URL(string: s.url?.lowercased() ?? "")?.path.contains(path) ?? false
+        }
+        let phrase = marker.trimmingCharacters(in: CharacterSet(charactersIn: "\"")).lowercased()
+        return !phrase.isEmpty && texts.contains { $0.contains(phrase) }
     }
 
     static func clear(_ domain: String) {
