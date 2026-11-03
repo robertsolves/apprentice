@@ -66,6 +66,10 @@ enum Notify {
     static func appBundleExecutable() -> String? {
         if let release = Release.bundle { return release.appendingPathComponent("Contents/MacOS/apprentice").path }
         guard let source = Bundle.main.executablePath else { return nil }
+        // Already the installed app (the CLI is a link to it): never rebuild it. A rebuild rewrites the binary that is
+        // running, which leaves its signature invalid and the next launch is killed by the system.
+        let real = URL(fileURLWithPath: source).resolvingSymlinksInPath().path
+        if real.contains(".app/Contents/MacOS/") { return real }
         let app = AppBundle.path
         let exe = app.appendingPathComponent("Contents/MacOS/apprentice")
         func stamp(_ path: String) -> Date? { (try? FileManager.default.attributesOfItem(atPath: path))?[.modificationDate] as? Date }
