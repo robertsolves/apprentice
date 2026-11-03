@@ -12,6 +12,7 @@ Load the `apprentice` skill first. A site you use often may have its own skill (
 ## Move like a person
 - `open` is for arriving. After that, follow the site's own links, menus and search, and go back with `key cmd+[` (`alt+left` in the VM). A visit that jumps from one deep URL straight to the next looks like a script.
 - Before acting, read the page you landed on: `read --filter` for what you need, `browse` on a feed. People look before they click.
+- Work only in a tab apprentice opened: start every browser session with `--new-tab`. A session attached to a tab the user had open can only read, scroll and browse, and apprentice refuses to navigate, type, click in or close it, because they may be working there. Never close a tab you did not open.
 - One task, one tab. Don't reload to make something happen. `wait-for "text"` covers results, toasts and slow pages, and the reload cap is there for a reason.
 - If a site has an API or a connector, use that rather than its pages (`apprentice route "<task>"`).
 

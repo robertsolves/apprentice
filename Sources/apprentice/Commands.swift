@@ -294,6 +294,10 @@ func gate(_ session: Session, _ target: Target, _ e: Element?, _ summary: String
 @discardableResult
 func approveStep(_ session: Session, _ target: Page, _ e: Element?, _ summary: String,
                  details: [String] = [], warn: [String] = [], force: Bool = false) throws -> String? {
+    // The person may be working in the tab a session was attached to. Apprentice only changes a tab it opened.
+    if session.isBrowser, session.vm != true, session.ownsTab != true {
+        throw Fail(4, "this session is attached to a tab you had open, and apprentice never navigates, types in, clicks in or closes a tab it did not open: you may be using it. Run `apprentice session --new-tab` and work in that tab. `read`, `scroll` and `browse` still work here")
+    }
     let warnings = Gate.warnings(e, target, force: force) + warn + [Cooldown.warning(hostOf(target.url))].compactMap { $0 }
     // A like, follow, comment or other budgeted action is checked against the site's budget before it
     // is proposed, and counted once approved. Typing counts only when return sends it.
@@ -630,6 +634,7 @@ enum Commands {
         // `focus` keeps the session: its id, its allowlist and the UI-only choice made in the
         // start-up window, which would otherwise fall back to the config default (E5).
         if let keep { s.id = keep.id; s.allow = keep.allow; s.uiOnly = keep.uiOnly }
+        s.ownsTab = a.has("new-tab") || a.has("new-window") ? true : keep?.ownsTab
         if let allow = a.value("allow") { s.allow = Config.parseAllow(allow) }
         // A window with no URL yet (a fresh blank tab) is attached; its actions are checked later.
         if let url = s.url { try allowCheck(s, url) }

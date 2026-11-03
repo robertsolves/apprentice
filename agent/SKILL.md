@@ -16,7 +16,7 @@ One window at a time, by numbered element. Every action is real input with the w
 ## Loop
 ```
 apprentice session --app Safari --task "<task>"   # prints policy, skills, warnings to pass on
-# a browser: work in the window it has; --new-tab only for a page of your own (reuses a blank tab, never a new window)
+# a browser: always --new-tab (reuses a blank tab, never a new window). A session attached to a tab the user had open may only read, scroll and browse: open, type, key, click and the rest are refused, so their work is never navigated, typed over or closed
 apprentice read --filter "Save" --max 40           # numbered list
 apprentice click 14                                # exit 8 + token
 apprentice approve <token>                         # acts, prints a + - ~ diff

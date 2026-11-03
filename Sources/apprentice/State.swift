@@ -185,6 +185,9 @@ struct Session: Codable {
     var uiOnly: Bool?
     /// The session is in the Linux VM (`Remote`): its browser or another Linux app, not a window on this Mac.
     var vm: Bool?
+    /// A browser session made with `--new-tab` or `--new-window`: the tab is apprentice's own. A session
+    /// attached to a tab the person had open may only read and scroll, never navigate, type, click or close.
+    var ownsTab: Bool?
 
     var isBrowser: Bool {
         if vm == true { return app == "Chromium" }
