@@ -1,0 +1,7 @@
+{"app":"Chromium","cmd":"session","host":"www.facebook.com","model":"claude-sonnet-5-5","ms":1179,"pace":"default fast","ts":"2026-11-03T15:42:44.235+10:00","vm":true}
+{"model":"claude-sonnet-5-5","task":"demo","ts":"2026-11-03T15:42:44.235+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":9,"pace":"default fast","ts":"2026-11-03T15:42:44.250+10:00"}
+{"cmd":"stop","model":"claude-sonnet-5-5","ms":27022,"pace":"default fast","ts":"2026-11-03T15:43:10.078+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":125,"pace":"default fast","ts":"2026-11-03T15:45:17.998+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":2200,"pace":"default fast","ts":"2026-11-03T15:45:20.224+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T15:45:20.831+10:00"}
