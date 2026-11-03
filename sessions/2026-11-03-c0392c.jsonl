@@ -1,0 +1,47 @@
+{"app":"Google Chrome","cmd":"session","host":"www.facebook.com","model":"claude-sonnet-5-5","ms":4394,"pace":"facebook.com fast","ts":"2026-11-03T11:38:11.099+10:00"}
+{"model":"claude-sonnet-5-5","task":"Read Reedy Creek Facebook groups for ute, tip run and assembly requests","ts":"2026-11-03T11:38:11.100+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T11:38:11.160+10:00"}
+{"approved":true,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T11:38:11.196+10:00"}
+{"cmd":"open","diff":"+0 -0 ~0","host":"facebook.com","model":"claude-sonnet-5-5","ms":68071,"pace":"facebook.com human","ts":"2026-11-03T11:39:19.268+10:00","waits":{"idle":64820,"settle":258}}
+{"cmd":"wait-for","found":true,"model":"claude-sonnet-5-5","ms":351,"pace":"facebook.com human","ts":"2026-11-03T11:39:19.661+10:00"}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":31,"pace":"facebook.com human","ts":"2026-11-03T11:39:19.730+10:00"}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":30,"pace":"facebook.com human","ts":"2026-11-03T11:39:22.337+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T11:39:27.086+10:00"}
+{"approved":true,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T11:39:27.110+10:00"}
+{"cmd":"click","diff":"+0 -0 ~0","host":"facebook.com","label":"link","model":"claude-sonnet-5-5","ms":1526,"pace":"facebook.com human","ts":"2026-11-03T11:39:28.637+10:00","waits":{"gap":228,"idle":0,"move":383,"settle":304}}
+{"cmd":"wait-for","found":true,"model":"claude-sonnet-5-5","ms":377,"pace":"facebook.com human","ts":"2026-11-03T11:39:29.045+10:00"}
+{"cmd":"browse","diff":"+22 -44 ~0","host":"facebook.com","model":"claude-sonnet-5-5","ms":38920,"pace":"facebook.com human","ts":"2026-11-03T11:40:07.991+10:00","waits":{"gap":7377,"idle":0,"move":628,"settle":364}}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":9,"pace":"facebook.com human","ts":"2026-11-03T11:40:08.038+10:00"}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":60,"pace":"facebook.com human","ts":"2026-11-03T11:40:11.493+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T11:40:18.045+10:00"}
+{"approved":true,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T11:40:18.069+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T11:40:19.114+10:00"}
+{"cmd":"open","diff":"+0 -67 ~0","host":"facebook.com","model":"claude-sonnet-5-5","ms":5280,"pace":"facebook.com human","ts":"2026-11-03T11:40:23.350+10:00","waits":{"fidget":2162,"idle":0,"settle":258}}
+{"cmd":"wait-for","found":true,"model":"claude-sonnet-5-5","ms":81,"pace":"facebook.com human","ts":"2026-11-03T11:40:23.644+10:00"}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":57,"pace":"facebook.com human","ts":"2026-11-03T11:40:23.730+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T11:40:27.879+10:00"}
+{"approved":true,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T11:40:27.903+10:00"}
+{"cmd":"click","diff":"+1 -1 ~0","host":"facebook.com","kind":"join","label":"button","model":"claude-sonnet-5-5","ms":1578,"pace":"facebook.com human","ts":"2026-11-03T11:40:29.481+10:00","waits":{"idle":0,"move":701,"settle":341}}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":7,"pace":"facebook.com human","ts":"2026-11-03T11:40:29.515+10:00"}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":55,"pace":"facebook.com human","ts":"2026-11-03T11:40:32.904+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T11:40:37.402+10:00"}
+{"approved":true,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T11:40:37.425+10:00"}
+{"cmd":"click","diff":"+0 -2 ~0","host":"facebook.com","label":"link","model":"claude-sonnet-5-5","ms":1142,"pace":"facebook.com human","ts":"2026-11-03T11:40:38.567+10:00","waits":{"idle":0,"move":293,"settle":330}}
+{"cmd":"wait-for","found":true,"model":"claude-sonnet-5-5","ms":53,"pace":"facebook.com human","ts":"2026-11-03T11:40:38.649+10:00"}
+{"cmd":"browse","diff":"+32 -43 ~1","host":"facebook.com","model":"claude-sonnet-5-5","ms":49176,"pace":"facebook.com human","ts":"2026-11-03T11:41:27.862+10:00","waits":{"gap":7530,"idle":0,"move":606,"settle":386}}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":9,"pace":"facebook.com human","ts":"2026-11-03T11:41:27.902+10:00"}
+{"cmd":"ocr","model":"claude-sonnet-5-5","ms":964,"pace":"facebook.com human","ts":"2026-11-03T11:41:31.589+10:00"}
+{"code":5,"error":"window 144 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"open","model":"claude-sonnet-5-5","ts":"2026-11-03T11:42:44.282+10:00"}
+{"code":5,"error":"window 144 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"browse","model":"claude-sonnet-5-5","ts":"2026-11-03T11:42:54.355+10:00"}
+{"code":5,"error":"window 144 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"read","model":"claude-sonnet-5-5","ts":"2026-11-03T11:42:56.417+10:00"}
+{"code":5,"error":"window 144 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"ocr","model":"claude-sonnet-5-5","ts":"2026-11-03T11:42:58.481+10:00"}
+{"code":5,"error":"window 144 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"browse","model":"claude-sonnet-5-5","ts":"2026-11-03T11:43:17.556+10:00"}
+{"code":5,"error":"window 144 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"read","model":"claude-sonnet-5-5","ts":"2026-11-03T11:43:19.620+10:00"}
+{"code":5,"error":"window 144 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"ocr","model":"claude-sonnet-5-5","ts":"2026-11-03T11:43:21.690+10:00"}
+{"code":5,"error":"window 144 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"browse","model":"claude-sonnet-5-5","ts":"2026-11-03T11:43:45.769+10:00"}
+{"code":5,"error":"window 144 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"read","model":"claude-sonnet-5-5","ts":"2026-11-03T11:43:47.827+10:00"}
+{"code":5,"error":"window 144 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"ocr","model":"claude-sonnet-5-5","ts":"2026-11-03T11:43:49.888+10:00"}
+{"code":5,"error":"window 144 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"browse","model":"claude-sonnet-5-5","ts":"2026-11-03T11:44:13.969+10:00"}
+{"code":5,"error":"window 144 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"read","model":"claude-sonnet-5-5","ts":"2026-11-03T11:44:16.032+10:00"}
+{"code":5,"error":"window 144 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"read","model":"claude-sonnet-5-5","ts":"2026-11-03T11:44:18.068+10:00"}
+{"code":5,"error":"window 144 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"ocr","model":"claude-sonnet-5-5","ts":"2026-11-03T11:44:20.101+10:00"}
