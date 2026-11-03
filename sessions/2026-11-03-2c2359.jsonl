@@ -1,0 +1,7 @@
+{"app":"Google Chrome","cmd":"session","host":"www.facebook.com","model":"claude-sonnet-5-5","ms":754,"pace":"facebook.com fast","ts":"2026-11-03T11:48:38.900+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T11:52:30.541+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T11:53:02.406+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T11:53:22.719+10:00"}
+{"cmd":"browse","diff":"+85 -0 ~0","host":"facebook.com","model":"claude-sonnet-5-5","ms":286638,"pace":"facebook.com human","ts":"2026-11-03T11:53:25.570+10:00","waits":{"idle":262546,"move":470,"settle":464}}
+{"code":5,"error":"window 144 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"read","model":"claude-sonnet-5-5","ts":"2026-11-03T11:53:27.611+10:00"}
+{"code":5,"error":"window 144 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"ocr","model":"claude-sonnet-5-5","ts":"2026-11-03T11:53:29.648+10:00"}
