@@ -106,7 +106,7 @@ enum VM {
     static func watch() {
         guard Config.current.watchVM, !watching else { return }
         watching = true
-        VMView.show(activate: false)
+        VMDock.open(activate: false)
     }
 
     /// Screen Sharing to the guest's VNC server; the password is the VM's.
@@ -290,7 +290,7 @@ enum VM {
             return s.on ? "vm: on · browser sessions run in \(name), with its own cursor and keyboard; other apps stay on this Mac unless `--on linux`"
                         : "vm: off · everything runs on this Mac"
         case "watch":
-            VMView.show()
+            VMDock.open()
             return "opened the apprentice VM window (a picture of \(name)'s screen with the pointer; `vm look` is the one you can click in)"
         case "look":
             try openViewer()

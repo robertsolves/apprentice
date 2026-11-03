@@ -25,6 +25,9 @@ enum StatusItem {
         self.item = item
         item.button?.imagePosition = .imageLeading
         render()
+        // Pause, a stop and the quiet of a finished task do not pass through `busy`: look again every second.
+        let t = Timer(timeInterval: 1, repeats: true) { _ in render() }
+        RunLoop.main.add(t, forMode: .common)
     }
 
     /// From any thread: a command started or finished.
@@ -47,31 +50,24 @@ enum StatusItem {
         return working ? .working : .idle
     }
 
-    /// The apprentice mark as a line drawing in the menu bar's own text colour (so it suits light and dark bars),
-    /// with a small dot for the state: grey idle, green working, yellow waiting for you, orange needs approval.
-    private static func tray(_ state: State) -> NSImage {
-        NSImage(size: NSSize(width: 20, height: 18), flipped: true) { _ in
-            let s: CGFloat = 16 / 64
-            let a = NSBezierPath()
-            func p(_ x: CGFloat, _ y: CGFloat) -> NSPoint { NSPoint(x: 1 + x * s, y: 1 + y * s) }
-            a.move(to: p(45.5, 20))
-            a.curve(to: p(27, 44), controlPoint1: p(42, 32), controlPoint2: p(37.5, 44))
-            a.curve(to: p(16.5, 33), controlPoint1: p(20.5, 44), controlPoint2: p(16.5, 39))
-            a.curve(to: p(27, 22), controlPoint1: p(16.5, 27), controlPoint2: p(20.5, 22))
-            a.curve(to: p(45.5, 44), controlPoint1: p(37.5, 22), controlPoint2: p(42, 34))
-            a.lineWidth = 2.1
-            a.lineCapStyle = .round
-            a.lineJoinStyle = .round
-            NSColor.labelColor.setStroke()
-            a.stroke()
-            let color: NSColor = switch state {
-            case .idle: .systemGray
-            case .working: .systemGreen
-            case .waiting: .systemYellow
-            case .approval: .systemOrange
-            }
-            let dot = NSRect(x: 12.5, y: 11, width: 6, height: 6)
-            color.setFill()
+    private static var shownLevel = -1
+
+    /// This Mac's runner as three colours: grey waiting, orange needs you (a question, an approval, paused, stopped),
+    /// green running or in your hands. Other systems are not in it: each VM has its own icon (`VMDock`).
+    private static var level: Int {
+        if Pause.on || KillSwitch.halted || state == .waiting || state == .approval || Handback.banner?.good == false { return 2 }
+        if state == .working || Date().timeIntervalSince(Commands.lastAt) < 20 { return 1 }
+        return 0
+    }
+
+    /// The apprentice icon, the same as the app's, with a dot for the state.
+    private static func tray(_ level: Int) -> NSImage {
+        NSImage(size: NSSize(width: 22, height: 18), flipped: false) { _ in
+            Ask.icon.draw(in: NSRect(x: 0, y: 0, width: 18, height: 18))
+            let dot = NSRect(x: 12.5, y: 0, width: 9, height: 9)
+            NSColor.white.setFill()
+            NSBezierPath(ovalIn: dot.insetBy(dx: -1.2, dy: -1.2)).fill()
+            [NSColor.systemGray, .systemGreen, .systemOrange][level].setFill()
             NSBezierPath(ovalIn: dot).fill()
             return true
         }
@@ -79,7 +75,8 @@ enum StatusItem {
 
     private static func render() {
         guard let button = item?.button else { return }
-        button.image = tray(state)
+        let now = level
+        if now != shownLevel { shownLevel = now; button.image = tray(now) }
         let marks: [State: String] = [.idle: "", .working: "", .waiting: "", .approval: ""]
         button.title = (Store.vmName.map { " \($0)" } ?? "") + (marks[state] ?? "")
         button.toolTip = "apprentice: \(state.rawValue)"
@@ -183,40 +180,6 @@ enum DockIcon {
     }
 
     private static var timer: Timer?
-
-    private static var lastTile = ""
-
-    /// The Dock icon follows what the rows say: the apprentice icon with a dot in the state's colour, and a badge
-    /// ("VM" when a task runs in a VM, a number when several are active), so the Dock shows where and how it stands.
-    static func show(_ rows: [LiveRow]) {
-        guard wanted, !rows.isEmpty else { return }
-        // Three colours to read from across the room: orange needs you, green is running, grey is waiting.
-        func level(_ r: LiveRow) -> Int {
-            switch r.head {
-            case "Needs approval", "Waiting for you", "Stopped", "Agent stopped", "Paused": return 2
-            case "Working", "Yours": return 1
-            default: return 0
-            }
-        }
-        let top = rows.map(level).max() ?? 0
-        let color: NSColor = [NSColor.systemGray, .systemGreen, .systemOrange][top]
-        let active = rows.filter { level($0) > 0 }
-        let badge = active.isEmpty ? "" : (active.contains { $0.inVM } ? "VM" : "") + (active.count > 1 ? "\(active.count)" : "")
-        let sig = "\(top)|\(badge)"
-        guard sig != lastTile else { return }
-        lastTile = sig
-        let tile = NSImage(size: NSSize(width: 128, height: 128), flipped: false) { rect in
-            Ask.icon.draw(in: rect.insetBy(dx: 6, dy: 6))
-            let dot = NSRect(x: 84, y: 8, width: 36, height: 36)
-            NSColor.white.setFill()
-            NSBezierPath(ovalIn: dot.insetBy(dx: -4, dy: -4)).fill()
-            color.setFill()
-            NSBezierPath(ovalIn: dot).fill()
-            return true
-        }
-        NSApp.applicationIconImage = tile
-        NSApp.dockTile.badgeLabel = badge.isEmpty ? nil : badge
-    }
 
     static func apply() {
         let on = wanted

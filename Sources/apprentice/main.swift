@@ -122,6 +122,8 @@ let argv = Array(argvRaw.dropFirst())
 guard let command = argv.first else {
     // Opened from the Dock or Spotlight: the bundle's own binary, with no arguments, is the window.
     if Bundle.main.bundleIdentifier == AppBundle.identifier { AppMain.run() }
+    // One small app per VM: its own Dock icon and window for that VM (`VMDock`).
+    if Bundle.main.bundleIdentifier?.hasPrefix(VMDock.prefix) == true { VMDock.run() }
     usage()
     exit(5)
 }

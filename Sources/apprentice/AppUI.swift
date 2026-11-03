@@ -48,7 +48,8 @@ enum AppBundle {
 
     /// Makes the bundle at `app` from the binary at `source`: the icon, Info.plist and an ad hoc signature
     /// (`sign` re-signs with an identity). `release` marks the DMG's bundle (`Release.bundle`).
-    static func build(at app: URL, from source: String, release: Bool = false) -> Bool {
+    static func build(at app: URL, from source: String, release: Bool = false, identifier: String = AppBundle.identifier,
+                      name: String = "apprentice", environment: [String: String] = [:]) -> Bool {
         let fm = FileManager.default
         let exe = app.appendingPathComponent("Contents/MacOS/apprentice")
         let res = app.appendingPathComponent("Contents/Resources")
@@ -90,12 +91,13 @@ enum AppBundle {
             try? fm.removeItem(at: iconset)
             // One bundle for everything: the window (`apprentice app`, opened from the Dock) and
             // notifications, so `UNUserNotificationCenter` works and the grants stay with the binary.
-            let plist: [String: Any] = ["CFBundleIdentifier": AppBundle.identifier, "CFBundleName": "apprentice",
-                                        "CFBundleDisplayName": "apprentice",
+            var plist: [String: Any] = ["CFBundleIdentifier": identifier, "CFBundleName": name,
+                                        "CFBundleDisplayName": name,
                                         "CFBundleExecutable": "apprentice", "CFBundleIconFile": "AppIcon", "CFBundlePackageType": "APPL",
                                         "CFBundleShortVersionString": Build.number, "CFBundleVersion": Build.number,
                                         "LSMinimumSystemVersion": "14.0", "NSHighResolutionCapable": true,
                                         "LSUIElement": false, "ApprenticeRelease": release]
+            if !environment.isEmpty { plist["LSEnvironment"] = environment }
             try (plist as NSDictionary).write(to: app.appendingPathComponent("Contents/Info.plist"))
             let sign = Process()
             sign.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
@@ -171,10 +173,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.window = window
         NSApp.mainMenu = MainMenu.make()
         TerminalKeys.install()
-        // This process owns the Dock icon while the window is open: it shows the daemons' state, read from `live/`.
-        let tile = Timer(timeInterval: 1, repeats: true) { _ in DockIcon.show(Overlay.liveRows()) }
-        RunLoop.main.add(tile, forMode: .common)
-        DockIcon.show(Overlay.liveRows())
         if let out = ProcessInfo.processInfo.environment["APPRENTICE_APP_KEYTEST"] { KeyTest.run(model: model, window: window, out: out) }
     }
 

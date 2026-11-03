@@ -422,8 +422,6 @@ enum Overlay {
         publish(row)
         let all = allRows(mine: row)
         lastRows = all
-        // Only the daemon that owns the box draws the Dock icon, from every daemon's row.
-        if all.first?.key == myKey { DockIcon.show(all) }
         guard let p = panel else { return }
         // One box for everything: the daemon with the first key owns it, the others keep theirs hidden.
         guard all.first?.key == myKey else { if p.isVisible { p.orderOut(nil) }; return }
@@ -513,7 +511,7 @@ enum Overlay {
             Handback.showAgent(pid: r.agentPid, wid: r.agentWid)
         }
         @objc func watch(_ sender: NSButton) {
-            VMView.show()
+            VMDock.open()
         }
         @objc func togglePause(_ sender: NSButton) {
             let marker = dir(row(sender)).appendingPathComponent("paused")
