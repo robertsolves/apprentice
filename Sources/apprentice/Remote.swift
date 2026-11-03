@@ -353,6 +353,8 @@ enum Remote {
     static func resolve(_ id: Int) throws -> Element {
         guard let snap = SnapStore.current else { throw Fail(2, "stale: no snapshot, run `apprentice read`") }
         guard let e = snap.elements.first(where: { $0.id == id }) else { throw Fail(5, "no element \(id) in snap \(snap.snap)") }
+        // OCR elements have no tree path; the caller acts on their box, as on this Mac (F8).
+        if e.path.isEmpty { return e }
         let fresh = try snapshot(offscreen: true).elements
         if var same = fresh.first(where: { $0.path == e.path && $0.key == e.key }) ?? {
             let matches = fresh.filter { $0.key == e.key }
@@ -389,8 +391,10 @@ enum Remote {
     }
 
     static func gate(_ session: Session, _ page: Page, _ e: Element?, _ summary: String,
-                             details: [String] = [], warn: [String] = [], force: Bool = false) throws {
-        let kind = try approveStep(session, page, e, summary, details: details, warn: warn, force: force)
+                             details: [String] = [], warn: [String] = [], force: Bool = false,
+                             submits: Bool = false, focus: Element? = nil) throws {
+        let kind = try approveStep(session, page, e, summary, details: details, warn: warn, force: force,
+                                   submits: submits, focus: focus)
         // The dwell before a budgeted action drifts the guest's cursor, not this Mac's.
         if kind != nil { try act { Site.dwell() } }
     }
@@ -530,7 +534,7 @@ enum Remote {
                 throw Fail(stop.code, out + "\n" + stop.message
                     + "\nthe user does this in the VM: `apprentice vm call \"pass the check on the page\"` opens it for them")
             }
-            if Limits.stored.challenged?[Site.domain(host)] != nil {
+            if let recorded = Limits.stored.challenged?[Site.domain(host)], Challenge.gone(snapshot, recorded: recorded) {
                 Challenge.clear(Site.domain(host))
                 return out + "\nchallenge gone: \(Site.domain(host)) can be used again"
             }
@@ -630,12 +634,12 @@ enum Remote {
         if let secret {
             let summary = try Login.check(secret, url: page.url, field: e)
             try gate(session, page, e, summary, details: enter ? ["then presses return"] : [],
-                     warn: ["signs in (login.auto)"] + (enter ? ["return may submit or send"] : []), force: a.has("gate"))
+                     warn: ["signs in (login.auto)"] + (enter ? ["return may submit or send"] : []), force: a.has("gate"), submits: enter)
             text = try Login.value(secret, url: page.url, a)
         } else {
             try gate(session, page, e, "type into \(e.short)",
                      details: (e.value.map { ["current text: \($0)"] } ?? []) + ["replaces it with: \(text)"] + (enter ? ["then presses return"] : []),
-                     warn: enter ? ["return may submit or send"] : [], force: a.has("gate"))
+                     warn: enter ? ["return may submit or send"] : [], force: a.has("gate"), submits: enter)
         }
         try beforeAction(session, url: page.url)
         // As on the Mac: apps run fast, a web page only when the user listed its site as `fastest` (BOT_DETECTION P1).
@@ -695,7 +699,14 @@ enum Remote {
         _ = try Keys.parse(combo)
         let (session, page, old) = try prepare()
         let submits = ["return", "enter"].contains { combo.lowercased().contains($0) }
-        try gate(session, page, nil, "press \(combo)", warn: submits ? ["\(combo) may submit or send"] : [])
+        // Return sends what has the focus: budgeted like a click on it (F12).
+        var focus: Element?
+        if submits, let f = try? focused(), f["found"] as? Bool == true {
+            focus = Element(id: 0, path: [], label: "focused \(f["label"] as? String ?? "element")", name: f["name"] as? String ?? "",
+                            value: nil, frame: (f["frame"] as? [Double]) ?? [0, 0, 0, 0], offscreen: false, gated: false)
+        }
+        try gate(session, page, nil, "press \(combo)", warn: submits ? ["\(combo) may submit or send"] : [],
+                 submits: submits, focus: focus)
         try beforeAction(session, url: page.url)
         try act { try Keys.press(combo) }
         Pace.sleep(0.1)

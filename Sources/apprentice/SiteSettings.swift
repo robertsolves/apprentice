@@ -124,6 +124,13 @@ enum SiteSettings {
         return spec
     }
 
+    /// The kinds a budget can name: every listed kind (aliases such as `group_post` included) and the ones
+    /// `approveStep` charges by itself.
+    static var budgetKinds: Set<String> {
+        let lists = SiteLists.current
+        return Set(lists.kinds.map(\.id) + Array(lists.countsAs.keys) + Array(lists.countsAs.values) + ["default", "upload", "settings"])
+    }
+
     /// What is wrong with a spec, so a typo in it shows in `selftest` rather than as a blank control.
     static func problems(_ spec: Spec) -> [String] {
         var out: [String] = []
@@ -136,6 +143,9 @@ enum SiteSettings {
             if f.key.isEmpty || f.label.isEmpty { out.append("field.\(f.id): needs key and label") }
             if f.type == "choice", f.choices.isEmpty || f.labels.count != f.choices.count { out.append("field.\(f.id): choices and labels") }
             if f.store == "pace", PaceConfig().literal(f.key) == nil { out.append("field.\(f.id): unknown pace key \(f.key)") }
+            // A cap on a kind nothing counts would be saved and never apply (F11).
+            if f.store == "budget", !SiteLists.current.kinds.isEmpty, !budgetKinds.contains(f.key) { out.append("field.\(f.id): unknown budget kind \(f.key)") }
+            if f.store == "style", f.key != "style" { out.append("field.\(f.id): a style field's key is style") }
         }
         for p in spec.presets {
             if p.label.isEmpty { out.append("preset.\(p.site): needs a label") }
@@ -197,16 +207,37 @@ enum SiteSettings {
         case "style":
             return "\"\(builtInStyle(site, config: files.config))\""
         case "pace":
-            // What applies without this key: the site's style (its own or built in) over the default pace.
-            let style = explicit(site, field.with(store: "style"), files).map(Toml.unquote) ?? builtInStyle(site, config: files.config)
-            let base = PaceConfig.preset(style, on: config.defaultPace) ?? config.defaultPace
-            return base.literal(field.key) ?? ""
+            // What applies without this key, built the way `Config.load` and `profileKey` build it, so a site
+            // with nothing of its own shows every website's `[pace.web]` values, not the bare preset (F10).
+            return profile(site, without: field.key, toml: Toml.load(files.config), on: config.defaultPace).literal(field.key) ?? ""
         default:
             var table = Budgets.table(files.budgets)
             table[budgetKey(site)]?[field.key] = nil
             let c = Budgets.cap(site == everyWebsite ? "" : site, field.key, table: table)
             return capLiteral(["hour": c.hour, "day": c.day, "week": c.week, "min_gap_s": c.min_gap_s].compactMapValues { $0 })
         }
+    }
+
+    /// The pace profile the daemon runs `site` at, with `key` left out of the site's own section. Mirrors
+    /// `Config.load`: a style list or the built-in style (steady for `web`, careful for a social site), then the
+    /// site's `[pace."<site>"]` over it; a website with neither runs at every website's profile.
+    static func profile(_ site: String, without key: String? = nil, toml: [String: [String: String]], on base: PaceConfig) -> PaceConfig {
+        let lists = toml["pace.styles"] ?? [:]
+        func styled(_ name: String) -> PaceConfig? {
+            for (style, raw) in lists where (Toml.array(raw) ?? []).map({ $0.lowercased() }).contains(name) {
+                if let p = PaceConfig.preset(style.lowercased(), on: base) { return p }
+            }
+            if name == everyWebsite { return PaceConfig.preset("steady", on: base) }
+            if Config.socialSites.contains(name) { return PaceConfig.preset("careful", on: base) }
+            return nil
+        }
+        let isSite = site.contains(".")
+        if var own = toml.first(where: { $0.key.lowercased() == "pace.\(site)" })?.value {
+            if let key { own[key] = nil }
+            return PaceConfig(own, base: styled(site) ?? (isSite ? styled(everyWebsite) : nil) ?? base)
+        }
+        if let p = styled(site) { return p }
+        return isSite ? profile(everyWebsite, toml: toml, on: base) : base
     }
 
     /// The style a site runs at with no list naming it: every website's for a site (steady unless the

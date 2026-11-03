@@ -66,7 +66,11 @@ struct Setting: Identifiable {
             case "number":
                 let lo = v["min"].flatMap { Int(Toml.unquote($0)) } ?? 0, hi = v["max"].flatMap { Int(Toml.unquote($0)) } ?? 100_000
                 kind = .number(lo...max(lo, hi))
-            case "choice": kind = .choice(v["choices"].flatMap(Toml.array) ?? [])
+            case "choice":
+                // A choice with nothing to choose is a half-written row: left out, not a crash (F9).
+                let choices = v["choices"].flatMap(Toml.array) ?? []
+                guard !choices.isEmpty else { continue }
+                kind = .choice(choices)
             case "text": kind = .text
             case "font": kind = .font
             default: continue

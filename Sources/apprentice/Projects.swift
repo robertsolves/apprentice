@@ -264,11 +264,15 @@ enum Projects {
             }
             let r = Repo.run("gh", ["repo", "create", folderName(p.name), "--private", "--source", ".", "--remote", "origin", "--push"], in: dir)
             guard r.code == 0 else { throw Fail(5, "could not make a GitHub repository: \(r.out)") }
-            out.append("made a private GitHub repository and pushed: \(Repo.run("git", ["remote", "get-url", "origin"], in: dir).out)")
+            let made = Repo.run("git", ["remote", "get-url", "origin"], in: dir).out
+            // Recorded here too, not only by `Sync`, which skips this with sync off (F7).
+            if !made.isEmpty { setRemote(dir, made) }
+            out.append("made a private GitHub repository and pushed: \(made)")
         } else {
             let branch = Repo.run("git", ["rev-parse", "--abbrev-ref", "HEAD"], in: dir).out
             let r = Repo.run("git", ["push", "-u", "origin", branch], in: dir)
             guard r.code == 0 else { throw Fail(5, "push failed: \(r.out)") }
+            if let remote { setRemote(dir, remote) }
             out.append("pushed to \(remote ?? "origin")")
         }
         return out.joined(separator: "\n")

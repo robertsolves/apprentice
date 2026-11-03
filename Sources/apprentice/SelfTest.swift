@@ -529,6 +529,9 @@ enum SelfTest {
         let font = screen.settings.first { $0.key == "font" }
         check(font?.literal("Menlo") == "\"Menlo\"", "a text setting is written quoted")
         check(Setting.parse("[setting.\"app.font\"]\nkind = \"font\"\n").settings.first?.kind == .font, "a font setting is a menu of fonts")
+        check(Setting.parse("[setting.\"agent.effort\"]\nkind = \"choice\"\n").settings.isEmpty
+              && Setting.parse("[setting.\"agent.effort\"]\nkind = \"choice\"\nchoices = []\n").settings.isEmpty,
+              "settings screen: a choice with no choices is left out (F9)")
         let size = screen.settings.first { $0.key == "font_size" }
         check(size?.literal("abc") == "12", "a number setting falls back to its default on nonsense")
         let mine = Store.dir.appendingPathComponent("settings-mine.toml")
@@ -584,6 +587,10 @@ enum SelfTest {
         check(Login.allowed("www.example.com") && Login.isCodePrompt(Challenge.find(code) ?? ""), "with login on a code prompt is a sign-in step")
         check(Challenge.find(form) == nil && Login.signedOut(form)?.contains("--secret password") == true, "a sign-in form is not a check")
         check(Challenge.find(captcha) == "\"i'm not a robot\"", "a CAPTCHA stays a check")
+        let plain = Snapshot(snap: 1, scope: "web", url: "https://example.com/feed", title: "Home", total: 1, elements: [el("link", "Home")])
+        check(!Challenge.gone(form, recorded: "address /checkpoint"), "a sign-in page after a check does not clear it (F3)")
+        check(!Challenge.gone(plain, recorded: "\"home\""), "the recorded marker still on the page keeps the check")
+        check(Challenge.gone(plain, recorded: "address /checkpoint"), "a plain page with no marker clears it")
         Config.current.loginSites = ["other.org"]
         check(!Login.allowed("example.com") && Login.allowed("a.other.org"), "[login] sites limits it")
         let now = 1_000_000.0
@@ -683,7 +690,7 @@ enum SelfTest {
         - two
         ## Steps
         1. `menu "File > New Folder"`
-        2. Pick the row by hand.
+          2. Pick the row by hand.
         not a step
         ## Fails
         3. not a step either
@@ -691,7 +698,7 @@ enum SelfTest {
         let n = Playbooks.parse(text, url: URL(fileURLWithPath: "/x/new-folder.md"), path: "flows/new-folder.md")
         check(n.meta["scope"] == "flow" && n.title == "New folder" && n.match == ["finder"], "front matter and title")
         check(n.keyFacts == ["one", "two"], "key facts are the bullets under their heading")
-        check(Playbooks.steps(n) == ["`menu \"File > New Folder\"`", "Pick the row by hand."], "steps are the numbered lines under Steps")
+        check(Playbooks.steps(n) == ["`menu \"File > New Folder\"`", "Pick the row by hand."], "steps are the numbered lines under Steps, indented or not (F5)")
         check(Playbooks.parse("# T\nbody", url: URL(fileURLWithPath: "/x/a.md"), path: "a.md").meta.isEmpty, "no front matter is fine")
         check(Playbooks.slugify("Post a job: LinkedIn (draft)!") == "post-a-job-linkedin-draft", "slugs")
 
@@ -1093,6 +1100,10 @@ enum SelfTest {
         like = { hour = 20, day = 100, min_gap_s = 30 }
         """)
         check(SiteSettings.problems(spec).allSatisfy { $0.hasPrefix("text.") } && spec.text("x {n}", ["n": "1"]) == "x 1" && spec.fields.map(\.id) == ["style", "dwell", "like"], "sites: fields keep the spec's order")
+        if !SiteLists.current.kinds.isEmpty {
+            let typo = SiteSettings.parse("[group.pace]\ntitle = \"Pace\"\n[field.like]\ngroup = \"pace\"\nstore = \"budget\"\ntype = \"cap\"\nkey = \"likes\"\nlabel = \"Likes\"\n")
+            check(SiteSettings.problems(typo).contains { $0.contains("unknown budget kind likes") }, "sites: a cap on a kind nothing counts is reported (F11)")
+        }
         try? "# mine\n[agent]\nsounds = true\n".write(to: files.config, atomically: true, encoding: .utf8)
         let style = spec.fields[0], dwell = spec.fields[1], like = spec.fields[2]
         _ = try? SiteSettings.apply(spec.presets[0], spec: spec, files)
@@ -1105,6 +1116,11 @@ enum SelfTest {
         try? SiteSettings.set("example.org", dwell, "[2, 9]", files)
         check(SiteSettings.explicit("example.org", dwell, files) == "[2, 9]" && SiteSettings.explicit("example.org", style, files) == nil
               && SiteSettings.usual("example.org", style, files: files) == "\"steady\"", "sites: one key for a site, the rest usual")
+        try? SiteSettings.set(SiteSettings.everyWebsite, dwell, "[3, 7]", files)
+        let webDwell = PaceConfig([dwell.key: "[3, 7]"], base: PaceConfig.preset("steady", on: PaceConfig()) ?? PaceConfig()).literal(dwell.key)
+        check(SiteSettings.usual("example.net", dwell, files: files) == webDwell,
+              "sites: a site with nothing of its own shows every website's value (F10)")
+        try? SiteSettings.set(SiteSettings.everyWebsite, dwell, nil, files)
         try? SiteSettings.set("example.org", dwell, nil, files)
         try? SiteSettings.remove("instagram.com", files)
         let left = (try? String(contentsOf: files.config, encoding: .utf8)) ?? ""
@@ -1282,6 +1298,10 @@ enum SelfTest {
         let again = Pipelines.parse(Pipelines.render(p))
         check(again.steps == p.steps && again.name == p.name && again.vm == p.vm && again.about == p.about,
               "pipelines: render and parse round-trip")
+        var hashed = p
+        hashed.name = "Budget #2 \"review\""
+        check(Pipelines.parse(Pipelines.render(hashed)).name == hashed.name, "pipelines: a name with \" #\" survives a round trip (F6)")
+        check(Pipelines.metaValue("codex # the agent") == "codex", "pipelines: an unquoted value still drops a comment")
         let prompt = Pipelines.prompt(p, step: 1, previous: String(repeating: "x", count: 9000))
         check(prompt.hasPrefix("This is step 2 of 2") && prompt.count < 6400, "pipelines: the previous output is passed, capped")
         check(Projects.notes(name: "Shop", vm: "shop", about: "").contains("APPRENTICE_VM=shop"),
@@ -1468,6 +1488,8 @@ enum SelfTest {
         check(seen.count == 2 && seen.first { $0.key == "gym" }?.pref.value == "vm-gym.com", "a VM's own pref wins over the Mac's")
         check(seen.first { $0.key == "linkedin" }?.place == .mac, "a pref only the Mac has is inherited")
         check(Prefs.key("My Gym!") == "my-gym" && Prefs.key("") == nil, "keys are lower case words joined by dashes")
+        check(Prefs.parse("") == [:] && Prefs.parse("{\"gym\": \"https://gym.com\"}") == nil && Prefs.parse("not json") == nil,
+              "a prefs.json of the wrong shape is unreadable, not empty, so remember never writes over it (F15)")
         check(Prefs.valueProblem("a\nb") != nil && Prefs.valueProblem(String(repeating: "x", count: 201)) != nil
               && Prefs.valueProblem("bookings.gym.com") == nil, "a value is one short line")
         check(Prefs.taskValueOK("https://www.gym.com/book", url: "https://gym.com/classes", app: "Safari"), "--from task takes the session's site")
