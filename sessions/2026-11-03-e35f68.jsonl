@@ -1,0 +1,6 @@
+{"app":"Chromium","cmd":"session","host":"www.facebook.com","model":"claude-sonnet-5-5","ms":1169,"pace":"facebook.com fast","ts":"2026-11-03T13:53:51.400+10:00","vm":true}
+{"model":"claude-sonnet-5-5","task":"Open Facebook in the VM so the user can log in","ts":"2026-11-03T13:53:51.400+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T13:53:51.492+10:00"}
+{"approved":true,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T13:53:51.516+10:00"}
+{"cmd":"open","diff":"+12 -0 ~0","host":"facebook.com","model":"claude-sonnet-5-5","ms":6261,"pace":"facebook.com human","ts":"2026-11-03T13:53:57.777+10:00","vm":true,"waits":{"settle":1499,"type":2813}}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":777,"pace":"default fast","ts":"2026-11-03T13:53:58.571+10:00"}
