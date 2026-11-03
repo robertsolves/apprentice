@@ -273,6 +273,28 @@ enum SelfTest {
         check(!vm("session", ["--app", "Safari", "--on", "mac"]), "--on mac keeps a browser on this Mac")
         check(vm("session", ["--app", "mousepad"], on: false, bound: true, vmSession: false), "a daemon bound to a VM binds its apps")
         check(vm("menu", ["File > Save"]), "menus work in the VM")
+        let leases = """
+        {
+        	name=debian
+        	ip_address=192.168.64.4
+        	hw_address=1,a:bb:c:dd:e:f
+        	lease=0x6700aa00
+        }
+        {
+        	name=debian
+        	ip_address=192.168.64.9
+        	hw_address=1,a:bb:c:dd:e:f
+        	lease=0x6700ff00
+        }
+        {
+        	name=other
+        	ip_address=192.168.64.2
+        	hw_address=1,1:2:3:4:5:6
+        	lease=0x67ffffff
+        }
+        """
+        check(VMHost.leaseIP(mac: VMHost.macBytes("0a:bb:0c:dd:0e:0f") ?? [], leases: leases) == "192.168.64.9",
+              "a VM in the window finds its address by its MAC, newest lease first, leading zeros or not")
         for cmd in ["ask", "confirm", "approve", "deny", "awake", "away", "log"] {
             check(!vm(cmd), "\(cmd) stays on this Mac")
         }

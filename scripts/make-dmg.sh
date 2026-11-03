@@ -39,7 +39,8 @@ sign=(--force --options runtime)
 if [ -n "$id" ]; then sign+=(--timestamp --sign "$id"); else sign+=(--sign -); fi
 # Inside out: the helper first, keeping the CLI's own identifier, then the bundle around it.
 codesign "${sign[@]}" --identifier apprentice "$app/Contents/Helpers/apprentice"
-codesign "${sign[@]}" "$app"
+# The window runs the Linux VMs itself (VMHost.swift), which takes the virtualization entitlement.
+codesign "${sign[@]}" --entitlements "$root/scripts/app.entitlements" "$app"
 codesign --verify --deep --strict --verbose=2 "$app"
 
 stage="$scratch/dmg"
