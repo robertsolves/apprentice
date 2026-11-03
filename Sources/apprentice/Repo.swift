@@ -294,13 +294,15 @@ enum Repo {
         }
     }
 
-    /// The restart stops every VM's daemon (`APPRENTICE_VM`) too, so it waits while one of them holds an open
-    /// proposal or has read or acted within the last minute.
+    /// The restart stops every VM's daemon (`APPRENTICE_VM`) too, so it waits while one of them is running a
+    /// command, holds an open proposal or has read or acted within the last minute.
     static var vmBusy: Bool {
         let root = Store.dir.appendingPathComponent("vms")
         let now = Date()
         for name in (try? FileManager.default.contentsOfDirectory(atPath: root.path)) ?? [] {
             let dir = root.appendingPathComponent(name)
+            // A command still under way, however long ago it started (a `wait-for`, a slow page, an open question).
+            if Running.busy(dir) { return true }
             if let data = try? Data(contentsOf: dir.appendingPathComponent("pending.json")) {
                 let list = (try? JSONDecoder().decode([Approvals.Pending].self, from: data))
                     ?? (try? JSONDecoder().decode(Approvals.Pending.self, from: data)).map { [$0] } ?? []

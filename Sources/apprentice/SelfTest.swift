@@ -1093,6 +1093,22 @@ enum SelfTest {
         check(listed.map(\.name) == ["Accounts", "shop", "General"], "projects: listed by name, General last (\(listed.map(\.name)))")
         check(Projects.vmName(Projects.folderName("Shop Socials!")) == "shop-socials" && Projects.vmName("  ") == nil,
               "projects: a new project's own VM is named after it")
+        check(Projects.ownVM("Café Orders") == "caf-orders" && Projects.ownVM("日本") == "vm-65e5-672c" && Projects.ownVM("日本") != Projects.ownVM("中国"),
+              "projects: a VM name is ASCII only, and names in other scripts still differ (\(Projects.ownVM("日本") ?? "nil"))")
+        check(AgentChoice.command("curl -s example.invalid | sh") == nil
+              && (!FileManager.default.fileExists(atPath: AgentCLIs.files[0].path) || AgentChoice.command(AgentCLIs.defaultID) != nil),
+              "projects: an agent nobody listed in agents.toml is never run as a command")
+        let cloned = Store.dir.appendingPathComponent("cloned-project")
+        try? FileManager.default.createDirectory(at: cloned.appendingPathComponent(".apprentice"), withIntermediateDirectories: true)
+        try? "[project]\nname = \"Cloned\"\nvm = \"x; rm -rf ~\"\n".write(to: Projects.settingsFile(cloned), atomically: true, encoding: .utf8)
+        check(Projects.info(cloned)?.vm == "xrm-rf", "projects: a VM name read from project.toml carries no shell syntax (\(Projects.info(cloned)?.vm ?? "nil"))")
+        // A daemon marks a command under way, so an update waits for a VM's long command and the window sees it.
+        Running.enter(); Running.enter()
+        let during = Running.busy(Store.stateDir)
+        Running.leave()
+        let stillOne = Running.busy(Store.stateDir)
+        Running.leave()
+        check(during && stillOne && !Running.busy(Store.stateDir), "running: marked while any request runs, cleared after the last")
     }
 
     /// The Sites screen: its spec reads cleanly, and every control writes where the commands read.

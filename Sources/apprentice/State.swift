@@ -26,11 +26,15 @@ enum Store {
 
     /// The browser VM this process works for (`APPRENTICE_VM`, or `apprentice --vm <name> …`), one per
     /// agent session; nil is this Mac and the default VM.
-    static let vmName: String? = {
-        let raw = ProcessInfo.processInfo.environment["APPRENTICE_VM"] ?? ""
+    static let vmName: String? = cleanVM(ProcessInfo.processInfo.environment["APPRENTICE_VM"] ?? "")
+
+    /// A VM's name as its daemon uses it: lower case letters, digits and dashes, at most 40. Anything read from a
+    /// file goes through this too (a project cloned from GitHub brings its own `project.toml`), so a name can never
+    /// carry a path or shell syntax into a folder, a socket or a command line.
+    static func cleanVM(_ raw: String) -> String? {
         let name = String(raw.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "-" }.prefix(40))
         return name.isEmpty ? nil : name
-    }()
+    }
 
     /// One daemon runs per VM, each with its own socket and its own session, snapshot, pending approval
     /// and pacing, so agent sessions on different VMs never touch each other's. Sites, budgets, logs,

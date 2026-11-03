@@ -120,7 +120,9 @@ struct ListColumn<Rows: View>: View {
 /// The agent CLI a project or pipeline names, as a tab's start command (nil: a plain shell).
 enum AgentChoice {
 
-    static func command(_ agent: String) -> String? { AgentCLIs.find(agent).map(\.open) ?? agent }
+    /// Only an agent listed in agents.toml (apprentice's or the user's own) starts: a name nobody listed opens a
+    /// plain shell instead of being run, since a project cloned from GitHub brings its own `project.toml`.
+    static func command(_ agent: String) -> String? { AgentCLIs.find(agent)?.open }
     static func label(_ agent: String) -> String { AgentCLIs.label(agent) }
 }
 
@@ -151,9 +153,11 @@ struct ProjectDetail: View {
                 LabeledField("Runs on") {
                     Picker("", selection: Binding(get: { project.vm ?? "" }, set: { change($0.isEmpty ? ["--no-vm"] : ["--vm", $0]) })) {
                         Text("This Mac").tag("")
-                        Text("Its own VM (\(Projects.folderName(project.name)))").tag(Projects.folderName(project.name))
-                        ForEach(model.machines.filter { !$0.name.isEmpty && $0.name != Projects.folderName(project.name) }) { Text("Share the VM \($0.name)").tag($0.name) }
-                        if let vm = project.vm, vm != Projects.folderName(project.name), !model.machines.contains(where: { $0.name == vm }) {
+                        // The same name `project new` gives it, so the picker shows it chosen for a new project.
+                        let own = Projects.ownVM(project.name) ?? "vm"
+                        Text("Its own VM (\(own))").tag(own)
+                        ForEach(model.machines.filter { !$0.name.isEmpty && $0.name != own }) { Text("Share the VM \($0.name)").tag($0.name) }
+                        if let vm = project.vm, vm != own, !model.machines.contains(where: { $0.name == vm }) {
                             Text("The VM \(vm)").tag(vm)
                         }
                     }
@@ -257,7 +261,8 @@ struct NewProjectSheet: View {
     @State private var working = false
 
     private var vm: String? {
-        if place == "+new" { let n = newVM.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "-" }; return n.isEmpty ? nil : n }
+        // The name `project new` will store, so the VM made in the first tab is the one the project uses.
+        if place == "+new" { return Projects.vmName(newVM) }
         return place.isEmpty ? nil : place
     }
 
@@ -330,8 +335,8 @@ struct NewProjectSheet: View {
             fromGitHub = start == .github
             if place.isEmpty, newVM.isEmpty { newVM = "" }
         }
-        .onChange(of: name) { _, value in if place == "+new", newVM.isEmpty { newVM = Projects.folderName(value) } }
-        .onChange(of: place) { _, value in if value == "+new", newVM.isEmpty { newVM = Projects.folderName(name) } }
+        .onChange(of: name) { _, value in if place == "+new", newVM.isEmpty { newVM = Projects.ownVM(value) ?? "" } }
+        .onChange(of: place) { _, value in if value == "+new", newVM.isEmpty { newVM = Projects.ownVM(name) ?? "" } }
     }
 
     private func create() {
@@ -615,10 +620,24 @@ struct VMsPanel: View {
                     Spacer()
                     if let p = users.first {
                         IconButton("Show", "arrow.right.circle") { model.show(project: p, tab: .work) }.controlSize(.small)
-                    } else if !m.name.isEmpty {
-                        IconButton("Make a project for it", "folder.badge.plus") { adopt(m.name) }.controlSize(.small)
+                    } else {
+                        if m.state == "running" || m.host != nil {
+                            IconButton("Watch", "eye") { model.selectedVM = m.name }.controlSize(.small)
+                        }
+                        if m.state == "running", m.host == nil {
+                            IconButton("Click in it", "cursorarrow.click") { vm((m.name.isEmpty ? [] : ["--vm", m.name]) + ["vm", "look"]) }.controlSize(.small)
+                        }
+                        if !m.name.isEmpty {
+                            IconButton("Make a project for it", "folder.badge.plus") { adopt(m.name) }.controlSize(.small)
+                        }
                     }
                 }
+            }
+            // A VM no project uses (the default VM for websites outside a project, an older one) is watched here:
+            // the overlay's Watch button and `vm watch` bring the window to it.
+            if let chosen = model.selectedVM, !model.projects.contains(where: { $0.vm == chosen }),
+               let m = model.machines.first(where: { $0.name == chosen }), m.state == "running" || m.host != nil {
+                VMScreen(name: m.name)
             }
             Divider()
             Text("When an agent opens a website outside a project's VM, it uses the default VM if this is on, else this Mac.")

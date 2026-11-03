@@ -204,6 +204,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         DispatchQueue.global(qos: .utility).async { AppShow.retireDockApps() }
         // The Linux VMs run in this process (`VMHost`): start and stop orders from the daemons are answered here.
         VMHost.listen()
+        // The window was closed while a VM ran, so the app stayed for it: once the last VM stops, nothing is left
+        // on screen or running, and the app quits as closing the window would have.
+        VMHost.allStopped = { [weak self] in
+            guard let self, self.window?.isVisible != true, (self.model?.busyTabs ?? []).isEmpty else { return }
+            self.stopAgreed = true
+            NSApp.terminate(nil)
+        }
         NSApp.mainMenu = MainMenu.make()
         TerminalKeys.install()
         if let out = ProcessInfo.processInfo.environment["APPRENTICE_APP_KEYTEST"] { KeyTest.run(model: model, window: window, out: out) }
@@ -696,8 +703,9 @@ final class AppModel: ObservableObject {
         let listed = Projects.ordered(Projects.all())
         if listed.map(\.id) != projects.map(\.id) || listed.map(\.name) != projects.map(\.name) || listed.map(\.vm) != projects.map(\.vm) { projects = listed }
         pipelines = Pipelines.all()
-        // The window's process has no state of its own: the daemons say whether they are working (`Overlay.liveRows`).
-        busy = pending.count > 0 || Overlay.liveRows().contains { $0.head == "Working" }
+        // The window's process has no state of its own: the daemons say whether they are working (`Overlay.liveRows`,
+        // which only daemons showing the on-screen box write, and `Running`, which every daemon writes).
+        busy = pending.count > 0 || Overlay.liveRows().contains { $0.head == "Working" } || Running.anyDaemon
         revision += 1
         // An agent installed while the window is open shows up within a minute.
         refreshes += 1
@@ -967,9 +975,13 @@ final class AppModel: ObservableObject {
 
     private func relaunch() {
         guard let bundle = Release.bundle else { return }
+        // Opens the new app only once this one has gone: quitting can take a while (a VM running here shuts down
+        // first, or the person answers whether to stop a busy tab), and `open` while the old one still runs would
+        // only bring the old one forward. Two minutes at most, so a cancelled quit never opens a second copy later.
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/bin/sh")
-        p.arguments = ["-c", "sleep 1; /usr/bin/open \"$0\"", bundle.path]
+        p.arguments = ["-c", "i=0; while kill -0 \"$1\" 2>/dev/null; do i=$((i+1)); [ $i -gt 240 ] && exit 0; sleep 0.5; done; /usr/bin/open \"$0\"",
+                       bundle.path, String(getpid())]
         try? p.run()
         NSApp.terminate(nil)
     }

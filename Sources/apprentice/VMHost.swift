@@ -40,10 +40,12 @@ enum VMHost {
 
     // MARK: - the daemon's and the CLI's side
 
-    /// The window's word on a VM, while the window that wrote it is alive.
+    /// The window's word on a VM, while the window that wrote it is alive. The pid must still be apprentice's
+    /// window: after a crash the number can be reused by another process, which would make a dead VM look running.
     static func status(_ name: String) -> Status? {
         guard let d = try? Data(contentsOf: statusURL(name)), let s = try? JSONDecoder().decode(Status.self, from: d),
               s.pid > 0, kill(s.pid, 0) == 0 else { return nil }
+        if let app = NSRunningApplication(processIdentifier: s.pid), app.bundleIdentifier != AppBundle.identifier { return nil }
         return s
     }
 
@@ -134,6 +136,8 @@ enum VMHost {
 
     static var anyRunning: Bool { !machines.isEmpty }
     static var runningNames: [String] { machines.keys.sorted() }
+    /// Called on the main thread when the last VM this window runs has stopped (`AppDelegate` quits if the window is closed).
+    static var allStopped: (() -> Void)?
 
     /// Called once when the window starts: answers orders now and as they come.
     static func listen() {
@@ -162,9 +166,13 @@ enum VMHost {
     }
 
     private static func boot(_ name: String, bundle: URL) {
-        if machines[name] != nil { return }
+        // Already running here: say so again, since the caller removed the old status before it asked.
+        if let running = machines[name] { running.report(); return }
         do {
-            let vm = try HostedVM(name: name, bundle: bundle) { gone in machines[gone] = nil }
+            let vm = try HostedVM(name: name, bundle: bundle) { gone in
+                machines[gone] = nil
+                if machines.isEmpty { allStopped?() }
+            }
             machines[name] = vm
             vm.start()
         } catch {
@@ -277,6 +285,12 @@ final class HostedVM: NSObject, VZVirtualMachineDelegate {
         }
         super.init()
         machine.delegate = self
+    }
+
+    /// Writes the state again, for a start order that arrives while it already runs.
+    func report() {
+        guard !finished else { return }
+        VMHost.write(name, machine.state == .running ? "running" : machine.state == .stopping ? "stopping" : "starting")
     }
 
     func start() {

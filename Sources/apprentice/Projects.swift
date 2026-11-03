@@ -103,7 +103,9 @@ enum Projects {
         guard FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDir), isDir.boolValue else { return nil }
         let v = Toml.load(settingsFile(folder))["project"] ?? [:]
         func text(_ key: String) -> String? { v[key].map(Toml.unquote).flatMap { $0.isEmpty ? nil : $0 } }
-        return Info(name: text("name") ?? folder.lastPathComponent, folder: folder, vm: text("vm"), agent: text("agent") ?? AgentCLIs.defaultID)
+        // The VM as its daemon names itself (`Store.cleanVM`): a hand-written "Shop" matches the VM shop, and a
+        // project.toml from someone else's repository cannot put shell syntax into the window's commands.
+        return Info(name: text("name") ?? folder.lastPathComponent, folder: folder, vm: text("vm").flatMap(Store.cleanVM), agent: text("agent") ?? AgentCLIs.defaultID)
     }
 
     static func settingsFile(_ folder: URL) -> URL { folder.appendingPathComponent(".apprentice/project.toml") }
@@ -145,7 +147,7 @@ enum Projects {
         var lines = ["# This folder is an apprentice project. `apprentice project` reads this file.", "[project]",
                      "name = \(quote(name))", "agent = \(quote(agent))"]
         if let vm { lines.append("vm = \(quote(vm))") }
-        // A cloned project keeps the name, agent and VM it was saved with.
+        // A cloned project keeps the name and agent it was saved with (`new` then sets its VM: this Mac's choice).
         if !fm.fileExists(atPath: settings.path) { try (lines.joined(separator: "\n") + "\n").write(to: settings, atomically: true, encoding: .utf8) }
         // The counts are this Mac's; everything else in the project travels with it.
         let ignore = folder.appendingPathComponent(".apprentice/.gitignore")
@@ -214,7 +216,7 @@ enum Projects {
             let folder = URL(fileURLWithPath: (raw as NSString).expandingTildeInPath).standardizedFileURL
             guard FileManager.default.fileExists(atPath: folder.path) else { throw Fail(5, "no folder \(folder.path)") }
             if !FileManager.default.fileExists(atPath: settingsFile(folder).path) {
-                try scaffold(folder, name: a.value("name") ?? folder.lastPathComponent, vm: a.value("vm"), agent: a.value("agent") ?? "claude", about: "")
+                try scaffold(folder, name: a.value("name") ?? folder.lastPathComponent, vm: a.value("vm").flatMap(vmName), agent: a.value("agent") ?? "claude", about: "")
             }
             guard let p = info(folder) else { throw Fail(5, "could not read \(folder.path)") }
             remember(p)
@@ -258,6 +260,12 @@ enum Projects {
             throw Fail(5, "\(folder.path) is already a project · apprentice project add \(folder.path)")
         }
         try scaffold(folder, name: name, vm: vm, agent: agent, about: a.value("about") ?? "")
+        if a.value("from") != nil {
+            // Where it runs is this Mac's choice, never the repository's: a project.toml from someone else could
+            // name a VM of the user's that is signed in to their own accounts.
+            let file = settingsFile(folder)
+            if let vm { Toml.set(file, "project", "vm", quote(vm)) } else { Toml.remove(file, "project", "vm") }
+        }
         guard let p = info(folder) else { throw Fail(5, "could not read \(folder.path)") }
         remember(p)
         out.append("project \(name) · \(folder.path) · " + (vm.map { "VM \($0)" } ?? "this Mac"))
@@ -267,11 +275,23 @@ enum Projects {
         return out.joined(separator: "\n")
     }
 
-    /// A VM name from what the user typed: lower case letters, digits and dashes.
+    /// A VM name from what the user typed: lower case ASCII letters, digits and dashes, since it becomes a Tart
+    /// VM's name, a folder and a socket path. A project's name in another script ("Café", "日本") keeps what is left,
+    /// else `vm`.
     static func vmName(_ raw: String) -> String? {
-        let n = String(raw.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "-" }.prefix(40))
-        return n.isEmpty ? nil : n
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789-")
+        var ascii = ""
+        ascii.unicodeScalars.append(contentsOf: raw.lowercased().unicodeScalars.filter { allowed.contains($0) }.prefix(40))
+        let n = ascii.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        if !n.isEmpty { return n }
+        // Nothing ASCII in it: a name from its first characters' code points, so two such projects still differ.
+        let letters = raw.unicodeScalars.filter { !CharacterSet.whitespacesAndNewlines.contains($0) }
+        guard !letters.isEmpty else { return nil }
+        return "vm-" + letters.prefix(4).map { String($0.value, radix: 16) }.joined(separator: "-")
     }
+
+    /// The VM a project gets of its own unless told otherwise: named after its folder.
+    static func ownVM(_ name: String) -> String? { vmName(folderName(name)) }
 
     /// Changes how a project runs: its VM (or none), its agent, its name. The rest of `project.toml` stays as written.
     private static func set(_ a: Args) throws -> String {

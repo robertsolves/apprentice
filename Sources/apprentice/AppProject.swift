@@ -231,9 +231,12 @@ struct ProjectSkillsView: View {
     /// Every skill file in the project's folder, by its title.
     static func load(_ folder: URL) -> [SkillItem] {
         guard let walk = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: nil) else { return [] }
+        // The enumerator can hand back resolved paths (`/private/var/…`, a linked ~/Apprentice), so compare like with like.
+        let base = folder.resolvingSymlinksInPath().standardizedFileURL.path
         var out: [SkillItem] = []
         for case let url as URL in walk where url.pathExtension == "md" {
-            let path = String(url.path.dropFirst(folder.path.count + 1))
+            let full = url.resolvingSymlinksInPath().standardizedFileURL.path
+            let path = full.hasPrefix(base + "/") ? String(full.dropFirst(base.count + 1)) : url.lastPathComponent
             let text = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
             let title = text.split(separator: "\n").first { $0.hasPrefix("# ") }.map { String($0.dropFirst(2)) }
                 ?? url.deletingPathExtension().lastPathComponent

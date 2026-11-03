@@ -235,7 +235,7 @@ struct VMScreen: View {
             HStack(spacing: Theme.s2) {
                 StatusPill(text: feed.state ?? "No agent working", tint: feed.tone)
                 Spacer()
-                Text("A picture that follows the VM. To click or type in it, use Look at its screen.")
+                Text("A picture that follows the VM. Click in it opens a screen you can use.")
                     .font(Theme.caption).foregroundStyle(.secondary)
             }
             ZStack {
