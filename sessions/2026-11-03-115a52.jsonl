@@ -1,0 +1,7 @@
+{"app":"Google Chrome","cmd":"session","host":"www.hays.com.au","model":"claude-sonnet-5-5","ms":17183,"pace":"web fast","ts":"2026-11-03T14:31:47.997+10:00"}
+{"model":"claude-sonnet-5-5","task":"group tab test","ts":"2026-11-03T14:31:47.998+10:00"}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":35,"pace":"web human","ts":"2026-11-03T14:31:48.062+10:00"}
+{"cmd":"stop","model":"claude-sonnet-5-5","ms":42302,"pace":"web human","ts":"2026-11-03T14:32:30.329+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":146,"pace":"default fast","ts":"2026-11-03T14:34:37.524+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":2058,"pace":"default fast","ts":"2026-11-03T14:34:39.603+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T14:34:39.901+10:00"}
