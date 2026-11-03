@@ -72,6 +72,7 @@ enum Daemon {
         try requireAccessibility()
         Pause.on = false
         let app = NSApplication.shared
+        app.delegate = Reopen.shared
         // A Dock icon shows it is running; without one it is menu-bar only. While the window is open its
         // icon is enough: two Dock icons for one tool read as two tools (`DockIcon`).
         app.setActivationPolicy(Config.current.dockIcon && !DockIcon.windowOpen ? .regular : .accessory)
@@ -148,5 +149,27 @@ enum Daemon {
             fflush(stdout)
         }
         app.run()
+    }
+}
+
+
+/// Clicking the Dock icon or `open -a Apprentice` while the daemon runs re-activates this process, which has no
+/// window of its own: the window is a separate process (see `AppMain`), so a reopen starts it.
+final class Reopen: NSObject, NSApplicationDelegate {
+    static let shared = Reopen()
+    private var window: Process?
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if let w = window, w.isRunning, let app = NSRunningApplication(processIdentifier: w.processIdentifier) {
+            app.activate()
+            return false
+        }
+        guard let exe = Bundle.main.executablePath else { return false }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: exe)
+        p.arguments = ["app"]
+        try? p.run()
+        window = p
+        return false
     }
 }
