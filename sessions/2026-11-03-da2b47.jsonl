@@ -1,0 +1,4 @@
+{"app":"Chromium","cmd":"session","host":"www.facebook.com","model":"claude-sonnet-5-5","ms":858,"pace":"default fast","ts":"2026-11-03T14:43:57.501+10:00","vm":true}
+{"model":"claude-sonnet-5-5","task":"pointer test","ts":"2026-11-03T14:43:57.502+10:00"}
+{"code":2,"error":"stale: no snapshot, run `apprentice read`","failed":"hover","model":"claude-sonnet-5-5","ts":"2026-11-03T14:43:57.722+10:00"}
+{"code":2,"error":"stale: no snapshot, run `apprentice read`","failed":"hover","model":"claude-sonnet-5-5","ts":"2026-11-03T14:43:58.979+10:00"}
