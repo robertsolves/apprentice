@@ -99,7 +99,7 @@ func usage() {
       apprentice run "task" --model <name> [--base-url url] [--screen-anyway] [--save name]
       apprentice replay <name> [--from n] [--approve]
       apprentice mcp
-      apprentice vm setup | install | up | down | on | off | look | call "what" | shell | ssh | status | list   a small Linux VM with its own screen, cursor and keyboard: its browser and Linux apps (--on linux); shell prints the ssh command for its terminal
+      apprentice vm setup | install | up | down | on | off | watch | look | call "what" | shell | ssh | status | list   a small Linux VM with its own screen, cursor and keyboard: its browser and Linux apps (--on linux); shell prints the ssh command for its terminal
       apprentice device [free]                  who is using this Mac's (or --vm's) screen right now; free lets another agent use it. One agent per screen at a time
       apprentice app                            the window: projects, terminal tabs where agents run, pipelines, schedules, skills, VMs and settings
       apprentice schedule add|list|show|pause|resume|rm|now|agent   prompts and tasks that run later or again

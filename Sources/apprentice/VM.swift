@@ -289,6 +289,9 @@ enum VM {
             state = s
             return s.on ? "vm: on · browser sessions run in \(name), with its own cursor and keyboard; other apps stay on this Mac unless `--on linux`"
                         : "vm: off · everything runs on this Mac"
+        case "watch":
+            VMView.show()
+            return "opened the apprentice VM window (a picture of \(name)'s screen with the pointer; `vm look` is the one you can click in)"
         case "look":
             try openViewer()
             return "opened Screen Sharing to \(name) (\(try address()))"
