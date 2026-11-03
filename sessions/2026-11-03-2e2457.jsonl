@@ -1,0 +1,17 @@
+{"app":"Google Chrome","cmd":"session","host":"newtab","model":"claude-sonnet-5-5","ms":1153,"pace":"facebook.com fast","ts":"2026-11-03T13:22:04.307+10:00"}
+{"model":"claude-sonnet-5-5","task":"Half hour read-only scan of joined Facebook groups for ute, pickup, tip run and assembly requests near Reedy Creek","ts":"2026-11-03T13:22:04.308+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T13:22:04.344+10:00"}
+{"approved":true,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T13:22:04.368+10:00"}
+{"cmd":"open","diff":"+0 -0 ~0","host":"new-tab-page","model":"claude-sonnet-5-5","ms":2596,"pace":"facebook.com human","ts":"2026-11-03T13:22:06.964+10:00","waits":{"idle":0,"settle":260}}
+{"code":2,"error":"stale: the page changed to <url> without apprentice. The user or another tool may be using this window. Nothing was done: `read` the page and decide again","failed":"browse","model":"claude-sonnet-5-5","ts":"2026-11-03T13:22:15.031+10:00"}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":44,"pace":"facebook.com human","ts":"2026-11-03T13:22:15.125+10:00"}
+{"cmd":"ocr","model":"claude-sonnet-5-5","ms":594,"pace":"facebook.com human","ts":"2026-11-03T13:22:15.752+10:00"}
+{"cmd":"browse","diff":"+62 -19 ~1","host":"facebook.com","model":"claude-sonnet-5-5","ms":16270,"pace":"facebook.com human","ts":"2026-11-03T13:22:54.086+10:00","waits":{"idle":0,"move":307,"settle":387}}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":7,"pace":"facebook.com human","ts":"2026-11-03T13:22:54.121+10:00"}
+{"cmd":"ocr","model":"claude-sonnet-5-5","ms":689,"pace":"facebook.com human","ts":"2026-11-03T13:22:54.844+10:00"}
+{"cmd":"browse","diff":"+50 -32 ~0","host":"facebook.com","model":"claude-sonnet-5-5","ms":16858,"pace":"facebook.com human","ts":"2026-11-03T13:23:32.763+10:00","waits":{"idle":0,"move":303,"settle":615}}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":7,"pace":"facebook.com human","ts":"2026-11-03T13:23:32.801+10:00"}
+{"cmd":"ocr","model":"claude-sonnet-5-5","ms":658,"pace":"facebook.com human","ts":"2026-11-03T13:23:33.494+10:00"}
+{"cmd":"browse","diff":"+52 -24 ~1","host":"facebook.com","model":"claude-sonnet-5-5","ms":16246,"pace":"facebook.com human","ts":"2026-11-03T13:24:07.800+10:00","waits":{"idle":0,"move":285,"settle":398}}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":6,"pace":"facebook.com human","ts":"2026-11-03T13:24:07.837+10:00"}
+{"cmd":"ocr","model":"claude-sonnet-5-5","ms":558,"pace":"facebook.com human","ts":"2026-11-03T13:24:08.428+10:00"}
