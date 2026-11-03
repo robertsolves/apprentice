@@ -10,7 +10,7 @@ struct Args {
     /// Flags that are only on or off, so they never take the next word as their value (B7):
     /// `click --right 5` keeps 5 as the id.
     static let switches: Set<String> = [
-        "right", "double", "enter", "new-window", "new-tab", "json", "gate", "approve", "screen-anyway", "no-options",
+        "right", "double", "enter", "new-window", "new-tab", "goto", "json", "gate", "approve", "screen-anyway", "no-options",
         "multi", "text", "force", "background", "all", "push", "keep-going",
     ]
 
@@ -426,7 +426,10 @@ enum Commands {
         case "deny": return try deny(a)
         case "session": return try session(a)
         case "focus": return try focus(a)
-        case "done": return Handback.done(a.pos.joined(separator: " "))
+        case "done":
+            // `done --goto` only takes the user to the agent's window, as the overlay's button does.
+            if a.has("goto") { Handback.showAgent(); return "went to the agent's window" }
+            return Handback.done(a.pos.joined(separator: " "))
         case "open": return try open(a)
         case "read": return try read(a)
         case "click": return try click(a)

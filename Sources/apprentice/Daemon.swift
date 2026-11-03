@@ -112,7 +112,11 @@ enum Daemon {
                 let aside = Commands.asides.contains(req.cmd) && Daemon.queue(for: req) !== Daemon.queue
                 if !aside {
                     Store.model = req.model
-                    if let host = req.host, req.user != true { Handback.agentHost = host }
+                    if let host = req.host, req.user != true {
+                        Handback.agentHost = host
+                        Handback.agentTTY = req.tty
+                        Handback.agentCwd = req.cwd
+                    }
                     Project.dir = req.project.map { URL(fileURLWithPath: $0) }
                     // One agent at a time on this screen (`Device`).
                     try Device.check(req)

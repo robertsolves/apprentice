@@ -21,6 +21,9 @@ struct Request: Codable {
     /// The app the caller runs inside (a terminal, an editor): the nearest app that owns a window among the
     /// caller's parents. The overlay's "Go to agent" button takes the user there.
     var host: Int32? = Request.callerHost
+    /// The agent's terminal device (for example /dev/ttys004) and the folder it works in.
+    var tty: String? = Request.callerPlace.tty
+    var cwd: String? = Request.callerPlace.cwd ?? FileManager.default.currentDirectoryPath
 
     /// The calling agent's model (`Agent.detected`: `APPRENTICE_MODEL`, else found from the agent itself);
     /// `run --model` and an MCP client's name set it for their own requests.
@@ -32,19 +35,41 @@ struct Request: Codable {
         return raw.isEmpty ? nil : String(raw.prefix(80))
     }
 
-    /// Walks up the caller's parent processes to the first running app with a Dock icon.
-    static let callerHost: Int32? = {
+    /// Where the caller runs, read once: the first parent that owns a window (the terminal or editor), and the
+    /// terminal device of the agent's own session. Several editor windows and terminals can be open, so the
+    /// overlay's "Go to agent" button needs more than the app.
+    static let callerPlace: (host: Int32?, tty: String?, cwd: String?) = {
         var pid = getppid()
-        for _ in 0..<12 where pid > 1 {
-            if let app = NSRunningApplication(processIdentifier: pid), app.activationPolicy == .regular { return pid }
+        var host: Int32?
+        var tty: String?
+        var cwd: String?
+        for _ in 0..<16 where pid > 1 {
             var info = kinfo_proc()
             var size = MemoryLayout<kinfo_proc>.size
             var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
-            guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return nil }
+            guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { break }
+            if tty == nil, info.kp_eproc.e_tdev != -1, let name = devname(info.kp_eproc.e_tdev, S_IFCHR) {
+                tty = "/dev/" + String(cString: name)
+                // The process that owns the terminal is the agent itself: its folder is the project, where a
+                // single command's own folder can be anywhere.
+                cwd = Request.folder(of: pid)
+            }
+            if let app = NSRunningApplication(processIdentifier: pid), app.activationPolicy == .regular { host = pid; break }
             pid = info.kp_eproc.e_ppid
         }
-        return nil
+        return (host, tty, cwd)
     }()
+
+    /// The working folder of a running process.
+    static func folder(of pid: pid_t) -> String? {
+        var info = proc_vnodepathinfo()
+        let size = Int32(MemoryLayout<proc_vnodepathinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &info, size) == size else { return nil }
+        return withUnsafePointer(to: &info.pvi_cdir.vip_path) {
+            $0.withMemoryRebound(to: CChar.self, capacity: Int(MAXPATHLEN)) { String(cString: $0) }
+        }
+    }
+    static var callerHost: Int32? { callerPlace.host }
 
     static var callerAway: Bool { ProcessInfo.processInfo.environment["APPRENTICE_AWAY"] == "1" }
 
