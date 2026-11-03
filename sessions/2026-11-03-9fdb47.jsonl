@@ -1,0 +1,12 @@
+{"app":"Screen Sharing","cmd":"session","model":"claude-sonnet-5-5","ms":3523,"pace":"facebook.com fast","ts":"2026-11-03T14:44:08.926+10:00"}
+{"cmd":"shot","model":"claude-sonnet-5-5","ms":191,"pace":"default fast","ts":"2026-11-03T14:44:09.144+10:00"}
+{"cmd":"stop","model":"claude-sonnet-5-5","ms":20238,"pace":"default fast","ts":"2026-11-03T14:44:29.190+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":137,"pace":"default fast","ts":"2026-11-03T14:46:35.334+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":2033,"pace":"default fast","ts":"2026-11-03T14:46:37.384+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":115,"pace":"default fast","ts":"2026-11-03T14:49:25.168+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":2008,"pace":"default fast","ts":"2026-11-03T14:49:27.200+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":130,"pace":"default fast","ts":"2026-11-03T14:51:12.363+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":3929,"pace":"default fast","ts":"2026-11-03T14:51:16.320+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":134,"pace":"default fast","ts":"2026-11-03T14:55:27.133+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":2244,"pace":"default fast","ts":"2026-11-03T14:55:29.395+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T14:55:29.876+10:00"}
