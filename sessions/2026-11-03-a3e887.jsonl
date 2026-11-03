@@ -12,3 +12,8 @@
 {"cmd":"read","model":"claude-sonnet-5-5","ms":89,"pace":"facebook.com human","ts":"2026-11-03T11:11:18.516+10:00","vm":true}
 {"code":5,"error":"Google Chrome has no window: open one, or run `apprentice session --new-window`","failed":"session","model":"claude-sonnet-5-5","ts":"2026-11-03T11:11:24.944+10:00"}
 {"cmd":"read","model":"claude-sonnet-5-5","ms":140,"pace":"facebook.com human","ts":"2026-11-03T11:11:25.109+10:00","vm":true}
+{"code":5,"error":"Google Chrome has no window: open one, or run `apprentice session --new-window`","failed":"session","model":"claude-sonnet-5-5","ts":"2026-11-03T11:11:45.011+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T11:11:45.099+10:00"}
+{"approved":false,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T11:11:48.808+10:00"}
+{"client":true,"cmd":"doctor","code":0,"model":"claude-sonnet-5-5","ms":19,"pace":"default fast","ts":"2026-11-03T11:13:59.155+10:00"}
+{"client":true,"cmd":"doctor","code":0,"model":"claude-sonnet-5-5","ms":65,"pace":"default fast","ts":"2026-11-03T11:13:59.189+10:00"}
