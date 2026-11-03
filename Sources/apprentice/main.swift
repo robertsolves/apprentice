@@ -37,6 +37,7 @@ func usage() {
       apprentice session [--app Safari] [--on mac|linux] [--new-window|--new-tab] [--allow a.com,b.com] [--task "…"] [--no-options]
       apprentice open <url>
       apprentice focus <app> [--on mac|linux]
+      apprentice here                           note which window of the agent's app is in front (run as the user sends a prompt, or by a hook)
       apprentice done ["what was done"]        the task is finished: gives the user back the app and window they were in, and the overlay says Done
       apprentice read [--max 80] [--filter text]
       apprentice click <id> | --on "text" | --at x,y [--double|--right]
@@ -158,6 +159,9 @@ case "help", "--help", "-h":
     exit(0)
 case "version", "--version", "-v":
     print(version)
+    exit(0)
+case "here":
+    print(Handback.here())
     exit(0)
 case "serve":
     attempt { try Daemon.start(background: rest.contains("--background")) }

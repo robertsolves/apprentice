@@ -114,8 +114,6 @@ enum Daemon {
                     Store.model = req.model
                     if let host = req.host, req.user != true {
                         Handback.agentHost = host
-                        Handback.agentTTY = req.tty
-                        Handback.agentCwd = req.cwd
                     }
                     Project.dir = req.project.map { URL(fileURLWithPath: $0) }
                     // One agent at a time on this screen (`Device`).

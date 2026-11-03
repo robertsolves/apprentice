@@ -259,7 +259,7 @@ enum Overlay {
         title.stringValue = head
         detail.stringValue = sub
         pauseButton.title = label
-        agentButton.isHidden = Handback.banner == nil || Handback.agentHost == nil
+        agentButton.isHidden = Handback.banner == nil || Handback.agentHost == nil || Handback.atAgent
         // Orange to hold, green to go on: the one control worth finding at a glance.
         pauseButton.bezelColor = Pause.on ? .systemGreen : .systemOrange
         if let p = panel {
