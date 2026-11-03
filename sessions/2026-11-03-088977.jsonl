@@ -1,0 +1,14 @@
+{"app":"Google Chrome","cmd":"session","host":"github.com","model":"claude-sonnet-5-5","ms":440,"pace":"default fast","ts":"2026-11-03T12:04:45.411+10:00"}
+{"model":"claude-sonnet-5-5","task":"Half hour read-only scan of joined Facebook groups for ute, pickup, tip run and assembly requests near Reedy Creek","ts":"2026-11-03T12:04:45.412+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T12:04:45.461+10:00"}
+{"approved":true,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T12:04:45.487+10:00"}
+{"cmd":"open","diff":"+159 -0 ~0","host":"github.com","model":"claude-sonnet-5-5","ms":3079,"pace":"facebook.com human","ts":"2026-11-03T12:04:48.567+10:00","waits":{"idle":0,"settle":635}}
+{"code":2,"error":"stale: the page changed to <url> without apprentice. The user or another tool may be using this window. Nothing was done: `read` the page and decide again","failed":"browse","model":"claude-sonnet-5-5","ts":"2026-11-03T12:04:56.635+10:00"}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":66,"pace":"facebook.com human","ts":"2026-11-03T12:04:56.731+10:00"}
+{"cmd":"ocr","model":"claude-sonnet-5-5","ms":1040,"pace":"facebook.com human","ts":"2026-11-03T12:04:57.810+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T12:05:23.881+10:00"}
+{"cmd":"browse","diff":"+102 -21 ~0","host":"facebook.com","model":"claude-sonnet-5-5","ms":16561,"pace":"facebook.com human","ts":"2026-11-03T12:05:28.435+10:00","waits":{"idle":4471,"move":570,"settle":537}}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":46,"pace":"facebook.com human","ts":"2026-11-03T12:05:28.521+10:00"}
+{"cmd":"ocr","model":"claude-sonnet-5-5","ms":718,"pace":"facebook.com human","ts":"2026-11-03T12:05:29.276+10:00"}
+{"code":5,"error":"window 144 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"browse","model":"claude-sonnet-5-5","ts":"2026-11-03T12:05:45.360+10:00"}
+{"code":5,"error":"window 144 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"read","model":"claude-sonnet-5-5","ts":"2026-11-03T12:05:47.432+10:00"}
