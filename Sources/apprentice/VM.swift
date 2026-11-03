@@ -102,17 +102,17 @@ enum VM {
 
     private static var watching = false
 
-    /// Opens the VM's screen once per daemon run (`[agent] watch_vm`), so the person sees the pointer move.
+    /// Opens the VM's screen once per daemon run (`[agent] watch_vm`) behind everything, ready for the "Watch" button.
     static func watch() {
         guard Config.current.watchVM, !watching else { return }
         watching = true
-        DispatchQueue.global().async { try? openViewer() }
+        DispatchQueue.global().async { try? openViewer(activate: false) }
     }
 
     /// Screen Sharing to the guest's VNC server; the password is the VM's.
     /// VNC only listens inside the guest; Screen Sharing reaches it through an ssh tunnel, so a VM in the
     /// cloud never exposes its screen to the network.
-    static func openViewer() throws {
+    static func openViewer(activate: Bool = true) throws {
         let ip = try address()
         // A port of its own per VM, so a tunnel left from one VM never shows another. Names that hash to the
         // same port take the next free one; a busy port counts as this VM's tunnel only when this VM opened it.
@@ -138,7 +138,10 @@ enum VM {
         guard let port = chosen else { throw Fail(5, "could not open the ssh tunnel to the VM: \(lastError)") }
         let pass = password.addingPercentEncoding(withAllowedCharacters: .urlPasswordAllowed) ?? ""
         guard let url = URL(string: "vnc://:\(pass)@127.0.0.1:\(port)") else { throw Fail(5, "bad VM address \(ip)") }
-        NSWorkspace.shared.open(url)
+        // Opened behind the person's work unless they asked to see it: opening an app brings it to the front.
+        let config = NSWorkspace.OpenConfiguration()
+        config.activates = activate
+        NSWorkspace.shared.open(url, configuration: config)
     }
 
     /// Tart's VMs, as `tart list --format json` describes them.
