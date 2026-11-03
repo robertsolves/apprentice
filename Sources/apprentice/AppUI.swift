@@ -54,10 +54,20 @@ enum AppBundle {
         let res = app.appendingPathComponent("Contents/Resources")
         let iconset = fm.temporaryDirectory.appendingPathComponent("apprentice-\(getpid()).iconset")
         do {
+            // The real file, not a link to it: copying a link made a bundle whose binary pointed back at `~/.local/bin`,
+            // which in turn pointed at the bundle. A binary inside the bundle being replaced is kept aside first.
+            var real = URL(fileURLWithPath: source).resolvingSymlinksInPath().path
+            let kept = fm.temporaryDirectory.appendingPathComponent("apprentice-\(getpid()).bin")
+            if real.hasPrefix(app.path) {
+                try? fm.removeItem(at: kept)
+                try fm.copyItem(atPath: real, toPath: kept.path)
+                real = kept.path
+            }
+            defer { try? fm.removeItem(at: kept) }
             try? fm.removeItem(at: app)
             try fm.createDirectory(at: exe.deletingLastPathComponent(), withIntermediateDirectories: true)
             try fm.createDirectory(at: res, withIntermediateDirectories: true)
-            try fm.copyItem(atPath: source, toPath: exe.path)
+            try fm.copyItem(atPath: real, toPath: exe.path)
             try? fm.removeItem(at: iconset)
             try fm.createDirectory(at: iconset, withIntermediateDirectories: true)
             for (name, px) in [("icon_16x16", 16), ("icon_16x16@2x", 32), ("icon_32x32", 32), ("icon_32x32@2x", 64),

@@ -424,6 +424,7 @@ enum Remote {
         if let allow = a.value("allow") { s.allow = Config.parseAllow(allow) }
         if let url = s.url { try allowCheck(s, url) }
         s.save()
+        VM.watch()
         SnapStore.clear()
         Store.remove("pending.json")
         let firstThisRun = !Commands.optionsAsked
@@ -491,6 +492,7 @@ enum Remote {
         if let allow = a.value("allow") { s.allow = Config.parseAllow(allow) }
         try allowCheck(s, nil)
         s.save()
+        VM.watch()
         SnapStore.clear()
         Store.remove("pending.json")
         if !focusing, !Commands.optionsAsked, Config.current.askOnStart, !a.has("no-options"), !Ask.away {

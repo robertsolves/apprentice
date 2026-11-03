@@ -487,6 +487,8 @@ struct Config {
     var optionalEveryHours = 4.0
     var overlay = true
     var sounds = true
+    /// A VM session opens Screen Sharing on the VM once per run, so its pointer and typing can be seen.
+    var watchVM = true
     var notifications = false
     var dockIcon = true
     /// Where questions go: "both" (the window, then the chat if unanswered), "window", or "terminal".
@@ -644,6 +646,7 @@ struct Config {
         if let v = toml["agent"]?["dock_icon"] { c.dockIcon = Toml.unquote(v) != "false" }
         if let v = toml["agent"]?["notifications"] { c.notifications = Toml.unquote(v) == "true" }
         if let v = toml["agent"]?["sounds"] { c.sounds = Toml.unquote(v) != "false" }
+        if let v = toml["agent"]?["watch_vm"] { c.watchVM = Toml.unquote(v) != "false" }
         if let v = toml["agent"]?["overlay"] { c.overlay = Toml.unquote(v) != "false" }
         if let v = toml["agent"]?["ask_in"] { c.askIn = Toml.unquote(v) }
         if let v = toml["agent"]?["notify"] { c.notify = Toml.unquote(v) }

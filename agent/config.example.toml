@@ -127,6 +127,8 @@ menu_bar = true
 overlay = true
 # A short system sound for each thing that happens (a command, a hand-off to you, a pause, a failure).
 sounds = true
+# Open Screen Sharing on the VM when a VM session starts, so you can watch its pointer and typing.
+watch_vm = true
 # Desktop notifications (with the apprentice icon) when it needs a question or an approval answered. Off by default;
 # the phone push (`notify`, an ntfy topic) is also off until `apprentice phone on` sets it.
 notifications = false

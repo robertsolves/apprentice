@@ -100,6 +100,15 @@ enum VM {
         return Response(code: 0, out: "opened the VM for the user: \(what). Wait for them, then `apprentice read`")
     }
 
+    private static var watching = false
+
+    /// Opens the VM's screen once per daemon run (`[agent] watch_vm`), so the person sees the pointer move.
+    static func watch() {
+        guard Config.current.watchVM, !watching else { return }
+        watching = true
+        DispatchQueue.global().async { try? openViewer() }
+    }
+
     /// Screen Sharing to the guest's VNC server; the password is the VM's.
     /// VNC only listens inside the guest; Screen Sharing reaches it through an ssh tunnel, so a VM in the
     /// cloud never exposes its screen to the network.
