@@ -126,48 +126,7 @@ enum AgentChoice {
 
 // MARK: - Projects
 
-struct ProjectsView: View {
-    @ObservedObject var model: AppModel
-    @State private var selected: String?
-
-    var body: some View {
-        SplitPane(id: "projects", help: .projects) {
-            ListColumn(count: "\(model.projects.count) project\(model.projects.count == 1 ? "" : "s")", newTitle: "New",
-                       new: { model.newProject = .empty }) {
-                if model.projects.isEmpty {
-                    Text("No projects yet").font(Theme.caption).foregroundStyle(.secondary)
-                        .padding(Theme.s4).frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    List(selection: $selected) {
-                        ForEach(model.projects) { p in
-                            IconRow(icon: "folder.fill", title: p.name,
-                                    detail: (p.folder.path as NSString).abbreviatingWithTildeInPath).tag(p.id)
-                        }
-                    }
-                    .listStyle(.sidebar)
-                    .scrollContentBackground(.hidden)
-                }
-            }
-        } right: {
-            Group {
-                if let id = selected, let project = model.projects.first(where: { $0.id == id }) {
-                    ProjectDetail(model: model, project: project).id(project.id)
-                } else {
-                    ScreenPage(title: Section.projects.label, subtitle: "") {
-                        AnyView(HStack(spacing: Theme.s2) {
-                            IconButton("Open from GitHub", "icloud.and.arrow.down") { model.newProject = .github }
-                            IconButton("New project", "plus", prominent: true) { model.newProject = .empty }
-                        })
-                    } content: {
-                        Explainer.projects
-                    }
-                }
-            }
-        }
-        .background(Theme.canvas)
-    }
-}
-
+/// A project's Settings tab: how it runs, its notes for agents, and saving it.
 struct ProjectDetail: View {
     @ObservedObject var model: AppModel
     let project: Projects.Info
@@ -179,14 +138,8 @@ struct ProjectDetail: View {
     }
 
     var body: some View {
-        ScreenPage(title: project.name, subtitle: (project.folder.path as NSString).abbreviatingWithTildeInPath) {
-            AnyView(HStack(spacing: Theme.s2) {
-                IconButton("Show in Finder", "folder") { NSWorkspace.shared.open(project.folder) }
-                ForEach(AgentCLIs.editors().filter { model.isInstalled($0) }) { cli in
-                    IconButton("Open in \(cli.label)", "chevron.left.forwardslash.chevron.right") { model.openInEditor(cli, project) }
-                }
-                IconButton("Open", "play.fill", prominent: true) { model.openProject(project) }
-            })
+        ScreenPage(title: "Settings", subtitle: (project.folder.path as NSString).abbreviatingWithTildeInPath) {
+            AnyView(IconButton("Open", "play.fill", prominent: true) { model.openProject(project) })
         } content: {
             Panel(title: "How it runs") {
                 HStack(spacing: Theme.s6) {
@@ -226,14 +179,14 @@ struct ProjectDetail: View {
                 .controlSize(.small)
                 if !output.isEmpty { Output(text: output) }
             }
-            HStack {
+            if !project.isGeneral { HStack {
                 Spacer()
                 Button("Remove from this list") {
                     model.runCLI(["project", "forget", project.folder.path]) { _, out in output = out; model.refresh() }
                 }
                 .controlSize(.small)
                 .help("The folder stays where it is")
-            }
+            } }
         }
         .onAppear {
             let folder = project.folder
@@ -369,21 +322,39 @@ struct NewProjectSheet: View {
 
 struct PipelinesView: View {
     @ObservedObject var model: AppModel
+    /// Only this project's pipelines; new ones are made in its folder.
+    var project: Projects.Info? = nil
+
+    private var pipelines: [Pipelines.Pipeline] { project.map { model.pipelinesIn($0) } ?? model.pipelines }
+
+    private var blank: Pipelines.Pipeline {
+        guard let project else { return Pipelines.Pipeline(name: "") }
+        return Pipelines.Pipeline(name: "", agent: project.agent, project: project.folder)
+    }
+
+    /// The pipeline open in the editor, when it is one of this screen's (or a new one for this project).
+    private var draft: Pipelines.Pipeline? {
+        guard let d = model.pipelineDraft else { return nil }
+        guard let project else { return d }
+        if d.url == nil { return (d.project?.standardizedFileURL.path ?? (project.isGeneral ? project.id : nil)) == project.id ? d : nil }
+        return pipelines.contains { $0.id == d.id } ? d : nil
+    }
 
     var body: some View {
         SplitPane(id: "pipelines", help: .pipelines) {
-            ListColumn(count: "\(model.pipelines.count) pipeline\(model.pipelines.count == 1 ? "" : "s")", newTitle: "New",
-                       new: { model.editPipeline(Pipelines.Pipeline(name: "")) }) {
-                if model.pipelines.isEmpty {
+            ListColumn(count: "\(pipelines.count) pipeline\(pipelines.count == 1 ? "" : "s")", newTitle: "New",
+                       new: { model.editPipeline(blank) }) {
+                if pipelines.isEmpty {
                     Text("No pipelines yet").font(Theme.caption).foregroundStyle(.secondary)
                         .padding(Theme.s4).frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    List(selection: Binding(get: { model.pipelineDraft?.id }, set: { id in
-                        if let p = model.pipelines.first(where: { $0.id == id }) { model.editPipeline(p) }
+                    List(selection: Binding(get: { draft?.id }, set: { id in
+                        if let p = pipelines.first(where: { $0.id == id }) { model.editPipeline(p) }
                     })) {
-                        ForEach(model.pipelines) { p in
+                        ForEach(pipelines) { p in
                             IconRow(icon: "list.number", title: p.name,
-                                    detail: "\(p.project.map { Projects.info($0)?.name ?? $0.lastPathComponent } ?? "no project") · \(p.steps.count) step\(p.steps.count == 1 ? "" : "s")")
+                                    detail: (project == nil ? "\(p.project.map { Projects.info($0)?.name ?? $0.lastPathComponent } ?? "no project") · " : "")
+                                        + "\(p.steps.count) step\(p.steps.count == 1 ? "" : "s")")
                                 .tag(p.id)
                         }
                     }
@@ -393,11 +364,11 @@ struct PipelinesView: View {
             }
         } right: {
             Group {
-                if let draft = model.pipelineDraft {
+                if let draft {
                     PipelineEditor(model: model, original: draft).id(draft.id + "\(model.pipelineEdits)")
                 } else {
                     ScreenPage(title: Section.pipelines.label, subtitle: "") {
-                        AnyView(IconButton("New pipeline", "plus", prominent: true) { model.editPipeline(Pipelines.Pipeline(name: "")) })
+                        AnyView(IconButton("New pipeline", "plus", prominent: true) { model.editPipeline(blank) })
                     } content: {
                         Explainer.pipelines
                     }

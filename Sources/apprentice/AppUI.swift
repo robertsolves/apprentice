@@ -197,7 +197,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func show(_ r: AppShow.Request) {
         guard let model else { return }
         if r.section == "vms" {
-            model.section = .vms
+            model.show(section: .vms)
             model.selectedVM = r.vm
             model.refreshMachines()
         }
@@ -276,14 +276,14 @@ enum KeyTest {
             (0.2, { key(0, "a"); down(); up(); key(36, "\r") }),
             (0.8, { dump("typed a, down, up, return") }),
             (4.5, { note("after the 2-second refreshes · responder \(responder())") }),
-            (0.1, { model.section = .schedules }),
-            (0.6, { model.section = .terminal }),
+            (0.1, { model.projectTab = .schedules }),
+            (0.6, { model.projectTab = .work }),
             (0.8, { note("after Schedules and back · responder \(responder())") }),
             (0.1, { model.newTab(preset: "keytest2", command: "stty -echo; cat -v") }),
             (1.2, { note("after a new tab · responder \(responder())") }),
             (0.1, { if let first = model.tabs.first(where: { $0.title == "keytest" }) { model.selectedTab = first.id } }),
             (0.8, { note("after choosing the first tab again · responder \(responder())") }),
-            (0.1, { note("under the sidebar's Terminal row: \(hit(110, 128)); the tab bar: \(hit(330, 70)); the terminal: \(hit(700, 400))") }),
+            (0.1, { note("under the sidebar's first project row: \(hit(110, 128)); the tab bar: \(hit(330, 70)); the terminal: \(hit(700, 400))") }),
             (0.1, { click(110, 128) }),
             (0.6, { note("after clicking the sidebar · responder \(responder())") }),
             (0.1, { key(0, "c"); down(); key(36, "\r") }),
@@ -584,9 +584,16 @@ struct SheetFrame<Content: View, Buttons: View>: View {
 /// What the window shows and the one place it acts: every button goes through a command (`Wire.send`) or a
 /// file the commands own, so nothing works here that a script could not do.
 final class AppModel: ObservableObject {
-    @Published var section: Section = .terminal
+    /// The global screen shown when no project is chosen (Skills, Sites, Settings…).
+    @Published var section: Section = .skills
+    /// The project shown, by its folder's path; nil shows `section`. Everything else starts from a project.
+    @Published var project: String?
+    /// Which of the project's own tabs is in front: Work (its terminal and VM), Pipelines, Schedules…
+    @Published var projectTab: ProjectTab = .work
     @Published var tabs: [TermSession] = []
     @Published var selectedTab: String?
+    /// The tab each project had in front, so going back to a project shows the same tab.
+    private var lastTab: [String: String] = [:]
     @Published var pending: [Approvals.Pending] = []
     @Published var schedules: [Schedules.Schedule] = []
     @Published var awayTasks: [Away.Task] = []
@@ -625,9 +632,11 @@ final class AppModel: ObservableObject {
     let home = FileManager.default.homeDirectoryForCurrentUser
 
     init() {
+        // Work with no project yet goes to General, so a shell and Help are always one click away.
+        let general = Projects.general()
         refresh()
         checkRelease()
-        newTab(preset: "Shell", command: nil)
+        newTab(preset: "Shell", command: nil, project: general)
         refreshMachines()
         refreshAgents()
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.refresh() }
@@ -658,8 +667,8 @@ final class AppModel: ObservableObject {
         session = Session.stored
         update = Release.available
         account = Account.profile
-        let listed = Projects.all()
-        if listed.map(\.id) != projects.map(\.id) || listed.map(\.name) != projects.map(\.name) { projects = listed }
+        let listed = Projects.ordered(Projects.all())
+        if listed.map(\.id) != projects.map(\.id) || listed.map(\.name) != projects.map(\.name) || listed.map(\.vm) != projects.map(\.vm) { projects = listed }
         pipelines = Pipelines.all()
         // The window's process has no state of its own: the daemons say whether they are working (`Overlay.liveRows`).
         busy = pending.count > 0 || Overlay.liveRows().contains { $0.head == "Working" }
@@ -727,20 +736,90 @@ final class AppModel: ObservableObject {
         if let vm = setUpVM {
             command = "apprentice --vm \(vm) vm setup && " + (command ?? "exec \"$SHELL\" -l")
         }
-        newTab(preset: p.name, command: command, dir: p.folder, vm: p.vm)
+        newTab(preset: AgentChoice.label(agent ?? p.agent), command: command, project: p)
+    }
+
+    // MARK: - projects
+
+    /// The project on screen, if one is chosen.
+    var currentProject: Projects.Info? { project.flatMap { path in projects.first { $0.id == path } } }
+
+    /// Shows a project; with `tab`, on that tab of it.
+    func show(project p: Projects.Info, tab: ProjectTab? = nil) {
+        if let current = project, let front = selectedTab, tabs.contains(where: { $0.id == front && $0.project == current }) { lastTab[current] = front }
+        project = p.id
+        if let tab { projectTab = tab }
+        let own = tabs.filter { $0.project == p.id }
+        selectedTab = lastTab[p.id].flatMap { id in own.first { $0.id == id }?.id } ?? own.last?.id
+    }
+
+    /// Shows a global screen (Skills, Sites, Settings…).
+    func show(section s: Section) {
+        if let current = project, let front = selectedTab { lastTab[current] = front }
+        project = nil
+        section = s
+    }
+
+    /// The project new work belongs to: the one on screen, else General.
+    var workProject: Projects.Info { currentProject ?? projects.first(where: \.isGeneral) ?? Projects.general() }
+
+    /// The tabs of one project, in the order they were opened.
+    func tabsIn(_ p: Projects.Info) -> [TermSession] { tabs.filter { $0.project == p.id } }
+
+    /// What a project is doing, for its dot in the sidebar.
+    func state(of p: Projects.Info) -> ProjectState {
+        let own = tabsIn(p)
+        if pending.contains(where: { pending in own.contains { $0.id == pending.tab } }) { return .needsYou }
+        if own.contains(where: \.busy) { return .working }
+        if let vm = p.vm, machines.contains(where: { $0.name == vm && $0.state == "running" }) { return .vmRunning }
+        return .idle
+    }
+
+    /// The project a schedule belongs to: the one whose folder it runs in, or whose pipeline it runs; else General.
+    func owner(of schedule: Schedules.Schedule) -> Projects.Info? {
+        func inside(_ path: String) -> Projects.Info? {
+            let full = URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardizedFileURL.path
+            return projects.filter { full == $0.id || full.hasPrefix($0.id + "/") }.max { $0.id.count < $1.id.count }
+        }
+        if let dir = schedule.dir, !dir.isEmpty, let p = inside(dir) { return p }
+        if schedule.kind == .pipeline {
+            if schedule.target.contains("/"), let p = inside(schedule.target) { return p }
+            if let head = schedule.target.split(separator: "/").first, schedule.target.contains("/"),
+               let p = projects.first(where: { Projects.folderName($0.name) == String(head) }) { return p }
+        }
+        return projects.first(where: \.isGeneral)
+    }
+
+    /// The pipelines of one project; General also shows the ones that belong to no project.
+    func pipelinesIn(_ p: Projects.Info) -> [Pipelines.Pipeline] {
+        pipelines.filter { pipeline in
+            guard let folder = pipeline.project?.standardizedFileURL.path else { return p.isGeneral }
+            return folder == p.id
+        }
+    }
+
+    /// Who else is using this project's screen (its VM, or this Mac) right now, if anyone: one agent per screen.
+    func screenBusy(for p: Projects.Info) -> String? {
+        let vm = p.vm.flatMap { $0.isEmpty ? nil : $0 }
+        guard let o = Device.owner(vm: vm), Device.holds(o) else { return nil }
+        let own = tabsIn(p).map { "tab:\($0.id)" } + ["project:\(p.folder.path)"]
+        return own.contains(o.who) ? nil : o.label
     }
 
     /// Runs a pipeline in a new tab, so its output shows as it comes.
     func runPipeline(_ p: Pipelines.Pipeline) {
         let ref = p.url?.path ?? p.ref
-        newTab(preset: p.name, command: "apprentice pipeline run \(VM.shellQuoted(ref)); echo; exec \"$SHELL\" -l", dir: p.folder, vm: p.effectiveVM)
+        let owner = p.project.flatMap { folder in projects.first { $0.id == folder.standardizedFileURL.path || $0.id == folder.path } }
+        newTab(preset: p.name, command: "apprentice pipeline run \(VM.shellQuoted(ref)); echo; exec \"$SHELL\" -l", dir: p.folder, vm: p.effectiveVM,
+               project: owner ?? projects.first(where: \.isGeneral))
     }
 
     /// Shows a pipeline in the Pipelines screen's editor (a new one when it has no file).
     func editPipeline(_ p: Pipelines.Pipeline) {
         pipelineDraft = p
         pipelineEdits += 1
-        section = .pipelines
+        let owner = p.project.flatMap { folder in projects.first { $0.id == folder.standardizedFileURL.path || $0.id == folder.path } }
+        show(project: owner ?? workProject, tab: .pipelines)
     }
 
     /// The installed CLI with these arguments, off the main thread.
@@ -900,15 +979,17 @@ final class AppModel: ObservableObject {
 
     // MARK: - tabs
 
-    func newTab(preset: String, command: String?, dir: URL? = nil, vm: String? = nil, env: [String: String] = [:]) {
+    /// Opens a tab in a project (the one on screen when none is given): in its folder, working in its VM.
+    func newTab(preset: String, command: String?, dir: URL? = nil, vm: String? = nil, env: [String: String] = [:], project p: Projects.Info? = nil) {
+        let owner = p ?? workProject
         let presetValues = Config.current.tabPresets[preset] ?? [:]
-        let folder = dir ?? (presetValues["dir"].map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }) ?? home
+        let folder = dir ?? (presetValues["dir"].map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }) ?? owner.folder
         let cmd = command ?? presetValues["cmd"]
         let session = TermSession(title: preset, dir: folder, command: cmd, env: env,
-                                  vm: vm ?? presetValues["vm"])
+                                  vm: vm ?? presetValues["vm"] ?? owner.vm, project: owner.id)
         tabs.append(session)
+        show(project: owner, tab: .work)
         selectedTab = session.id
-        section = .terminal
     }
 
     func closeTab(_ id: String) {
@@ -916,7 +997,7 @@ final class AppModel: ObservableObject {
         if tab.busy, !AppModel.confirm("Close \(tab.title)?", "Something is still running in this tab. Closing it stops it.", "Close Tab") { return }
         tab.close()
         tabs.removeAll { $0.id == id }
-        if selectedTab == id { selectedTab = tabs.last?.id }
+        if selectedTab == id { selectedTab = tabs.last { $0.project == tab.project }?.id }
     }
 
     var selectedSession: TermSession? { tabs.first { $0.id == selectedTab } }
@@ -940,9 +1021,9 @@ final class AppModel: ObservableObject {
 
     /// A tab where you ask about apprentice in your own words: an agent reading the docs, changing nothing.
     func openHelpTab() {
-        if let open = tabs.first(where: { $0.title == "Help" && $0.exited == nil }) {
+        if let open = tabs.first(where: { $0.title == "Help" && $0.exited == nil && $0.project == workProject.id }) {
+            show(project: workProject, tab: .work)
             selectedTab = open.id
-            section = .terminal
             return
         }
         newTab(preset: "Help", command: HelpTab.command, dir: HelpTab.dir, env: HelpTab.env)
@@ -965,6 +1046,54 @@ enum Section: String, CaseIterable, Identifiable {
         let order = AppText.screens.map(\.id)
         return allCases.sorted { (order.firstIndex(of: $0.rawValue) ?? .max) < (order.firstIndex(of: $1.rawValue) ?? .max) }
     }
+
+    /// The screens that belong to no project, listed under the projects. Terminal, Pipelines and Schedules
+    /// are tabs inside each project instead.
+    static var global: [Section] { ordered.filter { ![.projects, .terminal, .pipelines, .schedules].contains($0) } }
+}
+
+/// The tabs along the top of a project's screen.
+enum ProjectTab: String, CaseIterable, Identifiable {
+    case work, pipelines, schedules, skills, settings
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .work: return "Work"
+        case .pipelines: return "Pipelines"
+        case .schedules: return "Schedules"
+        case .skills: return "Skills"
+        case .settings: return "Settings"
+        }
+    }
+}
+
+/// What a project is doing, as its dot in the sidebar shows it.
+enum ProjectState {
+    case needsYou, working, vmRunning, idle
+
+    var tint: Color {
+        switch self {
+        case .needsYou: return Theme.warn
+        case .working: return Theme.accent
+        case .vmRunning: return .secondary
+        case .idle: return .clear
+        }
+    }
+
+    var help: String {
+        switch self {
+        case .needsYou: return "Needs you: a step waits for your approval"
+        case .working: return "Working"
+        case .vmRunning: return "Its VM is running"
+        case .idle: return ""
+        }
+    }
+}
+
+/// A row of the sidebar: a project, or one of the global screens.
+enum SidebarItem: Hashable {
+    case project(String)
+    case section(Section)
 }
 
 struct RootView: View {
@@ -993,21 +1122,64 @@ struct RootView: View {
         .onAppear { model.refresh() }
     }
 
+    private var selection: Binding<SidebarItem?> {
+        Binding(
+            get: { model.project.map(SidebarItem.project) ?? .section(model.section) },
+            set: { item in
+                switch item {
+                case .project(let path)?: if let p = model.projects.first(where: { $0.id == path }) { model.show(project: p) }
+                case .section(let s)?: model.show(section: s)
+                case nil: break
+                }
+            })
+    }
+
     private var sidebar: some View {
-        List(Section.ordered, selection: Binding(
-            get: { model.section },
-            set: { if let s = $0 { model.section = s } })) { section in
-            HStack(spacing: Theme.s3) {
-                Image(systemName: section.icon)
-                    .font(.system(size: 14, weight: .medium))
+        List(selection: selection) {
+            SwiftUI.Section(header: Text("Projects").eyebrow()) {
+                ForEach(model.projects) { p in
+                    let state = model.state(of: p)
+                    HStack(spacing: Theme.s3) {
+                        Image(systemName: p.isGeneral ? "tray.fill" : Section.projects.icon)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(Theme.accent)
+                            .frame(width: 22)
+                        Text(p.name)
+                            .font(.system(size: 13, weight: model.project == p.id ? .semibold : .regular))
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                        Circle().fill(state.tint).frame(width: 7, height: 7).help(state.help)
+                    }
+                    .padding(.vertical, 3)
+                    .tag(SidebarItem.project(p.id))
+                }
+                Button { model.newProject = .empty } label: {
+                    HStack(spacing: Theme.s3) {
+                        Image(systemName: "plus").font(.system(size: 13, weight: .medium)).frame(width: 22)
+                        Text("New project").font(.system(size: 13))
+                        Spacer(minLength: 0)
+                    }
                     .foregroundStyle(Theme.accent)
-                    .frame(width: 22)
-                Text(section.label)
-                    .font(.system(size: 13, weight: section == model.section ? .semibold : .regular))
-                Spacer(minLength: 0)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .padding(.vertical, 3)
             }
-            .padding(.vertical, 3)
-            .tag(section)
+            SwiftUI.Section(header: Text("apprentice").eyebrow()) {
+                ForEach(Section.global) { section in
+                    HStack(spacing: Theme.s3) {
+                        Image(systemName: section.icon)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(Theme.accent)
+                            .frame(width: 22)
+                        Text(section.label)
+                            .font(.system(size: 13, weight: model.project == nil && section == model.section ? .semibold : .regular))
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, 3)
+                    .tag(SidebarItem.section(section))
+                }
+            }
         }
         .listStyle(.sidebar)
         .scrollContentBackground(.hidden)
@@ -1043,7 +1215,7 @@ struct RootView: View {
                         .textSelection(.enabled)
                 }
                 if let account = model.account {
-                    Button { model.section = .settings } label: {
+                    Button { model.show(section: .settings) } label: {
                         Text("@\(account.login)").font(Theme.monoSmall).foregroundStyle(.secondary)
                     }
                     .buttonStyle(.plain)
@@ -1060,16 +1232,18 @@ struct RootView: View {
     }
 
     @ViewBuilder private var detail: some View {
-        switch model.section {
-        case .projects: ProjectsView(model: model)
-        case .pipelines: PipelinesView(model: model)
-        case .terminal: TerminalWorkspace(model: model)
-        case .schedules: SchedulesView(model: model)
-        case .skills: SkillsView(model: model)
-        case .sites: SitesView(model: model)
-        case .vms: VMsView(model: model)
-        case .settings: SettingsView(model: model)
-        case .updates: UpdatesView(model: model)
+        if let p = model.currentProject {
+            ProjectWorkspace(model: model, project: p).id(p.id)
+        } else {
+            switch model.section {
+            // Inside a project now; reaching one of these with none chosen shows General.
+            case .projects, .pipelines, .terminal, .schedules: ProjectWorkspace(model: model, project: model.workProject)
+            case .skills: SkillsView(model: model)
+            case .sites: SitesView(model: model)
+            case .vms: VMsView(model: model)
+            case .settings: SettingsView(model: model)
+            case .updates: UpdatesView(model: model)
+            }
         }
     }
 
@@ -1099,15 +1273,16 @@ struct RootView: View {
         }
     }
 
-    /// ⌘1…9 choose the sidebar sections; keyboard first, as the design asks.
+    /// ⌘1…9 choose the first nine projects; keyboard first, as the design asks. ⌘T opens a shell in the
+    /// project on screen.
     private var shortcuts: some View {
         ZStack {
             Button("New shell") { model.newTab(preset: "Shell", command: nil) }
                 .keyboardShortcut("t", modifiers: .command)
                 .frame(width: 0, height: 0)
                 .opacity(0.01)
-            ForEach(Array(Section.ordered.enumerated()), id: \.offset) { index, section in
-                Button(section.label) { model.section = section }
+            ForEach(Array(model.projects.prefix(9).enumerated()), id: \.offset) { index, p in
+                Button(p.name) { model.show(project: p) }
                     .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
                     .frame(width: 0, height: 0)
                     .opacity(0.01)
@@ -1118,18 +1293,24 @@ struct RootView: View {
 
 // MARK: - Terminal
 
+/// A project's terminal: its own tabs, each started in its folder and working in its VM.
 struct TerminalWorkspace: View {
     @ObservedObject var model: AppModel
+    let project: Projects.Info
 
     private var pendingForSelected: Approvals.Pending? {
         model.pending.first { $0.tab == model.selectedTab }
+    }
+
+    private var shown: TermSession? {
+        model.selectedSession.flatMap { $0.project == project.id ? $0 : nil }
     }
 
     var body: some View {
         VStack(spacing: 0) {
             tabBar
             Divider().opacity(0.6)
-            if let session = model.selectedSession {
+            if let session = shown {
                 ZStack(alignment: .bottom) {
                     TerminalPane(term: session, font: font, locked: pendingForSelected != nil)
                         .id(session.id)
@@ -1147,10 +1328,16 @@ struct TerminalWorkspace: View {
                 footer(session)
             } else {
                 ScrollView {
-                    Explainer(.terminal)
-                        .frame(maxWidth: Theme.column)
-                        .padding(Theme.page)
-                        .frame(maxWidth: .infinity)
+                    VStack(alignment: .leading, spacing: Theme.s4) {
+                        HStack(spacing: Theme.s2) {
+                            IconButton("Start \(AgentChoice.label(project.agent))", "play.fill", prominent: true) { model.openProject(project) }
+                            IconButton("A shell", "terminal") { model.newTab(preset: "Shell", command: nil, project: project) }
+                        }
+                        Explainer(.terminal)
+                    }
+                    .frame(maxWidth: Theme.column, alignment: .leading)
+                    .padding(Theme.page)
+                    .frame(maxWidth: .infinity)
                 }
             }
         }
@@ -1163,7 +1350,7 @@ struct TerminalWorkspace: View {
         HStack(spacing: Theme.s2) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: Theme.s1) {
-                    ForEach(model.tabs) { tab in
+                    ForEach(model.tabsIn(project)) { tab in
                         TabChip(tab: tab, selected: tab.id == model.selectedTab,
                                 close: { model.closeTab(tab.id) },
                                 select: { model.selectedTab = tab.id })
@@ -1173,30 +1360,16 @@ struct TerminalWorkspace: View {
                 .padding(.vertical, Theme.s2)
             }
             Menu {
-                // A project opens with its own agent in one click; another agent is one level down.
-                if !model.projects.isEmpty {
-                    SwiftUI.Section("Projects") {
-                        ForEach(model.projects) { p in
-                            Button("\(p.name) · \(AgentChoice.label(p.agent))") { model.openProject(p) }
-                        }
-                    }
-                    let agents = model.agentChoices().filter { !$0.shell }
-                    if agents.count > 1 {
-                        Menu("Open a project with another agent") {
-                            ForEach(model.projects) { p in
-                                Menu(p.name) {
-                                    ForEach(agents.filter { $0.id != p.agent }) { cli in
-                                        Button(cli.label) { model.openProject(p, agent: cli.id) }
-                                    }
-                                }
-                            }
-                        }
+                // The project's own agent in one click; another agent, a shell or its VM's shell beside it.
+                Button("\(AgentChoice.label(project.agent))") { model.openProject(project) }
+                let others = model.agentChoices().filter { $0.id != project.agent }
+                if !others.isEmpty {
+                    SwiftUI.Section("Another agent") {
+                        ForEach(others) { cli in Button(cli.label) { model.openProject(project, agent: cli.id) } }
                     }
                 }
-                Button("New project…") { model.newProject = .empty }
-                Divider()
-                SwiftUI.Section("Without a project") {
-                    ForEach(model.agentChoices()) { cli in Button(cli.label) { model.newTab(preset: cli.label, command: cli.open) } }
+                if let vm = project.vm {
+                    Button("A shell in the VM \(vm)") { model.newTab(preset: "VM \(vm)", command: "apprentice --vm \(vm) vm ssh", project: project) }
                 }
                 let missing = AgentCLIs.all().filter { !model.isInstalled($0) && $0.install != nil }
                 if !missing.isEmpty {
@@ -1212,7 +1385,7 @@ struct TerminalWorkspace: View {
                 if !Config.current.tabPresets.isEmpty {
                     Divider()
                     ForEach(Config.current.tabPresets.keys.sorted(), id: \.self) { name in
-                        Button(name) { model.newTab(preset: name, command: nil) }
+                        Button(name) { model.newTab(preset: name, command: nil, project: project) }
                     }
                 }
             } label: {
@@ -1239,9 +1412,6 @@ struct TerminalWorkspace: View {
             Spacer()
             if let bound = model.session {
                 StatusPill(text: bound.app, dot: false)
-                if let dir = Project.dir?.deletingLastPathComponent().lastPathComponent {
-                    StatusPill(text: "project \(dir)", dot: false)
-                }
             } else {
                 Text("no app bound").font(Theme.monoSmall).foregroundStyle(.tertiary)
             }
@@ -1371,14 +1541,21 @@ extension Schedules.Schedule: Identifiable {}
 
 struct SchedulesView: View {
     @ObservedObject var model: AppModel
+    /// Only this project's schedules, and new ones start in its folder and VM.
+    var project: Projects.Info? = nil
     @State private var selected: String?
     @State private var adding = false
+
+    private var schedules: [Schedules.Schedule] {
+        guard let project else { return model.schedules }
+        return model.schedules.filter { model.owner(of: $0)?.id == project.id }
+    }
 
     var body: some View {
         SplitPane(id: "schedules", help: .schedules) {
             VStack(spacing: 0) {
                 HStack {
-                    Text("\(model.schedules.count) schedule\(model.schedules.count == 1 ? "" : "s")")
+                    Text("\(schedules.count) schedule\(schedules.count == 1 ? "" : "s")")
                         .font(Theme.monoSmall)
                         .foregroundStyle(.secondary)
                     Spacer()
@@ -1388,7 +1565,7 @@ struct SchedulesView: View {
                 .padding(.horizontal, Theme.s3)
                 .padding(.vertical, Theme.s2)
                 Divider()
-                if model.schedules.isEmpty {
+                if schedules.isEmpty {
                     VStack(spacing: Theme.s2) {
                         Text("Nothing scheduled").font(Theme.heading)
                         Text("Something that runs later, or again and again: a prompt for an agent, a task, or saved steps from a playbook.")
@@ -1398,7 +1575,7 @@ struct SchedulesView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     List(selection: $selected) {
-                        ForEach(model.schedules) { schedule in
+                        ForEach(schedules) { schedule in
                             ScheduleRow(schedule: schedule).tag(schedule.id)
                         }
                     }
@@ -1408,7 +1585,7 @@ struct SchedulesView: View {
             }
         } right: {
             Group {
-                if let id = selected, let schedule = model.schedules.first(where: { $0.id == id }) {
+                if let id = selected, let schedule = schedules.first(where: { $0.id == id }) {
                     ScheduleDetail(model: model, schedule: schedule)
                 } else {
                     ScreenPage(title: Section.schedules.label, subtitle: "") {
@@ -1430,7 +1607,7 @@ struct SchedulesView: View {
         }
         .background(Theme.canvas)
         .sheet(isPresented: $adding) {
-            ScheduleEditor(model: model, existing: nil) { adding = false }
+            ScheduleEditor(model: model, existing: nil, project: project) { adding = false }
         }
     }
 }
@@ -1539,6 +1716,8 @@ struct ScheduleEditor: View {
     var presetKind: String?
     var presetTarget: String?
     var presetName: String?
+    /// A new schedule runs in this project's folder and VM.
+    var project: Projects.Info? = nil
     var done: () -> Void
 
     @State private var name = ""
@@ -1670,6 +1849,11 @@ struct ScheduleEditor: View {
             target = presetTarget ?? ""
             name = presetName ?? ""
         }
+        if existing == nil, let project {
+            dir = (project.folder.path as NSString).abbreviatingWithTildeInPath
+            vm = project.vm ?? ""
+            agent = project.agent
+        }
         guard let s = existing else { return }
         name = s.name
         kind = s.kind == .flow ? "do" : s.kind.rawValue
@@ -1718,6 +1902,8 @@ struct ScheduleEditor: View {
 /// about it. Written in `Skills.yoursDir` in the skill format, so `session` picks it up at once.
 struct NewPlaybookSheet: View {
     @ObservedObject var model: AppModel
+    /// The skills folder it goes in: yours by default, or a project's own.
+    var into: URL? = nil
     var done: (String?) -> Void
     @State private var scope = "site"
     @State private var match = ""
@@ -1838,7 +2024,7 @@ struct NewPlaybookSheet: View {
         let body = Self.text(scope: kind.scope, match: matchValue, title: heading, notes: notes, day: Store.day(), tags: tags)
         let leaks = Playbooks.leaks(body)
         guard leaks.isEmpty else { problem = "looks personal (\(leaks.prefix(2).joined(separator: "; "))). Use {placeholders}."; return }
-        let url = Skills.yoursDir.appendingPathComponent(path)
+        let url = (into ?? Skills.yoursDir).appendingPathComponent(path)
         guard !FileManager.default.fileExists(atPath: url.path) else { problem = "you already have one called \(path); choose it in the list to edit it"; return }
         do {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

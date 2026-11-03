@@ -33,11 +33,40 @@ enum Projects {
         }
 
         var slug: String { Playbooks.slugify(name) }
+
+        /// The project apprentice makes for work that has no project of its own yet.
+        var isGeneral: Bool { folder.standardizedFileURL.path == Projects.generalFolder.standardizedFileURL.path }
     }
 
     static var listFile: URL { Store.dir.appendingPathComponent("projects.json") }
     /// Where new projects go unless the user picks another folder.
     static var defaultRoot: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Apprentice") }
+
+    /// General: where a shell, Help and anything else started without a project goes.
+    static var generalFolder: URL { defaultRoot.appendingPathComponent("general") }
+
+    /// General, made and listed the first time it is asked for. Its folder is a project like any other.
+    @discardableResult
+    static func general() -> Info {
+        let folder = generalFolder
+        if let p = info(folder), FileManager.default.fileExists(atPath: settingsFile(folder).path) {
+            if !entries().contains(where: { $0.path == folder.path }) { remember(p) }
+            return p
+        }
+        try? scaffold(folder, name: "General", vm: nil, agent: AgentCLIs.defaultID,
+                      about: "Anything that is not part of another project yet: quick questions, a shell, trying something out.")
+        let p = info(folder) ?? Info(name: "General", folder: folder, vm: nil, agent: AgentCLIs.defaultID)
+        remember(p)
+        return p
+    }
+
+    /// The order the window lists projects in: by name, General last.
+    static func ordered(_ list: [Info]) -> [Info] {
+        list.sorted { a, b in
+            if a.isGeneral != b.isGeneral { return !a.isGeneral }
+            return a.name.localizedStandardCompare(b.name) == .orderedAscending
+        }
+    }
 
     // MARK: - the list
 

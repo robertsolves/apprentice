@@ -633,21 +633,26 @@ final class TermSession: ObservableObject, Identifiable {
     @Published var revision = 0
     @Published var exited: Int32?
     @Published var hasApproval = false
+    /// The project folder this tab belongs to: the window shows each project's tabs on its own screen.
+    let project: String?
     let screen: TermScreen
     private(set) var pty: Pty?
     private var cols = 100
     private var rows: Int
     private var pendingRender = false
 
-    init(id: String = String(UUID().uuidString.prefix(8)), title: String, dir: URL, command: String?, env: [String: String], vm: String? = nil) {
+    init(id: String = String(UUID().uuidString.prefix(8)), title: String, dir: URL, command: String?, env: [String: String], vm: String? = nil, project: String? = nil) {
         self.id = id
         self.title = title
+        self.project = project
         self.screen = TermScreen(cols: cols, rows: 30)
         self.rows = 30
         self.runsCommand = command?.isEmpty == false
         var environment = env
         environment["APPRENTICE_TAB"] = id
         if let vm { environment["APPRENTICE_VM"] = vm }
+        // Its counts, caps and skills are the project's, wherever the agent `cd`s to.
+        if let project { environment["APPRENTICE_PROJECT"] = project }
         var shellArgs = ["-l"]
         if let command, !command.isEmpty { shellArgs = ["-l", "-c", command] }
         let pty = Pty(args: shellArgs, dir: dir, env: environment, cols: cols, rows: rows, onData: { [weak self] data in

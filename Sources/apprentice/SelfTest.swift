@@ -1049,6 +1049,19 @@ enum SelfTest {
         check((try? Device.check(user, now: now + 20)) != nil, "device: the user's own click is never refused")
         check((try? Device.check(b, now: now + 10 + Device.busySeconds + 1)) != nil, "device: a quiet holder lets the next agent in")
         check(Device.busy(vm: nil, for: "tab:B") == nil && Device.busy(vm: nil, for: "schedule:x") != nil, "device: schedules see who holds it")
+        // A window tab is named by its project, so "busy with" says which project has the screen.
+        let shop = Store.dir.appendingPathComponent("device-test-shop")
+        defer { try? FileManager.default.removeItem(at: shop) }
+        try? Projects.scaffold(shop, name: "Shop", vm: nil, agent: "claude", about: "")
+        var inShop = Request(cmd: "click", args: ["1"]); inShop.tab = "C"; inShop.project = shop.appendingPathComponent(".apprentice").path
+        let named = Device.caller(inShop)
+        check(named.who == "tab:C" && named.label == "the project Shop", "device: a tab is named by its project (\(named.label))")
+        var bare = Request(cmd: "click", args: ["1"]); bare.tab = "D"; bare.project = nil
+        check(Device.caller(bare).label == "an agent in a window tab", "device: a tab with no project is still named")
+        let general = Projects.Info(name: "General", folder: Projects.generalFolder, vm: nil, agent: "claude")
+        let listed = Projects.ordered([general, Projects.Info(name: "shop", folder: shop, vm: nil, agent: "claude"),
+                                       Projects.Info(name: "Accounts", folder: shop.appendingPathComponent("a"), vm: "acc", agent: "claude")])
+        check(listed.map(\.name) == ["Accounts", "shop", "General"], "projects: listed by name, General last (\(listed.map(\.name)))")
     }
 
     /// The Sites screen: its spec reads cleanly, and every control writes where the commands read.
