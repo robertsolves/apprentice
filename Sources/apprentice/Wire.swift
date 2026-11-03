@@ -18,6 +18,9 @@ struct Request: Codable {
     var awayTask: String? = Request.callerAwayTask
     /// True when the app (`apprentice app`) sends it: the user's own channel, like the menu bar.
     var user: Bool?
+    /// The app the caller runs inside (a terminal, an editor): the nearest app that owns a window among the
+    /// caller's parents. The overlay's "Go to agent" button takes the user there.
+    var host: Int32? = Request.callerHost
 
     /// The calling agent's model (`Agent.detected`: `APPRENTICE_MODEL`, else found from the agent itself);
     /// `run --model` and an MCP client's name set it for their own requests.
@@ -28,6 +31,20 @@ struct Request: Codable {
         let raw = ProcessInfo.processInfo.environment["APPRENTICE_TAB"] ?? ""
         return raw.isEmpty ? nil : String(raw.prefix(80))
     }
+
+    /// Walks up the caller's parent processes to the first running app with a Dock icon.
+    static let callerHost: Int32? = {
+        var pid = getppid()
+        for _ in 0..<12 where pid > 1 {
+            if let app = NSRunningApplication(processIdentifier: pid), app.activationPolicy == .regular { return pid }
+            var info = kinfo_proc()
+            var size = MemoryLayout<kinfo_proc>.size
+            var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
+            guard sysctl(&mib, 4, &info, &size, nil, 0) == 0, size > 0 else { return nil }
+            pid = info.kp_eproc.e_ppid
+        }
+        return nil
+    }()
 
     static var callerAway: Bool { ProcessInfo.processInfo.environment["APPRENTICE_AWAY"] == "1" }
 

@@ -172,7 +172,7 @@ Settings are `config.toml` (see `agent/config.example.toml`), `routes.toml` and 
 - **`[session] allow`:** the sites a session may act on.
 - **`[agent]`:**
   - `ui_only` turns off shell commands for macOS tasks;
-  - `keep_awake` keeps the Mac awake while a task runs;
+  - `keep_awake` (on by default) keeps the Mac awake while a task runs and lets it sleep once the agent says `apprentice done`; `takeover_after_s` (30 by default) is how long you must be still before apprentice takes the cursor;
   - `ask_in` (`both`, `window` or `terminal`) and `ask_window_s` decide where questions go;
   - `ask_sound` is the ping, or `"none"`;
   - `ask_on_start` shows the options window;

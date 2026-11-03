@@ -37,6 +37,7 @@ func usage() {
       apprentice session [--app Safari] [--on mac|linux] [--new-window|--new-tab] [--allow a.com,b.com] [--task "…"] [--no-options]
       apprentice open <url>
       apprentice focus <app> [--on mac|linux]
+      apprentice done ["what was done"]        the task is finished: gives the user back the app and window they were in, and the overlay says Done
       apprentice read [--max 80] [--filter text]
       apprentice click <id> | --on "text" | --at x,y [--double|--right]
       apprentice type <id|focused> "text" [--enter] [--pace fast] [--tier 3]

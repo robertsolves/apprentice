@@ -426,6 +426,7 @@ enum Commands {
         case "deny": return try deny(a)
         case "session": return try session(a)
         case "focus": return try focus(a)
+        case "done": return Handback.done(a.pos.joined(separator: " "))
         case "open": return try open(a)
         case "read": return try read(a)
         case "click": return try click(a)
@@ -512,6 +513,8 @@ enum Commands {
 
     static func session(_ a: Args) throws -> String {
         try requireAccessibility()
+        // Before anything is launched or raised: where the person is working now, to give back at the end.
+        Handback.capture()
         let requested = try a.value("app").map { try launch(named: $0) }
         guard let app = requested ?? NSWorkspace.shared.frontmostApplication, let name = app.localizedName else {
             throw Fail(5, "no app found")

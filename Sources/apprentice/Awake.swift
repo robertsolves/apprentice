@@ -48,6 +48,9 @@ enum Awake {
         }
     }
 
+    /// The task is over (`apprentice done`, or the agent went quiet): let the Mac sleep again at once.
+    static func finish() { release() }
+
     private static func release() {
         lock.lock(); defer { lock.unlock() }
         for id in assertions { IOPMAssertionRelease(id) }
@@ -55,7 +58,7 @@ enum Awake {
     }
 
     static var status: String {
-        enabled ? "awake: on · the Mac will not idle-sleep or lock while a task runs, and for 2 min after the last step (a logout, restart or closed lid on battery still can)"
+        enabled ? "awake: on · the Mac will not idle-sleep or lock while a task runs, until the agent says it is done or for 2 min after the last step (a logout, restart or closed lid on battery still can)"
                 : "awake: off · macOS may sleep or lock on idle"
     }
 

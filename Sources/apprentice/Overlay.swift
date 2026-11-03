@@ -83,7 +83,7 @@ enum Sound {
 /// then stops apprentice. `[agent] overlay = false` hides it.
 enum Overlay {
     /// Seconds the person must be still before apprentice takes over again (`Borrow.waitIdle`'s default).
-    static let settle = 1.0
+    static var settle: Double { Borrow.settle }
     /// How long after a command the session still counts as engaged, so a move between two commands reads as a hand-off.
     private static let engagedFor: TimeInterval = 20
 
@@ -93,6 +93,8 @@ enum Overlay {
     private static var title = NSTextField(labelWithString: "")
     private static var detail = NSTextField(labelWithString: "")
     private static let pauseButton = NSButton(title: "Pause", target: nil, action: nil)
+    /// Shown while the "Done" or "Agent stopped" message is up: takes the user to the app the agent runs in.
+    private static let agentButton = NSButton(title: "Go to agent", target: nil, action: nil)
     private static let handler = Handler()
     private static var timer: Timer?
 
@@ -152,7 +154,15 @@ enum Overlay {
         top.spacing = 8
         // The controls get their own row at the bottom: Mute on the left, Pause on the right.
         pauseButton.widthAnchor.constraint(equalToConstant: 96).isActive = true
-        let bottom = NSStackView(views: [mute, NSView(), pauseButton])
+        agentButton.target = handler
+        agentButton.action = #selector(Handler.goToAgent)
+        agentButton.bezelStyle = .rounded
+        agentButton.controlSize = .regular
+        agentButton.bezelColor = .systemBlue
+        agentButton.contentTintColor = .white
+        agentButton.font = .boldSystemFont(ofSize: 12)
+        agentButton.isHidden = true
+        let bottom = NSStackView(views: [mute, NSView(), agentButton, pauseButton])
         bottom.orientation = .horizontal
         bottom.alignment = .centerY
         bottom.widthAnchor.constraint(equalToConstant: 300).isActive = true
@@ -231,6 +241,7 @@ enum Overlay {
             Sound.play("Funk")
         case "Paused": Sound.play("Morse")
         case "Stopped": Sound.play("Basso")
+        case "Done", "Agent stopped": break
         case "Needs approval":
             Sound.play("Sosumi")
             Notify.local(Approvals.pending.map { "Approve or deny: \($0.summary)" } ?? "A step needs your approval")
@@ -241,12 +252,14 @@ enum Overlay {
     }
 
     private static func render() {
+        Handback.tick()
         let (color, head, sub, label) = status()
         chime(head)
         dot.textColor = color
         title.stringValue = head
         detail.stringValue = sub
         pauseButton.title = label
+        agentButton.isHidden = Handback.banner == nil || Handback.agentHost == nil
         // Orange to hold, green to go on: the one control worth finding at a glance.
         pauseButton.bezelColor = Pause.on ? .systemGreen : .systemOrange
         if let p = panel {
@@ -265,6 +278,7 @@ enum Overlay {
             return (.systemOrange, "Paused", working ? "Finishing this step, then holding" : "Nothing will happen until you resume", "Resume")
         }
         if KillSwitch.halted { return (.systemRed, "Stopped", "Kill switch pressed; answer or resume to go on", "Pause") }
+        if let b = Handback.banner { return (b.good ? .systemGreen : .systemOrange, b.head, b.detail, "Pause") }
         switch StatusItem.state {
         case .waiting: return (.systemYellow, "Waiting for you", "A question is open", "Pause")
         case .approval: return (.systemYellow, "Needs approval", "Approve or deny from the menu bar", "Pause")
@@ -278,6 +292,9 @@ enum Overlay {
     }
 
     private final class Handler: NSObject, NSWindowDelegate {
+        @objc func goToAgent() {
+            Handback.showAgent()
+        }
         @objc func togglePause() {
             Pause.on.toggle()
             Store.log(["overlay": Pause.on ? "pause" : "resume", "by": "user"])

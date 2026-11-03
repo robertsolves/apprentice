@@ -111,8 +111,12 @@ ui_only = false
 ask_on_start = false
 # Sound when apprentice's little window pops up: a system sound name (Ping, Glass, Pop…) or "none".
 ask_sound = "Ping"
-# Keep the display and system from idle sleep and locking while a task runs, and 2 min after (`apprentice awake on|off`).
-keep_awake = false
+# Keep the display and system from idle sleep and locking while a task runs (`apprentice awake on|off`). The Mac may
+# sleep again as soon as the agent says it is done (`apprentice done`), or 2 min after its last command.
+keep_awake = true
+# Seconds you must have been still (mouse and keyboard) before apprentice takes the cursor and keyboard. Touching
+# anything while it works pauses it again, and it carries on after this many quiet seconds. 0 takes over at once.
+takeover_after_s = 30
 # The menu-bar item: α idle, α … working, α ? waiting for you, α ! a step needs approval (its menu approves or denies it).
 menu_bar = true
 # A small always-on-top box: working, handed to you while you move, paused. Close asks, then stops apprentice.

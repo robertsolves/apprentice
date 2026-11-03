@@ -35,6 +35,7 @@ enum MCP {
               "run": ["type": "string"], "do": ["type": "string"], "sh": ["type": "string"],
               "dir": ["type": "string"], "vm": ["type": "string"], "model": ["type": "string"],
               "agent": ["type": "string"], "jitter": ["type": "string"], "site": ["type": "string"]], ["action"]),
+        tool("done", "The task is finished: give the user back the app and window they were in when the session began; the overlay says Done", ["summary": ["type": "string"]], []),
         tool("focus", "Switch the session to another running app; on: mac or linux", ["app": ["type": "string"], "on": ["type": "string"]], ["app"]),
         tool("drag", "Drag one element onto another, or drag by an offset to pan a map or canvas (by: \"dx,dy\", inside `in` or from `at`: \"x,y\")",
              ["from": ["type": "integer"], "to": ["type": "integer"], "by": ["type": "string"], "in": ["type": "integer"], "at": ["type": "string"]], []),
@@ -209,6 +210,8 @@ enum MCP {
                 if let value = s(key) { a += ["--\(key)", value] }
             }
             return Request(cmd: "schedule", args: a)
+        case "done":
+            return Request(cmd: "done", args: s("summary").map { [$0] } ?? [])
         case "focus":
             return Request(cmd: "focus", args: [s("app") ?? ""] + (s("on").map { ["--on", $0] } ?? []))
         case "drag":

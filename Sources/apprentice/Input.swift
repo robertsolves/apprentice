@@ -876,15 +876,17 @@ enum Borrow {
         return true
     }
 
-    static func waitIdle(_ seconds: Double = 1) throws {
+    /// Seconds the person must be still before apprentice takes the cursor (`[agent] takeover_after_s`, 30 by default).
+    static var settle: Double { Config.current.takeoverAfterS }
+
+    static func waitIdle(_ seconds: Double? = nil) throws {
         Pause.wait()
-        // The person is working too: apprentice waits for them as long as they need (15 minutes at most),
-        // asking for a few quiet seconds once it has had to wait, so it does not grab the cursor mid-thought.
+        // The person is working too: apprentice waits for them as long as they need (15 minutes at most)
+        // and takes over only after they have been still for the set time, so it never grabs the cursor mid-thought.
+        let need = seconds ?? settle
         let deadline = Date().addingTimeInterval(900)
-        var waited = false
         try Timing.measure("idle") {
-            while humanIdle < (waited ? max(seconds, 3) : seconds) {
-                waited = true
+            while humanIdle < need {
                 if KillSwitch.tripped { throw Fail(6, "interrupted: " + KillSwitch.message) }
                 if Date() > deadline { throw Fail(6, "interrupted: you were active for 15 minutes, try again") }
                 Pace.sleep(0.2)
@@ -899,7 +901,7 @@ enum Borrow {
     /// in front and carry on from where it was. Only the kill switch ends it.
     static func pause() throws {
         if KillSwitch.tripped { throw Fail(6, "interrupted: " + KillSwitch.message) }
-        try waitIdle(3)
+        try waitIdle()
         interrupted = false
         recent = [CGEvent(source: nil)?.location].compactMap { $0 }
         target?.raise()
@@ -953,7 +955,7 @@ enum Watch {
     /// Waits until the person has been idle for a moment, then starts watching.
     static func begin() throws {
         guard monitor == nil else { return }
-        try Borrow.waitIdle(1)
+        try Borrow.waitIdle()
         Borrow.interrupted = false
         monitor = DispatchQueue.main.sync {
             NSEvent.addGlobalMonitorForEvents(matching: Borrow.interruptions) { event in
