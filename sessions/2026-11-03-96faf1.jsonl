@@ -1,0 +1,22 @@
+{"app":"Google Chrome","cmd":"session","host":"www.facebook.com","model":"claude-sonnet-5-5","ms":570,"pace":"facebook.com fast","ts":"2026-11-03T11:22:24.921+10:00"}
+{"model":"claude-sonnet-5-5","task":"Find Gold Coast community and odd-jobs Facebook groups near Reedy Creek with requests for ute pickups, tip runs and flat pack assembly","ts":"2026-11-03T11:22:24.921+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T11:22:24.972+10:00"}
+{"approved":true,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T11:22:28.273+10:00"}
+{"cmd":"open","diff":"+0 -0 ~0","host":"facebook.com","model":"claude-sonnet-5-5","ms":2685,"pace":"facebook.com human","ts":"2026-11-03T11:22:30.958+10:00","waits":{"idle":0,"settle":285}}
+{"cmd":"wait-for","found":true,"model":"claude-sonnet-5-5","ms":1349,"pace":"facebook.com human","ts":"2026-11-03T11:22:32.336+10:00"}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":45,"pace":"facebook.com human","ts":"2026-11-03T11:22:32.408+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T11:22:36.595+10:00"}
+{"approved":true,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T11:22:40.219+10:00"}
+{"cmd":"click","diff":"+12 -2 ~0","host":"facebook.com","kind":"join","label":"button","model":"claude-sonnet-5-5","ms":1638,"pace":"facebook.com human","ts":"2026-11-03T11:22:41.857+10:00","waits":{"idle":0,"move":776,"settle":378}}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T11:22:45.586+10:00"}
+{"approved":true,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T11:22:49.152+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T11:22:54.885+10:00"}
+{"cmd":"click","diff":"+0 -0 ~0","host":"facebook.com","kind":"join","label":"button","model":"claude-sonnet-5-5","ms":6335,"pace":"facebook.com human","ts":"2026-11-03T11:22:55.487+10:00","waits":{"fidget":2666,"idle":610,"move":2505,"settle":384}}
+{"code":6,"error":"interrupted: you used the keyboard or mouse while apprentice acted in front, so it stopped. Check the screen with `read`, then retry","failed":"approve","model":"claude-sonnet-5-5","ts":"2026-11-03T11:22:55.491+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T11:22:55.529+10:00"}
+{"approved":false,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T11:22:59.092+10:00"}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":57,"pace":"facebook.com human","ts":"2026-11-03T11:22:59.173+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T11:25:06.375+10:00"}
+{"cmd":"stop","model":"claude-sonnet-5-5","ms":127266,"pace":"facebook.com human","ts":"2026-11-03T11:25:06.382+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":161,"pace":"default fast","ts":"2026-11-03T11:27:14.777+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":3071,"pace":"default fast","ts":"2026-11-03T11:27:17.872+10:00"}
