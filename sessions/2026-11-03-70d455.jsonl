@@ -1,0 +1,8 @@
+{"app":"Chromium","cmd":"session","host":"www.facebook.com","model":"claude-sonnet-5-5","ms":510,"pace":"facebook.com fast","ts":"2026-11-03T13:56:35.221+10:00","vm":true}
+{"model":"claude-sonnet-5-5","task":"Read Facebook groups for recent ute, pickup and assembly requests near Reedy Creek","ts":"2026-11-03T13:56:35.221+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T13:56:35.466+10:00"}
+{"approved":true,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T13:56:35.491+10:00"}
+{"cmd":"open","diff":"+69 -0 ~0","host":"facebook.com","model":"claude-sonnet-5-5","ms":13150,"pace":"facebook.com human","ts":"2026-11-03T13:56:48.641+10:00","vm":true,"waits":{"settle":443,"type":8750}}
+{"cmd":"wait-for","found":true,"model":"claude-sonnet-5-5","ms":253,"pace":"facebook.com human","ts":"2026-11-03T13:56:48.925+10:00","vm":true}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":251,"pace":"facebook.com human","ts":"2026-11-03T13:56:49.203+10:00","vm":true}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":638,"pace":"facebook.com human","ts":"2026-11-03T13:56:49.870+10:00","vm":true}
