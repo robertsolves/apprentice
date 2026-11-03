@@ -95,6 +95,9 @@ enum Overlay {
     private static let pauseButton = NSButton(title: "Pause", target: nil, action: nil)
     /// Shown while the "Done" or "Agent stopped" message is up: takes the user to the app the agent runs in.
     private static let agentButton = NSButton(title: "Go to agent", target: nil, action: nil)
+    /// Shown while apprentice counts down to taking over: shortens the wait to a few seconds for the rest of the task.
+    private static let quickButton = NSButton(title: "Go in 5 s", target: nil, action: nil)
+    private static var counting = false
     private static let handler = Handler()
     private static var timer: Timer?
 
@@ -162,7 +165,15 @@ enum Overlay {
         agentButton.contentTintColor = .white
         agentButton.font = .boldSystemFont(ofSize: 12)
         agentButton.isHidden = true
-        let bottom = NSStackView(views: [mute, NSView(), agentButton, pauseButton])
+        quickButton.target = handler
+        quickButton.action = #selector(Handler.goQuicker)
+        quickButton.bezelStyle = .rounded
+        quickButton.controlSize = .regular
+        quickButton.bezelColor = .systemBlue
+        quickButton.contentTintColor = .white
+        quickButton.font = .boldSystemFont(ofSize: 12)
+        quickButton.isHidden = true
+        let bottom = NSStackView(views: [mute, NSView(), quickButton, agentButton, pauseButton])
         bottom.orientation = .horizontal
         bottom.alignment = .centerY
         bottom.widthAnchor.constraint(equalToConstant: 300).isActive = true
@@ -260,6 +271,8 @@ enum Overlay {
         detail.stringValue = sub
         pauseButton.title = label
         agentButton.isHidden = Handback.banner == nil || Handback.agentHost == nil || Handback.atAgent
+        quickButton.title = "Go in \(Int(Config.current.takeoverQuickS)) s"
+        quickButton.isHidden = !counting || Borrow.quick || Borrow.settle <= Config.current.takeoverQuickS
         // Orange to hold, green to go on: the one control worth finding at a glance.
         pauseButton.bezelColor = Pause.on ? .systemGreen : .systemOrange
         if let p = panel {
@@ -274,6 +287,7 @@ enum Overlay {
         let working = StatusItem.state == .working
         let engaged = working || Date().timeIntervalSince(Commands.lastAt) < engagedFor
         let wait = max(0, settle - Borrow.humanIdle)
+        counting = false
         if Pause.on {
             return (.systemOrange, "Paused", working ? "Finishing this step, then holding" : "Nothing will happen until you resume", "Resume")
         }
@@ -285,6 +299,7 @@ enum Overlay {
         default: break
         }
         if engaged && wait > 0 {
+            counting = true
             return (.systemBlue, "Yours", String(format: "You have control · back after %.0f s of stillness", wait.rounded(.up)), "Pause")
         }
         if working { return (.systemGreen, "Working", Session.stored.map { hostOf($0.url) ?? $0.app } ?? "Acting on screen", "Pause") }
@@ -292,6 +307,11 @@ enum Overlay {
     }
 
     private final class Handler: NSObject, NSWindowDelegate {
+        @objc func goQuicker() {
+            Borrow.quick = true
+            Store.log(["overlay": "shortened the wait", "by": "user"])
+            Overlay.render()
+        }
         @objc func goToAgent() {
             Handback.showAgent()
         }

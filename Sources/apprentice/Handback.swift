@@ -107,6 +107,9 @@ enum Handback {
                           wid: focused?.windowID, at: Date().timeIntervalSince1970), "origin.json")
         returned = false
         banner = nil
+        // A new task: the first action waits only briefly, and the shortened wait is forgotten.
+        Borrow.fresh = true
+        Borrow.quick = false
         // The agent's window: the focused window of its app now, while the user is most likely in it.
         fallbackWindow = agentHost.flatMap { (appElement($0).attr(kAXFocusedWindowAttribute) as! AXUIElement?)?.windowID }
     }

@@ -117,6 +117,10 @@ keep_awake = true
 # Seconds you must have been still (mouse and keyboard) before apprentice takes the cursor and keyboard. Touching
 # anything while it works pauses it again, and it carries on after this many quiet seconds. 0 takes over at once.
 takeover_after_s = 30
+# The wait before the first action of a task, since you have just sent it (usually 5 s is plenty).
+takeover_first_s = 5
+# What the overlay's "Go in 5 s" button shortens the wait to for the rest of the task.
+takeover_quick_s = 5
 # The menu-bar item: α idle, α … working, α ? waiting for you, α ! a step needs approval (its menu approves or denies it).
 menu_bar = true
 # A small always-on-top box: working, handed to you while you move, paused. Close asks, then stops apprentice.

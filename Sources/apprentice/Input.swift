@@ -877,7 +877,17 @@ enum Borrow {
     }
 
     /// Seconds the person must be still before apprentice takes the cursor (`[agent] takeover_after_s`, 30 by default).
-    static var settle: Double { Config.current.takeoverAfterS }
+    static var settle: Double {
+        let c = Config.current
+        // The overlay's button asked for less; a task's first action comes right after the user sent it.
+        if quick { return min(c.takeoverQuickS, c.takeoverAfterS) }
+        if fresh { return min(c.takeoverFirstS, c.takeoverAfterS) }
+        return c.takeoverAfterS
+    }
+    /// True until the first action of a task has run.
+    static var fresh = true
+    /// The user pressed "Go in 5 s": the short wait holds for the rest of the task.
+    static var quick = false
 
     static func waitIdle(_ seconds: Double? = nil) throws {
         Pause.wait()
@@ -928,6 +938,7 @@ enum Borrow {
         target = t
         defer {
             target = nil
+            fresh = false
             active = false
             if let monitor { DispatchQueue.main.sync { NSEvent.removeMonitor(monitor) } }
         }

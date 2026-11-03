@@ -473,6 +473,10 @@ struct Config {
     var keepAwake = true
     /// Seconds the person must be still (mouse and keyboard) before apprentice takes the cursor: `[agent] takeover_after_s`.
     var takeoverAfterS = 30.0
+    /// The wait before the first action of a task, when the user has just sent it: `[agent] takeover_first_s`.
+    var takeoverFirstS = 5.0
+    /// What the overlay's "Go in 5 s" button shortens the wait to: `[agent] takeover_quick_s`.
+    var takeoverQuickS = 5.0
     /// The menu-bar item that says whether apprentice is working, waiting for the user or holding a proposal.
     var menuBar = true
     /// `[typing] learn`: sample the person's own typing now and then, for `Typing`'s per-pair rhythm.
@@ -630,6 +634,8 @@ struct Config {
         if let v = toml["agent"]?["ask_sound"] { c.askSound = Toml.unquote(v) }
         if let v = toml["agent"]?["keep_awake"] { c.keepAwake = Toml.unquote(v) == "true" }
         if let v = toml["agent"]?["takeover_after_s"], let n = Double(Toml.unquote(v)), n >= 0 { c.takeoverAfterS = min(n, 600) }
+        if let v = toml["agent"]?["takeover_first_s"], let n = Double(Toml.unquote(v)), n >= 0 { c.takeoverFirstS = min(n, 600) }
+        if let v = toml["agent"]?["takeover_quick_s"], let n = Double(Toml.unquote(v)), n >= 0 { c.takeoverQuickS = min(n, 600) }
         if let v = toml["agent"]?["menu_bar"] { c.menuBar = Toml.unquote(v) != "false" }
         if let v = toml["typing"]?["learn"] { c.typingLearn = Toml.unquote(v) != "false" }
         if let v = toml["agent"]?["optional_questions"] { c.optionalQuestions = Toml.unquote(v) != "false" }
