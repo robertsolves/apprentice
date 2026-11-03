@@ -137,16 +137,27 @@ enum Handback {
         let back = restore()
         let said = summary?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         banner = Banner(head: "Done", detail: said.isEmpty ? (back ? "Back in \(name ?? "your app")" : "Task finished") : said,
-                        good: true, until: Date().addingTimeInterval(45))
+                        good: true, until: .distantFuture)
         returned = true
+        // Seen even from another app: a notification, not only the box.
+        Notify.local(said.isEmpty ? "The task is finished" : said, title: "apprentice: done")
         Awake.finish()
         Sound.play("Glass")
         return back ? "done · gave you back \(name ?? "your app")" : "done · nothing to give back"
     }
 
     /// From the overlay's timer, on the main thread: the agent went quiet without saying it was done.
+    private static var seenAtAgent: Date?
+
     static func tick() {
-        if let b = banner, Date() > b.until { banner = nil }
+        // "Done" and "Agent stopped" stay up until the user is back at the agent, then go a few seconds later.
+        if let b = banner {
+            if Date() > b.until { banner = nil; seenAtAgent = nil }
+            else if atAgent {
+                if seenAtAgent == nil { seenAtAgent = Date() }
+                else if Date().timeIntervalSince(seenAtAgent!) > 4 { banner = nil; seenAtAgent = nil }
+            } else { seenAtAgent = nil }
+        }
         guard !returned, Commands.lastAt != .distantPast, Date().timeIntervalSince(Commands.lastAt) > quietAfter,
               StatusItem.state == .idle, Approvals.pending == nil, !Pause.on, !KillSwitch.halted else { return }
         // Put the person back only while they are still looking at apprentice's window; if they have moved on, leave them be.
@@ -157,7 +168,8 @@ enum Handback {
         Awake.finish()
         banner = Banner(head: "Agent stopped",
                         detail: "No command for \(Int(quietAfter / 60)) min" + (back ? " · back in \(name ?? "your app")" : ""),
-                        good: false, until: Date().addingTimeInterval(60))
+                        good: false, until: .distantFuture)
+        Notify.local("The agent has gone quiet", title: "apprentice: agent stopped")
         Sound.play("Purr")
     }
 }
