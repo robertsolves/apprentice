@@ -669,7 +669,8 @@ struct VMsView: View {
     private func detail(_ m: VM.Machine) -> some View {
         let projects = model.projects.filter { ($0.vm ?? "") == m.name }
         let running = m.state == "running"
-        return ScreenPage(title: m.label, subtitle: m.host.map { "Another computer at \($0)" } ?? "A Linux computer inside this Mac") {
+        return ScreenPage(title: m.label, subtitle: m.host.map { "Another computer at \($0)" } ?? (VM.tables[m.name.isEmpty ? "vm" : "vm.\(m.name)"]?["runner"].map(Toml.unquote) == "tart"
+                       ? "A Linux computer inside this Mac" : "A Linux computer running inside this app") {
             AnyView(HStack(spacing: Theme.s2) {
                 if m.host == nil {
                     if running {

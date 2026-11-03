@@ -89,7 +89,8 @@ if [ -d "$local_app" ]; then
 fi
 if [ -x "$exe" ]; then
   rm -rf "$app/Contents/Helpers"
-  codesign --force --options runtime --sign "${id:--}" "$app"
+  # The window runs the Linux VMs itself (VMHost.swift), which takes the virtualization entitlement.
+  codesign --force --options runtime --entitlements "$root/scripts/app.entitlements" --sign "${id:--}" "$app"
   rm -f "$bin"
   ln -sfn "$exe" "$bin"
   printf '{"clone":"%s","commit":"%s","built":"%s","bin":"%s"}\n' "$root" "$commit" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$exe" \

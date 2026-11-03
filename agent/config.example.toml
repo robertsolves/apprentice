@@ -220,6 +220,7 @@ vision_model = ""
 # memory_mb = 2048
 # password = "admin"            # the image's login, used once; `vm setup` gives a Tart VM its own
 # home = "/Volumes/SSD/tart"    # keep the VM on another disk
+# runner = "app"                # runs inside apprentice's window (Virtualization framework); "tart" for a headless `tart run`
 # local = ["linkedin.com"]       # sites whose accounts stay on this Mac's own browser, never in a VM
 # host = "203.0.113.7"          # a Debian server elsewhere (a cloud VM) instead of Tart; user needs passwordless sudo
 # port = 22

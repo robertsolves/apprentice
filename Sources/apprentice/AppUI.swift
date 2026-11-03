@@ -103,7 +103,7 @@ enum AppBundle {
             let sign = Process()
             sign.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
             // Hardened runtime, so no library can be injected into the one process whose clicks count as the user's.
-            sign.arguments = ["--force", "--deep", "--options", "runtime", "-s", "-", app.path]
+            sign.arguments = ["--force", "--deep", "--options", "runtime"] + entitlementArgs + ["-s", "-", app.path]
             sign.standardOutput = FileHandle.nullDevice
             sign.standardError = FileHandle.nullDevice
             try sign.run()
@@ -119,7 +119,21 @@ enum AppBundle {
         let identities = Repo.run("security", ["find-identity", "-p", "codesigning"]).out
         let identity = ProcessInfo.processInfo.environment["APPRENTICE_SIGN_IDENTITY"]
             ?? (identities.contains("\"apprentice\"") ? "apprentice" : "-")
-        _ = Repo.run("codesign", ["--force", "--deep", "--options", "runtime", "-s", identity, path.path])
+        _ = Repo.run("codesign", ["--force", "--deep", "--options", "runtime"] + entitlementArgs + ["-s", identity, path.path])
+    }
+
+    /// What the window needs from the system: running its Linux VMs through the Virtualization framework (`VMHost`).
+    static let entitlements = """
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+    <plist version="1.0"><dict><key>com.apple.security.virtualization</key><true/></dict></plist>
+    """
+
+    /// `--entitlements <file>` for codesign, the file written once per process.
+    static var entitlementArgs: [String] {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("apprentice-\(getpid()).entitlements")
+        if !FileManager.default.fileExists(atPath: file.path) { try? entitlements.write(to: file, atomically: true, encoding: .utf8) }
+        return FileManager.default.fileExists(atPath: file.path) ? ["--entitlements", file.path] : []
     }
 
     /// `apprentice app` from a terminal: the CLI builds the bundle and opens it, so the window is its own process.
@@ -188,6 +202,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             self.show(r)
         }
         DispatchQueue.global(qos: .utility).async { AppShow.retireDockApps() }
+        // The Linux VMs run in this process (`VMHost`): start and stop orders from the daemons are answered here.
+        VMHost.listen()
         NSApp.mainMenu = MainMenu.make()
         TerminalKeys.install()
         if let out = ProcessInfo.processInfo.environment["APPRENTICE_APP_KEYTEST"] { KeyTest.run(model: model, window: window, out: out) }
@@ -204,24 +220,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if r.activate { window?.makeKeyAndOrderFront(nil) }
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    /// While a VM runs in this process, closing the window leaves the app (and the VM) running; the Dock icon
+    /// brings the window back.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { !VMHost.anyRunning }
 
     /// Closing the window quits, and quitting ends every tab: an agent at work in one is asked about first.
     private func agreeToStop() -> Bool {
         if stopAgreed || ProcessInfo.processInfo.environment["APPRENTICE_APP_KEYTEST"] != nil { return true }
-        let busy = model?.busyTabs ?? []
-        guard !busy.isEmpty else { return true }
-        let names = busy.map(\.title).joined(separator: ", ")
-        stopAgreed = AppModel.confirm("Stop what is running in \(busy.count == 1 ? "a tab" : "\(busy.count) tabs")?",
-                                      "Still running: \(names). Closing apprentice's window stops them. Schedules and the background service keep going.",
-                                      "Stop and Close")
+        let busy = (model?.busyTabs ?? []).map(\.title)
+        let vms = VMHost.runningNames.map { "the VM \($0.hasPrefix("apprentice-") ? String($0.dropFirst("apprentice-".count)) : $0)" }
+        let all = busy + vms
+        guard !all.isEmpty else { return true }
+        stopAgreed = AppModel.confirm("Stop what is running in apprentice?",
+                                      "Still running: \(all.joined(separator: ", ")). Quitting stops them\(vms.isEmpty ? "" : ", and an agent working in a VM loses it until it starts again"). Schedules and the background service keep going.",
+                                      "Stop and Quit")
         return stopAgreed
     }
 
-    func windowShouldClose(_ sender: NSWindow) -> Bool { agreeToStop() }
+    /// Closing the window quits only when no VM runs here; with one running, the app (and its tabs) stay.
+    func windowShouldClose(_ sender: NSWindow) -> Bool { VMHost.anyRunning || agreeToStop() }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        agreeToStop() ? .terminateNow : .terminateCancel
+        guard agreeToStop() else { return .terminateCancel }
+        guard VMHost.anyRunning else { return .terminateNow }
+        // Each guest gets the power button and a moment to shut down cleanly, so its disk is never cut off mid-write.
+        VMHost.stopAll { NSApp.reply(toApplicationShouldTerminate: true) }
+        return .terminateLater
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

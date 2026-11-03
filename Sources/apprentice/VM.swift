@@ -152,8 +152,29 @@ enum VM {
 
     static var running: Bool {
         if let host { return ssh(host, "true").code == 0 }
+        if VMHost.isRunning(name) { return true }
         guard tartPath != nil else { return false }
         return tartList().contains { ($0["Name"] as? String) == name && ($0["State"] as? String) == "running" }
+    }
+
+    /// Where a VM on this Mac runs: "app" (the default) boots it inside apprentice's window (`VMHost`); "tart"
+    /// runs it headless under `tart run`, as before.
+    static var runner: String { setting("runner", "app") == "tart" ? "tart" : "app" }
+    /// This VM's folder in Tart's store, which the window boots.
+    static var bundle: URL { VMHost.bundle(name, home: tartEnv["TART_HOME"]) }
+
+    /// Stops this Mac's VM wherever it runs: in the window, or under Tart.
+    static func stop() throws -> String {
+        if VMHost.isRunning(name) {
+            try VMHost.stop(name)
+        } else {
+            let r = tart(["stop", name])
+            guard r.code == 0 else { throw Fail(5, "could not stop \(name): \(r.err)") }
+        }
+        var s = state
+        s.ip = nil
+        state = s
+        return "stopped \(name)"
     }
 
     // MARK: transport
@@ -179,7 +200,12 @@ enum VM {
         if let host { return writeSSHConfig(host) }
         // A cached address is a DHCP lease that may have changed since: it is used only while the guest answers there.
         if !fresh, let ip = state.ip, answers(ip) { return writeSSHConfig(ip) }
-        let r = tart(["ip", name, "--wait", "30"])
+        var r = tart(["ip", name, "--wait", "30"])
+        // A VM in the window: the same DHCP lease Tart reads, looked up here when Tart does not answer.
+        if r.code != 0 || r.text.isEmpty, VMHost.isRunning(name),
+           let ip = poll(timeout: 30, interval: 1, { VMHost.leaseIP(bundle: bundle) }) {
+            r = (0, ip, "")
+        }
         guard r.code == 0, !r.text.isEmpty else {
             if let ip = state.ip, running { throw Fail(5, "the VM is running but does not answer at \(ip): wait a moment, or `apprentice vm up`") }
             throw Fail(5, "the VM is not running: start it with `apprentice vm up`")
@@ -278,11 +304,7 @@ enum VM {
         case "up": return try up()
         case "down":
             guard host == nil else { throw Fail(5, "\(where_) is not stopped from here; stop it where it is hosted") }
-            let r = tart(["stop", name])
-            var s = state
-            s.ip = nil
-            state = s
-            return r.code == 0 ? "stopped \(name)" : "could not stop \(name): \(r.err)"
+            return try stop()
         case "on", "off":
             guard a.pos.first == "off" || host != nil || tart(["get", name]).code == 0 else { throw Fail(5, "no VM yet: run `apprentice vm setup`") }
             var s = state
@@ -336,7 +358,7 @@ enum VM {
         for vm in tartList() where (vm["Source"] as? String) == "local" {
             guard let n = vm["Name"] as? String, n.hasPrefix("apprentice-") else { continue }
             let name = n == "apprentice-browser" ? "" : String(n.dropFirst("apprentice-".count))
-            out[name] = Machine(name: name, tart: n, state: vm["State"] as? String ?? "?", host: nil)
+            out[name] = Machine(name: name, tart: n, state: VMHost.isRunning(n) ? "running" : vm["State"] as? String ?? "?", host: nil)
         }
         for key in all.keys where key.hasPrefix("vm.") {
             let name = String(key.dropFirst(3))
@@ -395,6 +417,14 @@ enum VM {
         if host != nil { return running ? "\(where_) is reachable" : "\(where_) does not answer ssh; start it where it is hosted" }
         guard let path = tartPath else { throw Fail(5, "tart is not installed: run `apprentice vm setup`") }
         if running, let ip = try? address(fresh: true), ssh(ip, "true").code == 0 { return "\(name) is already running at \(ip)" }
+        if runner == "app" {
+            // Inside apprentice's window: the VM lives as long as the window's process does.
+            try VMHost.start(name, bundle: bundle)
+            let ip = try address(fresh: true)
+            let ready = poll(timeout: 60, interval: 1) { answers(ip) ? true : nil } != nil
+            return ready ? "\(name) is up at \(ip), running inside apprentice's window"
+                         : "\(name) started inside apprentice's window at \(ip) but ssh is not answering yet; see \(Store.dir.appendingPathComponent("vmhost/\(name).console.log").path)"
+        }
         let log = dir.appendingPathComponent("tart.log")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         FileManager.default.createFile(atPath: log.path, contents: nil)
