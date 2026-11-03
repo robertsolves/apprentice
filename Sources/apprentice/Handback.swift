@@ -106,17 +106,15 @@ enum Handback {
 
     /// At the start of `session`: the app and window in front now. A second session in the same task keeps the first place.
     static func capture() {
-        if !returned, origin != nil, Date().timeIntervalSince(Commands.lastAt) < 600 { return }
+        // A task begins here whether or not there is a place to give back (the front app may be apprentice's own).
+        let continuing = !returned && origin != nil && Date().timeIntervalSince(Commands.lastAt) < 600
+        if !continuing { returned = false; banner = nil; Borrow.fresh = true; Borrow.quick = false }
+        if continuing { return }
         guard let front = NSWorkspace.shared.frontmostApplication, front.processIdentifier != getpid(),
-              front.bundleIdentifier != AppBundle.identifier else { return }
+              front.bundleIdentifier != AppBundle.identifier else { Store.remove("origin.json"); return }
         let focused = appElement(front.processIdentifier).attr(kAXFocusedWindowAttribute) as! AXUIElement?
         Store.save(Origin(pid: front.processIdentifier, bundle: front.bundleIdentifier, name: front.localizedName ?? "your app",
                           wid: focused?.windowID, at: Date().timeIntervalSince1970), "origin.json")
-        returned = false
-        banner = nil
-        // A new task: the first action waits only briefly, and the shortened wait is forgotten.
-        Borrow.fresh = true
-        Borrow.quick = false
         // The agent's window: the focused window of its app now, while the user is most likely in it.
         fallbackWindow = agentHost.flatMap { (appElement($0).attr(kAXFocusedWindowAttribute) as! AXUIElement?)?.windowID }
     }
