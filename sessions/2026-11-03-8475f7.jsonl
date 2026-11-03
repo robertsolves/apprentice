@@ -1,0 +1,16 @@
+{"app":"Chromium","cmd":"session","host":"www.facebook.com","model":"claude-sonnet-5-5","ms":782,"pace":"default fast","ts":"2026-11-03T15:27:39.597+10:00","vm":true}
+{"model":"claude-sonnet-5-5","task":"demo","ts":"2026-11-03T15:27:39.597+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":10,"pace":"default fast","ts":"2026-11-03T15:27:39.612+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T15:27:44.455+10:00"}
+{"approved":true,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T15:27:44.478+10:00"}
+{"cmd":"open","diff":"+44 -0 ~0","host":"facebook.com","model":"claude-sonnet-5-5","ms":11469,"pace":"facebook.com human","ts":"2026-11-03T15:27:55.946+10:00","vm":true,"waits":{"settle":1354,"type":8527}}
+{"cmd":"browse","diff":"+50 -34 ~0","host":"facebook.com","model":"claude-sonnet-5-5","ms":26730,"pace":"facebook.com human","ts":"2026-11-03T15:28:26.706+10:00","vm":true,"waits":{"move":551,"settle":510}}
+{"code":5,"error":"no element 8 in snap 2","failed":"hover","model":"claude-sonnet-5-5","ts":"2026-11-03T15:28:26.921+10:00"}
+{"cmd":"scroll","count":4,"diff":"+34 -29 ~0","direction":"down","host":"facebook.com","model":"claude-sonnet-5-5","ms":2850,"pace":"facebook.com human","ts":"2026-11-03T15:28:31.806+10:00","vm":true,"waits":{"move":295,"settle":848}}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":288,"pace":"default fast","ts":"2026-11-03T15:31:49.655+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T15:32:02.175+10:00"}
+{"cmd":"stop","model":"claude-sonnet-5-5","ms":161657,"pace":"facebook.com fast","ts":"2026-11-03T15:32:02.187+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":118,"pace":"default fast","ts":"2026-11-03T15:34:55.654+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":2050,"pace":"default fast","ts":"2026-11-03T15:34:57.725+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T15:34:58.177+10:00"}
+{"cmd":"learn","model":"claude-sonnet-5-5","ms":162,"pace":"default fast","ts":"2026-11-03T15:35:02.229+10:00"}
