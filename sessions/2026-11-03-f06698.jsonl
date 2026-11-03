@@ -1,0 +1,6 @@
+{"app":"Google Chrome","cmd":"session","host":"www.facebook.com","model":"claude-sonnet-5-5","ms":458,"pace":"facebook.com fast","ts":"2026-11-03T12:21:27.361+10:00"}
+{"model":"claude-sonnet-5-5","task":"test rule","ts":"2026-11-03T12:21:27.362+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T12:21:27.373+10:00"}
+{"cmd":"browse","diff":"+54 -0 ~0","host":"facebook.com","model":"claude-sonnet-5-5","ms":16820,"pace":"facebook.com human","ts":"2026-11-03T12:21:44.194+10:00","waits":{"idle":0,"move":522,"settle":628}}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":19,"pace":"facebook.com human","ts":"2026-11-03T12:21:44.246+10:00"}
+{"cmd":"ocr","model":"claude-sonnet-5-5","ms":776,"pace":"facebook.com human","ts":"2026-11-03T12:21:45.055+10:00"}
