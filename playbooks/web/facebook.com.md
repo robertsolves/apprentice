@@ -16,6 +16,9 @@ How to behave here (pace, comments, friend requests, restrictions) is in the `ap
 - Joining a public group is one click on `button "Join group {name}"` and counts as a budgeted `join`. The page can shift after a click, so read again before the next one.
 - An open Messenger chat box can sit at the bottom right of the page. It is not part of the group: leave it alone.
 
+- Long posts and comments are cut off in `read` and `ocr` with "… See more", and the part that is cut is often the part that matters (the place, the date, the price). A post you have only seen cut off has not been read. Before judging or skipping a post, `click #button "See more"` on it, then `read` again. Comments hide behind "View N replies" and "View more comments" in the same way, and the poster's answers there often give the details.
+- Expanding text is a plain click and changes nothing for anyone else, but each one still needs `approve`. Do the posts you are considering, not every post in the feed.
+
 ## Works
 - Open a joined group: `click #link "View group"` from facebook.com/groups/joins/, then `wait-for "members"`.
 - Browse: `browse 20`, then `read --filter "text"` or `ocr`; do it a few times, not for minutes on end.

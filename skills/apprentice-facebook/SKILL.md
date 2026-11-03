@@ -33,6 +33,7 @@ Load `apprentice` and `apprentice-web` first. For current labels and steps, run 
 ## Reading a feed
 - A group feed is not in date order, even with "New posts" or `?sorting_setting=CHRONOLOGICAL`: pinned and boosted posts come first, and scrolling only goes further back in time. Never scroll on hoping for something newer.
 - Read a post's date before its content. It sits beside the poster's name ("2h", "Yesterday", "November 1 at 7:36 PM", "Sep 3"). A post with no date is treated as old.
+- Text is cut off at "… See more" and replies at "View N replies". Click them (`button "See more"`) before judging a post: what was cut off is often the place, date or price. A post seen only cut off has not been read.
 - Decide how recent counts before you start, and stop at 3 old posts in a row, 4 screens or 5 minutes. Don't act on a post you couldn't date.
 
 ## Budgets
