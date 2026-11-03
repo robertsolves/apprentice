@@ -38,3 +38,6 @@ Load `apprentice` and `apprentice-web` first. For current labels and steps, run 
 
 ## Budgets
 `apprentice budget facebook.com` shows what's left today, including `friend_request` and `group_post`.
+
+## Recover, don't stop
+- Check the address after every click in a group. If a click took you to Marketplace, a profile or an ad, go back, redo the step with the right element and throw away what you read from the wrong page. Never stop the scan and report why it failed; start that group again and finish it.

@@ -22,6 +22,12 @@ enum Handback {
     }
 
     static var banner: Banner?
+
+    /// Which system this daemon works on, so a message says where the task ran.
+    static var system: String {
+        if let n = Store.vmName { return "VM \(n)" }
+        return Session.stored?.vm == true ? "Linux VM" : "This Mac"
+    }
     /// The app the agent runs in (the terminal), from the latest command.
     static var agentHost: pid_t?
 
@@ -35,6 +41,7 @@ enum Handback {
     /// The window the agent is in, by window id. `here` records it at the moment the user submits a prompt, when
     /// they are certainly in that window; a task's first `session` records the host app's focused window as a fallback.
     private static var fallbackWindow: UInt32?
+    static var agentWindowID: UInt32? { agentWindow }
     private static var agentWindow: UInt32? {
         if let spot = Store.load(Spot.self, "agent.json"), spot.pid == agentHost, Date().timeIntervalSince1970 - spot.at < 43_200 {
             return spot.wid
@@ -74,11 +81,11 @@ enum Handback {
     /// The overlay's "Go to agent" button. The same for every app and it never opens anything: the window the agent
     /// was in when the task began is registered by its window id, and going back means going to that window. A
     /// window on another desktop is invisible to accessibility, so its desktop is shown first.
-    static func showAgent() {
-        guard let pid = agentHost, let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated else { return }
+    static func showAgent(pid givenPid: pid_t? = nil, wid givenWid: UInt32? = nil) {
+        guard let pid = givenPid ?? agentHost, let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated else { return }
         let el = appElement(pid)
         var how = "app"
-        if let wid = agentWindow {
+        if let wid = givenPid != nil ? givenWid : agentWindow {
             var window = windows(of: el).first { $0.windowID == wid }
             if window == nil, Spaces.show(window: wid) {
                 // The desktop switch takes a moment to finish.
@@ -140,9 +147,9 @@ enum Handback {
                         good: true, until: .distantFuture)
         returned = true
         // Seen even from another app: a notification, not only the box.
-        Notify.local(said.isEmpty ? "The task is finished" : said, title: "apprentice: done")
+        Notify.local(said.isEmpty ? "The task is finished" : said, title: "apprentice: done · \(system)")
         Awake.finish()
-        Sound.play("Glass")
+        Sound.cue(.done)
         return back ? "done · gave you back \(name ?? "your app")" : "done · nothing to give back"
     }
 
@@ -169,8 +176,8 @@ enum Handback {
         banner = Banner(head: "Agent stopped",
                         detail: "No command for \(Int(quietAfter / 60)) min" + (back ? " · back in \(name ?? "your app")" : ""),
                         good: false, until: .distantFuture)
-        Notify.local("The agent has gone quiet", title: "apprentice: agent stopped")
-        Sound.play("Purr")
+        Notify.local("The agent has gone quiet", title: "apprentice: agent stopped · \(system)")
+        Sound.cue(.agentStopped)
     }
 }
 

@@ -22,3 +22,5 @@ How to behave here (pace, comments, friend requests, restrictions) is in the `ap
 ## Works
 - Open a joined group: `click #link "View group"` from facebook.com/groups/joins/, then `wait-for "members"`.
 - Browse: `browse 20`, then `read --filter "text"` or `ocr`; do it a few times, not for minutes on end.
+
+- A click on a post's "See more" or a link inside the feed can leave the group (Marketplace, a profile, an ad). Check the address after every click; if it is not the group, go back, re-read for the right id and redo it. Do not read on from the wrong page and do not give up the group.

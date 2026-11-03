@@ -267,6 +267,8 @@ enum Ask {
     static func ping() {
         let sound = Config.current.askSound
         guard sound.lowercased() != "none", !sound.isEmpty, !Sound.muted else { return }
+        // The default is apprentice's own soft beeps; any other name is a macOS system sound.
+        if sound == "Ping" { Sound.cue(.approval); return }
         // Held in a static: a sound released right after play() stops before it is heard.
         playing = NSSound(named: NSSound.Name(sound)) ?? NSSound(named: "Ping")
         playing?.play()

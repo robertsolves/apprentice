@@ -19,7 +19,7 @@ enum Pause {
     }
 }
 
-/// A short system sound for each lasting change of state, so the person hears it without looking.
+/// A few soft beeps for each lasting change of state, so the person hears it without looking (see `Beep`).
 /// `[agent] sounds = false` silences them all (`ask_sound` still sets the question ping).
 enum Sound {
     /// The person's mute, kept across restarts as a marker file; every box has a switch for it.
@@ -61,52 +61,196 @@ enum Sound {
         return b
     }
 
-    private static var playing: [String: NSSound] = [:]
-    private static var lastAny = Date.distantPast
+    /// Beeps still sounding, held so they are not released (and cut off) before they are heard.
+    private static var sounding: [NSSound] = []
+    private static var lastCue: [String: Date] = [:]
+    private static var cache: [String: Data] = [:]
 
-    /// From any thread. The same sound is not repeated inside 0.25 s.
-    static func play(_ name: String) {
+    private final class Done: NSObject, NSSoundDelegate {
+        func sound(_ sound: NSSound, didFinishPlaying flag: Bool) { Sound.sounding.removeAll { $0 === sound } }
+    }
+    private static let finisher = Done()
+
+    /// From any thread: the soft beeps for `cue`, in the note of the system it is about (`key`: "mac" or a VM's name).
+    /// Beeps from several systems overlap on purpose. The same cue for the same system is not repeated inside 0.25 s.
+    static func cue(_ cue: Cue, key: String = Store.vmName ?? "mac") {
         guard Config.current.sounds, !muted else { return }
         DispatchQueue.main.async {
-            // One sound at a time, and never a burst: anything inside 0.6 s of the last is dropped.
-            if Date().timeIntervalSince(lastAny) < 0.6 { return }
-            lastAny = Date()
-            // Held in a static: a sound released right after play() stops before it is heard.
-            playing[name] = NSSound(named: NSSound.Name(name))
-            playing[name]?.play()
+            let id = cue.rawValue + key
+            if let last = lastCue[id], Date().timeIntervalSince(last) < 0.25 { return }
+            lastCue[id] = Date()
+            let data = cache[id] ?? Beep.wav(cue.notes, root: Beep.root(for: key))
+            cache[id] = data
+            guard let s = NSSound(data: data) else { return }
+            s.delegate = finisher
+            s.volume = 0.6
+            sounding.append(s)
+            s.play()
         }
     }
 }
 
-/// A small always-on-top box that says what apprentice is doing: working, handed to you while you move
-/// the mouse or type, taking over again once you have been still, paused, or idle. Closing it asks first,
-/// then stops apprentice. `[agent] overlay = false` hides it.
+/// One line of the box: what one daemon (This Mac, or a VM's) is doing. Every daemon writes its row to `live/`;
+/// whichever daemon owns the box shows them all.
+struct LiveRow: Codable {
+    var key: String
+    var system: String
+    var head: String
+    var sub: String
+    var tone: String
+    var rank: Int
+    var paused: Bool
+    var inVM: Bool
+    var stateDir: String
+    var agentPid: Int32?
+    var agentWid: UInt32?
+    var showAgent: Bool
+    var showQuick: Bool
+    var quickLabel: String
+    var pid: Int32
+    var at: Double
+
+    var color: NSColor {
+        switch tone {
+        case "green": return .systemGreen
+        case "orange": return .systemOrange
+        case "red": return .systemRed
+        case "blue": return .systemBlue
+        case "yellow": return .systemYellow
+        default: return .systemGray
+        }
+    }
+}
+
+/// A small always-on-top box that says what apprentice is doing, on which system (This Mac or a VM): working,
+/// handed to you while you move the mouse or type, taking over again once you have been still, paused, or idle.
+/// It shows the most pressing task; "All" opens the list, three at a time, each with its own buttons.
+/// Closing it asks first, then stops apprentice. `[agent] overlay = false` hides it.
 enum Overlay {
     /// Seconds the person must be still before apprentice takes over again (`Borrow.waitIdle`'s default).
     static var settle: Double { Borrow.settle }
     /// How long after a command the session still counts as engaged, so a move between two commands reads as a hand-off.
     private static let engagedFor: TimeInterval = 20
+    private static let rowHeight: CGFloat = 78
+    private static let rowGap: CGFloat = 8
+    private static let contentWidth: CGFloat = 316
 
     private static var panel: NSPanel?
-    private static var dot = NSTextField(labelWithString: "●")
     private static var lastHead = ""
-    private static var title = NSTextField(labelWithString: "")
-    private static var detail = NSTextField(labelWithString: "")
-    private static let pauseButton = NSButton(title: "Pause", target: nil, action: nil)
-    /// Shown while the "Done" or "Agent stopped" message is up: takes the user to the app the agent runs in.
-    private static let agentButton = NSButton(title: "Go to agent", target: nil, action: nil)
-    /// Shown while apprentice counts down to taking over: shortens the wait to a few seconds for the rest of the task.
-    private static let quickButton = NSButton(title: "Go in 5 s", target: nil, action: nil)
     private static var counting = false
+    fileprivate static var expanded = false
+    private static var rows: [String: RowView] = [:]
+    fileprivate static var shown: [String] = []
     private static let handler = Handler()
     private static var timer: Timer?
+    private static let scroll = NSScrollView()
+    private static let list = Flipped()
+    private static var scrollHeight: NSLayoutConstraint!
+    private static var listHeight: NSLayoutConstraint!
+    private static let count = NSTextField(labelWithString: "")
+    private static let expandButton = NSButton(title: "All", target: nil, action: nil)
+    fileprivate(set) static var lastRows: [LiveRow] = []
+    private static var lastWrite = Date.distantPast
+    private static var lastJSON = Data()
+
+    private final class Flipped: NSView { override var isFlipped: Bool { true } }
+
+    private final class RowView: NSView {
+        let key: String
+        let dot = NSTextField(labelWithString: "●")
+        let title = NSTextField(labelWithString: "")
+        let detail = NSTextField(labelWithString: "")
+        let pause = NSButton(title: "Pause", target: nil, action: nil)
+        let agent = NSButton(title: "Go to agent", target: nil, action: nil)
+        let quick = NSButton(title: "Go in 5 s", target: nil, action: nil)
+        let watch = NSButton(title: "Watch", target: nil, action: nil)
+
+        init(key: String) {
+            self.key = key
+            super.init(frame: .zero)
+            wantsLayer = true
+            translatesAutoresizingMaskIntoConstraints = false
+            dot.font = .systemFont(ofSize: 18)
+            dot.alignment = .center
+            dot.widthAnchor.constraint(equalToConstant: 16).isActive = true
+            title.font = .boldSystemFont(ofSize: 13)
+            detail.font = .systemFont(ofSize: 11)
+            detail.textColor = .secondaryLabelColor
+            for l in [title, detail] {
+                l.lineBreakMode = .byTruncatingTail
+                l.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+                l.widthAnchor.constraint(equalToConstant: 262).isActive = true
+            }
+            let text = NSStackView(views: [title, detail])
+            text.orientation = .vertical
+            text.alignment = .leading
+            text.spacing = 1
+            let top = NSStackView(views: [dot, text])
+            top.orientation = .horizontal
+            top.alignment = .centerY
+            top.spacing = 8
+            func style(_ b: NSButton, _ color: NSColor, _ action: Selector) {
+                b.target = Overlay.handler
+                b.action = action
+                b.identifier = NSUserInterfaceItemIdentifier(key)
+                b.bezelStyle = .rounded
+                b.controlSize = .regular
+                b.bezelColor = color
+                b.contentTintColor = .white
+                b.font = .boldSystemFont(ofSize: 12)
+            }
+            style(pause, .systemOrange, #selector(Handler.togglePause(_:)))
+            style(agent, .systemBlue, #selector(Handler.goToAgent(_:)))
+            style(quick, .systemBlue, #selector(Handler.goQuicker(_:)))
+            style(watch, .systemTeal, #selector(Handler.watch(_:)))
+            pause.widthAnchor.constraint(equalToConstant: 84).isActive = true
+            let buttons = NSStackView(views: [watch, NSView(), quick, agent, pause])
+            buttons.orientation = .horizontal
+            buttons.alignment = .centerY
+            buttons.spacing = 6
+            let column = NSStackView(views: [top, buttons])
+            column.orientation = .vertical
+            column.alignment = .leading
+            column.spacing = 8
+            column.edgeInsets = NSEdgeInsets(top: 8, left: 8, bottom: 8, right: 8)
+            column.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(column)
+            NSLayoutConstraint.activate([
+                column.leadingAnchor.constraint(equalTo: leadingAnchor), column.trailingAnchor.constraint(equalTo: trailingAnchor),
+                column.topAnchor.constraint(equalTo: topAnchor), column.bottomAnchor.constraint(equalTo: bottomAnchor),
+                widthAnchor.constraint(equalToConstant: Overlay.contentWidth), heightAnchor.constraint(equalToConstant: Overlay.rowHeight),
+                buttons.widthAnchor.constraint(equalToConstant: Overlay.contentWidth - 16)])
+        }
+        required init?(coder: NSCoder) { fatalError() }
+
+        override var wantsUpdateLayer: Bool { true }
+        override func updateLayer() {
+            layer?.cornerRadius = 9
+            layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(0.07).cgColor
+        }
+
+        func update(_ r: LiveRow) {
+            dot.textColor = r.color
+            title.stringValue = r.head + " · " + r.system
+            detail.stringValue = r.sub
+            pause.title = r.paused ? "Resume" : "Pause"
+            pause.bezelColor = r.paused ? .systemGreen : .systemOrange
+            agent.isHidden = !r.showAgent
+            quick.title = r.quickLabel
+            quick.isHidden = !r.showQuick
+            watch.isHidden = !r.inVM
+        }
+    }
+
+    private static var liveDir: URL { Store.dir.appendingPathComponent("live") }
+    private static var myKey: String { Store.vmName ?? "mac" }
 
     /// On the main thread, once the daemon starts.
     static func install() {
         guard Config.current.overlay, panel == nil else { return }
-        let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 280, height: 74),
+        let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 340, height: 120),
                         styleMask: [.titled, .closable, .utilityWindow, .nonactivatingPanel], backing: .buffered, defer: false)
-        p.title = "apprentice" + (Store.vmName.map { " · \($0)" } ?? "")
+        p.title = "apprentice"
         p.level = .floating
         // On every Space and above a full-screen app, never taking focus from the work.
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -115,73 +259,39 @@ enum Overlay {
         p.isMovableByWindowBackground = true
         p.isReleasedWhenClosed = false
         p.delegate = handler
-        // The close button asks first (`windowShouldClose`); the panel itself stays until apprentice stops.
-        dot.font = .systemFont(ofSize: 18)
-        title.font = .boldSystemFont(ofSize: 13)
-        detail.font = .systemFont(ofSize: 11)
-        detail.textColor = .secondaryLabelColor
-        detail.lineBreakMode = .byTruncatingTail
-        pauseButton.target = handler
-        pauseButton.action = #selector(Handler.togglePause)
-        pauseButton.bezelStyle = .rounded
-        pauseButton.controlSize = .regular
-        pauseButton.setContentHuggingPriority(.required, for: .horizontal)
-                pauseButton.bezelColor = .systemOrange
-        pauseButton.contentTintColor = .white
-        pauseButton.font = .boldSystemFont(ofSize: 12)
-        // The text column takes the slack and clips, so a long line never widens the box.
-        title.lineBreakMode = .byTruncatingTail
-        for label in [title, detail] {
-            label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-            label.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        }
+        scroll.drawsBackground = false
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.scrollerStyle = .overlay
+        scroll.borderType = .noBorder
+        scroll.documentView = list
+        list.translatesAutoresizingMaskIntoConstraints = true
+        scroll.translatesAutoresizingMaskIntoConstraints = false
+        scrollHeight = scroll.heightAnchor.constraint(equalToConstant: rowHeight)
+        NSLayoutConstraint.activate([scroll.widthAnchor.constraint(equalToConstant: contentWidth), scrollHeight])
 
-        let mute = Sound.muteButton()
-        let text = NSStackView(views: [title, detail])
-        text.orientation = .vertical
-        text.alignment = .leading
-        text.spacing = 1
-        // Fixed widths everywhere: nothing moves when the text changes, and the box never widens.
-        text.widthAnchor.constraint(equalToConstant: 236).isActive = true
-        title.widthAnchor.constraint(equalToConstant: 236).isActive = true
-        detail.widthAnchor.constraint(equalToConstant: 236).isActive = true
-        dot.alignment = .center
-        dot.widthAnchor.constraint(equalToConstant: 16).isActive = true
         let mark = NSImageView(image: Ask.icon)
         mark.setAccessibilityLabel("apprentice")
-        mark.widthAnchor.constraint(equalToConstant: 32).isActive = true
-        mark.heightAnchor.constraint(equalToConstant: 32).isActive = true
-        let top = NSStackView(views: [mark, dot, text])
-        top.orientation = .horizontal
-        top.alignment = .centerY
-        top.spacing = 8
-        // The controls get their own row at the bottom: Mute on the left, Pause on the right.
-        pauseButton.widthAnchor.constraint(equalToConstant: 96).isActive = true
-        agentButton.target = handler
-        agentButton.action = #selector(Handler.goToAgent)
-        agentButton.bezelStyle = .rounded
-        agentButton.controlSize = .regular
-        agentButton.bezelColor = .systemBlue
-        agentButton.contentTintColor = .white
-        agentButton.font = .boldSystemFont(ofSize: 12)
-        agentButton.isHidden = true
-        quickButton.target = handler
-        quickButton.action = #selector(Handler.goQuicker)
-        quickButton.bezelStyle = .rounded
-        quickButton.controlSize = .regular
-        quickButton.bezelColor = .systemBlue
-        quickButton.contentTintColor = .white
-        quickButton.font = .boldSystemFont(ofSize: 12)
-        quickButton.isHidden = true
-        let bottom = NSStackView(views: [mute, NSView(), quickButton, agentButton, pauseButton])
-        bottom.orientation = .horizontal
-        bottom.alignment = .centerY
-        bottom.widthAnchor.constraint(equalToConstant: 300).isActive = true
-        let column = NSStackView(views: [top, bottom])
+        mark.widthAnchor.constraint(equalToConstant: 24).isActive = true
+        mark.heightAnchor.constraint(equalToConstant: 24).isActive = true
+        count.font = .systemFont(ofSize: 11)
+        count.textColor = .secondaryLabelColor
+        expandButton.target = handler
+        expandButton.action = #selector(Handler.toggleExpand)
+        expandButton.bezelStyle = .rounded
+        expandButton.controlSize = .regular
+        expandButton.imagePosition = .imageTrailing
+        expandButton.font = .boldSystemFont(ofSize: 12)
+        let bar = NSStackView(views: [mark, count, NSView(), Sound.muteButton(), expandButton])
+        bar.orientation = .horizontal
+        bar.alignment = .centerY
+        bar.spacing = 8
+        bar.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
+        let column = NSStackView(views: [scroll, bar])
         column.orientation = .vertical
         column.alignment = .leading
-        column.spacing = 14
-        column.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+        column.spacing = 10
+        column.edgeInsets = NSEdgeInsets(top: 14, left: 12, bottom: 12, right: 12)
         p.contentView = column
         column.layoutSubtreeIfNeeded()
         p.setContentSize(column.fittingSize)
@@ -249,75 +359,158 @@ enum Overlay {
             guard now.timeIntervalSince(lastHandOff) > 10 else { return }
             lastHandOff = now
             handedOver = true
-            Sound.play("Funk")
-        case "Paused": Sound.play("Morse")
-        case "Stopped": Sound.play("Basso")
+            Sound.cue(.handOff)
+        case "Paused": Sound.cue(.paused)
+        case "Stopped": Sound.cue(.stopped)
         case "Done", "Agent stopped": break
         case "Needs approval":
-            Sound.play("Sosumi")
-            Notify.local(Approvals.pending.map { "Approve or deny: \($0.summary)" } ?? "A step needs your approval")
+            Sound.cue(.approval)
+            Notify.local("\(Handback.system): " + (Approvals.pending.map { "Approve or deny: \($0.summary)" } ?? "A step needs your approval"))
         default:
-            if was == "Paused" { Sound.play("Hero") }
-            else if was == "Yours", handedOver { handedOver = false; Sound.play("Glass") }
+            if was == "Paused" { Sound.cue(.resumed) }
+            else if was == "Yours", handedOver { handedOver = false; Sound.cue(.back) }
         }
+    }
+
+    /// Every daemon's row that is still alive (written in the last 4 s), this one's from memory.
+    private static func allRows(mine: LiveRow) -> [LiveRow] {
+        var out = [mine]
+        let now = Date().timeIntervalSince1970
+        for f in (try? FileManager.default.contentsOfDirectory(at: liveDir, includingPropertiesForKeys: nil)) ?? [] where f.pathExtension == "json" {
+            guard let d = try? Data(contentsOf: f), let r = try? JSONDecoder().decode(LiveRow.self, from: d),
+                  r.key != mine.key, now - r.at < 4, kill(r.pid, 0) == 0 else { continue }
+            out.append(r)
+        }
+        return out.sorted { $0.key == "mac" ? $1.key != "mac" : ($1.key == "mac" ? false : $0.key < $1.key) }
+    }
+
+    private static func publish(_ row: LiveRow) {
+        var r = row
+        r.at = 0
+        let body = (try? JSONEncoder().encode(r)) ?? Data()
+        // Rewritten when it changed, and every second as a sign this daemon is alive.
+        guard body != lastJSON || Date().timeIntervalSince(lastWrite) > 1 else { return }
+        lastJSON = body
+        lastWrite = Date()
+        try? FileManager.default.createDirectory(at: liveDir, withIntermediateDirectories: true)
+        r.at = Date().timeIntervalSince1970
+        if let d = try? JSONEncoder().encode(r) { try? d.write(to: liveDir.appendingPathComponent("\(row.key).json"), options: .atomic) }
     }
 
     private static func render() {
         Handback.tick()
-        let (color, head, sub, label) = status()
-        chime(head)
-        dot.textColor = color
-        title.stringValue = head
-        detail.stringValue = sub
-        pauseButton.title = label
-        agentButton.isHidden = Handback.banner == nil || Handback.agentHost == nil || Handback.atAgent
-        quickButton.title = "Go in \(Int(Config.current.takeoverQuickS)) s"
-        quickButton.isHidden = !counting || Borrow.quick || Borrow.settle <= Config.current.takeoverQuickS
-        // Orange to hold, green to go on: the one control worth finding at a glance.
-        pauseButton.bezelColor = Pause.on ? .systemGreen : .systemOrange
-        if let p = panel {
-            // Back on screen if a display went away or the window was dragged off.
-            if !NSScreen.screens.contains(where: { $0.visibleFrame.intersects(p.frame) }) { place(p) }
-            Ask.keepOnScreen(p)
-            p.orderFrontRegardless()
+        let s = status()
+        chime(s.head)
+        let row = LiveRow(key: myKey, system: Handback.system, head: s.head, sub: s.sub, tone: s.tone, rank: s.rank,
+                          paused: Pause.on, inVM: Store.vmName != nil || Session.stored?.vm == true, stateDir: Store.stateDir.path,
+                          agentPid: Handback.agentHost, agentWid: Handback.agentWindowID,
+                          showAgent: Handback.banner != nil && Handback.agentHost != nil && !Handback.atAgent,
+                          showQuick: counting && !Borrow.quick && Borrow.settle > Config.current.takeoverQuickS,
+                          quickLabel: "Go in \(Int(Config.current.takeoverQuickS)) s", pid: getpid(), at: 0)
+        publish(row)
+        let all = allRows(mine: row)
+        lastRows = all
+        guard let p = panel else { return }
+        // One box for everything: the daemon with the first key owns it, the others keep theirs hidden.
+        guard all.first?.key == myKey else { if p.isVisible { p.orderOut(nil) }; return }
+        layout(all, p)
+        // Back on screen if a display went away or the window was dragged off.
+        if !NSScreen.screens.contains(where: { $0.visibleFrame.intersects(p.frame) }) { place(p) }
+        Ask.keepOnScreen(p)
+        p.orderFrontRegardless()
+    }
+
+    private static func layout(_ all: [LiveRow], _ p: NSPanel) {
+        let order = expanded ? all : [all.sorted { ($0.rank, $0.key) < ($1.rank, $1.key) }[0]]
+        for k in rows.keys where !all.contains(where: { $0.key == k }) { rows[k]?.removeFromSuperview(); rows[k] = nil }
+        for r in all {
+            let v = rows[r.key] ?? RowView(key: r.key)
+            rows[r.key] = v
+            v.update(r)
+        }
+        let keys = order.map(\.key)
+        if keys != shown {
+            list.subviews.forEach { $0.removeFromSuperview() }
+            for (i, k) in keys.enumerated() {
+                guard let v = rows[k] else { continue }
+                v.frame = NSRect(x: 0, y: CGFloat(i) * (rowHeight + rowGap), width: contentWidth, height: rowHeight)
+                v.translatesAutoresizingMaskIntoConstraints = false
+                list.addSubview(v)
+                v.leadingAnchor.constraint(equalTo: list.leadingAnchor).isActive = true
+                v.topAnchor.constraint(equalTo: list.topAnchor, constant: CGFloat(i) * (rowHeight + rowGap)).isActive = true
+            }
+            shown = keys
+        }
+        let total = CGFloat(keys.count) * (rowHeight + rowGap) - rowGap
+        list.setFrameSize(NSSize(width: contentWidth, height: max(total, rowHeight)))
+        let visible = min(CGFloat(min(keys.count, 3)), 3) * (rowHeight + rowGap) - rowGap
+        count.stringValue = all.count > 1 ? (expanded ? "\(all.count) running" : "+\(all.count - 1) more") : ""
+        expandButton.isHidden = all.count < 2
+        expandButton.title = expanded ? "Less" : "All \(all.count)"
+        expandButton.image = NSImage(systemSymbolName: expanded ? "chevron.up" : "chevron.down", accessibilityDescription: nil)
+        scroll.hasVerticalScroller = expanded && keys.count > 3
+        if scrollHeight.constant != visible {
+            scrollHeight.constant = visible
+            let top = NSPoint(x: p.frame.minX, y: p.frame.maxY)
+            (p.contentView as? NSStackView)?.layoutSubtreeIfNeeded()
+            p.setContentSize((p.contentView as? NSStackView)?.fittingSize ?? p.frame.size)
+            p.setFrameTopLeftPoint(top)
         }
     }
 
-    private static func status() -> (NSColor, String, String, String) {
+    private static func status() -> (tone: String, head: String, sub: String, rank: Int) {
         let working = StatusItem.state == .working
         let engaged = working || Date().timeIntervalSince(Commands.lastAt) < engagedFor
         let wait = max(0, settle - Borrow.humanIdle)
         counting = false
         if Pause.on {
-            return (.systemOrange, "Paused", working ? "Finishing this step, then holding" : "Nothing will happen until you resume", "Resume")
+            return ("orange", "Paused", working ? "Finishing this step, then holding" : "Nothing will happen until you resume", 3)
         }
-        if KillSwitch.halted { return (.systemRed, "Stopped", "Kill switch pressed; answer or resume to go on", "Pause") }
-        if let b = Handback.banner { return (b.good ? .systemGreen : .systemOrange, b.head, b.detail, "Pause") }
+        if KillSwitch.halted { return ("red", "Stopped", "Kill switch pressed; answer or resume to go on", 1) }
+        if let b = Handback.banner { return (b.good ? "green" : "orange", b.head, b.detail, 1) }
         switch StatusItem.state {
-        case .waiting: return (.systemYellow, "Waiting for you", "A question is open", "Pause")
-        case .approval: return (.systemYellow, "Needs approval", "Approve or deny from the menu bar", "Pause")
+        case .waiting: return ("yellow", "Waiting for you", "A question is open", 0)
+        case .approval: return ("yellow", "Needs approval", "Approve or deny from the menu bar", 0)
         default: break
         }
         if engaged && wait > 0 {
             counting = true
-            return (.systemBlue, "Yours", String(format: "You have control · back after %.0f s of stillness", wait.rounded(.up)), "Pause")
+            return ("blue", "Yours", String(format: "You have control · back after %.0f s of stillness", wait.rounded(.up)), 2)
         }
-        if working { return (.systemGreen, "Working", Session.stored.map { hostOf($0.url) ?? $0.app } ?? "Acting on screen", "Pause") }
-        return (.systemGray, "Ready", "Waiting for the next command", "Pause")
+        let what = Session.stored.map { s in [s.app, hostOf(s.url)].compactMap { $0 }.joined(separator: " · ") } ?? "Acting on screen"
+        if working { return ("green", "Working", what, 4) }
+        return ("gray", "Ready", "Waiting for the next command", 5)
     }
 
     private final class Handler: NSObject, NSWindowDelegate {
-        @objc func goQuicker() {
-            Borrow.quick = true
+        private func row(_ sender: NSButton) -> String { sender.identifier?.rawValue ?? myKey }
+        private func dir(_ key: String) -> URL {
+            key == "mac" ? Store.dir : Store.dir.appendingPathComponent("vms/\(key)")
+        }
+        @objc func goQuicker(_ sender: NSButton) {
+            // A marker in that daemon's state directory, so a VM's row works from this box too (`Borrow.quick`).
+            FileManager.default.createFile(atPath: dir(row(sender)).appendingPathComponent("quick").path, contents: nil)
             Store.log(["overlay": "shortened the wait", "by": "user"])
             Overlay.render()
         }
-        @objc func goToAgent() {
-            Handback.showAgent()
+        @objc func goToAgent(_ sender: NSButton) {
+            let key = row(sender)
+            guard let r = Overlay.lastRows.first(where: { $0.key == key }) else { return }
+            Handback.showAgent(pid: r.agentPid, wid: r.agentWid)
         }
-        @objc func togglePause() {
-            Pause.on.toggle()
-            Store.log(["overlay": Pause.on ? "pause" : "resume", "by": "user"])
+        @objc func watch(_ sender: NSButton) {
+            DispatchQueue.global().async { try? VM.openViewer() }
+        }
+        @objc func togglePause(_ sender: NSButton) {
+            let marker = dir(row(sender)).appendingPathComponent("paused")
+            if FileManager.default.fileExists(atPath: marker.path) { try? FileManager.default.removeItem(at: marker) }
+            else { FileManager.default.createFile(atPath: marker.path, contents: nil) }
+            Store.log(["overlay": "pause toggled", "by": "user", "system": row(sender)])
+            Overlay.render()
+        }
+        @objc func toggleExpand() {
+            Overlay.expanded.toggle()
+            Overlay.shown = []
             Overlay.render()
         }
 

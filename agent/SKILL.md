@@ -33,6 +33,15 @@ Save tokens: ids survive actions, so act from the diff and `read` again only on 
 - One agent per screen: this Mac and each VM have one cursor and keyboard. A screen command exits 4 "in use by …" while another agent holds it (until it is quiet `[device] busy_min`); wait, ask the user, or work in a VM. `device` says who holds it; `device free` when you are done.
 - Projects: a folder with `.apprentice/project.toml` is one; its `AGENTS.md` says what it is for and which VM it uses (set for you inside it). `pipeline list | show | new | add | run` handles its prompt lists.
 
+## Keep going: check, notice, fix, resume
+A task is never abandoned because a step went wrong. The user leaves apprentice running and expects the job done.
+- After every click that can change the page, check where you are before the next step: the `diff`, the window's address or title, or a short `read --filter`. A page that is not the one you meant (another section, an ad, a login, a popup) means the last step was wrong.
+- When it was wrong, undo it yourself: go back (`key cmd+[`, `alt+left` in the VM), close the popup (`key escape`), or `open` the page you wanted again, then redo the step more carefully (re-`read` for the right id, use `click --on "text"`). Say what happened in one line, then carry on.
+- Read-only filters, stale ids (exit 2) and `not found` (exit 5) are normal: `read` again and retry. Try at least three different approaches (another label, another route, scroll first, wait-for) before you call a step stuck.
+- Never stop the whole task over one failure and never hand back a report of why it failed. If a run produced bad data, throw that run away, return to the start of the page or group and do it again properly.
+- Only the user's own things stop you: exit 4 (blocks, challenges, caps), 6, 7, 10, a login or CAPTCHA. Then `ask`, wait, and resume where you were.
+- Finish with `apprentice done "<what you did>"` only when the task is complete, never as a way of giving up.
+
 ## Approval
 Changing commands exit 8 with a token; nothing has happened. `approve <token>` (`--text "…"` edits a pending type) or `deny <token>`; `pending` lists them. A `⚠` step the user did not ask for in those words goes to `confirm <token> --why "…"` (exit 3 if they deny). Passwords, payments and CAPTCHAs run only through `confirm`. Tokens are single-use and expire in 5 minutes, or an hour once handed to the user.
 

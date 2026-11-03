@@ -887,7 +887,14 @@ enum Borrow {
     /// True until the first action of a task has run.
     static var fresh = true
     /// The user pressed "Go in 5 s": the short wait holds for the rest of the task.
-    static var quick = false
+    static var quick: Bool {
+        get { FileManager.default.fileExists(atPath: marker.path) }
+        set {
+            if newValue { FileManager.default.createFile(atPath: marker.path, contents: nil) }
+            else { try? FileManager.default.removeItem(at: marker) }
+        }
+    }
+    private static var marker: URL { Store.stateDir.appendingPathComponent("quick") }
 
     static func waitIdle(_ seconds: Double? = nil) throws {
         Pause.wait()

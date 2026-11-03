@@ -95,6 +95,22 @@ func poll<T>(timeout: Double, interval: Double = 0.25, _ check: () -> T?) -> T? 
 
 /// Opens a window as a person would: the app in front, then cmd+n. Waits for the window, since a
 /// just-launched app may not be ready for keys yet.
+/// Presses `combo` only while `app` is the app in front. Keys go to whatever is in front, so a missed activation
+/// would put a stray Untitled file in an editor or an empty window in a terminal: nothing is pressed then.
+func pressInFront(_ app: NSRunningApplication, _ combo: String) -> Bool {
+    for _ in 0..<2 {
+        if NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier {
+            try? Keys.press(combo)
+            return true
+        }
+        app.activate()
+        _ = poll(timeout: 3) { NSWorkspace.shared.frontmostApplication?.processIdentifier == app.processIdentifier ? true : nil }
+        Pace.sleep(0.3)
+    }
+    Store.log(["new_window": "skipped", "reason": "\(app.localizedName ?? "app") never came to the front"])
+    return false
+}
+
 func makeNewWindow(_ app: NSRunningApplication) {
     let ax = appElement(app.processIdentifier)
     app.activate()
@@ -102,10 +118,9 @@ func makeNewWindow(_ app: NSRunningApplication) {
     Pace.sleep(0.4)
     // Always a fresh window, even when the app has others, then wait until it is the one in front.
     let before = Set(windows(of: ax).compactMap(\.windowID))
-    for _ in 0..<2 {
-        try? Keys.press("cmd+n")
-        if poll(timeout: 3, { pickWindow(ax).flatMap { $0.windowID.map { !before.contains($0) } == true ? $0 : nil } }) != nil { return }
-    }
+    // One press, then a patient wait: a second press after a slow first one would open two windows.
+    guard pressInFront(app, "cmd+n") else { return }
+    _ = poll(timeout: 6) { pickWindow(ax).flatMap { $0.windowID.map { !before.contains($0) } == true ? $0 : nil } }
 }
 
 /// A browser gets a tab, as a person would, not another window: the window apprentice used last if it
@@ -124,8 +139,11 @@ func makeNewTab(_ app: NSRunningApplication) {
     guard let window = pickWindow(ax) else { return makeNewWindow(app) }
     if isBlankTab(windowURL(window)) { return }
     let wid = window.windowID
-    try? Keys.press("cmd+t")
-    _ = poll(timeout: 3) { pickWindow(ax).flatMap { $0.windowID == wid && isBlankTab(windowURL($0)) ? true : nil } }
+    // The keys can miss (another window had focus, a page swallowed them): try again before giving up on a tab.
+    // One press, then a patient wait (a second would make two tabs); a miss falls back to a window of its own.
+    guard pressInFront(app, "cmd+t") else { return }
+    if poll(timeout: 6, { pickWindow(ax).flatMap { $0.windowID == wid && isBlankTab(windowURL($0)) ? true : nil } }) != nil { return }
+    makeNewWindow(app)
 }
 
 /// A browser's new-tab page, or a tab with no page yet.
@@ -371,7 +389,7 @@ enum Commands {
         // A new session ends the last one: its scrubbed copy goes into the clone (`[storage] sessions`).
         if req.cmd == "session" { Sessions.archiveCurrent() }
         let result = Result { try Awake.busy { try dispatch(req) } }
-        if case .failure(let e) = result, let f = e as? Fail, ![0, 8, 9].contains(f.code) { Sound.play("Basso") }
+        if case .failure(let e) = result, let f = e as? Fail, ![0, 8, 9].contains(f.code) { Sound.cue(.fail) }
         if case .failure = result, let r = reserved { Budgets.refund(r.host, r.kind) }
         reserved = nil
         // `session --task "…"` records what the user asked for, so the log reads as a task, not just steps.
@@ -640,7 +658,12 @@ enum Commands {
         // `focus` keeps the session: its id, its allowlist and the UI-only choice made in the
         // start-up window, which would otherwise fall back to the config default (E5).
         if let keep { s.id = keep.id; s.allow = keep.allow; s.uiOnly = keep.uiOnly }
-        s.ownsTab = a.has("new-tab") || a.has("new-window") ? true : keep?.ownsTab
+        // Only a page apprentice made is its own: a "new" tab that still shows someone's page was not made.
+        let made = a.has("new-tab") || a.has("new-window")
+        if made, !isBlankTab(s.url) {
+            throw Fail(5, "could not open a new tab or window of its own (the front tab still shows a page of yours), so nothing was attached; run the same `session --new-tab` again")
+        }
+        s.ownsTab = made ? true : keep?.ownsTab
         if let allow = a.value("allow") { s.allow = Config.parseAllow(allow) }
         // A window with no URL yet (a fresh blank tab) is attached; its actions are checked later.
         if let url = s.url { try allowCheck(s, url) }
