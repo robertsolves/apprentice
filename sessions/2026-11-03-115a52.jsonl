@@ -5,3 +5,9 @@
 {"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":146,"pace":"default fast","ts":"2026-11-03T14:34:37.524+10:00"}
 {"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":2058,"pace":"default fast","ts":"2026-11-03T14:34:39.603+10:00"}
 {"model":"claude-sonnet-5-5","ts":"2026-11-03T14:34:39.901+10:00"}
+{"code":5,"error":"could not open a new tab or window of its own (the front tab still shows a page of yours), so nothing was attached; run the same `session --new-tab` again","failed":"session","model":"claude-sonnet-5-5","ts":"2026-11-03T14:35:05.373+10:00"}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":86,"pace":"web human","ts":"2026-11-03T14:35:05.514+10:00"}
+{"cmd":"stop","model":"claude-sonnet-5-5","ms":31505,"pace":"web human","ts":"2026-11-03T14:35:36.933+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":121,"pace":"default fast","ts":"2026-11-03T14:37:39.102+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":2093,"pace":"default fast","ts":"2026-11-03T14:37:41.221+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T14:37:41.559+10:00"}
