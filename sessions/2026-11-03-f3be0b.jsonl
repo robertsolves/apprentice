@@ -1,0 +1,16 @@
+{"app":"Chromium","cmd":"session","host":"www.facebook.com","model":"claude-sonnet-5-5","ms":1035,"pace":"default fast","ts":"2026-11-03T15:35:03.102+10:00","vm":true}
+{"model":"claude-sonnet-5-5","task":"demo","ts":"2026-11-03T15:35:03.104+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":8,"pace":"default fast","ts":"2026-11-03T15:35:03.128+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T15:35:03.444+10:00"}
+{"approved":true,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T15:35:03.465+10:00"}
+{"cmd":"open","diff":"+44 -0 ~0","host":"facebook.com","model":"claude-sonnet-5-5","ms":11730,"pace":"facebook.com human","ts":"2026-11-03T15:35:15.194+10:00","vm":true,"waits":{"settle":994,"type":8626}}
+{"cmd":"browse","diff":"+37 -34 ~0","host":"facebook.com","model":"claude-sonnet-5-5","ms":14208,"pace":"facebook.com human","ts":"2026-11-03T15:35:29.433+10:00","vm":true,"waits":{"move":726,"settle":495}}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":294,"pace":"default fast","ts":"2026-11-03T15:35:40.260+10:00"}
+{"cmd":"browse","diff":"+33 -19 ~0","host":"facebook.com","model":"claude-sonnet-5-5","ms":13632,"pace":"facebook.com human","ts":"2026-11-03T15:35:43.091+10:00","vm":true,"waits":{"move":289,"settle":493}}
+{"cmd":"browse","diff":"+31 -24 ~0","host":"facebook.com","model":"claude-sonnet-5-5","ms":13536,"pace":"facebook.com human","ts":"2026-11-03T15:35:56.659+10:00","vm":true,"waits":{"move":274,"settle":550}}
+{"cmd":"browse","diff":"+30 -34 ~0","host":"facebook.com","model":"claude-sonnet-5-5","ms":13512,"pace":"facebook.com human","ts":"2026-11-03T15:36:10.206+10:00","vm":true,"waits":{"move":306,"settle":527}}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T15:36:34.487+10:00"}
+{"cmd":"stop","model":"claude-sonnet-5-5","ms":37805,"pace":"facebook.com human","ts":"2026-11-03T15:36:34.498+10:00","waits":{"move":306,"settle":527}}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":119,"pace":"default fast","ts":"2026-11-03T15:39:59.111+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":2233,"pace":"default fast","ts":"2026-11-03T15:40:01.367+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T15:40:01.836+10:00"}
