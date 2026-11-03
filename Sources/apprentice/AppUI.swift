@@ -151,8 +151,10 @@ enum AppMain {
     }
 }
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var window: NSWindow?
+    /// The person already agreed to stop the running tabs (closing the window, which then quits).
+    private var stopAgreed = false
 
     private var model: AppModel?
     private var showObserver: NSObjectProtocol?
@@ -174,6 +176,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.styleMask.insert(.fullSizeContentView)
         window.toolbarStyle = .unified
         window.contentView = hosting
+        window.isReleasedWhenClosed = false
+        window.delegate = self
         window.setFrameAutosaveName("apprentice.window")
         window.center()
         if request?.activate == false { window.orderFront(nil) } else { window.makeKeyAndOrderFront(nil) }
@@ -201,6 +205,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    /// Closing the window quits, and quitting ends every tab: an agent at work in one is asked about first.
+    private func agreeToStop() -> Bool {
+        if stopAgreed || ProcessInfo.processInfo.environment["APPRENTICE_APP_KEYTEST"] != nil { return true }
+        let busy = model?.busyTabs ?? []
+        guard !busy.isEmpty else { return true }
+        let names = busy.map(\.title).joined(separator: ", ")
+        stopAgreed = AppModel.confirm("Stop what is running in \(busy.count == 1 ? "a tab" : "\(busy.count) tabs")?",
+                                      "Still running: \(names). Closing apprentice's window stops them. Schedules and the background service keep going.",
+                                      "Stop and Close")
+        return stopAgreed
+    }
+
+    func windowShouldClose(_ sender: NSWindow) -> Bool { agreeToStop() }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        agreeToStop() ? .terminateNow : .terminateCancel
+    }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         window?.makeKeyAndOrderFront(nil)
@@ -639,7 +661,8 @@ final class AppModel: ObservableObject {
         let listed = Projects.all()
         if listed.map(\.id) != projects.map(\.id) || listed.map(\.name) != projects.map(\.name) { projects = listed }
         pipelines = Pipelines.all()
-        busy = pending.count > 0 || StatusItem.state == .working
+        // The window's process has no state of its own: the daemons say whether they are working (`Overlay.liveRows`).
+        busy = pending.count > 0 || Overlay.liveRows().contains { $0.head == "Working" }
         revision += 1
         // An agent installed while the window is open shows up within a minute.
         refreshes += 1
@@ -889,12 +912,27 @@ final class AppModel: ObservableObject {
     }
 
     func closeTab(_ id: String) {
-        tabs.first { $0.id == id }?.close()
+        guard let tab = tabs.first(where: { $0.id == id }) else { return }
+        if tab.busy, !AppModel.confirm("Close \(tab.title)?", "Something is still running in this tab. Closing it stops it.", "Close Tab") { return }
+        tab.close()
         tabs.removeAll { $0.id == id }
         if selectedTab == id { selectedTab = tabs.last?.id }
     }
 
     var selectedSession: TermSession? { tabs.first { $0.id == selectedTab } }
+
+    /// The tabs where something is still running, which closing the window would stop.
+    var busyTabs: [TermSession] { tabs.filter(\.busy) }
+
+    /// A plain yes or no for a step that stops something; true when the person chose `yes`.
+    static func confirm(_ title: String, _ text: String, _ yes: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = text
+        alert.addButton(withTitle: yes)
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
 
     func openLogTab() {
         newTab(preset: "Log", command: "apprentice log --tail 50 && exec tail -f \(Sessions.runs.path)/$(ls -t \(Sessions.runs.path) | head -1)/steps.jsonl | sed 's/^{//;s/}$//'")
@@ -1423,6 +1461,7 @@ struct ScheduleDetail: View {
     @ObservedObject var model: AppModel
     let schedule: Schedules.Schedule
     @State private var editing = false
+    @State private var deleting = false
     @State private var runs: [(name: String, url: URL)] = []
 
     var body: some View {
@@ -1436,7 +1475,7 @@ struct ScheduleDetail: View {
                     .toggleStyle(.switch)
                     Button("Run now") { model.act("schedule", ["now", schedule.id]) }
                     Button("Edit") { editing = true }
-                    Button("Delete", role: .destructive) { model.act("schedule", ["rm", schedule.id]) }
+                    Button("Delete", role: .destructive) { deleting = true }
                 }
             )
         } content: {
@@ -1478,6 +1517,11 @@ struct ScheduleDetail: View {
                     }
                 }
             }
+        }
+        .confirmationDialog("Delete \(schedule.name)?", isPresented: $deleting) {
+            Button("Delete", role: .destructive) { model.act("schedule", ["rm", schedule.id]) }
+        } message: {
+            Text("It will not run again. Its past logs stay.")
         }
         .onAppear { runs = Schedules.runs(schedule.id) }
         .onChange(of: model.revision) { _, _ in runs = Schedules.runs(schedule.id) }
@@ -1549,7 +1593,7 @@ struct ScheduleEditor: View {
                 if kind == "pipeline" {
                     LabeledField(targetLabel) {
                         Picker("", selection: $target) {
-                            if model.pipelines.isEmpty { Text("no pipelines yet").tag("") }
+                            Text(model.pipelines.isEmpty ? "no pipelines yet" : "Choose a pipeline").tag("")
                             ForEach(model.pipelines) { Text($0.name).tag($0.ref) }
                         }
                         .labelsHidden().pickerStyle(.menu).frame(maxWidth: 320)
@@ -1657,8 +1701,14 @@ struct ScheduleEditor: View {
         args += ["--jitter", "\(trigger == "at" ? 0 : jitter)"]
         if !dir.isEmpty { args += ["--dir", (dir as NSString).expandingTildeInPath] }
         if !vm.isEmpty { args += ["--vm", vm] }
-        model.act("schedule", args)
-        done()
+        // The sheet stays open on a refusal, with the reason, so nothing typed is lost.
+        problem = ""
+        model.run("schedule", args) { code, out in
+            guard code == 0 else { problem = out.isEmpty ? "could not save (exit \(code))" : out; return }
+            model.output = out
+            model.refresh()
+            done()
+        }
     }
 }
 

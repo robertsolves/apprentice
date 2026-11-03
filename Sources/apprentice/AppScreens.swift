@@ -578,7 +578,8 @@ struct PipelineEditor: View {
             _ = try Pipelines.write(p)
             saved = "saved \(Date().formatted(date: .omitted, time: .shortened))"
             model.refresh()
-            if isNew { model.pipelineDraft = p }
+            // The page's title and the list follow a rename; an existing pipeline keeps its editor (same id).
+            model.pipelineDraft = p
             return p
         } catch {
             problem = error.localizedDescription

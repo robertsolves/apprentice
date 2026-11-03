@@ -10,6 +10,8 @@ final class Pty {
     /// closes it, so a write can never land on a closed or reused descriptor.
     private var fd: Int32 = -1
     private(set) var pid: pid_t = 0
+    /// The process group the terminal is running in front: the shell's own while it waits at a prompt.
+    var foreground: pid_t { queue.sync { fd >= 0 ? tcgetpgrp(fd) : -1 } }
     private let queue = DispatchQueue(label: "apprentice.pty")
     private var source: DispatchSourceRead?
     private var exitSource: DispatchSourceProcess?
@@ -642,6 +644,7 @@ final class TermSession: ObservableObject, Identifiable {
         self.title = title
         self.screen = TermScreen(cols: cols, rows: 30)
         self.rows = 30
+        self.runsCommand = command?.isEmpty == false
         var environment = env
         environment["APPRENTICE_TAB"] = id
         if let vm { environment["APPRENTICE_VM"] = vm }
@@ -817,6 +820,25 @@ final class TermSession: ObservableObject, Identifiable {
     func close() {
         pty?.terminate()
         pty = nil
+    }
+
+    /// Started with a command (an agent, a pipeline) rather than as a plain shell.
+    private let runsCommand: Bool
+
+    /// A program is still working in the tab, so closing it (or quitting) would stop it. A plain shell counts as
+    /// busy while something other than the shell holds the terminal; a tab started with a command, while that
+    /// command (or what the shell started for it) still runs.
+    var busy: Bool {
+        guard exited == nil, let pty, pty.pid > 0 else { return false }
+        if !runsCommand {
+            let front = pty.foreground
+            return front > 0 && front != pty.pid
+        }
+        var path = [CChar](repeating: 0, count: 4096)
+        let name = proc_pidpath(pty.pid, &path, UInt32(path.count)) > 0 ? URL(fileURLWithPath: String(cString: path)).lastPathComponent : ""
+        if !["zsh", "bash", "sh", "fish", "dash", "ksh", "tcsh"].contains(name) { return true }
+        var kids = [pid_t](repeating: 0, count: 64)
+        return proc_listchildpids(pty.pid, &kids, Int32(kids.count * MemoryLayout<pid_t>.size)) > 0
     }
 }
 
