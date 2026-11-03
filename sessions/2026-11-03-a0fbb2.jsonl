@@ -1,0 +1,43 @@
+{"app":"Google Chrome","cmd":"session","host":"newtab","model":"claude-sonnet-5-5","ms":9246,"pace":"web fast","ts":"2026-11-03T12:29:27.819+10:00"}
+{"model":"claude-sonnet-5-5","task":"Read-only look at Gumtree Gold Coast for recent ute, pickup, tip run and flat pack assembly requests","ts":"2026-11-03T12:29:27.820+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T12:29:27.864+10:00"}
+{"approved":true,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T12:29:27.890+10:00"}
+{"cmd":"open","diff":"+0 -0 ~0","host":"new-tab-page","model":"claude-sonnet-5-5","ms":5769,"pace":"web human","ts":"2026-11-03T12:29:33.658+10:00","waits":{"idle":2861,"settle":253}}
+{"cmd":"wait-for","found":true,"model":"claude-sonnet-5-5","ms":38,"pace":"web human","ts":"2026-11-03T12:29:33.723+10:00"}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":40,"pace":"web human","ts":"2026-11-03T12:29:33.792+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T12:29:38.293+10:00"}
+{"approved":true,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T12:29:38.318+10:00"}
+{"cmd":"open","diff":"+0 -21 ~0","host":"gumtree.com.au","model":"claude-sonnet-5-5","ms":2500,"pace":"web human","ts":"2026-11-03T12:29:40.818+10:00","waits":{"idle":0,"settle":256}}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":37,"pace":"web human","ts":"2026-11-03T12:29:46.889+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T12:29:46.924+10:00"}
+{"approved":true,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T12:29:46.947+10:00"}
+{"cmd":"open","diff":"+0 -29 ~0","host":"gumtree.com.au","model":"claude-sonnet-5-5","ms":2671,"pace":"web human","ts":"2026-11-03T12:29:49.618+10:00","waits":{"idle":0,"settle":260}}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":35,"pace":"web human","ts":"2026-11-03T12:29:55.690+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T12:29:55.725+10:00"}
+{"approved":true,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T12:29:55.749+10:00"}
+{"cmd":"open","diff":"+0 -34 ~0","host":"gumtree.com.au","model":"claude-sonnet-5-5","ms":3405,"pace":"web human","ts":"2026-11-03T12:29:59.154+10:00","waits":{"idle":0,"settle":259}}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":39,"pace":"web human","ts":"2026-11-03T12:30:05.233+10:00"}
+{"model":"claude-sonnet-5-5","ts":"2026-11-03T12:30:05.503+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T12:30:12.150+10:00"}
+{"approved":true,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T12:30:12.175+10:00"}
+{"cmd":"open","diff":"+0 -38 ~0","host":"gumtree.com.au","model":"claude-sonnet-5-5","ms":2710,"pace":"facebook.com human","ts":"2026-11-03T12:30:14.885+10:00","waits":{"idle":0,"settle":254}}
+{"cmd":"wait-for","found":true,"model":"claude-sonnet-5-5","ms":660,"pace":"facebook.com human","ts":"2026-11-03T12:30:15.573+10:00"}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":47,"pace":"facebook.com human","ts":"2026-11-03T12:30:15.658+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T12:30:15.703+10:00"}
+{"approved":true,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T12:30:15.729+10:00"}
+{"cmd":"open","diff":"+0 -61 ~0","host":"facebook.com","model":"claude-sonnet-5-5","ms":10021,"pace":"facebook.com human","ts":"2026-11-03T12:30:25.750+10:00","waits":{"fidget":1379,"gap":4930,"idle":0,"settle":259}}
+{"cmd":"wait-for","found":true,"model":"claude-sonnet-5-5","ms":45,"pace":"facebook.com human","ts":"2026-11-03T12:30:25.835+10:00"}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":44,"pace":"facebook.com human","ts":"2026-11-03T12:30:25.903+10:00"}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":45,"pace":"facebook.com human","ts":"2026-11-03T12:30:28.842+10:00"}
+{"cmd":"read","model":"claude-sonnet-5-5","ms":46,"pace":"facebook.com human","ts":"2026-11-03T12:30:32.431+10:00"}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T12:30:36.098+10:00"}
+{"approved":true,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T12:30:36.122+10:00"}
+{"cmd":"click","diff":"+1 -1 ~0","host":"facebook.com","kind":"join","label":"button","model":"claude-sonnet-5-5","ms":2034,"pace":"facebook.com human","ts":"2026-11-03T12:30:38.156+10:00","waits":{"idle":0,"move":933,"settle":337}}
+{"model":"claude-sonnet-5-5","proposed":true,"ts":"2026-11-03T12:30:58.250+10:00"}
+{"approved":true,"gate":true,"model":"claude-sonnet-5-5","ts":"2026-11-03T12:30:58.275+10:00"}
+{"cmd":"click","diff":"+3 -1 ~0","host":"facebook.com","kind":"join","label":"button","model":"claude-sonnet-5-5","ms":3624,"pace":"facebook.com human","ts":"2026-11-03T12:31:01.899+10:00","waits":{"fidget":2008,"idle":0,"move":439,"settle":353}}
+{"code":5,"error":"window 144 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"read","model":"claude-sonnet-5-5","ts":"2026-11-03T12:31:24.008+10:00"}
+{"code":5,"error":"window 144 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"read","model":"claude-sonnet-5-5","ts":"2026-11-03T12:31:29.774+10:00"}
+{"code":5,"error":"window 144 not found: it may be closed, minimised or on another Space. Run `apprentice session` again","failed":"read","model":"claude-sonnet-5-5","ts":"2026-11-03T12:31:31.852+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":139,"pace":"default fast","ts":"2026-11-03T12:40:45.087+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-sonnet-5-5","ms":3043,"pace":"default fast","ts":"2026-11-03T12:40:48.150+10:00"}
