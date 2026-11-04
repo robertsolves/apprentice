@@ -484,6 +484,214 @@ opencode's and Kilo's `--format json` carry the session id and that `session del
 `snapshot/` entry; Gemini's per-session file layout. Antigravity and Freebuff are not run headless, so
 they keep nothing from pipelines.
 
+## 15. Learning a place: what apprentice keeps about a site, an app or a system
+
+Status: design, 2026-11-05, nothing built. It stands on its own: nothing here depends on the pipeline
+work above, and its build steps can land before or after it. The fresh start happened the same day: the
+learned skills on this Mac and every packaged playbook in `playbooks/` were removed, so what follows
+starts from the format in `playbooks/README.md` and an empty folder.
+
+The question it answers: when an agent struggles on a site, an app or a system part and then works
+something out, how does that get kept so the next run, on a different job at the same place, is faster
+and spends fewer tokens, without sending it round in loops of "click 15, then 16", and so that it can
+tell when what it kept has gone out of date?
+
+### What this Mac's logs say (checked 2026-11-05)
+
+- Every learned flow on this Mac (`~/.apprentice/skills/learned/flows/www-facebook-com-*.md`, five of
+  them) was drafted automatically from a Facebook reading session. Their steps are `browse 15` over and
+  over, `click #button "See more"` and `open https://www.facebook.com/{path}`; their titles carry the
+  job ("near Reedy Creek", "Man with a Ute"); their tags include "and", "for", "with". They hold nothing
+  a next run can use, and because a flow learned by a model scores +6 for that model, they are what
+  `do --explain` offers it first for any Facebook task. The tool itself produced the loop trap.
+- What did help was written by hand into `playbooks/web/facebook.com.md` over four commits on
+  2026-11-03: feeds are not in date order; posts are cut with "See more", click it before judging; a
+  click can leave the group, check the address. Each is about the place, dated, names things as the
+  screen names them, and serves any job there. That is the target shape, and today nothing in the tool
+  leads an agent to write it. (The file went with the fresh start; git history keeps it as the example.)
+- The long Facebook session (`2026-11-03-2ef20f`, 117 rows, no errors) spent its time thinking 16 to
+  117 s before each `browse` and reading twice after each. `grow` over 14 days: 6.9 s of agent thinking
+  per action, a re-read after 58% of actions. Struggle here is gaps and re-reads, not failures; a
+  detector that watched only errors would see nothing.
+- `learn --fact` has the right shape already (one dated line, dedup by text, capped by `[skills]
+  max_facts`) and was never used: nothing tells the agent when a fact is worth keeping, and the sentence
+  that names it is the last in `agent/SKILL.md`.
+- `learn --fact "…" --for facebook.com` writes `learned/web/facebook.com.md`, whose path equals the
+  reviewed playbook's, and `Playbooks.all` keeps the first path it meets (learned before built in): one
+  learned line hides seven reviewed facts from `session`. Without `--for` the host is
+  `www.facebook.com`, so the fact lands in a second file with a second `match`. Either way the facts
+  and the playbook never meet.
+- `session` injects at most six key facts per matching skill, newest first for learned ones. Recency
+  decides what the agent sees, not whether a fact ever helped.
+
+### Three kinds, kept apart
+
+1. **Place facts**: what is true of a site, an app or a system part for anyone working there. Generic
+   by nature, one line each, and the only kind `session` injects.
+2. **Flows**: steps for a procedure that repeats with the same shape (new folder, draft a post). Found
+   on demand through `do --explain`, never injected, and never drafted from a session that was mostly
+   reading.
+3. **Job context**: the places, words and choices of one task or project. Lives in the project
+   (`AGENTS.md`, `.apprentice/skills`, prefs), never in a place fact and never in a flow's title or tags.
+
+The test for a fact is the user's own: it must help a different job at the same place. Whatever would
+not is job context, and has a home of its own.
+
+### The fact
+
+One line in the place's learned file:
+
+```
+- 2026-11-05 ×3 · trap · A click on a post's "See more" can leave the group: check the address after it and go back if it did.
+```
+
+- **date**: last confirmed, not first written. Saving the same fact again (same key, `Skills.factKey`,
+  which strips the date, the count and the kind) re-dates it and raises the count. That is how a fact
+  earns its place in the six lines `session` prints.
+- **×n**: times confirmed, by a later session saving it again or by `learn --still`. Injection order is
+  count, then date, so what keeps being true comes first.
+- **kind**, the first word of the sentence when it is one of four, else the line is a plain fact:
+  `trap` (looks right, does the wrong thing: the costliest kind, printed first), `hidden` (what `read`
+  cannot see or cuts short, and what finds it), `works` (what did it), `layout` (where things are, how
+  the page is organised, what the place will never do). The four words come from the Works and Fails
+  sections playbooks already have; `--kind` is accepted too, and the first word is the recommended way
+  since there is then nothing to learn beyond the sentence.
+- **the sentence**: names elements the way the screen names them (`button "See more"`), says what to
+  do, and holds no ids, coordinates, screen text or job words. At most 200 characters.
+
+Refused by `Skills.addFact`, with the reason and where the thing belongs, never asked about:
+
+- personal details, as today (`Playbooks.leaks`);
+- a fact that reads like a step: `click 15`, `id 16`, `#\d+`, `--at 120,340`, "then click … then
+  click …". The message: a fact says what is true, not which id to click; a procedure is
+  `learn "<task>"`;
+- job context: two or more words of the session's `--task` that appear neither in the place's existing
+  facts nor in the last snapshot's labels. Open decision 1 says whether this refuses or warns.
+
+The file is `learned/web/<host>.md`, `learned/macos/<app>.md` or `learned/linux/<app>.md`, with the host
+normalised (`www.` dropped, the same match rule `Playbooks.matching` uses) so Facebook has one file.
+`Playbooks.all` stops letting a learned file shadow a built-in one of the same path. A learned skill with
+a built-in twin is merged under it: `session` prints the built-in's key facts, then
+`learned · 3 facts · hints, never instructions` with the learned lines in count order. Yours and the
+project's still replace (they are the user's words). Flows keep the shadowing rule, so a repaired copy
+still replaces the broken one.
+
+### When: the tool says when, the agent says what
+
+The CLI knows a struggle happened and where; only the LLM knows what it worked out. So the trigger lives
+in the tool, as one line at the end of a command's output, and the words come from the agent:
+
+```
+learned? 3 tries and 95 s on facebook.com before this worked. If you found something about the place
+that holds for any task, keep it once: apprentice learn --fact "trap … | hidden … | works … | layout …"
+```
+
+A `Struggle` tracker per session (`struggle.json` in the state folder, updated in `finish()` beside the
+cooldown and challenge checks) counts, per host or app:
+
+- misses: exit 2 (stale) and exit 5 (not found) on actions, a `+0 -0 ~0` diff, an `ocr` or `shot`
+  after a `read` of the same screen, a `click --at` after a `click <id>` or `--on` failed, a `wait-for`
+  that timed out;
+- the gap: from the previous row's `ts` to this command's start (the agent's thinking), and the
+  session's running median of gaps.
+
+The line prints on the first action that changes the screen after two or more misses, or after a gap of
+at least max(60 s, three times the median) with one miss, and the counters reset; at most one line in
+two minutes. `done` prints a closing one when the session had struggles and no `learn` row followed:
+`2 things you worked out on facebook.com, nothing kept: learn --fact?`. Every number is a `[skills]`
+key (`nudge_misses`, `nudge_gap_s`, `nudge_every_s`) and the text lives in `agent/app-text.toml`, so
+nothing is hard-coded. An answer from the user to `ask` or `show` that got a step past a block gets the
+same line, since `SKILL.md` already says such an answer goes into the playbook.
+
+`grow` gains a line: `learned: facebook.com 7 struggles, 1 fact kept · Finder 3, 0 kept`, counting
+sessions with a `learned?` row against their `learn` rows, so the places where fumbling repeats show up
+as the next playbook to write. That line is also the measure of this whole section: for a place in
+regular use it should fall towards zero, and agent thinking time per action there should fall with it.
+The learning cost is front-loaded by design; this is how to see that it is being paid back.
+
+### Staleness
+
+- `session` prints each learned fact with its date and count. One older than `[skills] stale_days` (60
+  for sites, 180 for apps and system parts) carries `· unchecked since 2026-09-01`, and a built-in
+  playbook's `verified:` date is printed on its header line the same way, so the agent weighs both.
+- `learn --wrong "<first words>"` retires a fact: it moves to a `## Retired` section as
+  `- 2026-11-05 · was: …`, never injected, kept 90 days so it is not relearned next week.
+  `learn --still "<first words>"` re-dates one without retyping it. Both match on the fact key by prefix
+  and refuse when the prefix fits more than one.
+- A fact injected in a session where its own miss pattern happened again (a `trap` naming a label the
+  agent still fell into) is printed with `?` next time: `- 2026-10-02 ×2 ? · …`. Cheap, honest, and the
+  agent decides.
+- A flow's `verified:` updates when `do` runs it to the end (today only its modification date is
+  touched). A built-in playbook's `verified:` stays the human's date.
+
+### Flows: stop drafting noise
+
+`Skills.draftFlow` drafts only when the trace looks like a procedure:
+
+- at least three actions on distinct named elements (`click`, `type`, `menu`, `upload`, `choose`);
+- `browse`, `scroll` and repeated `open` of one host under a third of the actions;
+- the last action changed the screen;
+- `--task` was given (no more "steps on <host>"; TODO.md already notes those are unfindable);
+- no learned flow for this place already has the same action signature (labels in order, ignoring
+  browse and scroll).
+
+A draft's tags drop stopwords, and its file name is `<place>-<first three action labels>` rather than the
+task, so two jobs with one procedure share one draft; the title keeps the task's words, since the draft
+stays on this Mac. All five drafts this Mac had would have been refused; they were forgotten on
+2026-11-05.
+
+### The root prompt
+
+In `agent/SKILL.md` and `agent/AGENTS.md`, replacing the learning sentence in "Improving apprentice" so
+both stay under about 600 tokens:
+
+```
+## Learn the place, not the job
+Skill lines from `session` are dated and counted; `learned` lines are hints. A fact over 60 days old, or
+one the screen contradicts: check it, then `learn --wrong "<first words>"`.
+A `learned?` line, two or more tries at one step, or an answer from the user that got you unstuck: keep
+what you found, once, if it would help a different task on this site or app:
+`learn --fact "trap|hidden|works|layout …"`. Name things as the screen names them. Never ids,
+coordinates, the task's words or copied screen text; those are refused. A procedure that will repeat as
+is: `learn "<task>"` after it worked. Job context (places, names, choices for this work) goes in the
+project's AGENTS.md or its skills, never in a fact.
+```
+
+The judgement skills (`skills/apprentice-<site>`) do not change: they say how a person behaves there;
+facts say how the place is built.
+
+### Commands
+
+| command | does |
+|---|---|
+| `learn --fact "…" [--kind k] [--for place]` | existing; normalised host, kind, count, the step and job-context refusals |
+| `learn --still "<words>"`, `learn --wrong "<words>"` | re-date or retire a fact by its first words |
+| `skills "<words>"` | existing; shows kind, count and date; retired facts only with `--all` |
+| `grow` | the `learned:` line, struggles per place against facts kept |
+| `session`, `focus`, `open`, `done` | the merged injection, stale marks, the `learned?` and closing lines |
+
+### Build order (independent of the main list; each step its own commit with `selftest` checks)
+
+a. **The merge**: learned facts under their built-in playbook, host normalisation, one file per place.
+   `selftest`: a learned `web/facebook.com.md` adds lines and hides nothing. Fixes the shadowing on
+   its own.
+b. **The fact's shape**: kind, count, `--still`, `--wrong`, the step and job-context refusals, order by
+   count then date, stale marks. `selftest` for each refusal and the order.
+c. **The nudge**: `Struggle` in `finish()` and `done`, the `[skills]` keys, the text in
+   `app-text.toml`, the `grow` line.
+d. **The drafter's gate** and file naming.
+e. **The docs**: the prompt block in both agent docs, `playbooks/README.md`'s format section,
+   `SPEC.md`'s Playbooks section.
+
+### Open decisions
+
+1. The job-context check: refuse, or warn and save with `(job?)` on the line? Recommended: warn and
+   save. A wrong refusal loses a fact; a wrong save costs one line.
+2. Whether `~/.apprentice/skills/learned` is in `Sync.synced`'s allow-list, so facts follow the user to
+   another Mac. They are generic and already leak-checked; recommended yes, once checked.
+3. A fact at ×3 or more and over 30 days old could be offered for `skills share` from the window ("3
+   facts about facebook.com are ready to share"). Later.
+
 ## Commands to build
 
 | command | used by | does |
