@@ -124,7 +124,11 @@ takeover_quick_s = 5
 # The menu-bar item: α idle, α … working, α ? waiting for you, α ! a step needs approval (its menu approves or denies it).
 menu_bar = true
 # A small always-on-top box: working, handed to you while you move, paused. Close asks, then stops apprentice.
+# Its yellow button hides it and the menu bar icon brings it back. It comes back when work starts (questions and
+# approvals always bring it back), and goes away after overlay_hide_idle_s seconds of idling (0 never).
 overlay = true
+overlay_open_on_work = true
+overlay_hide_idle_s = 30
 # A short system sound for each thing that happens (a command, a hand-off to you, a pause, a failure).
 sounds = true
 # Open apprentice's window on the VM's live screen, behind your work, when a VM session starts (only if the

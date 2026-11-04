@@ -117,15 +117,6 @@ struct ListColumn<Rows: View>: View {
     }
 }
 
-/// The agent CLI a project or pipeline names, as a tab's start command (nil: a plain shell).
-enum AgentChoice {
-
-    /// Only an agent listed in agents.toml (apprentice's or the user's own) starts: a name nobody listed opens a
-    /// plain shell instead of being run, since a project cloned from GitHub brings its own `project.toml`.
-    static func command(_ agent: String) -> String? { AgentCLIs.find(agent)?.open }
-    static func label(_ agent: String) -> String { AgentCLIs.label(agent) }
-}
-
 // MARK: - Projects
 
 /// A project's Settings tab: how it runs, its notes for agents, and saving it.
@@ -230,13 +221,12 @@ struct NewProjectSheet: View {
     /// another project already uses.
     @State private var place = "+new"
     @State private var newVM = ""
-    @State private var about = ""
     @State private var problem = ""
     @State private var working = false
 
     private var vm: String? {
         // The name `project new` will store, so the VM made in the first tab is the one the project uses.
-        if place == "+new" { return Projects.vmName(newVM) }
+        if place == "+new" { return Projects.vmFor(typed: newVM, project: name) }
         return place.isEmpty ? nil : place
     }
 
@@ -276,18 +266,12 @@ struct NewProjectSheet: View {
                     .labelsHidden().pickerStyle(.menu).frame(maxWidth: 280, alignment: .leading)
                 }
                 if place == "+new" {
-                    LabeledField("VM name") { TextField(Projects.folderName(name.isEmpty ? "shop" : name), text: $newVM) }
+                    LabeledField("VM name") { TextField(name.isEmpty ? "shop" : Projects.ownVM(name) ?? "shop", text: $newVM) }
                     LabeledField("") {
                         Text("Its own Linux computer inside this Mac. Making it downloads under 1 GB and takes a few minutes; you can watch in the tab that opens.")
                             .font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                 }
-            }
-            Panel(title: "What it is for", note: "agents read this") {
-                TextField("For example: run the shop's Instagram and answer customers by email. Be brief.", text: $about, axis: .vertical)
-                    .textFieldStyle(.roundedBorder)
-                    .lineLimit(4...12)
-                    .font(Theme.body)
             }
             if !problem.isEmpty { Text(problem).font(Theme.caption).foregroundStyle(Theme.danger).textSelection(.enabled) }
         } buttons: {
@@ -301,10 +285,7 @@ struct NewProjectSheet: View {
         }
         .onAppear {
             fromGitHub = start == .github
-            if place.isEmpty, newVM.isEmpty { newVM = "" }
         }
-        .onChange(of: name) { _, value in if place == "+new", newVM.isEmpty { newVM = Projects.ownVM(value) ?? "" } }
-        .onChange(of: place) { _, value in if value == "+new", newVM.isEmpty { newVM = Projects.ownVM(name) ?? "" } }
     }
 
     private func create() {
@@ -314,7 +295,6 @@ struct NewProjectSheet: View {
         var argv = ["project", "new", name.trimmingCharacters(in: .whitespaces), "--dir", dir]
         if fromGitHub { argv += ["--from", source.trimmingCharacters(in: .whitespaces)] }
         if let vm { argv += ["--vm", vm] } else { argv.append("--no-vm") }
-        if !about.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { argv += ["--about", about] }
         let makeVM = place == "+new" ? vm : nil
         model.runCLI(argv) { code, out in
             working = false

@@ -7,6 +7,7 @@ import SwiftUI
 struct ProjectWorkspace: View {
     @ObservedObject var model: AppModel
     let project: Projects.Info
+    @State private var copied = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -21,6 +22,13 @@ struct ProjectWorkspace: View {
             }
         }
         .background(Theme.canvas)
+    }
+
+    private func copyFolder() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(project.folder.path, forType: .string)
+        copied = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { copied = false }
     }
 
     private var machine: VM.Machine? { project.vm.flatMap { vm in model.machines.first { $0.name == vm } } }
@@ -46,9 +54,8 @@ struct ProjectWorkspace: View {
                 }
                 HStack(spacing: Theme.s2) {
                     IconButton("Show in Finder", "folder") { NSWorkspace.shared.open(project.folder) }
-                    ForEach(AgentCLIs.editors().filter { model.isInstalled($0) }) { cli in
-                        IconButton("Open in \(cli.label)", "chevron.left.forwardslash.chevron.right") { model.openInEditor(cli, project) }
-                    }
+                    IconButton(copied ? "Copied" : "Copy folder", copied ? "checkmark" : "doc.on.doc") { copyFolder() }
+                        .help(project.folder.path)
                 }
                 .controlSize(.small)
             }

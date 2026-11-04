@@ -488,6 +488,10 @@ struct Config {
     /// `[agent] optional_suggest_h`: how often the user's agent may be asked for new questions (`Voice.suggest`).
     var optionalSuggestHours = 24.0
     var overlay = true
+    /// `[agent] overlay_open_on_work`: the hidden box comes back when work starts.
+    var overlayOpenOnWork = true
+    /// `[agent] overlay_hide_idle_s`: seconds of idling before the box goes away by itself; 0 never.
+    var overlayHideIdleS = 30.0
     var sounds = true
     /// A VM session opens Screen Sharing on the VM once per run, so its pointer and typing can be seen.
     var watchVM = false
@@ -651,6 +655,8 @@ struct Config {
         if let v = toml["agent"]?["sounds"] { c.sounds = Toml.unquote(v) != "false" }
         if let v = toml["agent"]?["watch_vm"] { c.watchVM = Toml.unquote(v) != "false" }
         if let v = toml["agent"]?["overlay"] { c.overlay = Toml.unquote(v) != "false" }
+        if let v = toml["agent"]?["overlay_open_on_work"] { c.overlayOpenOnWork = Toml.unquote(v) != "false" }
+        if let v = toml["agent"]?["overlay_hide_idle_s"].flatMap({ Double(Toml.unquote($0)) }), v.isFinite { c.overlayHideIdleS = min(max(v, 0), 86400) }
         if let v = toml["agent"]?["ask_in"] { c.askIn = Toml.unquote(v) }
         if let v = toml["agent"]?["notify"] { c.notify = Toml.unquote(v) }
         if let v = toml["agent"]?["download_menu"].flatMap(Toml.array) { c.downloadMenu = v.map { $0.lowercased() } }

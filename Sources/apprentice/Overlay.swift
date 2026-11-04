@@ -122,6 +122,45 @@ struct LiveRow: Codable {
     }
 }
 
+/// Whether the box is off the screen. The yellow button hides it and the menu bar item brings it back; it comes back
+/// by itself when work starts (`[agent] overlay_open_on_work`) and goes by itself after `[agent] overlay_hide_idle_s`
+/// of idling.
+struct OverlayHide {
+    /// What always brings it back, whatever the settings: these need the person.
+    static let urgent: Set<String> = ["Waiting for you", "Needs approval", "Stopped"]
+    /// How long after work the person's own hide still holds: commands in one task come seconds apart.
+    static let holdFor = 20.0
+
+    var hidden = false
+    /// Hidden by hand during work: stays hidden until that work is over, not until the next command.
+    var held = false
+    private var idleSince: Double?
+    private var wasUrgent = false
+
+    mutating func toggle(_ heads: [String], now: Double) {
+        hidden.toggle()
+        held = hidden && !heads.allSatisfy { $0 == "Ready" }
+        // Brought back by hand: a full idle wait before it goes again.
+        if !hidden { idleSince = now }
+    }
+
+    mutating func step(_ heads: [String], now: Double, openOnWork: Bool, hideAfter: Double) {
+        let urgent = heads.contains { Self.urgent.contains($0) }
+        // On the way in only, so the person can still hide it while a question stays open.
+        if urgent, !wasUrgent { hidden = false; held = false }
+        wasUrgent = urgent
+        guard heads.allSatisfy({ $0 == "Ready" }) else {
+            idleSince = nil
+            if heads.contains("Working"), openOnWork, !held { hidden = false }
+            return
+        }
+        let since = idleSince ?? now
+        idleSince = since
+        if now - since >= Self.holdFor { held = false }
+        if hideAfter > 0, now - since >= hideAfter { hidden = true }
+    }
+}
+
 /// A small always-on-top box that says what apprentice is doing, on which system (This Mac or a VM): working,
 /// handed to you while you move the mouse or type, taking over again once you have been still, paused, or idle.
 /// It shows the most pressing task; "All" opens the list, three at a time, each with its own buttons.
@@ -149,6 +188,12 @@ enum Overlay {
     private static var listHeight: NSLayoutConstraint!
     private static let count = NSTextField(labelWithString: "")
     private static let expandButton = NSButton(title: "All", target: nil, action: nil)
+    private static var state = OverlayHide()
+    /// The box's settings, re-read when the file changes: `Config.current` only reloads when a command runs.
+    private static var hideConfig = Config.current
+    private static var hideStamp = ""
+    private static var hideChecked = Date.distantPast
+    private static var column: NSStackView?
     fileprivate(set) static var lastRows: [LiveRow] = []
     private static var lastWrite = Date.distantPast
     private static var lastJSON = Data()
@@ -249,8 +294,11 @@ enum Overlay {
     static func install() {
         guard Config.current.overlay, panel == nil else { return }
         let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 340, height: 120),
-                        styleMask: [.titled, .closable, .utilityWindow, .nonactivatingPanel], backing: .buffered, defer: false)
+                        styleMask: [.titled, .closable, .miniaturizable, .utilityWindow, .nonactivatingPanel], backing: .buffered, defer: false)
         p.title = "apprentice"
+        // Minimizing takes it off the screen, not to the Dock: the menu bar item brings it back.
+        p.standardWindowButton(.miniaturizeButton)?.target = handler
+        p.standardWindowButton(.miniaturizeButton)?.action = #selector(Handler.toggleHide)
         p.level = .floating
         // On every Space and above a full-screen app, never taking focus from the work.
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
@@ -293,6 +341,7 @@ enum Overlay {
         column.spacing = 10
         column.edgeInsets = NSEdgeInsets(top: 14, left: 12, bottom: 12, right: 12)
         p.contentView = column
+        Overlay.column = column
         column.layoutSubtreeIfNeeded()
         p.setContentSize(column.fittingSize)
         place(p)
@@ -409,6 +458,16 @@ enum Overlay {
         if let d = try? JSONEncoder().encode(r) { try? d.write(to: liveDir.appendingPathComponent("\(row.key).json"), options: .atomic) }
     }
 
+    /// Whether the box is on screen, for the menu bar item that brings it back.
+    static var isHidden: Bool { state.hidden }
+    static var installed: Bool { panel != nil }
+
+    /// The yellow button, and the menu bar item.
+    static func toggleHidden() {
+        state.toggle(lastRows.map(\.head), now: Date().timeIntervalSince1970)
+        render()
+    }
+
     private static func render() {
         Handback.tick()
         let s = status()
@@ -425,11 +484,32 @@ enum Overlay {
         guard let p = panel else { return }
         // One box for everything: the daemon with the first key owns it, the others keep theirs hidden.
         guard all.first?.key == myKey else { if p.isVisible { p.orderOut(nil) }; return }
+        if Date().timeIntervalSince(hideChecked) > 2 {
+            hideChecked = Date()
+            let stamp = Layers.stamp()
+            if stamp != hideStamp { hideStamp = stamp; hideConfig = Config.load() }
+        }
+        // A command quicker than this timer's tick still counts as work.
+        let heads = all.map(\.head) + (Date().timeIntervalSince(Commands.lastAt) < 1 ? ["Working"] : [])
+        state.step(heads, now: Date().timeIntervalSince1970, openOnWork: hideConfig.overlayOpenOnWork, hideAfter: hideConfig.overlayHideIdleS)
+        if state.hidden {
+            if p.isVisible { p.orderOut(nil) }
+            return
+        }
         layout(all, p)
         // Back on screen if a display went away or the window was dragged off.
         if !NSScreen.screens.contains(where: { $0.visibleFrame.intersects(p.frame) }) { place(p) }
         Ask.keepOnScreen(p)
         p.orderFrontRegardless()
+    }
+
+    /// Fits the panel to its content, keeping the corner nearest the screen's edge where it is.
+    private static func resize(_ p: NSPanel) {
+        let onRight = p.frame.midX > (p.screen?.visibleFrame.midX ?? 0)
+        let top = p.frame.maxY, left = p.frame.minX, right = p.frame.maxX
+        column?.layoutSubtreeIfNeeded()
+        p.setContentSize(column?.fittingSize ?? p.frame.size)
+        p.setFrameTopLeftPoint(NSPoint(x: onRight ? right - p.frame.width : left, y: top))
     }
 
     private static func layout(_ all: [LiveRow], _ p: NSPanel) {
@@ -463,10 +543,7 @@ enum Overlay {
         scroll.hasVerticalScroller = expanded && keys.count > 3
         if scrollHeight.constant != visible {
             scrollHeight.constant = visible
-            let top = NSPoint(x: p.frame.minX, y: p.frame.maxY)
-            (p.contentView as? NSStackView)?.layoutSubtreeIfNeeded()
-            p.setContentSize((p.contentView as? NSStackView)?.fittingSize ?? p.frame.size)
-            p.setFrameTopLeftPoint(top)
+            resize(p)
         }
     }
 
@@ -522,6 +599,7 @@ enum Overlay {
             Store.log(["overlay": "pause toggled", "by": "user", "system": row(sender)])
             Overlay.render()
         }
+        @objc func toggleHide() { Overlay.toggleHidden() }
         @objc func toggleExpand() {
             Overlay.expanded.toggle()
             Overlay.shown = []

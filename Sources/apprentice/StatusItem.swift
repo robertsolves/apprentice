@@ -60,13 +60,11 @@ enum StatusItem {
         return 0
     }
 
-    /// The apprentice icon, the same as the app's, with a dot for the state.
+    /// The apprentice icon, the same as the app's, with a dot for the state beside it, so neither covers the other.
     private static func tray(_ level: Int) -> NSImage {
-        NSImage(size: NSSize(width: 22, height: 18), flipped: false) { _ in
+        NSImage(size: NSSize(width: 27, height: 18), flipped: false) { _ in
             Ask.icon.draw(in: NSRect(x: 0, y: 0, width: 18, height: 18))
-            let dot = NSRect(x: 12.5, y: 0, width: 9, height: 9)
-            NSColor.white.setFill()
-            NSBezierPath(ovalIn: dot.insetBy(dx: -1.2, dy: -1.2)).fill()
+            let dot = NSRect(x: 20, y: 5.5, width: 7, height: 7)
             [NSColor.systemGray, .systemGreen, .systemOrange][level].setFill()
             NSBezierPath(ovalIn: dot).fill()
             return true
@@ -103,6 +101,7 @@ enum StatusItem {
             menu.addItem(.separator())
             menu.addItem(action("Open this session's log", #selector(openLog), nil))
             menu.addItem(action("Open apprentice…", #selector(openApp), nil))
+            if Overlay.installed { menu.addItem(action(Overlay.isHidden ? "Show the status box" : "Hide the status box", #selector(toggleBox), nil)) }
             if let n = Store.load(Repo.Notice.self, "update.json") { menu.addItem(info(clip(n.text, 90))) }
             let mute = action("Mute sounds", #selector(toggleMute), nil)
             mute.state = Sound.muted ? .on : .off
@@ -145,6 +144,7 @@ enum StatusItem {
         @objc func openApp() { _ = AppBundle.open() }
 
         @objc func toggleMute() { Sound.muted.toggle() }
+        @objc func toggleBox() { Overlay.toggleHidden() }
 
         @objc func openLog() {
             let folder = Store.runFolder()

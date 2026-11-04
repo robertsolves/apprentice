@@ -659,10 +659,6 @@ final class AppModel: ObservableObject {
     /// reloads the editor when another one is chosen.
     @Published var pipelineDraft: Pipelines.Pipeline?
     @Published var pipelineEdits = 0
-    /// The agent CLIs and editors installed on this Mac (`AgentCLIs.installed`), read off the main thread
-    /// since it starts a login shell; nil until the first read, when everything counts as installed.
-    @Published var installedAgents: Set<String>?
-    private var refreshes = 0
 
     let home = FileManager.default.homeDirectoryForCurrentUser
 
@@ -673,7 +669,6 @@ final class AppModel: ObservableObject {
         checkRelease()
         newTab(preset: "Shell", command: nil, project: general)
         refreshMachines()
-        refreshAgents()
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.refresh() }
     }
 
@@ -709,9 +704,6 @@ final class AppModel: ObservableObject {
         // which only daemons showing the on-screen box write, and `Running`, which every daemon writes).
         busy = pending.count > 0 || Overlay.liveRows().contains { $0.head == "Working" } || Running.anyDaemon
         revision += 1
-        // An agent installed while the window is open shows up within a minute.
-        refreshes += 1
-        if refreshes % 30 == 0 { refreshAgents() }
         for tab in tabs { tab.hasApproval = pending.contains { $0.tab == tab.id } }
         // The socket check runs off the main thread: a busy daemon must not freeze the window.
         DispatchQueue.global(qos: .utility).async {
@@ -739,41 +731,10 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func refreshAgents() {
-        DispatchQueue.global(qos: .utility).async {
-            let found = AgentCLIs.installed()
-            DispatchQueue.main.async { if self.installedAgents != found { self.installedAgents = found } }
-        }
-    }
-
-    func isInstalled(_ cli: AgentCLIs.CLI) -> Bool { installedAgents?.contains(cli.id) ?? true }
-
-    /// The terminal agents a picker offers: the installed ones, plus `keeping` (the current choice) even when
-    /// it is not, so a saved choice still shows.
-    func agentChoices(keeping: String? = nil) -> [AgentCLIs.CLI] {
-        AgentCLIs.agents().filter { isInstalled($0) || $0.id == keeping }
-    }
-
-    /// Opens a project's folder in an editor app (`editor` in agents.toml).
-    func openInEditor(_ cli: AgentCLIs.CLI, _ p: Projects.Info) {
-        let argv = AgentCLIs.editorArgv(cli, folder: p.folder)
-        guard let first = argv.first else { return }
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: first.hasPrefix("/") ? first : "/usr/bin/env")
-        proc.arguments = first.hasPrefix("/") ? Array(argv.dropFirst()) : argv
-        proc.currentDirectoryURL = p.folder
-        do { try proc.run() } catch { output = "could not open \(cli.label): \(error.localizedDescription)" }
-    }
-
-    /// Opens `agent` (else the first one installed) in a tab in the project's folder, working in its VM;
-    /// `setUpVM` makes that VM first, in the same tab, so the user watches it being made.
-    func openProject(_ p: Projects.Info, agent: String? = nil, setUpVM: String? = nil) {
-        let agent = agent ?? agentChoices().first { !$0.shell }?.id ?? AgentCLIs.defaultID
-        var command = AgentChoice.command(agent)
-        if let vm = setUpVM {
-            command = "apprentice --vm \(vm) vm setup && " + (command ?? "exec \"$SHELL\" -l")
-        }
-        newTab(preset: AgentChoice.label(agent), command: command, project: p)
+    /// A shell in the project's folder, working in its VM; `setUpVM` makes that VM first, in the same tab, so the
+    /// user watches it being made.
+    func openProject(_ p: Projects.Info, setUpVM: String? = nil) {
+        newTab(preset: "Shell", command: setUpVM.map { "apprentice --vm \($0) vm setup; exec \"$SHELL\" -l" }, project: p)
     }
 
     // MARK: - projects
@@ -1361,23 +1322,19 @@ struct TerminalWorkspace: View {
                 }
                 footer(session)
             } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: Theme.s4) {
-                        HStack(spacing: Theme.s2) {
-                            ForEach(model.agentChoices().filter { !$0.shell }) { cli in
-                                IconButton("Start \(cli.label)", "play.fill", prominent: true) { model.openProject(project, agent: cli.id) }
-                            }
-                            IconButton("A shell", "terminal") { model.newTab(preset: "Shell", command: nil, project: project) }
-                        }
-                        Explainer(.terminal)
-                    }
-                    .frame(maxWidth: Theme.column, alignment: .leading)
-                    .padding(Theme.page)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
+                Theme.canvas
             }
         }
         .background(Theme.canvas)
+        .onAppear { showShell() }
+        .onChange(of: shown?.id) { _, _ in showShell() }
+        .onChange(of: project.id) { _, _ in showShell() }
+    }
+
+    /// The project always shows a terminal: the tab it has, else a new shell in its folder.
+    private func showShell() {
+        guard shown == nil else { return }
+        if let tab = model.tabsIn(project).first { model.selectedTab = tab.id } else { model.openProject(project) }
     }
 
     private var font: NSFont { AppLook.terminalFont }
@@ -1396,18 +1353,9 @@ struct TerminalWorkspace: View {
                 .padding(.vertical, Theme.s2)
             }
             Menu {
-                // Any agent installed, or a shell; its VM's shell beside them.
-                ForEach(model.agentChoices()) { cli in Button(cli.label) { model.openProject(project, agent: cli.id) } }
+                Button("Shell") { model.openProject(project) }
                 if let vm = project.vm {
                     Button("A shell in the VM \(vm)") { model.newTab(preset: "VM \(vm)", command: "apprentice --vm \(vm) vm ssh", project: project) }
-                }
-                let missing = AgentCLIs.all().filter { !model.isInstalled($0) && $0.install != nil }
-                if !missing.isEmpty {
-                    Menu("Not installed") {
-                        ForEach(missing) { cli in
-                            Button("Get \(cli.label)…") { if let u = cli.install.flatMap(URL.init(string:)) { NSWorkspace.shared.open(u) } }
-                        }
-                    }
                 }
                 Divider()
                 Button("Help: ask about apprentice") { model.openHelpTab() }

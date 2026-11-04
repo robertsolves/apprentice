@@ -36,9 +36,23 @@ fallback = true
 
 [setting."agent.overlay"]
 label = "Small status box on screen"
-help = "An always-on-top box that says when apprentice is working or handed back to you."
+help = "An always-on-top box that says when apprentice is working or handed back to you. Its yellow button hides it, and the menu bar icon brings it back."
 kind = "toggle"
 fallback = true
+
+[setting."agent.overlay_open_on_work"]
+label = "Show the status box when work starts"
+help = "A hidden box comes back when apprentice starts working. Questions and approvals always bring it back."
+kind = "toggle"
+fallback = true
+
+[setting."agent.overlay_hide_idle_s"]
+label = "Hide the status box after idling (seconds)"
+help = "It goes away once apprentice has been idle this long. 0 keeps it on screen."
+kind = "number"
+min = 0
+max = 3600
+fallback = 30
 
 [setting."agent.keep_awake"]
 label = "Keep the Mac awake during tasks"

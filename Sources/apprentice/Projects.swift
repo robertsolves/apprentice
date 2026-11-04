@@ -287,6 +287,9 @@ enum Projects {
     /// The VM a project gets of its own unless told otherwise: named after its folder.
     static func ownVM(_ name: String) -> String? { vmName(folderName(name)) }
 
+    /// The VM a new project gets: the name typed, else the one suggested from the project's.
+    static func vmFor(typed: String, project: String) -> String? { vmName(typed) ?? ownVM(project) }
+
     /// Changes how a project runs: its VM (or none), its name. The rest of `project.toml` stays as written.
     private static func set(_ a: Args) throws -> String {
         guard let p = find(a.pos.dropFirst().first) else { throw Fail(5, "no such project · apprentice project list") }
