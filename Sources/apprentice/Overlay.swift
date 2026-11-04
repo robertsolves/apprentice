@@ -163,8 +163,8 @@ struct OverlayHide {
 
 /// A small always-on-top box that says what apprentice is doing, on which system (This Mac or a VM): working,
 /// handed to you while you move the mouse or type, taking over again once you have been still, paused, or idle.
-/// It shows the most pressing task; "All" opens the list, three at a time, each with its own buttons.
-/// Closing it asks first, then stops apprentice. `[agent] overlay = false` hides it.
+/// It shows the most pressing task; "All" opens the list, three at a time, each with its own buttons, and
+/// the icon opens the window. Closing it asks first, then stops apprentice. `[agent] overlay = false` hides it.
 enum Overlay {
     /// Seconds the person must be still before apprentice takes over again (`Borrow.waitIdle`'s default).
     static var settle: Double { Borrow.settle }
@@ -318,8 +318,13 @@ enum Overlay {
         scrollHeight = scroll.heightAnchor.constraint(equalToConstant: rowHeight)
         NSLayoutConstraint.activate([scroll.widthAnchor.constraint(equalToConstant: contentWidth), scrollHeight])
 
-        let mark = NSImageView(image: Ask.icon)
-        mark.setAccessibilityLabel("apprentice")
+        // The icon opens the window: the box is always on screen, so it is the shortest way there.
+        let mark = NSButton(image: Ask.icon, target: handler, action: #selector(Handler.openApp))
+        mark.isBordered = false
+        mark.imagePosition = .imageOnly
+        mark.imageScaling = .scaleProportionallyUpOrDown
+        mark.toolTip = "Open apprentice"
+        mark.setAccessibilityLabel("Open apprentice")
         mark.widthAnchor.constraint(equalToConstant: 24).isActive = true
         mark.heightAnchor.constraint(equalToConstant: 24).isActive = true
         count.font = .systemFont(ofSize: 11)
@@ -600,6 +605,12 @@ enum Overlay {
             Overlay.render()
         }
         @objc func toggleHide() { Overlay.toggleHidden() }
+        /// The icon: the window, in front. `AppBundle.open` may rebuild and sign the bundle first, which must not
+        /// hold the daemon's main thread (see `AppShow.vm`).
+        @objc func openApp() {
+            Store.log(["overlay": "open app", "by": "user"])
+            DispatchQueue.global().async { _ = AppBundle.open() }
+        }
         @objc func toggleExpand() {
             Overlay.expanded.toggle()
             Overlay.shown = []

@@ -178,7 +178,7 @@ Settings are `config.toml` (see `agent/config.example.toml`), `routes.toml` and 
   - `ask_on_start` shows the options window;
   - `menu_bar = false` hides the menu-bar item.
   - `overlay_open_on_work` and `overlay_hide_idle_s` (seconds, 0 never) say when the status box comes back and goes away; its yellow button hides it and the menu bar icon brings it back.
-  - `overlay = false` hides the always-on-top status box (working, handed to you, paused; closing it asks, then stops apprentice).
+  - `overlay = false` hides the always-on-top status box (working, handed to you, paused; its icon opens the window; closing it asks, then stops apprentice).
 - **`[update]`:** `auto = false` to only be told about updates; `check_hours` (6).
 - **`[storage]`:** `sessions = "scrubbed"` (the default), `"full"` or `"off"`: what the clone keeps of each session (see below).
 - **`[run]`:** the model endpoint for `apprentice run`.
