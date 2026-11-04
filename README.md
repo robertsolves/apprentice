@@ -224,10 +224,10 @@ The raw logs (`~/.apprentice/runs/`, with screenshots) stay on the Mac and are p
 
 ```
 playbooks/
-  macos/   apps and system parts, e.g. finder.md, save-panel.md
-  linux/   the Linux VM, e.g. general.md
-  web/     one file per site, e.g. instagram.com.md
-  flows/   runnable task recipes, e.g. finder-new-folder.md
+  macos/   apps and system parts, one file each (<app>.md, save-panel.md)
+  linux/   the Linux VM
+  web/     one file per site (<host>.md)
+  flows/   runnable task recipes, one per task
 ```
 
 Playbooks are plain Markdown with a little front matter. `session` prints each matching playbook's **Key facts**. A flow step is one backticked command, which `do` runs:

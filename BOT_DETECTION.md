@@ -6,7 +6,7 @@ What a site, a server, a native app or the Linux VM can tell apart from a person
 
 - **Audited:** `6f958ba` (2026-11-02), static read of `Sources/apprentice`, `agent/vm` and the shell entry points, plus OS probes of the CGEvent fields apprentice posts.
 - **Fixed:** `b4513c0` and `7313b81` (2026-11-02).
-- **Measured:** `agent/canary.html` on this Mac (Chrome 156, macOS 26.2) and in the VM (Chromium); results below. Re-run it after any change to `Input.swift`, `Fidget.swift` or `agent/vm/helper.py`: `apprentice do canary-full-test` (see `playbooks/web/canary.md`).
+- **Measured:** `agent/canary.html` on this Mac (Chrome 156, macOS 26.2) and in the VM (Chromium); results below. Re-run it after any change to `Input.swift`, `Fidget.swift` or `agent/vm/helper.py`. The `canary-full-test` flow and `playbooks/web/canary.md` went with the packaged playbooks on 2026-11-05 (git history keeps them); the page's own panel lists the checks.
 
 ## Status at a glance
 

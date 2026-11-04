@@ -31,7 +31,7 @@ From a `/simplify` pass on 2026-11-02; the small shared helpers landed, these we
 
 - Re-run the canary on this Mac after the per-pair typing rhythm, the drag correction and settle, and no repeated rest pixels (BOT_DETECTION P1 P7 P21 P22, marked 🔁): with and without `typing learn`, and add a check to `agent/canary.html` that per-pair gaps are consistent across runs and no two pointer rests share a pixel.
 - Typing in the VM goes one character at a time (`Remote.typeChar`): send down and up times so the per-pair rhythm and overlap reach it too.
-- Read the canary's Metrics section in a VM session (`apprentice do canary-full-test` there) and add the VM column to BOT_DETECTION.md; the Mac numbers are in.
+- Read the canary's Metrics section in a VM session and add the VM column to BOT_DETECTION.md; the Mac numbers are in. The `canary-full-test` flow went with the packaged playbooks on 2026-11-05 (git history has `playbooks/flows/canary-full-test.md`): run the page by hand, or learn the flow again.
 - Tab between form fields where the next field is the obvious one, instead of a click per field (BOT_DETECTION P11).
 - A real IME composition path for CJK locales: today a character no key types is pasted (P12).
 - `open` to a new site could open a new tab now and then (cmd+t), so the tab set changes as a person's does (P17). Needs a cap so tabs do not pile up.
