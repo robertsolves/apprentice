@@ -184,10 +184,10 @@ enum Repo {
     // MARK: - telling the user, and updating on its own
 
     /// One line about the last automatic update, shown by the next `session` and then dropped.
-    struct Notice: Codable { var text: String }
+    struct Notice: Codable { var text: String; var agentsOnly: Bool? }
 
-    static func notice(_ text: String) {
-        Store.save(Notice(text: text), "update.json")
+    static func notice(_ text: String, agentsOnly: Bool = false) {
+        Store.save(Notice(text: text, agentsOnly: agentsOnly ? true : nil), "update.json")
         Store.log(["update": text])
     }
 

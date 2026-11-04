@@ -79,11 +79,12 @@ enum Daemon {
         if Config.current.dockIcon { app.applicationIconImage = Ask.icon; DockIcon.watch() }
         DockIcon.follow()
 
-        // A pid file left behind means the last daemon died without `stop`: say so once, with its last error output.
+        // A pid file left behind means the last daemon died without `stop`: tell the next agent once, with its last
+        // error output, since its snapshot may be stale. The user has nothing to do about it, so not in the menu bar.
         if FileManager.default.fileExists(atPath: Store.pidPath) {
             let err = (try? String(contentsOf: Store.stateDir.appendingPathComponent("daemon.err"), encoding: .utf8))?
                 .split(separator: "\n").suffix(3).joined(separator: " | ") ?? ""
-            Repo.notice("apprentice: the last daemon stopped unexpectedly\(err.isEmpty ? "" : ": \(err)"); this is a fresh one, so read the screen again")
+            Repo.notice("apprentice: the last daemon stopped unexpectedly\(err.isEmpty ? "" : ": \(err)"); this is a fresh one, so read the screen again", agentsOnly: true)
         }
         try? String(ProcessInfo.processInfo.processIdentifier).write(toFile: Store.pidPath, atomically: true, encoding: .utf8)
         KillSwitch.install()

@@ -2,7 +2,7 @@ import AppKit
 
 /// The menu-bar item, so an agent at work, one waiting for the user and one holding a proposal no longer
 /// all look like an idle Mac. Its menu shows the session, approves or denies the pending step, opens the
-/// session's log and stops apprentice. `[agent] menu_bar = false` turns it off.
+/// window and stops apprentice. `[agent] menu_bar = false` turns it off.
 enum StatusItem {
     enum State: String {
         case idle = "idle"
@@ -99,14 +99,12 @@ enum StatusItem {
                 menu.addItem(action("Resume", #selector(resume), nil))
             }
             menu.addItem(.separator())
-            menu.addItem(action("Open this session's log", #selector(openLog), nil))
             menu.addItem(action("Open apprentice…", #selector(openApp), nil))
             if Overlay.installed { menu.addItem(action(Overlay.isHidden ? "Show the status box" : "Hide the status box", #selector(toggleBox), nil)) }
-            if let n = Store.load(Repo.Notice.self, "update.json") { menu.addItem(info(clip(n.text, 90))) }
+            if let n = Store.load(Repo.Notice.self, "update.json"), n.agentsOnly != true { menu.addItem(info(clip(n.text, 90))) }
             let mute = action("Mute sounds", #selector(toggleMute), nil)
             mute.state = Sound.muted ? .on : .off
             menu.addItem(mute)
-            menu.addItem(info("Kill switch: ctrl+opt+cmd+."))
             menu.addItem(action("Stop apprentice", #selector(stop), nil))
         }
 
@@ -145,11 +143,6 @@ enum StatusItem {
 
         @objc func toggleMute() { Sound.muted.toggle() }
         @objc func toggleBox() { Overlay.toggleHidden() }
-
-        @objc func openLog() {
-            let folder = Store.runFolder()
-            NSWorkspace.shared.open(FileManager.default.fileExists(atPath: folder.path) ? folder : Store.dir.appendingPathComponent("runs"))
-        }
 
         @objc func stop() {
             DispatchQueue.global().async { Wire.stopVMDaemons(); _ = Wire.stopDaemon() }

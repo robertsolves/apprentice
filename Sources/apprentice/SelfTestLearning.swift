@@ -89,6 +89,12 @@ extension SelfTest {
     }
 
     static func placeFacts() {
+        // A daemon's crash is for the next agent, never the menu bar; a file from an older build still shows.
+        Repo.notice("crashed", agentsOnly: true)
+        check(Store.load(Repo.Notice.self, "update.json")?.agentsOnly == true, "notice: an agents' notice stays out of the menu bar")
+        Repo.notice("updated")
+        check(Store.load(Repo.Notice.self, "update.json")?.agentsOnly == nil, "notice: an update still shows in the menu bar")
+        Store.remove("update.json")
         // The line round-trips, older lines read, kinds come from the first word.
         let line = "2026-11-05 ×3 ? · trap · A click on \"See more\" can leave the group · seen: macOS 26 Chrome 156, Linux 13 Chromium 142 · not: macOS 26 Safari 26"
         let f = Fact.parse(line)
