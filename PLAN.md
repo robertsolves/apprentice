@@ -26,12 +26,25 @@ Where the build differs from the design, each a judgement call worth a look:
 - **`board wait` exits 5 on timeout, not 7.** 7 means a permission is missing in the agent contract; 5 already means not found or timeout.
 - **Exit 1 joined the contract**, for a failed run, and `pipeline run` exits 9 when parked and 6 when stopped.
 - **A file with no settings keeps the screen**, one step at a time, or every existing pipeline and simple task would have lost it. Once a file has settings, only `ui: true` does.
-- **A join applies its result to the folder uncommitted.** "Into the user's branch" would have committed on their behalf and could not hold their uncommitted work; sequential steps leave their work uncommitted too. Nothing is ever committed to their branch.
+- **A join applies its result to the folder uncommitted.** "Into the user's branch" would have committed on their behalf and could not hold their uncommitted work; sequential steps leave their work uncommitted too. The run itself commits nothing to their branch; sync, when it is on, commits it afterwards like anything else in the project.
 - **A permission limit is also read from the agent's own last line** (`BLOCKED: what you need`), since Claude Code refuses in words with exit 0 and Codex's read-only sandbox cannot reach apprentice at all. A CLI's own refusal phrase counts even at exit 0, because opencode's does.
 - **A silent step that changed files counts as having output.**
 - **An older file's `agent:` counts as its steps' `use:`**, and a new file writes no `agent:`. With nothing listed at all, a pipeline still runs on the first CLI installed, as it always did; once anything is listed, only what is listed is ever used.
 - **The interpreter and scribe run at the CLI's tightest level**, whatever the named agent's own permissions.
 - **Two choices in the open list were taken as recommended:** generated files committed, and one-click install (an Install button that types the CLI's own install line into a shell tab; nothing is bundled). The job-context check warns and saves.
+
+What reaches the user's private `apprentice-home` repo, added during the build:
+
+| Where | What | Why |
+|---|---|---|
+| `apprentice-home` | `named-agents.toml`, `agents.toml`, `pipeline-prompts.md` | the user's own setup follows them to another Mac |
+| `apprentice-home` | `skills/learned/` (already allowed), now merged line by line and folded by fact key | settles section 15's open decision 2: yes. Two Macs learning about one place both keep their lines |
+| `apprentice-home` | `pipeline-notes/<project>/<pipeline>/`, a copy of each past-run note, restored into the cache on another Mac | notes are kept for good, and the cache is gitignored, so without this they die with the Mac. They are the scribe's words about runs, so they pass Sync's secret check, and the repo is private |
+| this Mac only | `skills/index.sqlite`, `skills/library/` | caches that rebuild themselves; `skills/` was allowed whole, so these had to be excluded |
+| this Mac only | `project-agents.json`, `agent-limits.json`, raw run output | a permission grant is asked again on another machine; usage holds go stale; outputs can hold secrets |
+| the project's repo | pipelines, `AGENTS.md`, generated per-CLI files, `named-agents.toml`, the rolling summary | it travels with the work. Never `.apprentice/cache/` |
+
+A project's sync round now waits while a run is live there, since it commits and stashes the whole folder: half a step's work would be pushed, and a stash could pull files from under a running agent. The next round after the run sends everything, so a run commits nothing itself, and sync then commits it as it commits anything in a project.
 
 Not built, as the plan says "later": real interruption of a running agent, and the shared library's own repo and CI merge. The client side of the library is built and untested against a real repo, since none exists: fetching per place, the checks, and `skills share --library`.
 
@@ -830,8 +843,7 @@ g. **The library** (later, once a repo exists): the origin, the fetch and cache,
 
 1. The job-context check: refuse, or warn and save with `(job?)` on the line? Recommended: warn and
    save. A wrong refusal loses a fact; a wrong save costs one line.
-2. Whether `~/.apprentice/skills/learned` is in `Sync.synced`'s allow-list, so facts follow the user to
-   another Mac. They are generic and already leak-checked; recommended yes, once checked.
+2. Settled: `~/.apprentice/skills/learned` syncs to `apprentice-home`, so facts follow the user to another Mac.
 3. A fact at ×3 or more and over 30 days old could be offered for `skills share` from the window ("3
    facts about facebook.com are ready to share"). Later.
 4. The default matching rule for environments: system, OS major and app name, plus the app's major

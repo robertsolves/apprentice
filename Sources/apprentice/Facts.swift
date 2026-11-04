@@ -213,7 +213,31 @@ extension Skills {
     }
 
     /// What a learned file holds as facts, and its retired lines.
-    static func facts(in url: URL) -> [Fact] { existingFacts(url).compactMap(Fact.parse) }
+    static func facts(in url: URL) -> [Fact] {
+        folded(existingFacts(url).compactMap(Fact.parse), retired: retired((try? String(contentsOf: url, encoding: .utf8)) ?? ""))
+    }
+
+    /// Sync merges a place's file line by line, so two Macs' copies of one fact arrive as two lines: they become one,
+    /// the later date, the higher count, and every environment from both. A fact retired after its last confirmation
+    /// stays retired, however the other Mac's copy came back.
+    static func folded(_ facts: [Fact], retired: [String] = []) -> [Fact] {
+        var out: [Fact] = []
+        for f in facts {
+            if let i = out.firstIndex(where: { $0.key == f.key }) {
+                let newer = f.date > out[i].date
+                out[i].date = max(out[i].date, f.date)
+                out[i].count = max(out[i].count, f.count)
+                if newer { out[i].doubted = f.doubted; out[i].kind = f.kind ?? out[i].kind }
+                out[i].seen += f.seen.filter { !out[i].seen.contains($0) }
+                out[i].not += f.not.filter { !out[i].not.contains($0) }
+            } else { out.append(f) }
+        }
+        let gone = retired.compactMap { line -> (key: String, date: String)? in
+            guard let was = line.range(of: " · was: ") else { return nil }
+            return (factKey(String(line[was.upperBound...])), String(line.prefix(10)))
+        }
+        return out.filter { f in !gone.contains { $0.key == f.key && $0.date >= f.date } }
+    }
 
     private static func retired(_ text: String) -> [String] {
         var out: [String] = [], inside = false
@@ -243,11 +267,15 @@ extension Skills {
                 keep = !chunk.lowercased().hasPrefix("retired")
                 if keep { rest += "\n## " + chunk }
             }
-            var out = String(existing[..<at.lowerBound]) + block + rest
-            if let u = out.range(of: "\nupdated:.*", options: .regularExpression), out.distance(from: out.startIndex, to: u.lowerBound) < 400 {
-                out.replaceSubrange(u, with: "\nupdated: \(day)")
+            // A line-by-line merge can leave two `updated:` lines above the facts: one stays.
+            var head = String(existing[..<at.lowerBound])
+            var first = true
+            while let u = head.range(of: "\nupdated:.*", options: .regularExpression) {
+                head.replaceSubrange(u, with: first ? "\u{0}updated: \(day)" : "")
+                first = false
             }
-            text = out
+            head = head.replacingOccurrences(of: "\u{0}", with: "\n")
+            text = head + block + rest
         } else if let existing {
             text = existing.trimmingCharacters(in: .newlines) + "\n\n" + block
         } else {

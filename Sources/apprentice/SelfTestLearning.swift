@@ -3,6 +3,91 @@ import Foundation
 /// Learning a place: the fact's shape, where it was seen, the merge under a built-in skill, the nudge, the drafter's
 /// gate, and lookup that does not depend on the library's size.
 extension SelfTest {
+    /// What goes to the private home repo, and how two Macs' work comes together there.
+    static func homeSync() {
+        let base = Store.dir.appendingPathComponent("home-test-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: base) }
+        let mac = base.appendingPathComponent("mac")
+        try? FileManager.default.createDirectory(at: mac, withIntermediateDirectories: true)
+        _ = Repo.run("git", ["init", "-q", "-b", "main"], in: mac)
+        try? Sync.gitignore.write(to: mac.appendingPathComponent(".gitignore"), atomically: true, encoding: .utf8)
+        try? Sync.gitattributes.write(to: mac.appendingPathComponent(".gitattributes"), atomically: true, encoding: .utf8)
+        func ignored(_ path: String) -> Bool { Repo.run("git", ["check-ignore", "-q", path], in: mac).code == 0 }
+        for path in ["named-agents.toml", "agents.toml", "pipeline-prompts.md", "pipeline-notes/shop/fix/2026-11-05-run-1.md", "skills/learned/web/a.example.md", "skills/yours/mine.md"] {
+            check(!ignored(path), "home: \(path) goes to the private repo")
+        }
+        for path in ["skills/index.sqlite", "skills/index.sqlite-wal", "skills/library/web/a.example.md", "project-agents.json", "agent-limits.json", "cache/runs/1/state.json", "struggle.json", "tidy.stamp"] {
+            check(ignored(path), "home: \(path) stays on this Mac")
+        }
+
+        // Two Macs learn about one place: both lines arrive, and fold into one fact per key.
+        let bare = base.appendingPathComponent("bare.git")
+        _ = Repo.run("git", ["init", "-q", "--bare", "-b", "main", bare.path])
+        let id = ["-c", "user.name=t", "-c", "user.email=t@example.com"]
+        let rel = "skills/learned/web/a.example.md"
+        func commit(_ dir: URL, _ m: String) {
+            _ = Repo.run("git", ["add", "-A"], in: dir)
+            _ = Repo.run("git", id + ["commit", "-q", "-m", m], in: dir)
+        }
+        func facts(_ dir: URL) -> [Fact] { Skills.facts(in: dir.appendingPathComponent(rel)) }
+        func put(_ dir: URL, _ lines: [String]) {
+            let url = dir.appendingPathComponent(rel)
+            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? ("---\nscope: site\nmatch: a.example\nupdated: 2026-11-01\n---\n# a.example\n\n## Key facts\n" + lines.map { "- \($0)\n" }.joined()).write(to: url, atomically: true, encoding: .utf8)
+        }
+        put(mac, ["2026-11-01 · The shared fact · seen: macOS 26 Chrome 156"])
+        commit(mac, "start")
+        _ = Repo.run("git", ["remote", "add", "origin", bare.path], in: mac)
+        _ = Repo.run("git", ["push", "-q", "-u", "origin", "main"], in: mac)
+        let other = base.appendingPathComponent("other")
+        _ = Repo.run("git", ["clone", "-q", bare.path, other.path])
+        put(other, ["2026-11-03 ×2 · The shared fact · seen: macOS 15 Safari 18", "2026-11-03 · A fact only the other Mac has"])
+        commit(other, "other Mac")
+        _ = Repo.run("git", ["push", "-q"], in: other)
+        put(mac, ["2026-11-02 · The shared fact · seen: macOS 26 Chrome 156", "2026-11-02 · A fact only this Mac has"])
+        commit(mac, "this Mac")
+        _ = Repo.run("git", ["fetch", "-q", "origin"], in: mac)
+        let saved = Sync.testDir
+        Sync.testDir = mac
+        defer { Sync.testDir = saved }
+        _ = try? Sync.merge(in: mac, onto: "origin/main")
+        let merged = facts(mac)
+        check(merged.count == 3 && merged.contains { $0.text.contains("only this Mac") } && merged.contains { $0.text.contains("only the other Mac") }, "home: two Macs' facts both survive the merge: \(merged.map(\.line))")
+        let shared = merged.first { $0.text == "The shared fact" }
+        check(shared?.date == "2026-11-03" && shared?.count == 2 && Set(shared?.seen ?? []) == ["macOS 26 Chrome 156", "macOS 15 Safari 18"], "home: one fact from two Macs is one line, with where both saw it")
+        try? Skills.saveFacts(merged, at: mac.appendingPathComponent(rel), scope: "site", match: "a.example", day: "2026-11-04")
+        let saved2 = (try? String(contentsOf: mac.appendingPathComponent(rel), encoding: .utf8)) ?? ""
+        check(saved2.components(separatedBy: "updated:").count == 2 && saved2.contains("updated: 2026-11-04"), "home: a merge's two updated: lines become one")
+        check(Skills.folded([Fact(date: "2026-11-01", text: "Gone now")], retired: ["2026-11-02 · was: Gone now"]).isEmpty
+                && Skills.folded([Fact(date: "2026-11-03", text: "Gone now")], retired: ["2026-11-02 · was: Gone now"]).count == 1, "home: a retired fact stays retired, unless it was confirmed since")
+
+        // Notes: a copy in the home repo, back in the cache on another Mac.
+        let project = base.appendingPathComponent("noted")
+        try? Projects.scaffold(project, name: "Noted", vm: nil, about: "")
+        Runs.saveNote("first\n", name: "2026-11-05-run-1.md", project: project, slug: "fix")
+        let copy = Runs.notesHome(project: project, slug: "fix").appendingPathComponent("2026-11-05-run-1.md")
+        check((try? String(contentsOf: copy, encoding: .utf8)) == "first\n", "notes: a copy goes where the home repo syncs it")
+        Runs.saveNote("from another run\n", name: "2026-11-05-run-1.md", project: project, slug: "fix")
+        check(((try? FileManager.default.contentsOfDirectory(atPath: copy.deletingLastPathComponent().path)) ?? []).count == 2, "notes: the same run number on another Mac does not overwrite it")
+        try? FileManager.default.removeItem(at: Runs.past(project: project, slug: "fix"))
+        Runs.restoreNotes(project: project, slug: "fix")
+        check(((try? FileManager.default.contentsOfDirectory(atPath: Runs.past(project: project, slug: "fix").path)) ?? []).count == 2, "notes: a new Mac gets them back in the cache")
+        try? FileManager.default.removeItem(at: Store.dir.appendingPathComponent("pipeline-notes"))
+
+        // Sync waits for a running pipeline, and never sends the cache.
+        check(!Runs.live(project: project), "sync: no run, nothing to wait for")
+        _ = try? Runs.allocate(project: project)
+        var s = RunState(run: 1, pipeline: "x", name: "x", slug: "x", file: nil, project: project.path, started: 0)
+        s.pid = ProcessInfo.processInfo.processIdentifier
+        try? Wire.json(s).write(to: Runs.root(project: project).appendingPathComponent("1/state.json"), options: .atomic)
+        check(Runs.live(project: project), "sync: a run with a live process counts")
+        let info = Projects.Info(name: "Noted", folder: project, vm: nil)
+        check((try? Sync.project(info, token: nil, login: "x"))?.contains("pipeline") == true, "sync: a project with a running pipeline waits")
+        s.pid = nil
+        try? Wire.json(s).write(to: Runs.root(project: project).appendingPathComponent("1/state.json"), options: .atomic)
+        check(!Runs.live(project: project), "sync: one that ended does not")
+    }
+
     static func placeFacts() {
         // The line round-trips, older lines read, kinds come from the first word.
         let line = "2026-11-05 ×3 ? · trap · A click on \"See more\" can leave the group · seen: macOS 26 Chrome 156, Linux 13 Chromium 142 · not: macOS 26 Safari 26"

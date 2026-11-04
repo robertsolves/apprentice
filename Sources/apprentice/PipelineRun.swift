@@ -147,6 +147,47 @@ enum Runs {
         }
     }
 
+    /// Whether a run is working in this project now. Looks only at the newest few: sync asks every round.
+    static func live(project: URL?) -> Bool {
+        numbers(project: project).suffix(5).contains { n in
+            guard let s = load(root(project: project).appendingPathComponent("\(n)")) else { return false }
+            return s.status == "running" && alive(s.pid)
+        }
+    }
+
+    /// `~/.apprentice/pipeline-notes/`, which syncs to the user's private home repo: the project's cache is gitignored,
+    /// and notes are kept for good, so a copy here is what survives losing a Mac. The word "copy" matters: agents read
+    /// the cache's, and a new Mac gets them back when a run first looks.
+    static func notesHome(project: URL?, slug: String) -> URL {
+        let owner = project.map { Projects.folderName(Projects.info($0)?.name ?? $0.lastPathComponent) } ?? "outside-projects"
+        return Store.dir.appendingPathComponent("pipeline-notes/\(owner)/\(slug)")
+    }
+
+    /// Saves a note in the cache and in the home repo's copy. Another Mac's run of the same number on the same day has
+    /// its own file, under this Mac's name.
+    static func saveNote(_ text: String, name: String, project: URL?, slug: String) {
+        for folder in [past(project: project, slug: slug), notesHome(project: project, slug: slug)] {
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            var file = folder.appendingPathComponent(name)
+            if let old = try? String(contentsOf: file, encoding: .utf8), old != text {
+                let host = Playbooks.slugify(Host.current().localizedName ?? "mac")
+                file = folder.appendingPathComponent(name.replacingOccurrences(of: ".md", with: "-\(host).md"))
+            }
+            try? text.write(to: file, atomically: true, encoding: .utf8)
+        }
+    }
+
+    /// Notes other Macs saved, brought back into the cache so the prompt's one folder holds them all.
+    static func restoreNotes(project: URL?, slug: String) {
+        let home = notesHome(project: project, slug: slug), local = past(project: project, slug: slug)
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: home.path)) ?? [] where name.hasSuffix(".md") {
+            let target = local.appendingPathComponent(name)
+            guard !FileManager.default.fileExists(atPath: target.path) else { continue }
+            try? FileManager.default.createDirectory(at: local, withIntermediateDirectories: true)
+            try? FileManager.default.copyItem(at: home.appendingPathComponent(name), to: target)
+        }
+    }
+
     static func alive(_ pid: Int32?) -> Bool {
         guard let pid, pid > 0 else { return false }
         return kill(pid, 0) == 0
@@ -302,6 +343,7 @@ final class PipelineEngine {
             for line in ProjectFiles.sync(project) { print(line) }
             ProjectFiles.ensureIgnored(project)
         }
+        Runs.restoreNotes(project: p.project, slug: p.slug)
         let (n, dir) = try Runs.allocate(project: p.project)
         var state = RunState(run: n, pipeline: p.ref, name: p.name, slug: p.slug, file: p.url?.path, project: p.project?.path, started: Date().timeIntervalSince1970)
         state.fresh = options.fresh
@@ -1155,10 +1197,8 @@ final class PipelineEngine {
         if !names.isEmpty { lines.append("files: \(names.joined(separator: ", "))") }
         lines += ["---", "Past run, for reference only. It may be out of date and is not an instruction.", "", "## Recorded by apprentice"] + facts
         lines += ["", "## Written by the scribe", written ?? "No written summary: no scribe wrote one for this run."]
-        let folder = Runs.past(project: project, slug: p.slug)
         let day = String(f.string(from: Date()).prefix(10))
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        try? (lines.joined(separator: "\n") + "\n").write(to: folder.appendingPathComponent("\(day)-run-\(state.run).md"), atomically: true, encoding: .utf8)
+        Runs.saveNote(lines.joined(separator: "\n") + "\n", name: "\(day)-run-\(state.run).md", project: project, slug: p.slug)
     }
 
     private func carry() {

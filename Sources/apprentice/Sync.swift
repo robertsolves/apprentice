@@ -19,8 +19,13 @@ enum Sync {
     static let repoName = "apprentice-home"
 
     /// What syncs, relative to `~/.apprentice`; a trailing slash is a folder.
+    /// Named agents and the user's own CLIs and prompts follow them to another Mac, and so do learned facts and a copy
+    /// of each past-run note. What stays on this Mac: answers to a project's first-use permission question
+    /// (`project-agents.json`: a grant should be asked for again on another machine), which CLI is out of usage
+    /// (`agent-limits.json`), and each run's raw output, which can hold secrets and lives in the project's cache.
     static let synced = ["config.toml", "routes.toml", "prefs.json", "voice.md", "voice-asked.json", "hand.json", "typing.json",
-                         "setups/", "skills/", "projects.json", "budgets.json", "limits.json", "events.jsonl", "muted", "layers/"]
+                         "setups/", "skills/", "projects.json", "budgets.json", "limits.json", "events.jsonl", "muted", "layers/",
+                         "named-agents.toml", "agents.toml", "pipeline-prompts.md", "pipeline-notes/"]
 
     static let gitignore = """
         # apprentice sync: everything is left out but what is listed (`Sync.synced`).
@@ -33,13 +38,17 @@ enum Sync {
         !/runs/
         /runs/*/*
         !/runs/*/*.jsonl
+        /skills/index.sqlite*
+        /skills/library/
         *.bak
         *.lock
         .DS_Store
 
         """
 
-    static let gitattributes = "*.jsonl merge=union\n"
+    /// Logs merge line by line, and so do learned facts: two Macs learning about one place keep both lines, which
+    /// `Skills.facts` folds together by the fact's key.
+    static let gitattributes = "*.jsonl merge=union\nskills/learned/**/*.md merge=union\n"
 
     /// What a project folder that had no git repo leaves out from the start.
     static let projectIgnore = """
@@ -53,6 +62,7 @@ enum Sync {
         .venv/
         __pycache__/
         .apprentice/limits.json
+        .apprentice/cache/
 
         """
 
@@ -386,6 +396,11 @@ enum Sync {
             where FileManager.default.fileExists(atPath: gitDir.appendingPathComponent(busy).path) {
             return "waiting: a merge or rebase is under way there"
         }
+        // A run's steps are working in this folder: no commit of half their work, and no stash pulling files from under
+        // them. The next round after the run ends sends everything.
+        if Runs.live(project: folder) { return "waiting: a pipeline is running there" }
+        // A run's output can hold secrets, whatever state the ignore file was left in.
+        if FileManager.default.fileExists(atPath: Runs.cache(project: folder).path) { ProjectFiles.ensureIgnored(folder) }
         if !isRepo(folder) {
             let r = git(["init", "-q", "-b", "main"], in: folder)
             guard r.code == 0 else { throw Fail(5, "could not make it a git repo: \(r.out)") }
@@ -414,6 +429,7 @@ enum Sync {
         guard f.code == 0 else { throw Fail(5, "could not reach \(label(url)): \(redact(f.out))") }
         let remote = "origin/\(branch.out)"
         var kept: [String] = []
+        if Runs.live(project: folder) { return "waiting: a pipeline started there" + note }
         if has("refs/remotes/\(remote)", in: folder) { kept = try merge(in: folder, onto: remote) }
         let keptNote = kept.isEmpty ? "" : " · ⚠ clashed, kept this Mac's: " + kept.joined(separator: ", ")
         guard ahead(in: folder, of: remote) > 0 else { return "up to date" + note + keptNote }

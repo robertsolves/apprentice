@@ -62,6 +62,7 @@ enum SelfTest {
         markdownStyle()
         projectFiles()
         placeFacts()
+        homeSync()
         pipelineRuns()
         try? FileManager.default.removeItem(at: Store.dir)
         if failures.isEmpty {

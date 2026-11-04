@@ -164,6 +164,7 @@ enum PipelineCLI {
 
     /// Past-run notes, newest first. One whose commit no longer matches the files it names may be out of date.
     static func pastNotes(_ p: Pipelines.Pipeline) -> [Note] {
+        Runs.restoreNotes(project: p.project, slug: p.slug)
         let folder = Runs.past(project: p.project, slug: p.slug)
         let files = ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: [.contentModificationDateKey])) ?? [])
             .filter { $0.pathExtension == "md" }
