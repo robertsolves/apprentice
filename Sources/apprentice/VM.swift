@@ -381,7 +381,7 @@ enum VM {
             .filter { ($0["Source"] as? String) == "local" }
             .compactMap { vm -> (String, String)? in
                 guard let n = vm["Name"] as? String, n.hasPrefix("apprentice-") else { return nil }
-                return (n, vm["State"] as? String ?? "?")
+                return (n, VMHost.isRunning(n) ? "running" : vm["State"] as? String ?? "?")
             }
         var names = Set(tartVMs.map { $0.0 == "apprentice-browser" ? "" : String($0.0.dropFirst("apprentice-".count)) })
         let all = tables
@@ -403,7 +403,7 @@ enum VM {
         let entry = tartList().first { ($0["Name"] as? String) == name }
         guard let entry else { return "vm: none yet · run `apprentice vm setup`" }
         let s = state
-        return "vm \(name) · \(entry["State"] as? String ?? "?") · routing \(s.on ? "on" : "off")" + (s.ip.map { " · \($0)" } ?? "")
+        return "vm \(name) · \(VMHost.isRunning(name) ? "running" : entry["State"] as? String ?? "?") · routing \(s.on ? "on" : "off")" + (s.ip.map { " · \($0)" } ?? "")
     }
 
     /// Whether an ssh server greets on the guest's port, logged in or not.

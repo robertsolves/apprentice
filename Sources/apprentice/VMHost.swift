@@ -198,13 +198,18 @@ enum VMHost {
         try? Wire.json(Status(state: state, pid: getpid(), error: error, at: Date().timeIntervalSince1970)).write(to: statusURL(name))
     }
 
-    /// The configuration Tart would build for this Linux VM, from its own `config.json`.
-    static func configuration(_ bundle: URL, console: FileHandle?) throws -> VZVirtualMachineConfiguration {
-        let fm = FileManager.default
+    /// Tart's `config.json` for this VM.
+    static func readConfig(_ bundle: URL) throws -> [String: Any] {
         guard let d = try? Data(contentsOf: bundle.appendingPathComponent("config.json")),
               let json = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else {
             throw Fail(5, "could not read \(bundle.appendingPathComponent("config.json").path)")
         }
+        return json
+    }
+
+    /// The configuration Tart would build for this Linux VM, from its own `config.json`.
+    static func configuration(_ bundle: URL, json: [String: Any], console: FileHandle?) throws -> VZVirtualMachineConfiguration {
+        let fm = FileManager.default
         guard (json["os"] as? String) == "linux" else { throw Fail(5, "only Linux VMs run inside apprentice; set [vm] runner = \"tart\"") }
         let disk = bundle.appendingPathComponent("disk.img"), nvram = bundle.appendingPathComponent("nvram.bin")
         guard fm.fileExists(atPath: disk.path), fm.fileExists(atPath: nvram.path) else {
@@ -263,6 +268,8 @@ final class HostedVM: NSObject, VZVirtualMachineDelegate {
     init(name: String, bundle: URL, ended: @escaping (String) -> Void) throws {
         self.name = name
         self.ended = ended
+        // Read before the lock: closing any descriptor of a file drops all of this process's fcntl locks on it.
+        let json = try VMHost.readConfig(bundle)
         // The lock `tart run` takes, so Tart sees this VM as running and never boots the same disk twice.
         let fd = open(bundle.appendingPathComponent("config.json").path, O_RDWR)
         guard fd >= 0 else { throw Fail(5, "could not open \(bundle.path)") }
@@ -278,7 +285,7 @@ final class HostedVM: NSObject, VZVirtualMachineDelegate {
         FileManager.default.createFile(atPath: log.path, contents: nil)
         console = try? FileHandle(forWritingTo: log)
         do {
-            machine = VZVirtualMachine(configuration: try VMHost.configuration(bundle, console: console))
+            machine = VZVirtualMachine(configuration: try VMHost.configuration(bundle, json: json, console: console))
         } catch {
             close(fd)
             throw error
