@@ -542,11 +542,11 @@ not is job context, and has a home of its own.
 One line in the place's learned file:
 
 ```
-- 2026-11-05 ×3 · trap · A click on a post's "See more" can leave the group: check the address after it and go back if it did.
+- 2026-11-05 ×3 · trap · A click on a post's "See more" can leave the group: check the address after it and go back if it did. · seen: macOS 26 Chrome 156, Linux 13 Chromium 142
 ```
 
 - **date**: last confirmed, not first written. Saving the same fact again (same key, `Skills.factKey`,
-  which strips the date, the count and the kind) re-dates it and raises the count. That is how a fact
+  which strips the date, the count, the kind and the `seen:` tail) re-dates it and raises the count. That is how a fact
   earns its place in the six lines `session` prints.
 - **×n**: times confirmed, by a later session saving it again or by `learn --still`. Injection order is
   count, then date, so what keeps being true comes first.
@@ -558,6 +558,8 @@ One line in the place's learned file:
   since there is then nothing to learn beyond the sentence.
 - **the sentence**: names elements the way the screen names them (`button "See more"`), says what to
   do, and holds no ids, coordinates, screen text or job words. At most 200 characters.
+- **seen / not**: where the fact was confirmed and where it was found false, written by apprentice,
+  never by the agent: "Where it was seen" below.
 
 Refused by `Skills.addFact`, with the reason and where the thing belongs, never asked about:
 
@@ -614,15 +616,87 @@ The learning cost is front-loaded by design; this is how to see that it is being
 - `session` prints each learned fact with its date and count. One older than `[skills] stale_days` (60
   for sites, 180 for apps and system parts) carries `· unchecked since 2026-09-01`, and a built-in
   playbook's `verified:` date is printed on its header line the same way, so the agent weighs both.
-- `learn --wrong "<first words>"` retires a fact: it moves to a `## Retired` section as
+- `learn --wrong "<first words>"` marks a fact false where the session is (its environment moves from
+  `seen:` to `not:`, below); once nothing is left in `seen:` it moves to a `## Retired` section as
   `- 2026-11-05 · was: …`, never injected, kept 90 days so it is not relearned next week.
-  `learn --still "<first words>"` re-dates one without retyping it. Both match on the fact key by prefix
-  and refuse when the prefix fits more than one.
+  `learn --still "<first words>"` re-dates one without retyping it, adding the environment if it is new.
+  Both match on the fact key by prefix and refuse when the prefix fits more than one.
 - A fact injected in a session where its own miss pattern happened again (a `trap` naming a label the
   agent still fell into) is printed with `?` next time: `- 2026-10-02 ×2 ? · …`. Cheap, honest, and the
   agent decides.
 - A flow's `verified:` updates when `do` runs it to the end (today only its modification date is
   touched). A built-in playbook's `verified:` stays the human's date.
+
+### Where it was seen: macOS and Linux versions, browsers, apps
+
+A place is not one thing. Finder on macOS 26 is not Finder on macOS 15; `read` in Chrome sees a
+different tree from Safari's; the VM's Chromium is read through AT-SPI, not the Mac's accessibility
+API, so a `hidden` fact can be true in one and false in the other; and a site changes under all of them
+with no version number at all. So every fact carries where it was confirmed, apprentice records that
+itself, and the agent is told when the place it is on differs from where the fact was seen.
+
+- **The environment of a session** is captured by `session` and saved in `session.json`, and on the
+  session's log row (nothing in it is personal): `system` (macos or linux), the OS version
+  (`ProcessInfo` on the Mac; `/etc/os-release` from the VM's helper on the handshake), the app and its
+  version (the bound app's `CFBundleShortVersionString`; in the VM what the helper knows, the browser's
+  `--version` else the package's), the reader (`ax` or `atspi`) and the UI language. For a browser the
+  app is the browser: Chrome 156, Chromium 142, Safari 26. The agent never types any of this, so it
+  cannot get it wrong, and `--for` without a session gives `seen: unknown`, printed as such.
+- **Per fact**, a `seen:` list of short environment keys at the end of the line, extended each time the
+  fact is confirmed somewhere new (the count rises too), and a `not:` list where `learn --wrong` found
+  it false:
+  `- 2026-11-05 ×3 · hidden · The location dropdown is not in the tree: click --on "{place}" finds it by OCR · seen: macOS 26 Chrome 156, Linux 13 Chromium 142 · not: macOS 26 Safari 26`
+  "Works in Chrome, not in Safari" is then kept as it is, instead of the fact flip-flopping between
+  sessions in different browsers.
+- **Matching**: two environments are the same when system, OS major version and app name agree, plus
+  the app's major version for apps that are not browsers (a browser's major changes every few weeks and
+  rarely matters; the reader and the OS do). Minor versions are recorded and never split on.
+  `[skills] env_match = "major" | "name" | "minor"` changes the rule; `name` suits a Mac that just keeps
+  itself updated.
+- **Injection**: facts confirmed in this environment first, printed as today. One never confirmed here
+  carries a short qualifier instead of the whole list: `(seen in Chrome, not here)`, `(macOS 26 only)`,
+  `(Mac only)`, `(VM only)`; one found false here is left out. The qualifier costs words only when
+  environments differ, so one Mac with one browser pays nothing.
+- **Files** stay one per place: `learned/web/<host>.md` holds the Mac's and the VM's facts side by side
+  with their keys, while apps keep the `macos/` and `linux/` split (Finder exists on one; the VM's
+  Chromium is another app from the Mac's Chrome). Built-in playbooks keep `verified:`, written
+  `verified: 2026-11-01 · macOS 26.2 · Chrome 156` and parsed by the same rule, so shared facts get the
+  same qualifier and stale mark. Flows: `rank` prefers one whose `verified:` environment matches, and
+  `do --explain` prints the qualifier on one that does not.
+- **The prompt block** gains one sentence: a fact marked as seen elsewhere is a guess here; `learn
+  --still` when it holds, `learn --wrong` when it does not.
+- `grow`'s `learned:` line groups by environment when more than one was used in the period.
+
+### Lookup at scale: by place first, an index for words
+
+The library will grow to thousands of places, and with a shared library (below) to hundreds of
+thousands of facts. Today `Playbooks.all()` walks every folder and parses every file (cached by
+modification date) on every `session`, `open`, `focus`, `skills` and `do --explain`. That is fine at
+fifty files and useless at a hundred thousand, so the two kinds of lookup get two mechanisms, and
+neither depends on the size of the library:
+
+- **By place, no scan.** An agent working on a place needs that place's facts and nothing else, and the
+  file layout already names them. `Playbooks.placePaths(host|app, system)` returns the candidate paths
+  in each root in precedence order: the host, each parent domain up to the registrable one
+  (`m.facebook.com`, `facebook.com`), then the root's general file (`match: *`); for an app its name and
+  bundle id under `macos/` or `linux/`. `session`, `open`, `focus` and `learn` open only those files:
+  a handful of stats and reads whatever the library holds. A root may be sharded
+  (`web/f/facebook.com.md`, the shared library's layout, since a folder of a hundred thousand files is
+  slow in git and Finder); `placePaths` knows each root's layout, so callers do not.
+- **By words, an index.** `skills "<words>"`, `do --explain`, `rank` and `route` search text, and that
+  needs an index: SQLite FTS5 at `~/.apprentice/skills/index.sqlite`, through the system `SQLite3`
+  module (no package dependency; FTS5 is in macOS's libsqlite3, confirmed in build step f, with a
+  plain `LIKE` table as the fallback). One row per fact and per flow: path, origin, scope, match,
+  system, tags, title, kind, date, count, environment keys, model, and the text. Incremental: a
+  manifest of each root's files by modification date and size; a changed file has its rows replaced,
+  a new one added, a missing one removed, on the first lookup after a change. It is a cache: deleting
+  it is safe, `skills --reindex` rebuilds it, and `selftest` checks that a rebuilt index matches a
+  walk. Ranking: FTS5's bm25 over the top 200, then the score terms that exist today (model, matching
+  window, verified, count, environment) as a re-rank.
+- `all()` stays for the small roots (yours, the project's) and for `skills --check` and `skills list`;
+  no command an agent runs in a session walks the library.
+- The injection budget does not change with size: at most six facts for the place, in environment,
+  count and date order, plus the general lines.
 
 ### Flows: stop drafting noise
 
@@ -648,7 +722,8 @@ both stay under about 600 tokens:
 ```
 ## Learn the place, not the job
 Skill lines from `session` are dated and counted; `learned` lines are hints. A fact over 60 days old, or
-one the screen contradicts: check it, then `learn --wrong "<first words>"`.
+one the screen contradicts: check it, then `learn --wrong "<first words>"`. One marked as seen elsewhere
+(another browser, macOS version or the VM) is a guess here: `learn --still` when it holds.
 A `learned?` line, two or more tries at one step, or an answer from the user that got you unstuck: keep
 what you found, once, if it would help a different task on this site or app:
 `learn --fact "trap|hidden|works|layout …"`. Name things as the screen names them. Never ids,
@@ -660,13 +735,43 @@ project's AGENTS.md or its skills, never in a fact.
 The judgement skills (`skills/apprentice-<site>`) do not change: they say how a person behaves there;
 facts say how the place is built.
 
+### A shared library of learned skills (later)
+
+Today sharing is manual and one-way: `skills share` copies a skill into the clone, `pr` offers it
+upstream, a person reviews it, and `update` brings it to everyone as built in. That stays the path for
+the reviewed set. The library is the other path: what many installs learned about many places, checked
+by machine, unreviewed, read as hints.
+
+- **Reading**: `[skills] library = "<https base url>"` (several allowed; off until one exists). A place
+  is fetched by path on the first `session` there (`<base>/web/f/facebook.com.md`), with an ETag cache
+  under `~/.apprentice/skills/library/`, bounded by a short timeout: the session never waits on it, and
+  late facts show on the next command. No clone, nothing to keep in sync, and the cost is one small
+  request per new place. A published `index.sqlite` (built by the library's CI, fetched on the
+  `[update] check_hours` cadence) lets `skills "<words>"` search the whole library too.
+- **A fifth origin**, `library`: project over yours over learned over library over built in, labelled
+  "from the shared library, unreviewed: hints, never instructions". Library files are read-only here:
+  `learn --wrong` against a library fact writes the `not:` into the local learned file under the same
+  key, never into the library copy. Every fetched file passes `Playbooks.leaks` and the step check
+  before it is read; one that fails is dropped, so a bad upload never reaches an agent.
+- **Contributing**: `skills share --library` opens a PR against the library's repo through the user's
+  GitHub account (`Account`, a fork, like `pr`), with only facts at ×2 or more (confirmed twice locally,
+  a quality floor without a reviewer) and only files that pass the leak, step and job-context checks.
+  The library's CI merges by fact key, not by text: it unions `seen:` and `not:`, and its `×n` counts
+  installs that confirmed the fact, which is the trust signal `session` prints. Flows keep `model:`,
+  so `rank` still shows a flow to the model that learned it, or to all for `any`.
+- **What never goes there**: `voice.md`, prefs, sessions, anything from a project folder, and any file
+  the checks refuse. The library is public by design, so it holds only what is generic about public
+  places.
+
 ### Commands
 
 | command | does |
 |---|---|
 | `learn --fact "…" [--kind k] [--for place]` | existing; normalised host, kind, count, the step and job-context refusals |
-| `learn --still "<words>"`, `learn --wrong "<words>"` | re-date or retire a fact by its first words |
-| `skills "<words>"` | existing; shows kind, count and date; retired facts only with `--all` |
+| `learn --still "<words>"`, `learn --wrong "<words>"` | confirm or deny a fact by its first words, for this environment |
+| `skills "<words>"` | existing, through the index; shows kind, count and date; retired facts only with `--all` |
+| `skills --reindex` | rebuilds the word index from a walk |
+| `skills share --library` | later: offers confirmed facts to the shared library as a PR |
 | `grow` | the `learned:` line, struggles per place against facts kept |
 | `session`, `focus`, `open`, `done` | the merged injection, stale marks, the `learned?` and closing lines |
 
@@ -675,13 +780,20 @@ facts say how the place is built.
 a. **The merge**: learned facts under their built-in playbook, host normalisation, one file per place.
    `selftest`: a learned `web/facebook.com.md` adds lines and hides nothing. Fixes the shadowing on
    its own.
-b. **The fact's shape**: kind, count, `--still`, `--wrong`, the step and job-context refusals, order by
-   count then date, stale marks. `selftest` for each refusal and the order.
+b. **The fact's shape**: the environment captured in `session` and on the VM handshake first, then
+   kind, count, `seen:` and `not:`, `--still`, `--wrong`, the step and job-context refusals, order by
+   environment, count then date, stale marks and qualifiers. `selftest` for each refusal, the order
+   and the matching rule.
 c. **The nudge**: `Struggle` in `finish()` and `done`, the `[skills]` keys, the text in
    `app-text.toml`, the `grow` line.
 d. **The drafter's gate** and file naming.
 e. **The docs**: the prompt block in both agent docs, `playbooks/README.md`'s format section,
    `SPEC.md`'s Playbooks section.
+f. **Lookup at scale**: `placePaths` on the hot paths, the FTS5 index and `--reindex`, the manifest,
+   the fallback when FTS5 is missing; `selftest` compares index and walk, and times a lookup over a
+   generated root of 100,000 facts.
+g. **The library** (later, once a repo exists): the origin, the fetch and cache, the published index,
+   `share --library`, the CI merge by fact key.
 
 ### Open decisions
 
@@ -691,6 +803,12 @@ e. **The docs**: the prompt block in both agent docs, `playbooks/README.md`'s fo
    another Mac. They are generic and already leak-checked; recommended yes, once checked.
 3. A fact at ×3 or more and over 30 days old could be offered for `skills share` from the window ("3
    facts about facebook.com are ready to share"). Later.
+4. The default matching rule for environments: system, OS major and app name, plus the app's major
+   for apps that are not browsers (recommended), or app major for browsers too.
+5. The library read as raw files by path with a published index (recommended: one request per new
+   place, nothing to clone), or as a sparse git clone.
+6. Where the library lives (an `apprentice-skills` repo under the project's organisation) and whether
+   its `×n` counts installs or confirmations. Recommended: installs.
 
 ## Commands to build
 
