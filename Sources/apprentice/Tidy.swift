@@ -106,6 +106,7 @@ enum Tidy {
     }
 
     static func command(_ a: Args) -> String {
-        a.has("report") ? run() + "\n" + report() : run()
+        if a.has("look") { return report() }
+        return a.has("report") ? run() + "\n" + report() : run()
     }
 }

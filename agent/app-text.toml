@@ -32,11 +32,23 @@ points = [
 label = "Pipelines"
 icon = "list.number"
 explainer_title = "What is a pipeline?"
-about = "A pipeline is how a project gets work done: a list of prompts that run one after another. Each step goes to your agent, and the agent sees what the step before it found. A pipeline with one step is just a simple task."
+about = "A pipeline is how a project gets work done: steps that run one after another, each given to an agent you choose, and each told what the steps before it found. It can branch, and steps can run at the same time and talk to each other. A pipeline with one step is a simple task."
 points = [
     "For example: 1. Get the new comments on my Instagram post. 2. Answer the ones that ask about prices by email. 3. Write me a two-line summary.",
     "Run it now, or put it on a schedule: every morning, every Monday.",
+    "If an agent runs out of tokens or stalls, the next one on your list takes over. If it needs you, the run waits here with your choices.",
+    "Audit writes a brief for reviewing the pipeline, and opens a shell where any agent can help you tweak it.",
     "Each pipeline is a file in its project's pipelines folder. In a terminal: apprentice pipeline task, list, run and new.",
+]
+
+[section.instructions]
+label = "Instructions"
+icon = "doc.text"
+explainer_title = "What agents read"
+about = "Any agent opened in this project reads AGENTS.md first. It holds your notes on the project, and a short part apprentice keeps up to date on how pipelines work. Skills and commands are copied to where each agent looks for them."
+points = [
+    "Edit your own part here. Apprentice only ever changes the tinted part, and asks before replacing a change you made to it.",
+    "Files made by apprentice are read-only here. Edit the original, in this project's .apprentice folder.",
 ]
 
 [section.schedules]

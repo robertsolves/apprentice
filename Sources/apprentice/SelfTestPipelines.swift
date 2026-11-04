@@ -165,6 +165,21 @@ extension SelfTest {
         check(Board.seconds("10m") == 600 && Board.seconds("90s") == 90 && Board.seconds("2h") == 7200 && Board.seconds("5") == 5, "board: durations")
     }
 
+    static func markdownStyle() {
+        let text = "---\nname: x\n---\n# Title\nSome **bold** and `code` and [a](b).\n- item\n12. numbered\n```\n# not a heading\n```\n#hashtag\n" + ProjectFiles.block("mine")
+        let spans = MarkdownStyle.spans(text)
+        let ns = text as NSString
+        func found(_ kind: MarkdownStyle.Kind) -> [String] { spans.filter { $0.kind == kind }.map { ns.substring(with: NSRange(location: $0.location, length: $0.length)) } }
+        check(found(.frontMatter) == ["---", "name: x", "---"], "markdown: front matter")
+        check(found(.heading) == ["# Title"], "markdown: a heading, and none inside a fence or without a space")
+        check(found(.bold) == ["**bold**"] && found(.link) == ["[a](b)"], "markdown: bold and links")
+        check(found(.code).contains("`code`") && found(.code).contains("# not a heading"), "markdown: code")
+        check(found(.list) == ["-", "12."], "markdown: list markers")
+        check(found(.section).first?.contains("mine") == true, "markdown: apprentice's section is picked out")
+        check(MarkdownStyle.spans("---\nnot at the top\n").first?.kind == .frontMatter && MarkdownStyle.spans("text\n---\nmore\n").isEmpty, "markdown: --- is front matter only at the top")
+        check(AppText.screen("instructions").about.isEmpty == false, "app text: the Instructions screen has its words")
+    }
+
     static func projectFiles() {
         let folder = Store.dir.appendingPathComponent("files-test-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: folder) }
@@ -498,6 +513,11 @@ extension SelfTest {
         write("---\ngoal: g\n---\n## w\nuse: A\nRUN-one: echo refused by the sandbox; exit 1\nRUN-two: echo should-not-run\n", "w", in: ref)
         r = cli(["pipeline", "run", "w"], in: ref, fake: fake)
         check(r.code == 9 && !r.out.contains("should-not-run") && state(ref, 1)?.steps["w"]?.question?.kind == "permission", "runs: a refusal does not fall back (exit \(r.code))")
+
+        let quiet = newProject("quiet", under: base)
+        write("---\ngoal: g\n---\n## w\nuse: A\nRUN: echo refused by the sandbox\n", "w", in: quiet)
+        r = cli(["pipeline", "run", "w"], in: quiet, fake: fake)
+        check(r.code == 9 && state(quiet, 1)?.steps["w"]?.question?.kind == "permission", "runs: a refusal with exit 0 is not a finished step (exit \(r.code))")
 
         // A UI step that already acted does not retry: it could send something twice.
         let ui = newProject("ui", under: base)

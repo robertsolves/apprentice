@@ -122,7 +122,7 @@ enum Board {
             let limit = seconds(a.value("for")) ?? 600
             let end = Date().addingTimeInterval(limit)
             let waiting = here.node.appendingPathComponent("waiting")
-            FileManager.default.createFile(atPath: waiting.path, contents: nil)
+            try? "\(getpid())".write(to: waiting, atomically: true, encoding: .utf8)
             defer { try? FileManager.default.removeItem(at: waiting) }
             while Date() < end {
                 let all = messages(here.run)
@@ -195,7 +195,7 @@ struct PipelineStep {
         }
         let who = (agent ?? "An agent") + ", on the `\(step)` step"
         let asking = node.appendingPathComponent("asking")
-        FileManager.default.createFile(atPath: asking.path, contents: nil)
+        try? "\(getpid())".write(to: asking, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: asking) }
         let response = try Wire.send(Request(cmd: "ask", args: ["\(who): \(question)"] + rest))
         if response.code == 9 {

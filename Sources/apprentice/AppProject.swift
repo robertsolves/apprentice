@@ -18,6 +18,7 @@ struct ProjectWorkspace: View {
             case .pipelines: PipelinesView(model: model, project: project)
             case .schedules: SchedulesView(model: model, project: project)
             case .skills: ProjectSkillsView(model: model, project: project)
+            case .instructions: InstructionsView(model: model, project: project)
             case .settings: ProjectDetail(model: model, project: project)
             }
         }

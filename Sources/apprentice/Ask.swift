@@ -60,8 +60,10 @@ enum Ask {
         let timeout = windowTime(a.value("timeout").flatMap(Double.init) ?? 600)
         let previous = NSWorkspace.shared.frontmostApplication
         let caller = caller
-        let reply: Reply? = DispatchQueue.main.sync {
-            show(question, choices: choices, multi: multi, withText: withText, timeout: timeout, caller: caller)
+        let reply: Reply? = oneAtATime(timeout: timeout) {
+            DispatchQueue.main.sync {
+                show(question, choices: choices, multi: multi, withText: withText, timeout: timeout, caller: caller)
+            }
         }
         if let previous, previous.processIdentifier != getpid() { previous.activate() }
         guard let reply else {
@@ -77,6 +79,29 @@ enum Ask {
         if !reply.chosen.isEmpty { out.append("user chose: " + reply.chosen.joined(separator: "; ")) }
         if !reply.text.isEmpty { out.append("user: " + reply.text) }
         return out.joined(separator: "\n")
+    }
+
+    /// Several parallel agents may ask at once. A second modal window nested inside the first would answer in the
+    /// wrong order, and the lower one's timer would close the top one, so questions wait their turn, each window
+    /// saying how many more there are. One still waiting when its time is up goes the way an unanswered one does.
+    private static let turn = DispatchSemaphore(value: 1)
+    private static let waitingLock = NSLock()
+    private static var waitingCount = 0
+
+    /// How many questions are behind the one on screen.
+    static var behind: Int {
+        waitingLock.lock()
+        defer { waitingLock.unlock() }
+        return waitingCount
+    }
+
+    static func oneAtATime(timeout: Double, _ body: () -> Reply?) -> Reply? {
+        waitingLock.lock(); waitingCount += 1; waitingLock.unlock()
+        let got = turn.wait(timeout: .now() + timeout) == .success
+        waitingLock.lock(); waitingCount -= 1; waitingLock.unlock()
+        guard got else { return nil }
+        defer { turn.signal() }
+        return body()
     }
 
     /// Runs on the main thread. Nil when skipped or timed out. `onMac` keeps a user-only approval off the
@@ -95,7 +120,7 @@ enum Ask {
         let width: CGFloat = min(max(420, CGFloat(longest) * 7), 620)
         let panel = NSPanel(contentRect: NSRect(x: 0, y: 0, width: width, height: 160),
                             styleMask: [.titled, .closable], backing: .buffered, defer: false)
-        panel.title = "apprentice needs you"
+        panel.title = behind > 0 ? "apprentice needs you · \(behind) more waiting" : "apprentice needs you"
         panel.level = .floating
         // On every Space and above a full-screen app, so the question is never behind the work.
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]

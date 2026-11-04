@@ -161,6 +161,7 @@ struct ProjectDetail: View {
                 }
                 .controlSize(.small)
             }
+            AgentsPanel(model: model, project: project)
             Panel(title: "Save") {
                 Text(remote.map { "Saved versions go to \($0)." } ?? "Save keeps a version of everything in the folder on this Mac. Save to GitHub also puts it in a private GitHub repository.")
                     .font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -367,7 +368,16 @@ struct PipelineEditor: View {
     @ObservedObject var model: AppModel
     let original: Pipelines.Pipeline
 
-    struct EditStep: Identifiable { let id = UUID(); var title: String; var prompt: String }
+    struct EditStep: Identifiable {
+        let id = UUID()
+        var title: String
+        var prompt: String
+        var use = ""
+        var next = ""
+        var when = ""
+        var needs = ""
+        var ui = false
+    }
 
     @State private var name = ""
     @State private var agent = AgentCLIs.defaultID
@@ -376,6 +386,32 @@ struct PipelineEditor: View {
     @State private var problem = ""
     @State private var saved = ""
     @State private var scheduling = false
+    @State private var goal = ""
+    @State private var interpreter = ""
+    @State private var scribe = ""
+    @State private var carry = false
+    @State private var check = PipelineGraph.Report()
+
+    /// The steps as they stand, for the check and the UI tick.
+    private var draftPipeline: Pipelines.Pipeline {
+        var p = original
+        p.steps = steps.map { s in
+            var step = Pipelines.Step(title: s.title, prompt: s.prompt.isEmpty ? "x" : s.prompt)
+            step.use = s.use.isEmpty ? nil : s.use
+            step.next = s.next.isEmpty ? nil : s.next
+            step.when = s.when.isEmpty ? nil : s.when
+            step.needs = s.needs.isEmpty ? nil : s.needs
+            step.ui = s.ui
+            return step
+        }
+        p.goal = goal.isEmpty ? nil : goal
+        p.interpreter = interpreter.isEmpty ? nil : interpreter
+        p.scribes = scribe.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        p.carry = carry
+        return p
+    }
+
+    private var agentNames: [String] { NamedAgents.all(project: original.project).map(\.name) }
 
     private var isNew: Bool { original.url == nil }
 
@@ -383,7 +419,13 @@ struct PipelineEditor: View {
         ScreenPage(title: isNew ? "New pipeline" : original.name, subtitle: original.url.map { ($0.path as NSString).abbreviatingWithTildeInPath } ?? "Prompts that run one after another") {
             AnyView(HStack(spacing: Theme.s2) {
                 if !isNew {
+                    IconButton("Audit", "checklist") { if let p = save() { model.auditPipeline(p) } }
+                        .help("Writes a brief for reviewing this pipeline, which spends nothing, and opens a shell to tweak it with any agent")
                     IconButton("Schedule", "calendar.badge.plus") { if save() != nil { scheduling = true } }
+                    if carry {
+                        IconButton("Run fresh", "arrow.clockwise") { if let p = save() { model.runPipeline(p, fresh: true) } }
+                            .help("Runs it without the summary carried from earlier runs")
+                    }
                     IconButton("Run now", "play.fill") { if let p = save() { model.runPipeline(p) } }
                 }
                 IconButton("Save", "checkmark", prominent: true) { _ = save() }
@@ -392,6 +434,7 @@ struct PipelineEditor: View {
         } content: {
             Panel(title: "Pipeline") {
                 LabeledField("Name") { TextField("Morning round", text: $name) }
+                LabeledField("Goal") { TextField("What the whole thing is for; every step is told", text: $goal) }
                 LabeledField("Runs on") {
                     Picker("", selection: $vm) {
                         Text(projectVM.map { "The project's VM (\($0))" } ?? "This Mac").tag("")
@@ -403,6 +446,17 @@ struct PipelineEditor: View {
                     LabeledField("") {
                         Text("With Shell, each step is a command, not a prompt.").font(Theme.caption).foregroundStyle(.secondary)
                     }
+                }
+                LabeledField("Chooses branches") { agentPicker($interpreter, blank: "The usual one") }
+                LabeledField("Writes summaries") { agentPicker($scribe, blank: "The usual one") }
+                LabeledField("") {
+                    Toggle("Carry a short summary from run to run", isOn: $carry).toggleStyle(.checkbox).font(Theme.caption)
+                }
+            }
+            if !check.errors.isEmpty || !check.warnings.isEmpty {
+                Panel(title: check.errors.isEmpty ? "Worth a look" : "It will not start until these are fixed") {
+                    ForEach(check.errors, id: \.self) { Text($0).font(Theme.caption).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true) }
+                    ForEach(check.warnings, id: \.self) { Text($0).font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
                 }
             }
             ForEach(Array(steps.enumerated()), id: \.element.id) { index, step in
@@ -424,6 +478,7 @@ struct PipelineEditor: View {
             }
             if !problem.isEmpty { Text(problem).font(Theme.caption).foregroundStyle(Theme.danger) }
             if !saved.isEmpty { Text(saved).font(Theme.monoSmall).foregroundStyle(.secondary) }
+            if !isNew { PipelineRunsPanel(model: model, pipeline: original) }
         }
         .onAppear(perform: load)
         .sheet(isPresented: $scheduling) {
@@ -464,13 +519,120 @@ struct PipelineEditor: View {
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(4...14)
                 .font(agent == "shell" ? Theme.mono : Theme.body)
+            stepSettings(index, step)
         }
         .panel()
     }
 
+    /// What runs a step, what follows it, and the UI tick, which one step of a parallel group can have.
+    @ViewBuilder private func stepSettings(_ index: Int, _ step: EditStep) -> some View {
+        let graph = PipelineGraph(draftPipeline)
+        let id = graph.ids.indices.contains(index) ? graph.ids[index] : ""
+        let holder = graph.uiHolder(blocking: id)
+        let others = graph.ids.filter { $0 != id }
+        let parts = PipelineGraph.split(step.next)
+        let chosenBy = step.next.contains("&") ? "all" : step.next.contains("|") ? "one" : step.next.isEmpty ? "next" : step.next.lowercased() == "end" ? "end" : "go"
+        HStack(spacing: Theme.s3) {
+            HStack(spacing: Theme.s1) {
+                Text("Agent").font(Theme.caption).foregroundStyle(.secondary)
+                agentPicker(binding(step.id, \.use), blank: "First on the list").frame(maxWidth: 170)
+            }
+            HStack(spacing: Theme.s1) {
+                Text("Needs").font(Theme.caption).foregroundStyle(.secondary)
+                Picker("", selection: binding(step.id, \.needs)) {
+                    Text("Anything").tag("")
+                    ForEach(NamedAgents.levels, id: \.self) { Text($0).tag($0) }
+                }
+                .labelsHidden().pickerStyle(.menu).fixedSize()
+            }
+            Toggle("Uses the screen", isOn: Binding(get: { step.ui }, set: { v in setUI(step.id, v) }))
+                .toggleStyle(.checkbox).font(Theme.caption)
+                .disabled(holder != nil && !step.ui)
+                .help(holder.map { "\($0) is using the screen: one step of a parallel group at a time" } ?? "Only a step with this on may use the screen")
+            if let holder, !step.ui { Text("\(holder) is using the screen").font(Theme.caption).foregroundStyle(.tertiary).lineLimit(1) }
+            Spacer(minLength: 0)
+        }
+        .controlSize(.small)
+        HStack(alignment: .firstTextBaseline, spacing: Theme.s2) {
+            Text("After it").font(Theme.caption).foregroundStyle(.secondary)
+            Picker("", selection: Binding(get: { chosenBy }, set: { mode in setMode(step.id, mode, names: parts.names) })) {
+                Text("The next step").tag("next")
+                Text("One step").tag("go")
+                Text("One of these, chosen for it").tag("one")
+                Text("All of these at once").tag("all")
+                Text("The end").tag("end")
+            }
+            .labelsHidden().pickerStyle(.menu).fixedSize()
+            if ["go", "one", "all"].contains(chosenBy) {
+                ForEach(others, id: \.self) { name in
+                    Toggle(name, isOn: Binding(get: { parts.names.map(Pipelines.slug).contains(name) }, set: { on in
+                        toggleTarget(step.id, name, on: on, mode: chosenBy, names: parts.names)
+                    }))
+                    .toggleStyle(.checkbox).font(Theme.caption)
+                }
+            }
+            Spacer(minLength: 0)
+        }
+        .controlSize(.small)
+        if chosenByParent(id) {
+            HStack(spacing: Theme.s2) {
+                Text("Choose it when").font(Theme.caption).foregroundStyle(.secondary)
+                TextField("one line the agent choosing reads", text: binding(step.id, \.when)).textFieldStyle(.roundedBorder).controlSize(.small)
+            }
+        }
+    }
+
+    private func chosenByParent(_ id: String) -> Bool {
+        let g = PipelineGraph(draftPipeline)
+        return g.ids.contains { if case .choice(let a) = g.next($0) { return a.contains(id) } else { return false } }
+    }
+
+    private func agentPicker(_ value: Binding<String>, blank: String) -> some View {
+        Picker("", selection: value) {
+            Text(blank).tag("")
+            ForEach(agentNames, id: \.self) { Text($0).tag($0) }
+            if !value.wrappedValue.isEmpty, !agentNames.contains(value.wrappedValue) { Text(value.wrappedValue).tag(value.wrappedValue) }
+        }
+        .labelsHidden().pickerStyle(.menu)
+    }
+
+    private func setUI(_ id: UUID, _ on: Bool) {
+        if let i = steps.firstIndex(where: { $0.id == id }) { steps[i].ui = on }
+        recheck()
+    }
+
+    private func setMode(_ id: UUID, _ mode: String, names: [String]) {
+        guard let i = steps.firstIndex(where: { $0.id == id }) else { return }
+        switch mode {
+        case "next": steps[i].next = ""
+        case "end": steps[i].next = "end"
+        case "one": steps[i].next = names.joined(separator: " | ") + (names.count == 1 ? " |" : "")
+        case "all": steps[i].next = names.joined(separator: " & ") + (names.count == 1 ? " &" : "")
+        default: steps[i].next = names.first ?? " "
+        }
+        recheck()
+    }
+
+    private func toggleTarget(_ id: UUID, _ name: String, on: Bool, mode: String, names: [String]) {
+        guard let i = steps.firstIndex(where: { $0.id == id }) else { return }
+        var list = names.filter { Pipelines.slug($0) != name }
+        if on { list = mode == "go" ? [name] : list + [name] }
+        switch mode {
+        case "one": steps[i].next = list.joined(separator: " | ") + (list.count == 1 ? " |" : "")
+        case "all": steps[i].next = list.joined(separator: " & ") + (list.count == 1 ? " &" : "")
+        default: steps[i].next = list.first ?? " "
+        }
+        recheck()
+    }
+
+    private func recheck() { check = PipelineGraph(draftPipeline).check() }
+
     private func binding(_ id: UUID, _ key: WritableKeyPath<EditStep, String>) -> Binding<String> {
         Binding(get: { steps.first { $0.id == id }?[keyPath: key] ?? "" },
-                set: { value in if let i = steps.firstIndex(where: { $0.id == id }) { steps[i][keyPath: key] = value } })
+                set: { value in
+                    if let i = steps.firstIndex(where: { $0.id == id }) { steps[i][keyPath: key] = value }
+                    recheck()
+                })
     }
 
     private func move(_ index: Int, by offset: Int) {
@@ -483,8 +645,13 @@ struct PipelineEditor: View {
         name = original.name
         agent = original.agent
         vm = original.vm ?? ""
-        steps = original.steps.map { EditStep(title: $0.title, prompt: $0.prompt) }
+        steps = original.steps.map { EditStep(title: $0.title, prompt: $0.prompt, use: $0.use ?? "", next: $0.next ?? "", when: $0.when ?? "", needs: $0.needs ?? "", ui: $0.ui) }
         if steps.isEmpty { steps = [EditStep(title: "", prompt: "")] }
+        goal = original.goal ?? ""
+        interpreter = original.interpreter ?? ""
+        scribe = original.scribes.joined(separator: ", ")
+        carry = original.carry
+        recheck()
     }
 
     /// Writes the file; nil (and a line saying why) when something is missing.
@@ -506,8 +673,22 @@ struct PipelineEditor: View {
             p.url = url
         }
         p.steps = kept.enumerated().map { i, s in
-            Pipelines.Step(title: s.title.trimmingCharacters(in: .whitespaces).isEmpty ? "Step \(i + 1)" : s.title, prompt: s.prompt)
+            var step = Pipelines.Step(title: s.title.trimmingCharacters(in: .whitespaces).isEmpty ? "Step \(i + 1)" : s.title, prompt: s.prompt)
+            func clean(_ v: String) -> String? {
+                let t = v.trimmingCharacters(in: CharacterSet(charactersIn: " |&"))
+                return t.isEmpty ? nil : v.trimmingCharacters(in: .whitespaces)
+            }
+            step.use = clean(s.use)
+            step.next = clean(s.next)
+            step.when = clean(s.when)
+            step.needs = clean(s.needs)
+            step.ui = s.ui
+            return step
         }
+        p.goal = goal.isEmpty ? nil : goal
+        p.interpreter = interpreter.isEmpty ? nil : interpreter
+        p.scribes = scribe.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        p.carry = carry
         do {
             _ = try Pipelines.write(p)
             saved = "saved \(Date().formatted(date: .omitted, time: .shortened))"

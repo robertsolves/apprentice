@@ -661,6 +661,8 @@ final class AppModel: ObservableObject {
     /// reloads the editor when another one is chosen.
     @Published var pipelineDraft: Pipelines.Pipeline?
     @Published var pipelineEdits = 0
+    /// Buttons one tab has beside the project's own commands, by its id: label, and the line a click types.
+    @Published var tabCommands: [String: [(label: String, line: String)]] = [:]
 
     let home = FileManager.default.homeDirectoryForCurrentUser
 
@@ -803,11 +805,23 @@ final class AppModel: ObservableObject {
     }
 
     /// Runs a pipeline in a new tab, so its output shows as it comes.
-    func runPipeline(_ p: Pipelines.Pipeline) {
+    func runPipeline(_ p: Pipelines.Pipeline, fresh: Bool = false) {
         let ref = p.url?.path ?? p.ref
         let owner = p.project.flatMap { folder in projects.first { $0.id == folder.standardizedFileURL.path || $0.id == folder.path } }
-        newTab(title: p.name, command: "apprentice pipeline run \(VM.shellQuoted(ref)); echo; exec \"$SHELL\" -l", dir: p.folder, vm: p.effectiveVM,
+        newTab(title: p.name, command: "apprentice pipeline run \(VM.shellQuoted(ref))\(fresh ? " --fresh" : ""); echo; exec \"$SHELL\" -l", dir: p.folder, vm: p.effectiveVM,
                project: owner)
+    }
+
+    /// Writes the brief, which spends nothing, and opens a shell with a button that hands it to whatever agent the
+    /// person starts there.
+    func auditPipeline(_ p: Pipelines.Pipeline) {
+        let ref = p.url?.path ?? p.ref
+        let owner = p.project.flatMap { folder in projects.first { $0.id == folder.standardizedFileURL.path || $0.id == folder.path } }
+        runCLI(["pipeline", "audit", ref]) { [weak self] _, _ in
+            guard let self else { return }
+            self.newTab(title: "Audit \(p.name)", command: nil, dir: p.folder, vm: p.effectiveVM, project: owner)
+            if let id = self.selectedTab { self.tabCommands[id] = [("Insert audit brief", PipelineCLI.insertLine(p))] }
+        }
     }
 
     /// A simple task: saved as a pipeline of one step and run in a new tab of the project, like any other.
@@ -1045,7 +1059,7 @@ enum Section: String, CaseIterable, Identifiable {
 
 /// The tabs along the top of a project's screen.
 enum ProjectTab: String, CaseIterable, Identifiable {
-    case work, pipelines, schedules, skills, settings
+    case work, pipelines, schedules, skills, instructions, settings
     var id: String { rawValue }
     var label: String {
         switch self {
@@ -1053,6 +1067,7 @@ enum ProjectTab: String, CaseIterable, Identifiable {
         case .pipelines: return "Pipelines"
         case .schedules: return "Schedules"
         case .skills: return "Skills"
+        case .instructions: return "Instructions"
         case .settings: return "Settings"
         }
     }
@@ -1315,7 +1330,7 @@ struct TerminalWorkspace: View {
             Divider().opacity(0.6)
             tabBar
             Divider().opacity(0.6)
-            if !commands.isEmpty {
+            if !commands.isEmpty || !tabButtons.isEmpty {
                 commandBar
                 Divider().opacity(0.6)
             }
@@ -1376,6 +1391,8 @@ struct TerminalWorkspace: View {
         model.runTask(text, in: project)
     }
 
+    private var tabButtons: [(label: String, line: String)] { shown.flatMap { model.tabCommands[$0.id] } ?? [] }
+
     /// The project's own commands, each a button showing exactly what it types.
     private var commandBar: some View {
         ScrollView(.horizontal, showsIndicators: false) {
@@ -1384,6 +1401,12 @@ struct TerminalWorkspace: View {
                     Button(line) { inject(line) }
                         .font(Theme.monoSmall)
                         .controlSize(.small)
+                        .disabled(shown == nil || pendingForSelected != nil)
+                }
+                ForEach(tabButtons, id: \.line) { b in
+                    Button(b.label) { inject(b.line) }
+                        .controlSize(.small)
+                        .help(b.line)
                         .disabled(shown == nil || pendingForSelected != nil)
                 }
             }
@@ -2119,6 +2142,9 @@ struct SettingsView: View {
             }
             if scope == .mac {
                 AccountCard(model: model)
+                AgentsPanel(model: model, project: nil)
+                PipelineSettingsPanel(model: model)
+                StoragePanel(model: model)
                 VMsPanel(model: model)
                 OutsideProjectsPanel(model: model)
             }

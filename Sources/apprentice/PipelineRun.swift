@@ -660,7 +660,7 @@ final class PipelineEngine {
             let r = AgentRun.run(argv, cli: cli, in: workspace, env: environment(id, step: step, agent: named.name), log: log,
                                  stallSeconds: PipelineSettings.stallSeconds(project), totalSeconds: PipelineSettings.totalSeconds(project),
                                  activity: [nodeDir.appendingPathComponent("alive")],
-                                 paused: { FileManager.default.fileExists(atPath: asking.path) || FileManager.default.fileExists(atPath: waiting.path) },
+                                 paused: { Self.holding(asking) || Self.holding(waiting) },
                                  stop: { [weak self] in self?.stopping ?? true }, echo: echo(id))
             let limit = r.outcome == .ok && r.text.count > 800 ? nil : AgentRun.limitPhrase(cli: cli, text: r.text)
             let id2 = session ?? r.session
@@ -682,6 +682,13 @@ final class PipelineEngine {
                 cleanSessions(&sessions, &result, id)
                 record(id, result)
                 parkPermission(id, named: named, level: level, need: need, tail: r.text)
+                return
+            }
+            // A CLI may refuse a tool, say so and still exit 0: that is a limit, not a finished step.
+            if r.outcome == .ok, AgentRun.refusalPhrase(cli: cli, text: String(r.text.suffix(1500))) != nil {
+                cleanSessions(&sessions, &result, id)
+                record(id, result)
+                parkPermission(id, named: named, level: level, need: nil, tail: r.text)
                 return
             }
             // Silent, but it changed files: that is its output.
@@ -727,6 +734,12 @@ final class PipelineEngine {
         cleanSessions(&sessions, &result, id)
         record(id, result)
         advance(id, step: step, output: success.text, result: result)
+    }
+
+    /// A command is waiting for the user or the board: the file holds its pid, so one that died cannot stop the clock.
+    private static func holding(_ file: URL) -> Bool {
+        guard let text = try? String(contentsOf: file, encoding: .utf8), let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)) else { return false }
+        return kill(pid, 0) == 0
     }
 
     /// A step's CLI session goes as soon as the step ends and the scribe has its summary, unless the user keeps them.
@@ -1095,7 +1108,7 @@ final class PipelineEngine {
     private func summarise(_ id: String, _ step: Pipelines.Step, named: NamedAgents.Named, output: String, result: inout StepResult) {
         let file = node(id).appendingPathComponent("summary.md")
         let messages = Board.messages(dir).filter { $0.from == id || $0.to == id }.map(Board.render).joined(separator: "\n")
-        let prompt = PipelineText.fill("scribe-step", ["goal": goal, "step": id, "agent": named.name, "result": result.tries.last?.outcome ?? "ok",
+        let prompt = PipelineText.fill("scribe-step", ["goal": goal, "step": id, "agent": named.name, "result": result.tries.last?.outcome ?? "ok", "prompt": step.prompt,
                                                        "changed": result.changed.isEmpty ? "(none)" : result.changed.joined(separator: "\n"),
                                                        "board": messages.isEmpty ? "(none)" : messages, "output": tail(output, 12000)])
         if let written = scribe(prompt) {

@@ -59,6 +59,7 @@ enum SelfTest {
         helpBook()
         namedAgents()
         pipelineGraph()
+        markdownStyle()
         projectFiles()
         pipelineRuns()
         try? FileManager.default.removeItem(at: Store.dir)
