@@ -120,6 +120,10 @@ enum Daemon {
                     // One agent at a time on this screen (`Device`).
                     try Device.check(req)
                 }
+                // Marked on disk while it runs, so an update's restart and the window see a long command (`Running`).
+                let marked = req.cmd != "ping"
+                if marked { Running.enter() }
+                defer { if marked { Running.leave() } }
                 let out = try aside ? Commands.aside(req) : Commands.run(req)
                 return (Response(code: 0, out: out), false)
             } catch let fail as Fail {
@@ -172,4 +176,46 @@ final class Reopen: NSObject, NSApplicationDelegate {
         window = p
         return false
     }
+}
+
+/// Whether a daemon is in the middle of a command right now: `running` in its state folder, holding its pid,
+/// for as long as any request (a command or an open question) is under way. Other processes read it: the main
+/// daemon's update waits while a VM's daemon runs a long command (`Repo.vmBusy`), and the window shows a
+/// project as working even with the on-screen box turned off (`[agent] overlay = false`).
+enum Running {
+    private static let lock = NSLock()
+    private static var count = 0
+
+    static func file(_ stateDir: URL = Store.stateDir) -> URL { stateDir.appendingPathComponent("running") }
+
+    static func enter() {
+        lock.lock(); defer { lock.unlock() }
+        count += 1
+        if count == 1 {
+            try? FileManager.default.createDirectory(at: Store.stateDir, withIntermediateDirectories: true)
+            try? Data(String(getpid()).utf8).write(to: file(), options: .atomic)
+        }
+    }
+
+    static func leave() {
+        lock.lock(); defer { lock.unlock() }
+        count = max(0, count - 1)
+        if count == 0 { try? FileManager.default.removeItem(at: file()) }
+    }
+
+    /// True when the daemon of `stateDir` is running a request: its marker names a live process.
+    static func busy(_ stateDir: URL) -> Bool {
+        guard let text = try? String(contentsOf: file(stateDir), encoding: .utf8),
+              let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)), pid > 0 else { return false }
+        return kill(pid, 0) == 0
+    }
+
+    /// The state folders of every VM's daemon (`~/.apprentice/vms/<name>`).
+    static var vmStateDirs: [URL] {
+        let root = Store.dir.appendingPathComponent("vms")
+        return ((try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? [])
+    }
+
+    /// Any daemon at all, this Mac's or a VM's, is running a request.
+    static var anyDaemon: Bool { busy(Store.dir) || vmStateDirs.contains(where: busy) }
 }

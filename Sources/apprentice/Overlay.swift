@@ -511,7 +511,9 @@ enum Overlay {
             Handback.showAgent(pid: r.agentPid, wid: r.agentWid)
         }
         @objc func watch(_ sender: NSButton) {
-            VMDock.open()
+            // The row's own VM, in the window's VMs screen: "mac" is the daemon of this Mac, whose VM is the default one.
+            let key = row(sender)
+            AppShow.vm(key == "mac" ? "" : key)
         }
         @objc func togglePause(_ sender: NSButton) {
             let marker = dir(row(sender)).appendingPathComponent("paused")

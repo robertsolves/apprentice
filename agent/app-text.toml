@@ -7,10 +7,11 @@
 label = "Projects"
 icon = "folder.fill"
 explainer_title = "What is a project?"
-about = "A project is one piece of work, like running a shop's Instagram or sending the weekly invoices. It is a folder on this Mac with the project's files, its notes for agents and its pipelines. Any agent you open in it knows what the project is and which VM to use."
+about = "A project is one piece of work, like running a shop's Instagram or sending the weekly invoices. Everything starts in one: its terminal, its VM, its pipelines, its schedules and its skills. It is a folder on this Mac, so any agent you open in it knows what the project is and which VM to use."
 points = [
-    "New project makes the folder, and can make a VM just for it.",
-    "Open starts your agent in the project's folder.",
+    "Choose a project on the left. Work shows its terminal, with its VM's screen beside it.",
+    "General holds anything that is not part of a project yet.",
+    "Projects on their own VMs work at the same time. This Mac and each VM take one agent at a time.",
     "Save keeps a version. Save to GitHub puts it online, private, so you can open it on another Mac.",
     "In a terminal: apprentice project list, new, open and save.",
 ]
@@ -19,11 +20,11 @@ points = [
 label = "Terminal"
 icon = "terminal.fill"
 explainer_title = "What is the terminal?"
-about = "A terminal is where an agent works. Each tab runs one: Claude Code, Codex, or a plain shell. Type to it like a chat, and answer its questions with the arrow keys and Return."
+about = "A terminal is where an agent works. Each tab runs one, in this project's folder and its VM: Claude Code, Codex, or a plain shell. Type to it like a chat, and answer its questions with the arrow keys and Return."
 points = [
-    "The blue + opens a tab: a new project, one of your projects, an agent, or Help.",
-    "Help answers questions about apprentice in plain words.",
-    "⌘T opens a shell.",
+    "The blue + opens a tab: the project's agent, another agent, a shell, or Help.",
+    "Tabs keep running when you look at another project.",
+    "⌘T opens a shell. ⌘1 to ⌘9 choose a project.",
 ]
 
 [section.pipelines]
@@ -71,7 +72,7 @@ explainer_title = "What is a VM?"
 about = "A VM is a small Linux computer that runs inside this Mac. It has its own screen, mouse and keyboard, so an agent can use websites there while you keep using your Mac."
 points = [
     "Make one per project to keep each project's accounts apart.",
-    "Look at its screen any time to see what the agent is doing.",
+    "Choose a running VM to watch its screen here, live, with its pointer. Look at its screen to click or type in it.",
     "A VM only runs while this Mac is on and awake.",
 ]
 

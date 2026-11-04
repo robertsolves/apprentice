@@ -1,129 +1,208 @@
 import AppKit
+import SwiftUI
 
-/// One small app per VM ("apprentice VM", with the VM's name when it is not the default): its own Dock icon, which
-/// shows that VM's state (grey waiting, orange needs you, green running), and a window with a picture of the VM's
-/// screen and its pointer. Each is the apprentice binary in a bundle of its own (`Dock/` in the state folder),
-/// started with `open`; `Store.vmName` reaches it through the bundle's environment. It talks to the VM through its
-/// own connection, so watching never slows the agent. To click or type in the VM, `apprentice vm look` opens
+/// The VM lives inside the window: the VMs screen shows each running VM's screen with its pointer and what its
+/// agent is doing, so there is no separate app per VM. The daemons open the window on that VM (`AppShow.vm`), and
+/// the picture comes from a child process per VM shown (`vm frames`), which talks to the guest over its own
+/// connection, so watching never slows the agent. To click or type in the VM, `apprentice vm look` opens
 /// Screen Sharing.
-enum VMDock {
-    static let prefix = "com.apprentice.vm."
-    private static var key: String { Store.vmName ?? "mac" }
+enum AppShow {
+    static let note = Notification.Name("com.apprentice.app.show")
+    /// What the window should show next: written before the window opens or is told, read and removed by it.
+    static var file: URL { Store.dir.appendingPathComponent("app-show.json") }
 
-    // MARK: - the daemon's side
+    struct Request: Codable {
+        var section: String
+        /// The VM's name as the VMs screen lists it: "" is the default VM.
+        var vm: String?
+        var activate: Bool
+    }
 
-    /// Opens (making it first when needed) this VM's app. `activate: false` leaves it behind the person's work.
-    static func open(activate: Bool = true) {
-        // `vm watch` runs in the CLI, which exits as soon as it returns: there the work is done before it does.
-        let work = {
-            let key = Store.vmName ?? "mac"
-            let label = "apprentice VM" + (Store.vmName.map { " \($0)" } ?? "")
-            let app = Store.dir.appendingPathComponent("Dock/\(label).app")
-            let id = prefix + key
-            let running = NSRunningApplication.runningApplications(withBundleIdentifier: id).first
-            if running == nil, let exe = Bundle.main.executablePath {
-                let real = URL(fileURLWithPath: exe).resolvingSymlinksInPath().path
-                let made = (try? FileManager.default.attributesOfItem(atPath: app.appendingPathComponent("Contents/MacOS/apprentice").path))?[.modificationDate] as? Date
-                let built = (try? FileManager.default.attributesOfItem(atPath: real))?[.modificationDate] as? Date
-                // Made again only when the app's binary is newer; never while it runs, which would break its signature.
-                if made == nil || (built.map { $0 > made! } ?? false) {
-                    try? FileManager.default.createDirectory(at: app.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    let env = Store.vmName.map { ["APPRENTICE_VM": $0] } ?? [:]
-                    // Drawn on the main thread, as the icon is made with AppKit drawing.
-                    let make = { _ = AppBundle.build(at: app, from: real, identifier: id, name: label, environment: env) }
-                    if Thread.isMainThread { make() } else { DispatchQueue.main.sync(execute: make) }
+    /// This process's VM: "" for this Mac's daemon (the default VM), else `APPRENTICE_VM`.
+    static var ownVM: String { Store.vmName ?? "" }
+
+    /// Opens the window on the VMs screen with `name` chosen. `activate: false` leaves it behind the person's work,
+    /// and `ifClosed` does nothing when the window is already open, so a session start never moves its screen.
+    /// `sync` waits for the window to be opened (the CLI, which exits as soon as this returns); otherwise a call on the
+    /// main thread (the daemon's buttons) opens it from another queue.
+    static func vm(_ name: String = ownVM, activate: Bool = true, ifClosed: Bool = false, sync: Bool = false) {
+        let running = AppBundle.runningInstance
+        if ifClosed, running != nil { return }
+        let request = Request(section: "vms", vm: name, activate: activate)
+        try? FileManager.default.createDirectory(at: Store.dir, withIntermediateDirectories: true)
+        try? Wire.json(request).write(to: file)
+        if let running {
+            DistributedNotificationCenter.default().postNotificationName(note, object: nil, userInfo: nil, deliverImmediately: true)
+            if activate { running.activate() }
+            return
+        }
+        // `AppBundle.open` may rebuild and sign the bundle first, which must not hold the daemon's main thread.
+        let work = { _ = AppBundle.open(activate: activate) }
+        if Thread.isMainThread, !sync { DispatchQueue.global().async(execute: work) } else { work() }
+    }
+
+    /// The window's side: the request left for it, if any, read once.
+    static func take() -> Request? {
+        guard let d = try? Data(contentsOf: file) else { return nil }
+        try? FileManager.default.removeItem(at: file)
+        return try? JSONDecoder().decode(Request.self, from: d)
+    }
+
+    /// Apps from the build that gave each VM its own Dock app (`~/.apprentice/Dock`): quit and removed once.
+    static func retireDockApps() {
+        for app in NSWorkspace.shared.runningApplications where app.bundleIdentifier?.hasPrefix("com.apprentice.vm.") == true {
+            app.terminate()
+        }
+        try? FileManager.default.removeItem(at: Store.dir.appendingPathComponent("Dock"))
+    }
+}
+
+// MARK: - the child process: `apprentice [--vm <name>] vm frames`
+
+enum VMFrames {
+    /// Writes the guest's screen and pointer to stdout until stdin closes (the window went away): a JSON line
+    /// `{"w","h","x","y","n"}` and then `n` bytes of JPEG, `n` 0 when the screen did not change, or a line with
+    /// `"error"` while the VM cannot be reached.
+    static func run() -> Never {
+        DispatchQueue.global().async {
+            _ = FileHandle.standardInput.readDataToEndOfFile()
+            exit(0)
+        }
+        let out = FileHandle.standardOutput
+        var last = Data()
+        while true {
+            var record = Data()
+            var wait = 0.8
+            autoreleasepool {
+                do {
+                    let frame = try Remote.screen()
+                    let c = try? Remote.query(["op": "cursor"])
+                    let x = (c?["x"] as? Double) ?? Remote.cursor.x, y = (c?["y"] as? Double) ?? Remote.cursor.y
+                    let jpeg = NSBitmapImageRep(cgImage: frame).representation(using: .jpeg, properties: [.compressionFactor: 0.7]) ?? Data()
+                    let body = jpeg == last ? Data() : jpeg
+                    if !body.isEmpty { last = jpeg }
+                    let head: [String: Any] = ["w": frame.width, "h": frame.height, "x": x, "y": y, "n": body.count]
+                    record = ((try? JSONSerialization.data(withJSONObject: head)) ?? Data()) + Data([0x0A]) + body
+                } catch {
+                    last = Data()
+                    wait = 2
+                    let message = (error as? Fail)?.message ?? "\(error)"
+                    record = ((try? JSONSerialization.data(withJSONObject: ["error": message])) ?? Data()) + Data([0x0A])
                 }
             }
-            if let running { running.activate() ; return }
-            let config = NSWorkspace.OpenConfiguration()
-            config.activates = activate
-            let done = DispatchSemaphore(value: 0)
-            NSWorkspace.shared.openApplication(at: app, configuration: config) { _, _ in done.signal() }
-            _ = Thread.isMainThread ? done.wait(timeout: .now() + 5) : .success
-        }
-        if Thread.isMainThread { work() } else { DispatchQueue.global().async(execute: work) }
-    }
-
-    // MARK: - the app's side
-
-    private static let image = NSImageView()
-    private static let queue = DispatchQueue(label: "apprentice.vmdock")
-    private static var fetching = false
-    private static var lastTile = ""
-    private static var window: NSWindow?
-
-    private final class Delegate: NSObject, NSApplicationDelegate {
-        func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
-        func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-            VMDock.window?.makeKeyAndOrderFront(nil)
-            return true
+            do { try out.write(contentsOf: record) } catch { exit(0) }
+            Thread.sleep(forTimeInterval: wait)
         }
     }
-    private static let delegate = Delegate()
+}
 
-    static func run() -> Never {
-        let app = NSApplication.shared
-        app.delegate = delegate
-        app.setActivationPolicy(.regular)
-        app.applicationIconImage = Ask.icon
-        let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 960, height: 600),
-                         styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
-        w.title = "apprentice VM" + (Store.vmName.map { " · \($0)" } ?? "")
-        w.isReleasedWhenClosed = false
-        w.contentAspectRatio = NSSize(width: 1280, height: 800)
-        image.imageScaling = .scaleProportionallyUpOrDown
-        w.contentView = image
-        w.center()
-        w.makeKeyAndOrderFront(nil)
-        window = w
-        paint()
-        let t = Timer(timeInterval: 0.8, repeats: true) { _ in refresh(); paint() }
+// MARK: - the window's side
+
+/// One VM's live picture, while its panel is on screen: starts `vm frames` for it and stops it when hidden.
+final class VMFeed: ObservableObject {
+    @Published var image: NSImage?
+    @Published var problem: String?
+    /// What that VM's agent is doing, from the daemons' rows (`Overlay.liveRows`).
+    @Published var state: String?
+    @Published var tone: Color = .secondary
+
+    private var proc: Process?
+    private var input: Pipe?
+    private var timer: Timer?
+    private var name = ""
+    private var frame: CGImage?
+
+    func start(_ vm: String) {
+        if proc?.isRunning == true, vm == name { return }
+        stop()
+        name = vm
+        image = nil
+        problem = nil
+        frame = nil
+        guard let exe = Bundle.main.executablePath else { problem = "apprentice's own binary was not found"; return }
+        let p = Process(), out = Pipe(), inp = Pipe()
+        p.executableURL = URL(fileURLWithPath: exe)
+        p.arguments = (vm.isEmpty ? [] : ["--vm", vm]) + ["vm", "frames"]
+        // Its own folder, never a project's (which would choose that project's VM for the default one).
+        p.currentDirectoryURL = Store.dir
+        var env = ProcessInfo.processInfo.environment
+        env.removeValue(forKey: "APPRENTICE_VM")
+        p.environment = env
+        p.standardOutput = out
+        p.standardInput = inp
+        p.standardError = FileHandle.nullDevice
+        do { try p.run() } catch { problem = "could not start the VM's picture: \(error.localizedDescription)"; return }
+        proc = p
+        input = inp
+        let reader = out.fileHandleForReading
+        DispatchQueue.global(qos: .utility).async { [weak self] in self?.read(reader) }
+        readState()
+        let t = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.readState() }
         RunLoop.main.add(t, forMode: .common)
-        app.run()
-        exit(0)
+        timer = t
     }
 
-    /// The Dock icon: the apprentice mark with a dot for this VM's state, read from the daemons' rows.
-    private static func paint() {
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+        try? input?.fileHandleForWriting.close()
+        if proc?.isRunning == true { proc?.terminate() }
+        proc = nil
+        input = nil
+    }
+
+    deinit { stop() }
+
+    private func readState() {
+        let key = name.isEmpty ? "mac" : name
         let row = Overlay.liveRows().first { $0.key == key && $0.inVM }
-        let level: Int
+        state = row?.head
         switch row?.head {
-        case "Needs approval", "Waiting for you", "Stopped", "Agent stopped", "Paused": level = 2
-        case "Working", "Yours": level = 1
-        default: level = 0
+        case "Needs approval", "Waiting for you", "Stopped", "Agent stopped", "Paused": tone = Theme.warn
+        case "Working", "Yours": tone = Theme.accent
+        default: tone = .secondary
         }
-        guard "\(level)" != lastTile else { return }
-        lastTile = "\(level)"
-        let color: NSColor = [NSColor.systemGray, .systemGreen, .systemOrange][level]
-        NSApp.applicationIconImage = NSImage(size: NSSize(width: 128, height: 128), flipped: false) { rect in
-            Ask.icon.draw(in: rect.insetBy(dx: 6, dy: 6))
-            let dot = NSRect(x: 84, y: 8, width: 36, height: 36)
-            NSColor.white.setFill()
-            NSBezierPath(ovalIn: dot.insetBy(dx: -4, dy: -4)).fill()
-            color.setFill()
-            NSBezierPath(ovalIn: dot).fill()
+    }
+
+    private func read(_ handle: FileHandle) {
+        var buffer = Data()
+        func need(_ count: Int) -> Bool {
+            while buffer.count < count {
+                let more = handle.availableData
+                if more.isEmpty { return false }
+                buffer.append(more)
+            }
             return true
         }
-        NSApp.dockTile.badgeLabel = "VM"
-    }
-
-    private static func refresh() {
-        guard let w = window, w.isVisible, !w.isMiniaturized, !fetching else { return }
-        fetching = true
-        queue.async {
-            let frame = try? Remote.screen()
-            let c = try? Remote.query(["op": "cursor"])
-            let point = CGPoint(x: (c?["x"] as? Double) ?? Remote.cursor.x, y: (c?["y"] as? Double) ?? Remote.cursor.y)
+        while true {
+            var line: Data?
+            while line == nil {
+                if let nl = buffer.firstIndex(of: 0x0A) {
+                    line = buffer[buffer.startIndex..<nl]
+                    buffer = Data(buffer[(nl + 1)...])
+                } else if !need(buffer.count + 1) { return }
+            }
+            guard let head = (try? JSONSerialization.jsonObject(with: line ?? Data())) as? [String: Any] else { continue }
+            if let error = head["error"] as? String {
+                DispatchQueue.main.async { self.problem = error }
+                continue
+            }
+            let n = head["n"] as? Int ?? 0
+            guard need(n) else { return }
+            let body = buffer.prefix(n)
+            buffer = Data(buffer.dropFirst(n))
+            let point = CGPoint(x: head["x"] as? Double ?? 0, y: head["y"] as? Double ?? 0)
             DispatchQueue.main.async {
-                fetching = false
-                guard let frame else { return }
-                image.image = draw(frame, point)
+                if n > 0, let rep = NSBitmapImageRep(data: body), let cg = rep.cgImage { self.frame = cg }
+                guard let frame = self.frame else { return }
+                self.problem = nil
+                self.image = VMFeed.draw(frame, point)
             }
         }
     }
 
     /// The frame with a blue arrow and a soft ring at the pointer, easy to follow.
-    private static func draw(_ frame: CGImage, _ p: CGPoint) -> NSImage {
+    static func draw(_ frame: CGImage, _ p: CGPoint) -> NSImage {
         NSImage(size: NSSize(width: frame.width, height: frame.height), flipped: true) { rect in
             NSGraphicsContext.current?.cgContext.saveGState()
             NSGraphicsContext.current?.cgContext.translateBy(x: 0, y: rect.height)
@@ -143,5 +222,37 @@ enum VMDock {
             arrow.fill()
             return true
         }
+    }
+}
+
+/// The VM's screen as a panel of the VMs screen: the picture, what its agent is doing, and the way to click in it.
+struct VMScreen: View {
+    let name: String
+    @StateObject private var feed = VMFeed()
+
+    var body: some View {
+        Panel(title: "Its screen") {
+            HStack(spacing: Theme.s2) {
+                StatusPill(text: feed.state ?? "No agent working", tint: feed.tone)
+                Spacer()
+                Text("A picture that follows the VM. Click in it opens a screen you can use.")
+                    .font(Theme.caption).foregroundStyle(.secondary)
+            }
+            ZStack {
+                RoundedRectangle(cornerRadius: Theme.radius).fill(Color.black.opacity(0.85))
+                if let image = feed.image {
+                    Image(nsImage: image).resizable().interpolation(.high).aspectRatio(contentMode: .fit)
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
+                } else {
+                    Text(feed.problem ?? "Connecting to the VM…").font(Theme.caption).foregroundStyle(.white.opacity(0.7))
+                        .multilineTextAlignment(.center).padding(Theme.s4)
+                }
+            }
+            .aspectRatio(1280.0 / 800.0, contentMode: .fit)
+            .frame(maxWidth: .infinity)
+        }
+        .onAppear { feed.start(name) }
+        .onChange(of: name) { _, new in feed.start(new) }
+        .onDisappear { feed.stop() }
     }
 }

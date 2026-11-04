@@ -35,14 +35,20 @@ enum Device {
 
     /// Who is asking, and how to name them to the user.
     static func caller(_ req: Request) -> (who: String, label: String) {
+        let projectName: String? = req.project.flatMap { project in
+            guard !project.isEmpty else { return nil }
+            let folder = URL(fileURLWithPath: project).deletingLastPathComponent()
+            return Projects.info(folder)?.name ?? folder.lastPathComponent
+        }
         if let tab = req.tab, !tab.isEmpty {
             if tab.hasPrefix("schedule:") { return (tab, "the schedule \(tab.dropFirst("schedule:".count))") }
             if tab.hasPrefix("pipeline:") { return (tab, "the pipeline \(tab.dropFirst("pipeline:".count))") }
-            return ("tab:\(tab)", "an agent in a window tab")
+            // A window tab belongs to a project: name it, so the user knows which one has the screen.
+            return ("tab:\(tab)", projectName.map { "the project \($0)" } ?? "an agent in a window tab")
         }
-        if let project = req.project, !project.isEmpty {
+        if let project = req.project, !project.isEmpty, let projectName {
             let folder = URL(fileURLWithPath: project).deletingLastPathComponent()
-            return ("project:\(folder.path)", "the project \(Projects.info(folder)?.name ?? folder.lastPathComponent)")
+            return ("project:\(folder.path)", "the project \(projectName)")
         }
         let model = req.model ?? "an agent"
         return ("model:\(model)", model == "an agent" ? "an agent" : "an agent (\(model))")

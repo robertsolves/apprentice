@@ -127,7 +127,8 @@ menu_bar = true
 overlay = true
 # A short system sound for each thing that happens (a command, a hand-off to you, a pause, a failure).
 sounds = true
-# Open Screen Sharing on the VM, behind your work, when a VM session starts; the Watch button brings it forward.
+# Open apprentice's window on the VM's live screen, behind your work, when a VM session starts (only if the
+# window is closed); the Watch button brings it forward.
 watch_vm = true
 # Desktop notifications (with the apprentice icon) when it needs a question or an approval answered. Off by default;
 # the phone push (`notify`, an ntfy topic) is also off until `apprentice phone on` sets it.
@@ -219,6 +220,7 @@ vision_model = ""
 # memory_mb = 2048
 # password = "admin"            # the image's login, used once; `vm setup` gives a Tart VM its own
 # home = "/Volumes/SSD/tart"    # keep the VM on another disk
+# runner = "app"                # runs inside apprentice's window (Virtualization framework); "tart" for a headless `tart run`
 # local = ["linkedin.com"]       # sites whose accounts stay on this Mac's own browser, never in a VM
 # host = "203.0.113.7"          # a Debian server elsewhere (a cloud VM) instead of Tart; user needs passwordless sudo
 # port = 22

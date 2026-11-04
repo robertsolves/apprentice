@@ -120,54 +120,15 @@ struct ListColumn<Rows: View>: View {
 /// The agent CLI a project or pipeline names, as a tab's start command (nil: a plain shell).
 enum AgentChoice {
 
-    static func command(_ agent: String) -> String? { AgentCLIs.find(agent).map(\.open) ?? agent }
+    /// Only an agent listed in agents.toml (apprentice's or the user's own) starts: a name nobody listed opens a
+    /// plain shell instead of being run, since a project cloned from GitHub brings its own `project.toml`.
+    static func command(_ agent: String) -> String? { AgentCLIs.find(agent)?.open }
     static func label(_ agent: String) -> String { AgentCLIs.label(agent) }
 }
 
 // MARK: - Projects
 
-struct ProjectsView: View {
-    @ObservedObject var model: AppModel
-    @State private var selected: String?
-
-    var body: some View {
-        SplitPane(id: "projects", help: .projects) {
-            ListColumn(count: "\(model.projects.count) project\(model.projects.count == 1 ? "" : "s")", newTitle: "New",
-                       new: { model.newProject = .empty }) {
-                if model.projects.isEmpty {
-                    Text("No projects yet").font(Theme.caption).foregroundStyle(.secondary)
-                        .padding(Theme.s4).frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    List(selection: $selected) {
-                        ForEach(model.projects) { p in
-                            IconRow(icon: "folder.fill", title: p.name,
-                                    detail: (p.folder.path as NSString).abbreviatingWithTildeInPath).tag(p.id)
-                        }
-                    }
-                    .listStyle(.sidebar)
-                    .scrollContentBackground(.hidden)
-                }
-            }
-        } right: {
-            Group {
-                if let id = selected, let project = model.projects.first(where: { $0.id == id }) {
-                    ProjectDetail(model: model, project: project).id(project.id)
-                } else {
-                    ScreenPage(title: Section.projects.label, subtitle: "") {
-                        AnyView(HStack(spacing: Theme.s2) {
-                            IconButton("Open from GitHub", "icloud.and.arrow.down") { model.newProject = .github }
-                            IconButton("New project", "plus", prominent: true) { model.newProject = .empty }
-                        })
-                    } content: {
-                        Explainer.projects
-                    }
-                }
-            }
-        }
-        .background(Theme.canvas)
-    }
-}
-
+/// A project's Settings tab: how it runs, its notes for agents, and saving it.
 struct ProjectDetail: View {
     @ObservedObject var model: AppModel
     let project: Projects.Info
@@ -179,21 +140,39 @@ struct ProjectDetail: View {
     }
 
     var body: some View {
-        ScreenPage(title: project.name, subtitle: (project.folder.path as NSString).abbreviatingWithTildeInPath) {
-            AnyView(HStack(spacing: Theme.s2) {
-                IconButton("Show in Finder", "folder") { NSWorkspace.shared.open(project.folder) }
-                ForEach(AgentCLIs.editors().filter { model.isInstalled($0) }) { cli in
-                    IconButton("Open in \(cli.label)", "chevron.left.forwardslash.chevron.right") { model.openInEditor(cli, project) }
-                }
-                IconButton("Open", "play.fill", prominent: true) { model.openProject(project) }
-            })
+        ScreenPage(title: "Settings", subtitle: (project.folder.path as NSString).abbreviatingWithTildeInPath) {
+            AnyView(IconButton("Open", "play.fill", prominent: true) { model.openProject(project) })
         } content: {
             Panel(title: "How it runs") {
-                HStack(spacing: Theme.s6) {
-                    FieldRow(label: "Agent", value: AgentChoice.label(project.agent))
-                    FieldRow(label: "Runs on", value: project.vm.map { "the VM \($0)" } ?? "this Mac")
+                LabeledField("Agent") {
+                    Picker("", selection: Binding(get: { project.agent }, set: { change(["--agent", $0]) })) {
+                        ForEach(model.agentChoices(keeping: project.agent), id: \.id) { Text($0.label).tag($0.id) }
+                    }
+                    .labelsHidden().pickerStyle(.menu).frame(maxWidth: 280)
                 }
-                Text("Open starts \(AgentChoice.label(project.agent)) in this folder\(project.vm.map { ", working in the VM \($0)" } ?? ""). To change either, edit the project's settings file.")
+                LabeledField("Runs on") {
+                    Picker("", selection: Binding(get: { project.vm ?? "" }, set: { change($0.isEmpty ? ["--no-vm"] : ["--vm", $0]) })) {
+                        Text("This Mac").tag("")
+                        // The same name `project new` gives it, so the picker shows it chosen for a new project.
+                        let own = Projects.ownVM(project.name) ?? "vm"
+                        Text("Its own VM (\(own))").tag(own)
+                        ForEach(model.machines.filter { !$0.name.isEmpty && $0.name != own }) { Text("Share the VM \($0.name)").tag($0.name) }
+                        if let vm = project.vm, vm != own, !model.machines.contains(where: { $0.name == vm }) {
+                            Text("The VM \(vm)").tag(vm)
+                        }
+                    }
+                    .labelsHidden().pickerStyle(.menu).frame(maxWidth: 280)
+                }
+                if let vm = project.vm {
+                    let shared = model.projects.filter { $0.vm == vm && $0.id != project.id }.map(\.name)
+                    if !shared.isEmpty {
+                        LabeledField("") {
+                            Text("Shared with \(shared.joined(separator: ", ")): one agent at a time works in it.")
+                                .font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
+                Text("Open starts \(AgentChoice.label(project.agent)) in this folder\(project.vm.map { ", working in the VM \($0)" } ?? ""). Projects on their own VMs work at the same time.")
                     .font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: Theme.s2) {
                     IconButton("Notes for agents", "doc.text") { NSWorkspace.shared.open(project.folder.appendingPathComponent("AGENTS.md")) }
@@ -226,14 +205,14 @@ struct ProjectDetail: View {
                 .controlSize(.small)
                 if !output.isEmpty { Output(text: output) }
             }
-            HStack {
+            if !project.isGeneral { HStack {
                 Spacer()
                 Button("Remove from this list") {
                     model.runCLI(["project", "forget", project.folder.path]) { _, out in output = out; model.refresh() }
                 }
                 .controlSize(.small)
                 .help("The folder stays where it is")
-            }
+            } }
         }
         .onAppear {
             let folder = project.folder
@@ -241,6 +220,15 @@ struct ProjectDetail: View {
                 let r = Projects.info(folder)?.remote
                 DispatchQueue.main.async { remote = r }
             }
+        }
+    }
+
+    /// Changes the project's agent or VM through `project set`, so the window and the CLI write the same file.
+    private func change(_ args: [String]) {
+        output = "…"
+        model.runCLI(["project", "set", project.folder.path] + args) { code, out in
+            output = (code == 0 ? "" : "exit \(code)\n") + out
+            model.refresh()
         }
     }
 
@@ -264,14 +252,17 @@ struct NewProjectSheet: View {
     @State private var source = ""
     @State private var parent = (Projects.defaultRoot.path as NSString).abbreviatingWithTildeInPath
     @State private var agent = AgentCLIs.defaultID
-    @State private var place = ""
+    /// Where it runs: its own new VM (the default, so each project's accounts stay apart), this Mac, or a VM
+    /// another project already uses.
+    @State private var place = "+new"
     @State private var newVM = ""
     @State private var about = ""
     @State private var problem = ""
     @State private var working = false
 
     private var vm: String? {
-        if place == "+new" { let n = newVM.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "-" }; return n.isEmpty ? nil : n }
+        // The name `project new` will store, so the VM made in the first tab is the one the project uses.
+        if place == "+new" { return Projects.vmName(newVM) }
         return place.isEmpty ? nil : place
     }
 
@@ -306,10 +297,13 @@ struct NewProjectSheet: View {
                 }
                 LabeledField("Runs on") {
                     Picker("", selection: $place) {
+                        Text("Its own VM").tag("+new")
                         Text("This Mac").tag("")
-                        ForEach(model.machines.filter { !$0.name.isEmpty }) { Text("The VM \($0.name)").tag($0.name) }
-                        Divider()
-                        Text("A new VM for this project").tag("+new")
+                        let others = model.machines.filter { !$0.name.isEmpty }
+                        if !others.isEmpty {
+                            Divider()
+                            ForEach(others) { Text("Share the VM \($0.name)").tag($0.name) }
+                        }
                     }
                     .labelsHidden().pickerStyle(.menu).frame(maxWidth: 280)
                 }
@@ -341,8 +335,8 @@ struct NewProjectSheet: View {
             fromGitHub = start == .github
             if place.isEmpty, newVM.isEmpty { newVM = "" }
         }
-        .onChange(of: name) { _, value in if place == "+new", newVM.isEmpty { newVM = Projects.folderName(value) } }
-        .onChange(of: place) { _, value in if value == "+new", newVM.isEmpty { newVM = Projects.folderName(name) } }
+        .onChange(of: name) { _, value in if place == "+new", newVM.isEmpty { newVM = Projects.ownVM(value) ?? "" } }
+        .onChange(of: place) { _, value in if value == "+new", newVM.isEmpty { newVM = Projects.ownVM(name) ?? "" } }
     }
 
     private func create() {
@@ -351,7 +345,7 @@ struct NewProjectSheet: View {
         let dir = (folder as NSString).expandingTildeInPath
         var argv = ["project", "new", name.trimmingCharacters(in: .whitespaces), "--dir", dir, "--agent", agent]
         if fromGitHub { argv += ["--from", source.trimmingCharacters(in: .whitespaces)] }
-        if let vm { argv += ["--vm", vm] }
+        if let vm { argv += ["--vm", vm] } else { argv.append("--no-vm") }
         if !about.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { argv += ["--about", about] }
         let makeVM = place == "+new" ? vm : nil
         model.runCLI(argv) { code, out in
@@ -369,21 +363,39 @@ struct NewProjectSheet: View {
 
 struct PipelinesView: View {
     @ObservedObject var model: AppModel
+    /// Only this project's pipelines; new ones are made in its folder.
+    var project: Projects.Info? = nil
+
+    private var pipelines: [Pipelines.Pipeline] { project.map { model.pipelinesIn($0) } ?? model.pipelines }
+
+    private var blank: Pipelines.Pipeline {
+        guard let project else { return Pipelines.Pipeline(name: "") }
+        return Pipelines.Pipeline(name: "", agent: project.agent, project: project.folder)
+    }
+
+    /// The pipeline open in the editor, when it is one of this screen's (or a new one for this project).
+    private var draft: Pipelines.Pipeline? {
+        guard let d = model.pipelineDraft else { return nil }
+        guard let project else { return d }
+        if d.url == nil { return (d.project?.standardizedFileURL.path ?? (project.isGeneral ? project.id : nil)) == project.id ? d : nil }
+        return pipelines.contains { $0.id == d.id } ? d : nil
+    }
 
     var body: some View {
         SplitPane(id: "pipelines", help: .pipelines) {
-            ListColumn(count: "\(model.pipelines.count) pipeline\(model.pipelines.count == 1 ? "" : "s")", newTitle: "New",
-                       new: { model.editPipeline(Pipelines.Pipeline(name: "")) }) {
-                if model.pipelines.isEmpty {
+            ListColumn(count: "\(pipelines.count) pipeline\(pipelines.count == 1 ? "" : "s")", newTitle: "New",
+                       new: { model.editPipeline(blank) }) {
+                if pipelines.isEmpty {
                     Text("No pipelines yet").font(Theme.caption).foregroundStyle(.secondary)
                         .padding(Theme.s4).frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
-                    List(selection: Binding(get: { model.pipelineDraft?.id }, set: { id in
-                        if let p = model.pipelines.first(where: { $0.id == id }) { model.editPipeline(p) }
+                    List(selection: Binding(get: { draft?.id }, set: { id in
+                        if let p = pipelines.first(where: { $0.id == id }) { model.editPipeline(p) }
                     })) {
-                        ForEach(model.pipelines) { p in
+                        ForEach(pipelines) { p in
                             IconRow(icon: "list.number", title: p.name,
-                                    detail: "\(p.project.map { Projects.info($0)?.name ?? $0.lastPathComponent } ?? "no project") · \(p.steps.count) step\(p.steps.count == 1 ? "" : "s")")
+                                    detail: (project == nil ? "\(p.project.map { Projects.info($0)?.name ?? $0.lastPathComponent } ?? "no project") · " : "")
+                                        + "\(p.steps.count) step\(p.steps.count == 1 ? "" : "s")")
                                 .tag(p.id)
                         }
                     }
@@ -393,11 +405,11 @@ struct PipelinesView: View {
             }
         } right: {
             Group {
-                if let draft = model.pipelineDraft {
+                if let draft {
                     PipelineEditor(model: model, original: draft).id(draft.id + "\(model.pipelineEdits)")
                 } else {
                     ScreenPage(title: Section.pipelines.label, subtitle: "") {
-                        AnyView(IconButton("New pipeline", "plus", prominent: true) { model.editPipeline(Pipelines.Pipeline(name: "")) })
+                        AnyView(IconButton("New pipeline", "plus", prominent: true) { model.editPipeline(blank) })
                     } content: {
                         Explainer.pipelines
                     }
@@ -578,7 +590,8 @@ struct PipelineEditor: View {
             _ = try Pipelines.write(p)
             saved = "saved \(Date().formatted(date: .omitted, time: .shortened))"
             model.refresh()
-            if isNew { model.pipelineDraft = p }
+            // The page's title and the list follow a rename; an existing pipeline keeps its editor (same id).
+            model.pipelineDraft = p
             return p
         } catch {
             problem = error.localizedDescription
@@ -589,127 +602,69 @@ struct PipelineEditor: View {
 
 // MARK: - VMs
 
-struct VMsView: View {
+/// Settings ▸ VMs: every VM on this Mac and the projects that work in it. A VM no project uses can become a
+/// project in one click; each project's own VM is started, stopped and watched on the project's screen.
+struct VMsPanel: View {
     @ObservedObject var model: AppModel
     @State private var output = ""
-    @State private var adding = false
-    @State private var newName = ""
-    @State private var selected: String?
 
     var body: some View {
-        SplitPane(id: "vms", help: .vms) {
-            ListColumn(count: "\(model.machines.count) VM\(model.machines.count == 1 ? "" : "s")", newTitle: "New", new: { newName = ""; adding = true }) {
-                if model.machines.isEmpty {
-                    Text("No VMs yet").font(Theme.caption).foregroundStyle(.secondary)
-                        .padding(Theme.s4).frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    List(selection: $selected) {
-                        ForEach(model.machines) { m in
-                            IconRow(icon: m.host == nil ? Section.vms.icon : "network", title: m.label, detail: m.host ?? m.state).tag(m.id)
-                        }
-                    }
-                    .listStyle(.sidebar)
-                    .scrollContentBackground(.hidden)
-                }
-            }
-        } right: {
-            if let id = selected, let m = model.machines.first(where: { $0.id == id }) {
-                detail(m)
-            } else {
-                intro
-            }
-        }
-        .background(Theme.canvas)
-        .onAppear { model.refreshMachines() }
-        .onChange(of: selected) { _, _ in output = "" }
-        .sheet(isPresented: $adding) {
-            SheetFrame(title: "New VM", subtitle: "Its own Linux computer inside this Mac, with Chromium for websites.", idealHeight: 320, idealWidth: 520) {
-                Panel(title: "VM") {
-                    LabeledField("Name") { TextField("shop", text: $newName) }
-                    LabeledField("") {
-                        Text("A short name, like the project it is for. Making it downloads under 1 GB and takes a few minutes; a tab shows the progress.")
-                            .font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            } buttons: {
-                Spacer()
-                Button("Cancel") { adding = false }.keyboardShortcut(.cancelAction)
-                Button("Make it") {
-                    let name = newName.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "-" }
-                    adding = false
-                    model.newTab(preset: "VM \(name)", command: "apprentice --vm \(name) vm setup; echo; echo 'Done. Close this tab, or keep it as a shell.'; exec \"$SHELL\" -l")
-                }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.defaultAction)
-                .disabled(newName.lowercased().filter { $0.isLetter || $0.isNumber || $0 == "-" }.isEmpty)
-            }
-        }
-    }
-
-    /// Nothing chosen: what a VM is, and where websites open outside a project.
-    private var intro: some View {
-        ScreenPage(title: Section.vms.label, subtitle: "") {
-            AnyView(IconButton("New VM", "plus", prominent: true) { newName = ""; adding = true })
-        } content: {
-            Explainer.vms
-            Panel(title: "Browsers outside a project") {
-                Text("When an agent opens a website and its project has no VM, it uses the default VM if this is on, else this Mac.")
-                    .font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        Panel(title: "VMs", note: "\(model.machines.count)") {
+            Text("Each project works in its own VM, a Linux computer inside this Mac, and starts and stops it from its own screen. Projects on their own VMs work at the same time.")
+                .font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            ForEach(model.machines) { m in
+                let users = model.projects.filter { $0.vm == m.name }
                 HStack(spacing: Theme.s2) {
-                    IconButton("Use the default VM", "server.rack") { vm("", "on") }
-                    IconButton("Use this Mac", "laptopcomputer") { vm("", "off") }
-                }
-                .controlSize(.small)
-            }
-            if !output.isEmpty { Panel(title: "Result") { Output(text: output) } }
-        }
-    }
-
-    /// One VM: its state, what to do with it and the projects that work in it.
-    private func detail(_ m: VM.Machine) -> some View {
-        let projects = model.projects.filter { ($0.vm ?? "") == m.name }
-        let running = m.state == "running"
-        return ScreenPage(title: m.label, subtitle: m.host.map { "Another computer at \($0)" } ?? "A Linux computer inside this Mac") {
-            AnyView(HStack(spacing: Theme.s2) {
-                if m.host == nil {
-                    if running {
-                        IconButton("Look at its screen", "eye", prominent: true) { vm(m.name, "look") }
-                        IconButton("Stop", "stop.fill") { vm(m.name, "down") }
+                    IconRow(icon: m.host == nil ? "server.rack" : "network", title: m.label,
+                            detail: (m.host ?? m.state) + " · " + (users.isEmpty ? (m.name.isEmpty ? "websites outside a project" : "not in a project") : users.map(\.name).joined(separator: ", ")))
+                    Spacer()
+                    if let p = users.first {
+                        IconButton("Show", "arrow.right.circle") { model.show(project: p, tab: .work) }.controlSize(.small)
                     } else {
-                        IconButton("Start", "play.fill", prominent: true) { vm(m.name, "up") }
-                    }
-                }
-                IconButton("Open a shell in it", "terminal") {
-                    model.newTab(preset: "VM \(m.label)", command: "apprentice\(m.name.isEmpty ? "" : " --vm \(m.name)") vm ssh")
-                }
-            })
-        } content: {
-            Panel(title: "Now") {
-                HStack(spacing: Theme.s2) {
-                    StatusPill(text: m.state, tint: running ? Theme.accent : .secondary)
-                    if let host = m.host { Text(host).font(Theme.monoSmall).foregroundStyle(.secondary) }
-                }
-            }
-            Panel(title: "Projects that work in it") {
-                if projects.isEmpty {
-                    Text("None. A project picks its VM when it is made.").font(Theme.caption).foregroundStyle(.secondary)
-                } else {
-                    ForEach(projects) { p in
-                        HStack {
-                            IconRow(icon: Section.projects.icon, title: p.name, detail: (p.folder.path as NSString).abbreviatingWithTildeInPath)
-                            Spacer()
-                            IconButton("Open", "arrow.up.forward.app") { model.openProject(p) }.controlSize(.small)
+                        if m.state == "running" || m.host != nil {
+                            IconButton("Watch", "eye") { model.selectedVM = m.name }.controlSize(.small)
+                        }
+                        if m.state == "running", m.host == nil {
+                            IconButton("Click in it", "cursorarrow.click") { vm((m.name.isEmpty ? [] : ["--vm", m.name]) + ["vm", "look"]) }.controlSize(.small)
+                        }
+                        if !m.name.isEmpty {
+                            IconButton("Make a project for it", "folder.badge.plus") { adopt(m.name) }.controlSize(.small)
                         }
                     }
                 }
             }
-            if !output.isEmpty { Panel(title: "Result") { Output(text: output) } }
+            // A VM no project uses (the default VM for websites outside a project, an older one) is watched here:
+            // the overlay's Watch button and `vm watch` bring the window to it.
+            if let chosen = model.selectedVM, !model.projects.contains(where: { $0.vm == chosen }),
+               let m = model.machines.first(where: { $0.name == chosen }), m.state == "running" || m.host != nil {
+                VMScreen(name: m.name)
+            }
+            Divider()
+            Text("When an agent opens a website outside a project's VM, it uses the default VM if this is on, else this Mac.")
+                .font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: Theme.s2) {
+                IconButton("Use the default VM", "server.rack") { vm(["vm", "on"]) }
+                IconButton("Use this Mac", "laptopcomputer") { vm(["vm", "off"]) }
+            }
+            .controlSize(.small)
+            if !output.isEmpty { Output(text: output) }
+        }
+        .onAppear { model.refreshMachines() }
+    }
+
+    /// A project named after the VM, working in it.
+    private func adopt(_ name: String) {
+        output = "…"
+        model.runCLI(["project", "new", name, "--vm", name]) { code, out in
+            output = code == 0 ? "" : "exit \(code)\n\(out)"
+            model.refresh()
+            if code == 0, let p = model.projects.first(where: { $0.vm == name }) { model.show(project: p, tab: .work) }
         }
     }
 
-    private func vm(_ name: String, _ action: String) {
+    private func vm(_ args: [String]) {
         output = "…"
-        model.runCLI((name.isEmpty ? [] : ["--vm", name]) + ["vm", action]) { code, out in
+        model.runCLI(args) { code, out in
             output = (code == 0 ? "" : "exit \(code)\n") + out
             model.refreshMachines()
         }

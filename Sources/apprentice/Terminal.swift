@@ -10,6 +10,8 @@ final class Pty {
     /// closes it, so a write can never land on a closed or reused descriptor.
     private var fd: Int32 = -1
     private(set) var pid: pid_t = 0
+    /// The process group the terminal is running in front: the shell's own while it waits at a prompt.
+    var foreground: pid_t { queue.sync { fd >= 0 ? tcgetpgrp(fd) : -1 } }
     private let queue = DispatchQueue(label: "apprentice.pty")
     private var source: DispatchSourceRead?
     private var exitSource: DispatchSourceProcess?
@@ -631,20 +633,26 @@ final class TermSession: ObservableObject, Identifiable {
     @Published var revision = 0
     @Published var exited: Int32?
     @Published var hasApproval = false
+    /// The project folder this tab belongs to: the window shows each project's tabs on its own screen.
+    let project: String?
     let screen: TermScreen
     private(set) var pty: Pty?
     private var cols = 100
     private var rows: Int
     private var pendingRender = false
 
-    init(id: String = String(UUID().uuidString.prefix(8)), title: String, dir: URL, command: String?, env: [String: String], vm: String? = nil) {
+    init(id: String = String(UUID().uuidString.prefix(8)), title: String, dir: URL, command: String?, env: [String: String], vm: String? = nil, project: String? = nil) {
         self.id = id
         self.title = title
+        self.project = project
         self.screen = TermScreen(cols: cols, rows: 30)
         self.rows = 30
+        self.runsCommand = command?.isEmpty == false
         var environment = env
         environment["APPRENTICE_TAB"] = id
         if let vm { environment["APPRENTICE_VM"] = vm }
+        // Its counts, caps and skills are the project's, wherever the agent `cd`s to.
+        if let project { environment["APPRENTICE_PROJECT"] = project }
         var shellArgs = ["-l"]
         if let command, !command.isEmpty { shellArgs = ["-l", "-c", command] }
         let pty = Pty(args: shellArgs, dir: dir, env: environment, cols: cols, rows: rows, onData: { [weak self] data in
@@ -818,6 +826,25 @@ final class TermSession: ObservableObject, Identifiable {
         pty?.terminate()
         pty = nil
     }
+
+    /// Started with a command (an agent, a pipeline) rather than as a plain shell.
+    private let runsCommand: Bool
+
+    /// A program is still working in the tab, so closing it (or quitting) would stop it. A plain shell counts as
+    /// busy while something other than the shell holds the terminal; a tab started with a command, while that
+    /// command (or what the shell started for it) still runs.
+    var busy: Bool {
+        guard exited == nil, let pty, pty.pid > 0 else { return false }
+        if !runsCommand {
+            let front = pty.foreground
+            return front > 0 && front != pty.pid
+        }
+        var path = [CChar](repeating: 0, count: 4096)
+        let name = proc_pidpath(pty.pid, &path, UInt32(path.count)) > 0 ? URL(fileURLWithPath: String(cString: path)).lastPathComponent : ""
+        if !["zsh", "bash", "sh", "fish", "dash", "ksh", "tcsh"].contains(name) { return true }
+        var kids = [pid_t](repeating: 0, count: 64)
+        return proc_listchildpids(pty.pid, &kids, Int32(kids.count * MemoryLayout<pid_t>.size)) > 0
+    }
 }
 
 /// The terminal's view: an `NSTextView` showing the screen and its scrollback, with the pty on the other
@@ -849,6 +876,7 @@ struct TerminalPane: NSViewRepresentable {
         view.onKey = { event in term.send(event) }
         scroll.documentView = view
         context.coordinator.view = view
+        context.coordinator.watch(scroll)
         view.term = term
         context.coordinator.draw(term, font: font)
         // The keyboard belongs to the shell as soon as the tab shows: without this the sidebar list keeps
@@ -870,17 +898,30 @@ struct TerminalPane: NSViewRepresentable {
     final class Coordinator {
         weak var view: TerminalTextView?
         private var lastRevision = -1
+        private var observer: NSObjectProtocol?
+
+        /// Whether the person scrolled away from the bottom: only their own scrolling (the wheel, the scroller)
+        /// changes it, never a redraw, so a program redrawing its menu under an arrow key cannot leave the view
+        /// stranded part way up, which looked like the arrow scrolling the pane instead of moving a selection.
+        func watch(_ scroll: NSScrollView) {
+            scroll.contentView.postsBoundsChangedNotifications = true
+            observer = NotificationCenter.default.addObserver(forName: NSView.boundsDidChangeNotification, object: scroll.contentView,
+                                                              queue: .main) { [weak self] _ in
+                guard let view = self?.view, !view.scrollingItself else { return }
+                view.follow = view.atBottom
+            }
+        }
+
+        deinit { if let observer { NotificationCenter.default.removeObserver(observer) } }
 
         func draw(_ term: TermSession, font: NSFont) {
             guard let view, term.revision != lastRevision else { return }
             lastRevision = term.revision
-            let atBottom = view.enclosingScrollView.map { scroll in
-                let visible = scroll.contentView.bounds
-                return visible.maxY >= view.bounds.height - 40
-            } ?? true
             let text = Renderer.attributed(term.screen, font: font)
+            view.scrollingItself = true
             view.textStorage?.setAttributedString(text)
-            if atBottom { view.scrollToEndOfDocument(nil) }
+            if view.follow { view.toBottom() }
+            view.scrollingItself = false
         }
     }
 }
@@ -1005,6 +1046,15 @@ enum TerminalKeys {
             AppLog.note("keyboard back to the terminal from \(from)")
             return event
         }
+        // With the terminal holding the focus, its keys go straight to it: AppKit offers arrow, page and function
+        // keys to every view as key equivalents first, where a scroll view or a SwiftUI control could take them.
+        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard let term = TerminalTextView.shown, let window = term.window, event.window === window,
+                  window.attachedSheet == nil, window.firstResponder === term, !term.locked,
+                  !event.modifierFlags.contains(.command), event.modifierFlags.contains(.function) else { return event }
+            term.keyDown(with: event)
+            return nil
+        }
     }
 }
 
@@ -1024,12 +1074,39 @@ final class TerminalTextView: NSTextView {
     var onKey: ((NSEvent) -> Bool)?
     weak var term: TermSession?
     var locked = false
+    /// The view keeps to the newest line until the person scrolls up, and again as soon as they type.
+    var follow = true
+    /// True while a redraw moves the view, so `Coordinator.watch` tells the person's scrolling from ours.
+    var scrollingItself = false
+
+    var atBottom: Bool {
+        guard let scroll = enclosingScrollView else { return true }
+        let line = (font?.pointSize ?? 12) * 1.22
+        return scroll.contentView.bounds.maxY >= bounds.height - line
+    }
+
+    /// Lays the text out first: scrolling to an end that is not laid out yet stops short of it.
+    func toBottom() {
+        if let container = textContainer { layoutManager?.ensureLayout(for: container) }
+        let was = scrollingItself
+        scrollingItself = true
+        scrollToEndOfDocument(nil)
+        scrollingItself = was
+        follow = true
+    }
 
     override func keyDown(with event: NSEvent) {
         // An agent in one tab must not be able to approve its own step in another: a banner's Allow
         // button takes a click, and the terminal ignores keys while it is open.
         if locked { NSSound.beep(); return }
-        if onKey?(event) == true { return }
+        if onKey?(event) == true {
+            // A key for the program brings the view back to its prompt, as in Terminal.
+            if !follow || !atBottom { toBottom() }
+            return
+        }
+        // Arrows, page keys, home and end belong to the program; with no program (the tab ended) they do nothing,
+        // never the text view's own line scrolling.
+        if [123, 124, 125, 126, 115, 116, 119, 121].contains(event.keyCode) { return }
         super.keyDown(with: event)
     }
 

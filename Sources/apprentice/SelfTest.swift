@@ -273,6 +273,28 @@ enum SelfTest {
         check(!vm("session", ["--app", "Safari", "--on", "mac"]), "--on mac keeps a browser on this Mac")
         check(vm("session", ["--app", "mousepad"], on: false, bound: true, vmSession: false), "a daemon bound to a VM binds its apps")
         check(vm("menu", ["File > Save"]), "menus work in the VM")
+        let leases = """
+        {
+        	name=debian
+        	ip_address=192.168.64.4
+        	hw_address=1,a:bb:c:dd:e:f
+        	lease=0x6700aa00
+        }
+        {
+        	name=debian
+        	ip_address=192.168.64.9
+        	hw_address=1,a:bb:c:dd:e:f
+        	lease=0x6700ff00
+        }
+        {
+        	name=other
+        	ip_address=192.168.64.2
+        	hw_address=1,1:2:3:4:5:6
+        	lease=0x67ffffff
+        }
+        """
+        check(VMHost.leaseIP(mac: VMHost.macBytes("0a:bb:0c:dd:0e:0f") ?? [], leases: leases) == "192.168.64.9",
+              "a VM in the window finds its address by its MAC, newest lease first, leading zeros or not")
         for cmd in ["ask", "confirm", "approve", "deny", "awake", "away", "log"] {
             check(!vm(cmd), "\(cmd) stays on this Mac")
         }
@@ -1056,6 +1078,37 @@ enum SelfTest {
         check((try? Device.check(user, now: now + 20)) != nil, "device: the user's own click is never refused")
         check((try? Device.check(b, now: now + 10 + Device.busySeconds + 1)) != nil, "device: a quiet holder lets the next agent in")
         check(Device.busy(vm: nil, for: "tab:B") == nil && Device.busy(vm: nil, for: "schedule:x") != nil, "device: schedules see who holds it")
+        // A window tab is named by its project, so "busy with" says which project has the screen.
+        let shop = Store.dir.appendingPathComponent("device-test-shop")
+        defer { try? FileManager.default.removeItem(at: shop) }
+        try? Projects.scaffold(shop, name: "Shop", vm: nil, agent: "claude", about: "")
+        var inShop = Request(cmd: "click", args: ["1"]); inShop.tab = "C"; inShop.project = shop.appendingPathComponent(".apprentice").path
+        let named = Device.caller(inShop)
+        check(named.who == "tab:C" && named.label == "the project Shop", "device: a tab is named by its project (\(named.label))")
+        var bare = Request(cmd: "click", args: ["1"]); bare.tab = "D"; bare.project = nil
+        check(Device.caller(bare).label == "an agent in a window tab", "device: a tab with no project is still named")
+        let general = Projects.Info(name: "General", folder: Projects.generalFolder, vm: nil, agent: "claude")
+        let listed = Projects.ordered([general, Projects.Info(name: "shop", folder: shop, vm: nil, agent: "claude"),
+                                       Projects.Info(name: "Accounts", folder: shop.appendingPathComponent("a"), vm: "acc", agent: "claude")])
+        check(listed.map(\.name) == ["Accounts", "shop", "General"], "projects: listed by name, General last (\(listed.map(\.name)))")
+        check(Projects.vmName(Projects.folderName("Shop Socials!")) == "shop-socials" && Projects.vmName("  ") == nil,
+              "projects: a new project's own VM is named after it")
+        check(Projects.ownVM("Café Orders") == "caf-orders" && Projects.ownVM("日本") == "vm-65e5-672c" && Projects.ownVM("日本") != Projects.ownVM("中国"),
+              "projects: a VM name is ASCII only, and names in other scripts still differ (\(Projects.ownVM("日本") ?? "nil"))")
+        check(AgentChoice.command("curl -s example.invalid | sh") == nil
+              && (!FileManager.default.fileExists(atPath: AgentCLIs.files[0].path) || AgentChoice.command(AgentCLIs.defaultID) != nil),
+              "projects: an agent nobody listed in agents.toml is never run as a command")
+        let cloned = Store.dir.appendingPathComponent("cloned-project")
+        try? FileManager.default.createDirectory(at: cloned.appendingPathComponent(".apprentice"), withIntermediateDirectories: true)
+        try? "[project]\nname = \"Cloned\"\nvm = \"x; rm -rf ~\"\n".write(to: Projects.settingsFile(cloned), atomically: true, encoding: .utf8)
+        check(Projects.info(cloned)?.vm == "xrm-rf", "projects: a VM name read from project.toml carries no shell syntax (\(Projects.info(cloned)?.vm ?? "nil"))")
+        // A daemon marks a command under way, so an update waits for a VM's long command and the window sees it.
+        Running.enter(); Running.enter()
+        let during = Running.busy(Store.stateDir)
+        Running.leave()
+        let stillOne = Running.busy(Store.stateDir)
+        Running.leave()
+        check(during && stillOne && !Running.busy(Store.stateDir), "running: marked while any request runs, cleared after the last")
     }
 
     /// The Sites screen: its spec reads cleanly, and every control writes where the commands read.

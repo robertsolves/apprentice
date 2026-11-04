@@ -217,7 +217,7 @@ enum Doctor {
         _ = Wire.stopDaemon()
         let connect = URL(fileURLWithPath: clone).appendingPathComponent("agent/connect.py").path
         if fm.fileExists(atPath: connect) { done.append(Repo.run("python3", [connect, bin, "--remove"], in: Store.dir).out) }
-        for vm in vms { _ = VM.tart(["stop", vm]); _ = VM.tart(["delete", vm]); done.append("deleted VM \(vm)") }
+        for vm in vms { try? VMHost.stop(vm); _ = VM.tart(["stop", vm]); _ = VM.tart(["delete", vm]); done.append("deleted VM \(vm)") }
         if Repo.run("security", ["delete-identity", "-c", "apprentice"], in: Store.dir).code == 0 { done.append("removed the signing identity") }
         if let login = Account.profile?.login { done.append("signed out of GitHub (@\(login))") }
         Account.clear()

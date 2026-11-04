@@ -53,7 +53,7 @@ enum StatusItem {
     private static var shownLevel = -1
 
     /// This Mac's runner as three colours: grey waiting, orange needs you (a question, an approval, paused, stopped),
-    /// green running or in your hands. Other systems are not in it: each VM has its own icon (`VMDock`).
+    /// green running or in your hands. Other systems are not in it: each VM's state and screen are on the window's VMs screen (`VMScreen`).
     private static var level: Int {
         if Pause.on || KillSwitch.halted || state == .waiting || state == .approval || Handback.banner?.good == false { return 2 }
         if state == .working || Date().timeIntervalSince(Commands.lastAt) < 20 { return 1 }
