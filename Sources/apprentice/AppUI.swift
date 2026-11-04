@@ -31,8 +31,10 @@ enum AppBundle {
             return true
         }
         guard Notify.appBundleExecutable() != nil else { return false }
-        // A release app is signed as it shipped; only the bundle built here is signed here.
-        if Release.bundle == nil { sign() }
+        // A release app is signed as it shipped, and the installed app was signed when it was: signing it again
+        // rewrites a binary that may be running. Only a bundle just built here is signed here.
+        let installed = Bundle.main.executablePath.map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path.contains(".app/Contents/MacOS/") } ?? false
+        if Release.bundle == nil, !installed { sign() }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
         p.arguments = (activate ? [] : ["-g"]) + ["-a", path.path]

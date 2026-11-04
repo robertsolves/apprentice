@@ -164,13 +164,16 @@ final class Reopen: NSObject, NSApplicationDelegate {
     private var window: Process?
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if let w = window, w.isRunning, let app = NSRunningApplication(processIdentifier: w.processIdentifier) {
-            app.activate()
+        // Still starting counts: a second reopen must not open a second window.
+        if let w = window, w.isRunning {
+            NSRunningApplication(processIdentifier: w.processIdentifier)?.activate()
             return false
         }
         guard let exe = Bundle.main.executablePath else { return false }
         let p = Process()
-        p.executableURL = URL(fileURLWithPath: exe)
+        // The real file: run through the CLI's link it is no bundle, so `app` would ask `open` for the window, and
+        // `open` sends this process another reopen, for ever.
+        p.executableURL = URL(fileURLWithPath: exe).resolvingSymlinksInPath()
         p.arguments = ["app"]
         try? p.run()
         window = p
