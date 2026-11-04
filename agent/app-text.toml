@@ -20,9 +20,9 @@ points = [
 label = "Terminal"
 icon = "terminal.fill"
 explainer_title = "What is the terminal?"
-about = "A terminal is where an agent works. Each tab runs one, in this project's folder and its VM: Claude Code, Codex, or a plain shell. Type to it like a chat, and answer its questions with the arrow keys and Return."
+about = "A terminal is where an agent works. Each tab is a shell in this project's folder and its VM: run any agent in it. Type to it like a chat, and answer its questions with the arrow keys and Return."
 points = [
-    "The blue + opens a tab: the project's agent, another agent, a shell, or Help.",
+    "The blue + opens another shell. The list icon beside it edits this project's commands, one button each.",
     "Tabs keep running when you look at another project.",
     "⌘T opens a shell. ⌘1 to ⌘9 choose a project.",
 ]

@@ -306,7 +306,7 @@ enum KeyTest {
             note("\(title) · responder \(responder())\n  " + rows.suffix(6).joined(separator: "\n  "))
         }
         let steps: [(Double, () -> Void)] = [
-            (1.5, { model.newTab(preset: "keytest", command: "stty -echo; cat -v") }),
+            (1.5, { model.newTab(title: "keytest", command: "stty -echo; cat -v") }),
             (1.5, { dump("tab opened") }),
             (0.2, { key(0, "a"); down(); up(); key(36, "\r") }),
             (0.8, { dump("typed a, down, up, return") }),
@@ -314,7 +314,7 @@ enum KeyTest {
             (0.1, { model.projectTab = .schedules }),
             (0.6, { model.projectTab = .work }),
             (0.8, { note("after Schedules and back · responder \(responder())") }),
-            (0.1, { model.newTab(preset: "keytest2", command: "stty -echo; cat -v") }),
+            (0.1, { model.newTab(title: "keytest2", command: "stty -echo; cat -v") }),
             (1.2, { note("after a new tab · responder \(responder())") }),
             (0.1, { if let first = model.tabs.first(where: { $0.title == "keytest" }) { model.selectedTab = first.id } }),
             (0.8, { note("after choosing the first tab again · responder \(responder())") }),
@@ -663,11 +663,11 @@ final class AppModel: ObservableObject {
     let home = FileManager.default.homeDirectoryForCurrentUser
 
     init() {
-        // Work with no project yet goes to General, so a shell and Help are always one click away.
+        // Work with no project yet goes to General, so a shell is always one click away.
         let general = Projects.general()
         refresh()
         checkRelease()
-        newTab(preset: "Shell", command: nil, project: general)
+        newTab(title: "Shell", command: nil, project: general)
         refreshMachines()
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.refresh() }
     }
@@ -734,7 +734,7 @@ final class AppModel: ObservableObject {
     /// A shell in the project's folder, working in its VM; `setUpVM` makes that VM first, in the same tab, so the
     /// user watches it being made.
     func openProject(_ p: Projects.Info, setUpVM: String? = nil) {
-        newTab(preset: "Shell", command: setUpVM.map { "apprentice --vm \($0) vm setup; exec \"$SHELL\" -l" }, project: p)
+        newTab(title: "Shell", command: setUpVM.map { "apprentice --vm \($0) vm setup; exec \"$SHELL\" -l" }, project: p)
     }
 
     // MARK: - projects
@@ -808,7 +808,7 @@ final class AppModel: ObservableObject {
     func runPipeline(_ p: Pipelines.Pipeline) {
         let ref = p.url?.path ?? p.ref
         let owner = p.project.flatMap { folder in projects.first { $0.id == folder.standardizedFileURL.path || $0.id == folder.path } }
-        newTab(preset: p.name, command: "apprentice pipeline run \(VM.shellQuoted(ref)); echo; exec \"$SHELL\" -l", dir: p.folder, vm: p.effectiveVM,
+        newTab(title: p.name, command: "apprentice pipeline run \(VM.shellQuoted(ref)); echo; exec \"$SHELL\" -l", dir: p.folder, vm: p.effectiveVM,
                project: owner ?? projects.first(where: \.isGeneral))
     }
 
@@ -982,13 +982,9 @@ final class AppModel: ObservableObject {
     // MARK: - tabs
 
     /// Opens a tab in a project (the one on screen when none is given): in its folder, working in its VM.
-    func newTab(preset: String, command: String?, dir: URL? = nil, vm: String? = nil, env: [String: String] = [:], project p: Projects.Info? = nil) {
+    func newTab(title: String, command: String?, dir: URL? = nil, vm: String? = nil, project p: Projects.Info? = nil) {
         let owner = p ?? workProject
-        let presetValues = Config.current.tabPresets[preset] ?? [:]
-        let folder = dir ?? (presetValues["dir"].map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath) }) ?? owner.folder
-        let cmd = command ?? presetValues["cmd"]
-        let session = TermSession(title: preset, dir: folder, command: cmd, env: env,
-                                  vm: vm ?? presetValues["vm"] ?? owner.vm, project: owner.id)
+        let session = TermSession(title: title, dir: dir ?? owner.folder, command: command, env: [:], vm: vm ?? owner.vm, project: owner.id)
         tabs.append(session)
         show(project: owner, tab: .work)
         selectedTab = session.id
@@ -1017,19 +1013,6 @@ final class AppModel: ObservableObject {
         return alert.runModal() == .alertFirstButtonReturn
     }
 
-    func openLogTab() {
-        newTab(preset: "Log", command: "apprentice log --tail 50 && exec tail -f \(Sessions.runs.path)/$(ls -t \(Sessions.runs.path) | head -1)/steps.jsonl | sed 's/^{//;s/}$//'")
-    }
-
-    /// A tab where you ask about apprentice in your own words: an agent reading the docs, changing nothing.
-    func openHelpTab() {
-        if let open = tabs.first(where: { $0.title == "Help" && $0.exited == nil && $0.project == workProject.id }) {
-            show(project: workProject, tab: .work)
-            selectedTab = open.id
-            return
-        }
-        newTab(preset: "Help", command: HelpTab.command, dir: HelpTab.dir, env: HelpTab.env)
-    }
 }
 
 // MARK: - Navigation
@@ -1251,10 +1234,6 @@ struct RootView: View {
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
-            Button { model.openHelpTab() } label: { Label("Help", systemImage: "questionmark.circle") }
-                .help("Ask anything about apprentice in a tab")
-        }
-        ToolbarItem(placement: .primaryAction) {
             Button { model.togglePause() } label: { Label(Pause.on ? "Resume" : "Pause", systemImage: Pause.on ? "play.circle" : "pause.circle") }
                 .help("Hold apprentice still: new actions wait until you resume")
         }
@@ -1272,7 +1251,7 @@ struct RootView: View {
     /// project on screen.
     private var shortcuts: some View {
         ZStack {
-            Button("New shell") { model.newTab(preset: "Shell", command: nil) }
+            Button("New shell") { model.newTab(title: "Shell", command: nil) }
                 .keyboardShortcut("t", modifiers: .command)
                 .frame(width: 0, height: 0)
                 .opacity(0.01)
@@ -1296,6 +1275,7 @@ struct TerminalWorkspace: View {
     private var pendingForSelected: Approvals.Pending? {
         model.pending.first { $0.tab == model.selectedTab }
     }
+    @State private var commands: [String] = []
 
     private var shown: TermSession? {
         model.selectedSession.flatMap { $0.project == project.id ? $0 : nil }
@@ -1305,6 +1285,10 @@ struct TerminalWorkspace: View {
         VStack(spacing: 0) {
             tabBar
             Divider().opacity(0.6)
+            if !commands.isEmpty {
+                commandBar
+                Divider().opacity(0.6)
+            }
             if let session = shown {
                 ZStack(alignment: .bottom) {
                     TerminalPane(term: session, font: font, locked: pendingForSelected != nil)
@@ -1326,9 +1310,10 @@ struct TerminalWorkspace: View {
             }
         }
         .background(Theme.canvas)
-        .onAppear { showShell() }
+        .onAppear { showShell(); loadCommands() }
         .onChange(of: shown?.id) { _, _ in showShell() }
-        .onChange(of: project.id) { _, _ in showShell() }
+        .onChange(of: project.id) { _, _ in showShell(); loadCommands() }
+        .onChange(of: model.revision) { _, _ in loadCommands() }
     }
 
     /// The project always shows a terminal: the tab it has, else a new shell in its folder.
@@ -1338,6 +1323,43 @@ struct TerminalWorkspace: View {
     }
 
     private var font: NSFont { AppLook.terminalFont }
+
+    /// The project's own commands, each a button showing exactly what it types.
+    private var commandBar: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: Theme.s2) {
+                ForEach(commands, id: \.self) { line in
+                    Button(line) { inject(line) }
+                        .font(Theme.monoSmall)
+                        .controlSize(.small)
+                        .disabled(shown == nil || pendingForSelected != nil)
+                }
+            }
+            .padding(.horizontal, Theme.s3)
+            .padding(.vertical, Theme.s2)
+        }
+        .background(.bar)
+    }
+
+    /// Types the line into the tab, then presses Return a moment later: a program reading a paste takes a Return
+    /// that arrives with it as part of the text.
+    private func inject(_ line: String) {
+        guard let session = shown else { return }
+        session.send(line)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { session.send("\r") }
+    }
+
+    private func loadCommands() {
+        let found = Projects.commands(in: project.folder)
+        if found != commands { commands = found }
+    }
+
+    /// Opens the project's list to edit, starting it when the project has none yet.
+    private func commandsFile() {
+        let file = Projects.commandsFile(project.folder)
+        if !FileManager.default.fileExists(atPath: file.path) { try? Projects.commandsTemplate.write(to: file, atomically: true, encoding: .utf8) }
+        NSWorkspace.shared.open(file)
+    }
 
     private var tabBar: some View {
         HStack(spacing: Theme.s2) {
@@ -1352,30 +1374,22 @@ struct TerminalWorkspace: View {
                 .padding(.horizontal, Theme.s3)
                 .padding(.vertical, Theme.s2)
             }
-            Menu {
-                Button("Shell") { model.openProject(project) }
-                if let vm = project.vm {
-                    Button("A shell in the VM \(vm)") { model.newTab(preset: "VM \(vm)", command: "apprentice --vm \(vm) vm ssh", project: project) }
-                }
-                Divider()
-                Button("Help: ask about apprentice") { model.openHelpTab() }
-                Button("Log (following)") { model.openLogTab() }
-                if !Config.current.tabPresets.isEmpty {
-                    Divider()
-                    ForEach(Config.current.tabPresets.keys.sorted(), id: \.self) { name in
-                        Button(name) { model.newTab(preset: name, command: nil, project: project) }
-                    }
-                }
-            } label: {
+            Button { commandsFile() } label: {
+                Image(systemName: "list.bullet.rectangle")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24, height: 24)
+            }
+            .buttonStyle(.plain)
+            .help("This project's commands: one a line, each a button that types it here and presses Return")
+            Button { model.openProject(project) } label: {
                 Image(systemName: "plus.circle.fill")
                     .font(.system(size: 16))
                     .foregroundStyle(Theme.accent)
                     .frame(width: 26, height: 24)
             }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .help("New tab (⌘T)")
+            .buttonStyle(.plain)
+            .help("New shell (⌘T)")
             .padding(.trailing, Theme.s3)
         }
         .background(.bar)
@@ -2430,7 +2444,7 @@ struct WelcomeView: View {
                 grant("Screen Recording is for screenshots and reading text that has no label. Nothing leaves this Mac.",
                       ask: "screen", done: screen)
             }
-            Text("Agents run in this window's Terminal tabs with apprentice already wired in. Help, in the toolbar, answers questions.")
+            Text("Run any agent in this window's terminal tabs, with apprentice already wired in.")
                 .font(Theme.caption).foregroundStyle(.secondary)
             HStack {
                 Button("Later") { model.welcomeOpen = false }.keyboardShortcut(.cancelAction)

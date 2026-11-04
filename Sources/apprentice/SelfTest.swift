@@ -227,6 +227,9 @@ enum SelfTest {
         Tour.save(Tour.Setup(name: "home", values: ["agent.ui_only": "false"]))
         check(Projects.vmFor(typed: "", project: "Shop Socials") == "shop-socials" && Projects.vmFor(typed: "  ", project: "Shop") == "shop"
               && Projects.vmFor(typed: "Mine", project: "Shop") == "mine", "a new project's VM is the name typed, else the suggestion")
+        check(Projects.commands("# a note\n\n/review\n  npm test  \n/review\nbad\u{1b}[2Kline\n" + String(repeating: "x", count: 201)) == ["/review", "npm test"]
+              && Projects.commands(Projects.commandsTemplate).isEmpty,
+              "project commands: one a line, no comments, repeats, control characters or overlong lines")
         var box = OverlayHide()
         box.step(["Ready"], now: 0, openOnWork: true, hideAfter: 30)
         box.step(["Ready"], now: 29, openOnWork: true, hideAfter: 30)

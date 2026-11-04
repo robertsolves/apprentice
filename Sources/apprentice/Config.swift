@@ -548,8 +548,6 @@ struct Config {
     var appTheme = "system"
     var keepScrollback = false
     var copyOnSelect = false
-    /// `[app.tabs]`: tab presets, `shop = { dir = "~/work/shop", cmd = "claude", vm = "linux1" }`.
-    var tabPresets: [String: [String: String]] = [:]
 
     /// Sites built in at the `careful` style: the social networks, where an account's standing is
     /// what is at stake (`[social]` in agent/sites.toml). twitter.com counts as x.com (`Site.domain`).
@@ -683,7 +681,6 @@ struct Config {
         if let v = toml["app"]?["keep_scrollback"] { c.keepScrollback = Toml.unquote(v) == "true" }
         if let v = toml["app"]?["copy_on_select"] { c.copyOnSelect = Toml.unquote(v) == "true" }
         // Values as text, without their quotes: `dir = "~/work"` is a folder, not a quoted word.
-        for (name, raw) in toml["app.tabs"] ?? [:] { c.tabPresets[name] = Toml.table(raw).mapValues(Toml.unquote) }
         if let r = toml["run"] {
             if let v = r["base_url"] { c.runURL = Toml.unquote(v) }
             if let v = r["model"] { c.runModel = Toml.unquote(v) }

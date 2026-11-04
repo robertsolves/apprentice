@@ -202,11 +202,6 @@ theme = "system"
 # false: scrollback is not saved across a relaunch, since it may hold secrets
 keep_scrollback = false
 copy_on_select = false
-# Terminal tab presets, shown in the new-tab menu: name = { dir, cmd, env, vm }.
-# [app.tabs]
-# shop = { dir = "~/work/shop", cmd = "claude" }
-# blog = { dir = "~/work/blog", cmd = "claude" }
-# linux1 = { cmd = "claude", vm = "linux1" }
 
 [run]
 base_url = "https://api.openai.com/v1"

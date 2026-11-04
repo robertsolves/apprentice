@@ -8,6 +8,7 @@ import Foundation
 ///
 /// Inside a project folder:
 ///   .apprentice/project.toml   name and VM (the site counts and caps of `Project` live beside it)
+///   .apprentice/commands.txt   commands a click types into its terminal
 ///   .apprentice/skills/        skills for this project only, shown before anyone else's (`Skills`)
 ///   AGENTS.md                  what an agent needs to know; CLAUDE.md and GEMINI.md point at it
 ///   pipelines/                 the project's pipelines (`Pipelines`)
@@ -151,6 +152,8 @@ enum Projects {
         // The counts are this Mac's; everything else in the project travels with it.
         let ignore = folder.appendingPathComponent(".apprentice/.gitignore")
         if !fm.fileExists(atPath: ignore.path) { try "limits.json\nlimits.json.lock\n".write(to: ignore, atomically: true, encoding: .utf8) }
+        let commands = commandsFile(folder)
+        if !fm.fileExists(atPath: commands.path) { try commandsTemplate.write(to: commands, atomically: true, encoding: .utf8) }
         let agents = folder.appendingPathComponent("AGENTS.md")
         if !fm.fileExists(atPath: agents.path) {
             try notes(name: name, vm: vm, about: about).write(to: agents, atomically: true, encoding: .utf8)
@@ -160,6 +163,36 @@ enum Projects {
             let file = folder.appendingPathComponent(own)
             if !fm.fileExists(atPath: file.path) { try "@AGENTS.md\n".write(to: file, atomically: true, encoding: .utf8) }
         }
+    }
+
+    /// The project's commands: one a line, each a button above its terminal that types the line and presses Return,
+    /// so they work in any agent or a plain shell, and travel with the folder.
+    static func commandsFile(_ folder: URL) -> URL { folder.appendingPathComponent(".apprentice/commands.txt") }
+
+    static let commandsTemplate = """
+        # This project's commands. Each line is a button above its terminal: a click types the line
+        # into the tab and presses Return, for whatever is running there. Lines starting with # are skipped.
+        #
+        # /review
+        # npm test
+
+        """
+
+    /// The lines that become buttons. A button shows exactly what it types, so a line holding control
+    /// characters, which could hide or do more than it shows, is left out, as is one too long to read.
+    static func commands(_ text: String) -> [String] {
+        var out: [String] = []
+        for raw in text.split(whereSeparator: \.isNewline) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty, !line.hasPrefix("#"), line.count <= 200, !out.contains(line),
+                  !line.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) }) else { continue }
+            out.append(line)
+        }
+        return out
+    }
+
+    static func commands(in folder: URL) -> [String] {
+        commands((try? String(contentsOf: commandsFile(folder), encoding: .utf8)) ?? "")
     }
 
     /// What any agent opened in the folder reads first.

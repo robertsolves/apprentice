@@ -263,22 +263,3 @@ enum SheetSize {
     }
 }
 
-/// The Help tab: an agent in the folder that holds apprentice's docs, told to answer the user's questions
-/// from them and change nothing. Claude Code when it is installed; otherwise the CLI's own help.
-enum HelpTab {
-    static let prompt = """
-    You are the help desk for apprentice, a macOS tool that lets coding agents use apps and websites through the \
-    screen the way a person does. The person asking is its user, not a developer, and may know nothing about it. \
-    Answer their questions about using apprentice by reading the docs in this folder (README.md, SPEC.md, FEATURES.md, \
-    agent/, skills/, playbooks/) and `apprentice --help`. Give the exact command when one answers the question. \
-    Keep answers short and plain, with no jargon. Never change a file and never run apprentice commands that act on \
-    the screen; this is a read-only help session.
-    """
-
-    static var dir: URL { Repo.resources }
-
-    static let command = "cd \"$APPRENTICE_HELP_DIR\" && if command -v claude >/dev/null 2>&1; then exec claude --append-system-prompt \"$APPRENTICE_HELP\"; "
-        + "else echo 'Help needs Claude Code (claude) on this Mac. Meanwhile, the built-in help:'; echo; apprentice --help; exec \"$SHELL\" -l; fi"
-
-    static var env: [String: String] { ["APPRENTICE_HELP_DIR": dir.path, "APPRENTICE_HELP": prompt] }
-}

@@ -152,7 +152,7 @@ struct ProjectWork: View {
                     Text("This project works in the VM \(vm), which is not made yet on this Mac. Making it downloads under 1 GB and takes a few minutes; a tab shows the progress.")
                         .font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     IconButton("Make it", "plus", prominent: true) {
-                        model.newTab(preset: "VM \(vm)", command: "apprentice --vm \(vm) vm setup; echo; echo 'Done. Close this tab, or keep it as a shell.'; exec \"$SHELL\" -l",
+                        model.newTab(title: "VM \(vm)", command: "apprentice --vm \(vm) vm setup; echo; echo 'Done. Close this tab, or keep it as a shell.'; exec \"$SHELL\" -l",
                                      project: project)
                     }
                     .controlSize(.small)
