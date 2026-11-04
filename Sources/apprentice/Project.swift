@@ -61,7 +61,7 @@ enum Project {
             try FileManager.default.createDirectory(at: here, withIntermediateDirectories: true)
             // The counts are this Mac's; the caps may be shared with the project.
             let ignore = here.appendingPathComponent(".gitignore")
-            if !FileManager.default.fileExists(atPath: ignore.path) { try "limits.json\nlimits.json.lock\n".write(to: ignore, atomically: true, encoding: .utf8) }
+            if !FileManager.default.fileExists(atPath: ignore.path) { try "limits.json\nlimits.json.lock\ncache/\n".write(to: ignore, atomically: true, encoding: .utf8) }
             return "project folder \(here.path): its site counts go in limits.json (git-ignored). Add budgets.json there for caps tighter than \(Budgets.path.path); the account-wide caps still apply"
         case "status":
             guard let dir else { return "no project folder: counts and caps are account-wide in \(Store.dir.path). `apprentice project init` in a project adds one" }

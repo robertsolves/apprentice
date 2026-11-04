@@ -10,7 +10,11 @@ import Foundation
 ///   .apprentice/project.toml   name and VM (the site counts and caps of `Project` live beside it)
 ///   .apprentice/commands.txt   commands a click types into its terminal
 ///   .apprentice/skills/        skills for this project only, shown before anyone else's (`Skills`)
+///   .apprentice/commands/      the project's slash commands, one Markdown file each
+///   .apprentice/named-agents.toml  agents for this project only, or changes to global ones (`NamedAgents`)
+///   .apprentice/cache/         gitignored: each run's outputs and past-run notes (`Runs`)
 ///   AGENTS.md                  what an agent needs to know; CLAUDE.md and GEMINI.md point at it
+///   .claude/ .agents/ .gemini/ …   each CLI's copy of the skills and commands (`ProjectFiles`)
 ///   pipelines/                 the project's pipelines (`Pipelines`)
 enum Projects {
     struct Entry: Codable, Equatable {
@@ -142,7 +146,7 @@ enum Projects {
         if !fm.fileExists(atPath: settings.path) { try (lines.joined(separator: "\n") + "\n").write(to: settings, atomically: true, encoding: .utf8) }
         // The counts are this Mac's; everything else in the project travels with it.
         let ignore = folder.appendingPathComponent(".apprentice/.gitignore")
-        if !fm.fileExists(atPath: ignore.path) { try "limits.json\nlimits.json.lock\n".write(to: ignore, atomically: true, encoding: .utf8) }
+        if !fm.fileExists(atPath: ignore.path) { try "limits.json\nlimits.json.lock\ncache/\n".write(to: ignore, atomically: true, encoding: .utf8) }
         let commands = commandsFile(folder)
         if !fm.fileExists(atPath: commands.path) { try commandsTemplate.write(to: commands, atomically: true, encoding: .utf8) }
         let agents = folder.appendingPathComponent("AGENTS.md")
@@ -154,6 +158,8 @@ enum Projects {
             let file = folder.appendingPathComponent(own)
             if !fm.fileExists(atPath: file.path) { try "@AGENTS.md\n".write(to: file, atomically: true, encoding: .utf8) }
         }
+        // apprentice's section of AGENTS.md, and each CLI's copy of the skills and slash commands.
+        ProjectFiles.sync(folder)
     }
 
     /// The project's commands: one a line, each a button above its terminal that types the line and presses Return,
@@ -234,6 +240,7 @@ enum Projects {
             guard let p = find(a.pos.dropFirst().first) else { throw Fail(5, "no such project · apprentice project list") }
             return "\(p.folder.path)\ncd \(VM.shellQuoted(p.folder.path))" + (p.vm.map { " && export APPRENTICE_VM=\($0)" } ?? "")
         case "save": return try save(a)
+        case "sync": return try ProjectFiles.command(a)
         case "set": return try set(a)
         case "add":
             guard let raw = a.pos.dropFirst().first else { throw Fail(5, "project add <folder>") }

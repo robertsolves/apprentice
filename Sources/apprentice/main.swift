@@ -27,94 +27,9 @@ if argvRaw.count > 1, argvRaw[1] == "selftest" {
 
 let version = Build.version
 
+/// Every command and its description are in `agent/commands.toml`, which `help` reads too.
 func usage() {
-    print("""
-    apprentice \(version) · text-first control of one Mac app or browser window
-
-    usage:
-      apprentice tour [name] | list | use <name> | show [name] | rm <name>   set everything up one choice at a time, saved as a named setup; switch or update any one
-      apprentice doctor [--fix]                 check permissions, signature, PATH, clone and settings; --fix opens the panes and runs a smoke test
-      apprentice session [--app Safari] [--on mac|linux] [--new-window|--new-tab] [--allow a.com,b.com] [--task "…"] [--no-options]
-      apprentice open <url>
-      apprentice focus <app> [--on mac|linux]
-      apprentice here                           note which window of the agent's app is in front (run as the user sends a prompt, or by a hook)
-      apprentice done ["what was done"]        the task is finished: gives the user back the app and window they were in, and the overlay says Done
-      apprentice read [--max 80] [--filter text]
-      apprentice click <id> | --on "text" | --at x,y [--double|--right]
-      apprentice type <id|focused> "text" [--enter] [--pace fast] [--tier 3]
-      apprentice type <id> --secret username|password|code [--enter]   sign in ([login] auto): saved account, or the user's code
-      apprentice login add|remove|status <domain>   save a sign-in to the Keychain through the little window
-      apprentice account login [--start | --wait | --cancel] [--no-browser] | status [--offline] | logout   your GitHub account: sign in with a code at github.com/login/device
-      apprentice sync [status] | on | off | now   send settings, prefs, voice, skills and logs to your own private GitHub repo, apprentice-home
-      apprentice key <combo> [--tier 3]
-      apprentice menu "File > New Folder" [--tier 3]
-      apprentice scroll up|down|left|right [n] [--in id | --at x,y]
-      apprentice hover <id>
-      apprentice browse [seconds] [--in id]
-      apprentice drag <id> <id> | --by dx,dy [--in id | --at x,y]   drag one onto another, or pan a map
-      apprentice upload <id> <path> [--tier 3]
-      apprentice choose <path>                  drive the open or save dialog on the window
-      apprentice do <flow> [--key value ...]    run a skill's saved steps (its flow) with one approval
-      apprentice download <id> <path>
-      apprentice approve <token> [--text "edited text"] | deny <token> | pending
-      apprentice wait-for "text" [--timeout 10]
-      apprentice ocr [--crop id|x,y,w,h]
-      apprentice shot [--crop id|x,y,w,h] [--marks]
-      apprentice ask "question" [--choices "A|B|C" [--multi] [--text]]   a little window for the user; prints their reply
-      apprentice show "what"                    the user points the cursor at it; prints the element there
-      apprentice confirm <token> [--why "…"]    the user approves or denies a pending step in the little window
-      apprentice bug "summary" [--repro …] [--cause …] [--fix …]   file a field report in the repo's BUGS.md
-      apprentice commit "what and why"          one small commit in the repo; a source change rebuilds and restarts
-      apprentice update [--check] [--build]     rebase onto upstream and rebuild (it also does this on its own unless [update] auto = false)
-      apprentice selftest                       the built-in tests; kit.sh runs them before installing a build
-      apprentice pr [--title t] [--draft] [--fork remote] [--local]   offer the clone's local commits upstream as a pull request
-      apprentice settings [local]               where the settings are; local moves an old synced copy back
-      apprentice repo                           the clone apprentice runs from
-      apprentice policy [domain]                may the LLM use shell commands for macOS tasks? With a domain: notes on its terms
-      apprentice budget [domain]                what is left of this hour's, today's and this week's caps per site and kind
-      apprentice pace [site [fastest|fast|steady|careful|default]]   how fast a site or app goes; fastest (pasted text, no waits) suits logged-out scouting. Apps are fastest, web pages steady, social sites careful
-      apprentice project new "name" [--from <git url>] [--vm <name> | --no-vm] | list | open | set [--vm|--no-vm|--name] | save [--push] | add <folder> | forget   a folder for one piece of work: notes agents read, its pipelines, its VM; save commits it, --push puts it on GitHub
-      apprentice project [init | status]        a project's own .apprentice/ folder: its own site counts and tighter caps, on top of the account-wide ones
-      apprentice pipeline task "what to do" | list | show | new "name" "step" … | add <name> "step" | run <name> [--from N] | rm   how a project's work runs: prompts one after another, now or on a schedule; one step is a simple task (schedule add … --pipeline <name>)
-      apprentice cool [--clear domain]          sites cooling down after a rate limit; clearing asks the user
-      apprentice activity <domain> [--days 7]   actions per day, rate limits, challenges and flags on one site
-      apprentice flag <domain> "what you saw"   record when the user saw a warning or restriction
-      apprentice awake on|off|status            keep the Mac from idle sleep and locking while tasks run
-      apprentice ask --optional "question" --choices "A|B" [--multi] [--assume A]   a question the user may leave; carries on with the assumption
-      apprentice pref <key> [--for site] [--choices "A|B"] [--assume A]   the user's preference here: this site's, else elsewhere, then an optional question
-      apprentice voice [show | init | ask | suggest]   how the user wants comments and posts written, and their answers per site; suggest writes new questions from what apprentice is used for
-      apprentice typing [learn | show | forget]   record how you type (only key timings), so typing keeps your rhythm per letter pair
-      apprentice resume                         after the kill switch, carry on once the user says so
-      apprentice phone [on|off|test]            one-tap phone setup: questions that go to the chat buzz the phone
-      apprentice grow [--days 14]               improvement digest: repeated errors, questions asked, open bug reports
-      apprentice log [--tail n] | --session [<id>]   recent steps, or one whole session
-      apprentice sessions [--limit 10]          recent sessions: app, sites, steps, errors, model, task
-      apprentice route "task"
-      apprentice skills ["words"] | <name> | list | --paths | forget <path> | share <path> | --check   what agents know: built in, learned by apprentice (unreviewed hints) and yours; --check looks for anything personal (`playbooks` is the old name)
-      apprentice prefs ["words"]                what the user uses (their gym's site, their handles): this device's, then its parent's
-      apprentice remember <key> "<value>" --from you|task [--on mac|project]   save one on this device: the user's words, or the site or app the task ran on
-      apprentice forget <key> [--on mac|project]   drop one from this device; a parent's value then applies
-      apprentice learn "task" [--name slug] [--model m] [--force] | --fact "one line" [--for site-or-app]   save this session's steps, or one fact, as a learned skill on this Mac
-      apprentice do --explain "task"            which flow a task would pick for this model, and why
-      apprentice run "task" --model <name> [--base-url url] [--screen-anyway] [--save name]
-      apprentice replay <name> [--from n] [--approve]
-      apprentice mcp
-      apprentice vm setup | install | up | down | on | off | watch | look | call "what" | shell | ssh | status | list   a small Linux VM with its own screen, cursor and keyboard: its browser and Linux apps (--on linux); shell prints the ssh command for its terminal
-      apprentice device [free]                  who is using this Mac's (or --vm's) screen right now; free lets another agent use it. One agent per screen at a time
-      apprentice app                            the window: projects, terminal tabs where agents run, pipelines, schedules, skills, VMs and settings
-      apprentice schedule add|list|show|pause|resume|rm|now|agent   prompts and tasks that run later or again (--project <name>: in its folder and VM)
-      apprentice away on|off|status|wait|add|list|cancel   work that runs only while you are away, and stops when you are back
-      apprentice serve [--background] | stop
-      apprentice uninstall [--all] [--keep-vms] [--yes]   list, then remove, everything apprentice installed (--all: the clone too; --keep-vms: the VMs stay)
-
-    output is compact text for an agent. add --json for the raw reply from the commands that go through the daemon, and from `route` and `skills`.
-    open, click, type, key, menu, drag, upload, download, choose and do only propose: they exit 8 with a token,
-    and act once you run `apprentice approve <token>`. ctrl+opt+cmd+. is the kill switch: it stops whatever runs, and nothing more runs until the user answers.
-    exit codes: 0 ok · 2 stale, re-read · 3 the user denied · 4 blocked (another agent is using this screen), rate limited, over budget, cooling or a challenge ·
-                5 not found or timeout · 6 interrupted · 7 permission missing · 8 approval needed, nothing done yet ·
-                9 ask the user in the chat (they are away or did not answer the window) ·
-                10 yielded: the user is back (away mode), nothing was done; wait with `apprentice away wait`
-    """)
+    print(Help.usageText())
 }
 
 let argv = Array(argvRaw.dropFirst())
@@ -131,11 +46,23 @@ let rest = Array(argv.dropFirst())
 /// `route` and the rest beside the daemon's commands.
 let loggedHere: Set<String> = ["route", "playbooks", "skills", "device", "notes", "learn", "bug", "commit", "update", "settings", "repo", "policy", "budget", "pace",
                                "activity", "flag", "grow", "sessions", "project", "doctor", "pr", "vm", "replay", "phone", "tour", "prefs", "remember", "forget", "account",
-                               "pipeline", "sync"]
+                               "pipeline", "sync", "board", "agents", "tidy"]
 if loggedHere.contains(command) { Timing.begin() }
+
+/// Inside a pipeline step: every command says the step is alive, an action that worked is remembered so the step
+/// is not retried over it, and the command's output ends with the board's unread count.
+let thisStep = PipelineStep.current
+thisStep?.alive()
+
+func endOfCommand(_ code: Int32) {
+    guard let step = thisStep else { return }
+    if code == 0, Playbooks.actions.contains(command) || command == "do" || command == "approve" { step.touch("acted") }
+    if command != "board", let line = Board.unreadLine(run: step.run, step: step.step) { print(line) }
+}
 
 func done(_ code: Int32) -> Never {
     if loggedHere.contains(command) { Store.log(["cmd": command, "client": true, "code": Int(code)]) }
+    endOfCommand(code)
     exit(code)
 }
 
@@ -155,7 +82,7 @@ func attempt(_ body: () throws -> Void) -> Never {
 
 switch command {
 case "help", "--help", "-h":
-    usage()
+    print(Help.command(Args.parse(rest)))
     exit(0)
 case "version", "--version", "-v":
     print(version)
@@ -238,6 +165,13 @@ case "project":
     attempt { print(try Project.command(Args.parse(rest))) }
 case "pipeline":
     attempt { print(try Pipelines.command(Args.parse(rest))) }
+case "board":
+    attempt { print(try Board.command(Args.parse(rest))) }
+case "agents":
+    attempt { print(try NamedAgents.command(Args.parse(rest))) }
+case "tidy":
+    print(Tidy.command(Args.parse(rest)))
+    done(0)
 case "device":
     print(Device.command(Args.parse(rest)))
     done(0)
@@ -284,12 +218,24 @@ case "selftest":
     SelfTest.run()
 default:
     do {
+        // A step without the screen is told so here too: the daemon need not even be running.
+        if Request.callerNoScreen == true, Device.screen.contains(command) {
+            throw Fail(4, "blocked: this pipeline step does not have the screen. Only a step with ui: true may use it; ask that step on the board, or say what you need in what you print.")
+        }
+        // Inside a pipeline step a question names who asks, and one left unanswered parks the step.
+        if command == "ask", let step = thisStep, !rest.contains("--optional") {
+            let (code, out) = try step.aroundAsk(rest)
+            if !out.isEmpty { print(out) }
+            endOfCommand(code)
+            exit(code)
+        }
         let response = try Wire.send(Request(cmd: command, args: rest))
         if rest.contains("--json") {
             print(String(data: Wire.json(response), encoding: .utf8) ?? "{}")
         } else if !response.out.isEmpty {
             print(response.out)
         }
+        endOfCommand(response.code)
         exit(response.code)
     } catch {
         fail(error)

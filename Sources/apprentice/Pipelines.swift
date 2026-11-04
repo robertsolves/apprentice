@@ -1,33 +1,52 @@
 import Foundation
 
-/// A pipeline is a list of prompts that run one after another, now (`pipeline run`) or on a schedule
-/// (`schedule add … --pipeline <name>`): "get the new comments from Instagram", then "answer the ones that
-/// ask about prices by email". Each step is a prompt for the pipeline's agent CLI (`claude -p`…), run in the
-/// pipeline's folder, and it gets the end of the previous step's output, so step two can use what step one
-/// found. A step whose whole text is `sh: <command>` runs that command instead. The first step that fails
-/// stops the run.
+/// A pipeline is a project's work as a graph of steps. Each step is a prompt for a named agent (`NamedAgents`) or a
+/// shell command, it can branch (`next: a | b`, the interpreter chooses), fan out (`next: a & b`, each in its own
+/// worktree, talking on the board) and join again. A file with no settings is still a straight line, one step
+/// after another, and a simple task is a pipeline of one step (`pipeline task`).
 ///
 /// A pipeline is one Markdown file, so a person can read and edit it anywhere:
 ///
 ///     ---
-///     name: Morning round
-///     agent: claude
+///     name: Fix the bug
+///     goal: Fix the reported bug and publish the notes
+///     interpreter: fast        # who chooses branches; else the project's default
+///     scribe: Joseph, Reviewer # who writes summaries and notes; a list gives backups
+///     carry: summary           # optional: keep a rolling summary between runs
+///     visits: 3                # how many times a loop may come back to a step
 ///     vm: shop                 # optional; else the project's VM, else this Mac
 ///     ---
-///     # Morning round
+///     ## triage
+///     use: fast
+///     next: fix | reply
+///     Read the report and work out what it needs.
 ///
-///     ## Read Instagram
-///     Get the comments on my newest Instagram post …
+///     ## fix
+///     when: the report describes a real bug
+///     needs: edit
+///     next: code & tests
+///     Plan the fix.
 ///
-///     ## Answer by email
-///     …
-///
-/// It lives in its project's `pipelines/` folder: a project's work runs as pipelines, and a simple task is a
-/// pipeline of one step (`pipeline task`). One left in `~/.apprentice/pipelines/` by an older version still runs.
+/// It lives in its project's `pipelines/` folder. One left in `~/.apprentice/pipelines/` by an older version still
+/// runs. `PipelineGraph` reads the structure and checks it; `PipelineEngine` runs it.
 enum Pipelines {
     struct Step: Equatable {
         var title: String
         var prompt: String
+        /// The named agent; nil means the first in the priority list.
+        var use: String? = nil
+        /// `a`, `a | b`, `a & b` or `end`; nil means the next heading.
+        var next: String? = nil
+        /// One line the interpreter reads when choosing this step.
+        var when: String? = nil
+        /// `read-only`, `edit` or `full`: the run does not start if the agent has less.
+        var needs: String? = nil
+        /// This step may use the screen.
+        var ui = false
+
+        /// The step's name, as `next:` and the board address it.
+        var id: String { Pipelines.slug(title) }
+        var hasSettings: Bool { use != nil || next != nil || when != nil || needs != nil || ui }
 
         /// `sh: <command>` as the step's whole text.
         var shell: String? {
@@ -39,10 +58,18 @@ enum Pipelines {
 
     struct Pipeline {
         var name: String
-        var agent = AgentCLIs.defaultID
+        /// `agent:` from an older file: the CLI its steps run on unless a step says otherwise. Empty for a newer one.
+        var agent = ""
         var vm: String?
         var about = ""
         var steps: [Step] = []
+        var goal: String? = nil
+        var interpreter: String? = nil
+        var scribes: [String] = []
+        /// `carry: summary` keeps a rolling summary between runs.
+        var carry = false
+        /// How many times a step may run in one run; 0 writes "no limit", which `pipeline check` refuses in a loop.
+        var visits = 3
         /// The file, and the project folder it belongs to (nil: apprentice's own folder).
         var url: URL?
         var project: URL?
@@ -83,11 +110,17 @@ enum Pipelines {
         var p = Pipeline(name: meta["name"] ?? "")
         if let agent = meta["agent"], !agent.isEmpty { p.agent = agent.lowercased() }
         if let vm = meta["vm"], !vm.isEmpty { p.vm = vm }
+        p.goal = meta["goal"].flatMap { $0.isEmpty ? nil : $0 }
+        p.interpreter = meta["interpreter"].flatMap { $0.isEmpty ? nil : $0 }
+        p.scribes = (meta["scribe"] ?? "").split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        p.carry = meta["carry"]?.lowercased() == "summary"
+        if let v = meta["visits"].flatMap(Int.init) { p.visits = v }
         var about: [String] = []
         var current: Step?
         var body: [String] = []
         func close() {
             if var step = current {
+                settings(&step, &body)
                 step.prompt = body.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
                 if !step.prompt.isEmpty { p.steps.append(step) }
             }
@@ -118,6 +151,30 @@ enum Pipelines {
         return p
     }
 
+    /// Lines at the top of a step that look like `key: value` for a known key are its settings; the first other line
+    /// starts the prompt. `sh:` stays in the prompt: it is the step's text.
+    private static func settings(_ step: inout Step, _ body: inout [String]) {
+        var used = 0
+        for line in body {
+            let t = line.trimmingCharacters(in: .whitespaces)
+            if t.isEmpty { used += 1; continue }
+            guard let colon = t.firstIndex(of: ":") else { break }
+            let value = metaValue(t[t.index(after: colon)...].trimmingCharacters(in: .whitespaces))
+            switch t[..<colon].lowercased() {
+            case "use": step.use = value
+            case "next": step.next = value
+            case "when": step.when = value
+            case "needs": step.needs = value.lowercased()
+            case "ui": step.ui = value.lowercased() == "true" || value.lowercased() == "yes"
+            default:
+                body = Array(body.dropFirst(used))
+                return
+            }
+            used += 1
+        }
+        body = Array(body.dropFirst(used))
+    }
+
     /// A front-matter value: a quoted one is read to its closing quote (so `"Budget #2"` keeps its `#`),
     /// and only an unquoted one loses a trailing ` # comment` (F6).
     static func metaValue(_ raw: String) -> String {
@@ -143,13 +200,27 @@ enum Pipelines {
     }
 
     static func render(_ p: Pipeline) -> String {
-        var out = ["---", "name: \(metaQuoted(p.name))", "agent: \(metaQuoted(p.agent))"]
+        var out = ["---", "name: \(metaQuoted(p.name))"]
+        if !p.agent.isEmpty { out.append("agent: \(metaQuoted(p.agent))") }
         if let vm = p.vm, !vm.isEmpty { out.append("vm: \(metaQuoted(vm))") }
+        if let goal = p.goal, !goal.isEmpty { out.append("goal: \(metaQuoted(goal))") }
+        if let v = p.interpreter, !v.isEmpty { out.append("interpreter: \(metaQuoted(v))") }
+        if !p.scribes.isEmpty { out.append("scribe: \(metaQuoted(p.scribes.joined(separator: ", ")))") }
+        if p.carry { out.append("carry: summary") }
+        if p.visits != 3 { out.append("visits: \(p.visits)") }
         out += ["---", "# \(p.name)", ""]
         if !p.about.isEmpty { out += [p.about, ""] }
+        // A graph's steps are found by name, so its headings carry no numbers; a straight line keeps them, for reading.
+        let numbered = !p.steps.contains(where: \.hasSettings)
         for (i, step) in p.steps.enumerated() {
             let title = step.title.trimmingCharacters(in: .whitespaces)
-            out.append("## \(i + 1). \(title.isEmpty ? "Step \(i + 1)" : title)")
+            let named = title.isEmpty ? "Step \(i + 1)" : title
+            out.append(numbered ? "## \(i + 1). \(named)" : "## \(named)")
+            if let v = step.use, !v.isEmpty { out.append("use: \(metaQuoted(v))") }
+            if let v = step.next, !v.isEmpty { out.append("next: \(metaQuoted(v))") }
+            if let v = step.when, !v.isEmpty { out.append("when: \(metaQuoted(v))") }
+            if let v = step.needs, !v.isEmpty { out.append("needs: \(metaQuoted(v))") }
+            if step.ui { out.append("ui: true") }
             out.append(step.prompt.trimmingCharacters(in: .whitespacesAndNewlines))
             out.append("")
         }
@@ -160,7 +231,7 @@ enum Pipelines {
     static func inFolder(_ project: URL?) -> [Pipeline] {
         let dir = project.map { $0.appendingPathComponent("pipelines") } ?? homeDir
         let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
-        return files.filter { $0.pathExtension == "md" && $0.lastPathComponent != "README.md" }
+        return files.filter { $0.pathExtension == "md" && $0.lastPathComponent != "README.md" && !$0.lastPathComponent.hasSuffix(".memory.md") }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
             .compactMap { url in (try? String(contentsOf: url, encoding: .utf8)).map { parse($0, url: url, project: project) } }
     }
@@ -224,111 +295,9 @@ enum Pipelines {
         return p
     }
 
-    // MARK: - running
-
-    /// The prompt a step's agent gets: the step, where it stands in the pipeline, and what the step before
-    /// it printed (its end, so a long answer cannot crowd out the step).
-    static func prompt(_ p: Pipeline, step index: Int, previous: String) -> String {
-        let step = p.steps[index]
-        var text = "This is step \(index + 1) of \(p.steps.count) of the pipeline \"\(p.name)\""
-            + (step.title.isEmpty ? "" : ": \(step.title)") + ".\n\n" + step.prompt
-        let prior = previous.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !prior.isEmpty {
-            text += "\n\nWhat the previous step reported:\n" + String(prior.suffix(6000))
-        }
-        return text
-    }
-
-    /// Runs the steps from `from` (1-based), printing each one's output as it comes. Throws at the first
-    /// step that fails, with its exit code, unless `keepGoing`.
-    static func run(_ p: Pipeline, from: Int = 1, keepGoing: Bool = false) throws -> String {
-        guard !p.steps.isEmpty else { throw Fail(5, "\(p.ref) has no steps yet · apprentice pipeline add \(p.ref) \"what to do\"") }
-        guard from >= 1, from <= p.steps.count else { throw Fail(5, "--from is 1 to \(p.steps.count)") }
-        let started = Date()
-        var previous = ""
-        // Every step is one owner of the screen (`Device`): the tab or schedule it runs from, else the pipeline.
-        let tab = ProcessInfo.processInfo.environment["APPRENTICE_TAB"].flatMap { $0.isEmpty ? nil : $0 } ?? "pipeline:\(p.ref)"
-        let who = tab.hasPrefix("schedule:") || tab.hasPrefix("pipeline:") ? tab : "tab:\(tab)"
-        var failed: [String] = []
-        for i in (from - 1)..<p.steps.count {
-            let step = p.steps[i]
-            say("\n── step \(i + 1) of \(p.steps.count) · \(step.title.isEmpty ? "untitled" : step.title)\n")
-            // One thing at a time on a screen: wait while another agent holds it, up to half an hour.
-            var waited = 0
-            while let holder = Device.busy(vm: p.effectiveVM, for: who), waited < 1800 {
-                if waited == 0 { say("waiting: \(p.effectiveVM.map { "the VM \($0)" } ?? "this Mac") is in use by \(holder)\n") }
-                Thread.sleep(forTimeInterval: 15)
-                waited += 15
-            }
-            var argv: [String]
-            if let command = step.shell ?? (AgentCLIs.find(p.agent)?.shell == true ? step.prompt : nil) {
-                if Config.current.uiOnly { throw Fail(5, "step \(i + 1) is a shell command, and shells are off under [agent] ui_only") }
-                argv = ["/bin/zsh", "-lc", command]
-            } else {
-                argv = ["/bin/zsh", "-lc", "exec \"$@\"", "zsh"] + Schedules.agentArgv(AgentCLIs.runnable(p.agent), prompt(p, step: i, previous: previous))
-            }
-            let (code, output) = stream(argv, in: p.folder, vm: p.effectiveVM, project: p.project, tab: tab)
-            Store.log(["cmd": "pipeline", "pipeline": p.ref, "step": i + 1, "code": Int(code)])
-            previous = output
-            if code != 0 {
-                failed.append("step \(i + 1) exit \(code)")
-                if !keepGoing {
-                    throw Fail(code == 0 ? 1 : code, "\n\(p.name): step \(i + 1) (\(step.title)) failed with exit \(code). Fix it, then `apprentice pipeline run \(p.ref) --from \(i + 1)`")
-                }
-            }
-            argv.removeAll()
-        }
-        let seconds = Int(Date().timeIntervalSince(started))
-        let ran = p.steps.count - from + 1
-        return "\n\(p.name): " + (failed.isEmpty ? (ran == 1 ? "the step is done" : "all \(ran) steps done") : failed.joined(separator: ", ")) + " · \(seconds) s"
-    }
-
-    private static func say(_ text: String) {
-        FileHandle.standardOutput.write(Data(text.utf8))
-    }
-
-    /// Runs one step with its output shown as it comes and kept for the next step.
-    private static func stream(_ argv: [String], in folder: URL, vm: String?, project: URL?, tab: String) -> (Int32, String) {
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: argv[0])
-        proc.arguments = Array(argv.dropFirst())
-        proc.currentDirectoryURL = folder
-        var env = ProcessInfo.processInfo.environment
-        if let vm { env["APPRENTICE_VM"] = vm }
-        env["APPRENTICE_TAB"] = tab
-        if let project { env["APPRENTICE_PROJECT"] = project.appendingPathComponent(".apprentice").path }
-        proc.environment = env
-        proc.standardInput = FileHandle.nullDevice
-        let pipe = Pipe()
-        proc.standardOutput = pipe
-        proc.standardError = pipe
-        var collected = Data()
-        let lock = NSLock()
-        pipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            guard !data.isEmpty else { return }
-            FileHandle.standardOutput.write(data)
-            lock.lock()
-            collected.append(data)
-            // Only the end goes to the next step; keep the buffer bounded on a chatty step.
-            if collected.count > 200_000 { collected = collected.suffix(100_000) }
-            lock.unlock()
-        }
-        do { try proc.run() } catch { return (127, "could not start: \(error.localizedDescription)") }
-        proc.waitUntilExit()
-        pipe.fileHandleForReading.readabilityHandler = nil
-        let rest = pipe.fileHandleForReading.readDataToEndOfFile()
-        if !rest.isEmpty { FileHandle.standardOutput.write(rest) }
-        lock.lock()
-        collected.append(rest)
-        let text = String(decoding: collected, as: UTF8.self)
-        lock.unlock()
-        return (proc.terminationStatus, text)
-    }
-
     // MARK: - CLI
 
-    static let usage = "pipeline list · show <name> · task \"what to do\" [--project <name>] [--agent <one of agents.toml>] [--vm <name>] · new <name> [\"step\" …] [--project <name>] [--agent <one of agents.toml>] [--vm <name>] · add <name> \"what to do\" [--title \"…\"] · run <name> [--from N] [--keep-going] · path <name> · rm <name>   (on a schedule: apprentice schedule add <name> --daily 09:00 --pipeline <name>)"
+    static var usage: String { "pipeline " + (Help.entry("pipeline")?.usage.dropFirst("pipeline ".count).description ?? "list") + "   (on a schedule: apprentice schedule add <name> --daily 09:00 --pipeline <name>)" }
 
     /// The project a new pipeline belongs to: the one named, else the one the caller is in.
     private static func owningProject(_ a: Args) throws -> URL {
@@ -344,18 +313,22 @@ enum Pipelines {
 
     static func command(_ a: Args) throws -> String {
         let name = a.pos.dropFirst().first
+        // A step asks about its own run without naming it.
         switch a.pos.first ?? "list" {
         case "list":
             let all = all()
             guard !all.isEmpty else { return "no pipelines yet · apprentice pipeline new \"name\" \"first step\" \"second step\"" }
             return all.map { p in
-                "\(p.ref) · \(p.name) · \(p.steps.count) step\(p.steps.count == 1 ? "" : "s") · \(p.agent)" + (p.effectiveVM.map { " · VM \($0)" } ?? "")
+                "\(p.ref) · \(p.name) · \(p.steps.count) step\(p.steps.count == 1 ? "" : "s") · \(p.steps.compactMap(\.use).first ?? p.agent)" + (p.effectiveVM.map { " · VM \($0)" } ?? "")
             }.joined(separator: "\n")
         case "show":
             let p = try find(name ?? "")
             var out = ["\(p.ref) · \(p.name) · \(p.agent)" + (p.effectiveVM.map { " · VM \($0)" } ?? "") + " · \(p.url?.path ?? "")"]
             if !p.about.isEmpty { out.append(p.about) }
-            for (i, s) in p.steps.enumerated() { out.append("\(i + 1). \(s.title)\n   " + s.prompt.replacingOccurrences(of: "\n", with: "\n   ")) }
+            for (i, s) in p.steps.enumerated() {
+                let settings = [s.use.map { "use: \($0)" }, s.next.map { "next: \($0)" }, s.when.map { "when: \($0)" }, s.needs.map { "needs: \($0)" }, s.ui ? "ui: true" : nil].compactMap { $0 }
+                out.append("\(i + 1). \(s.title)" + (settings.isEmpty ? "" : " · " + settings.joined(separator: " · ")) + "\n   " + s.prompt.replacingOccurrences(of: "\n", with: "\n   "))
+            }
             return out.joined(separator: "\n")
         case "path":
             return try find(name ?? "").url?.path ?? ""
@@ -364,7 +337,7 @@ enum Pipelines {
             let project = try owningProject(a)
             var p = Pipeline(name: name)
             p.project = project
-            p.agent = (a.value("agent") ?? AgentCLIs.defaultID).lowercased()
+            p.agent = (a.value("agent") ?? "").lowercased()
             p.vm = a.value("vm")
             p.steps = a.pos.dropFirst(2).enumerated().map { Step(title: "Step \($0.offset + 1)", prompt: $0.element) }
             let url = project.appendingPathComponent("pipelines").appendingPathComponent(slug(name) + ".md")
@@ -374,7 +347,7 @@ enum Pipelines {
             return "pipeline \(p.ref) · \(p.steps.count) steps · \(url.path)\nadd a step: apprentice pipeline add \(p.ref) \"what to do\""
         case "task":
             guard let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw Fail(5, usage) }
-            return try run(oneStep(name, in: owningProject(a), agent: a.value("agent"), vm: a.value("vm")))
+            return try PipelineEngine.start(oneStep(name, in: owningProject(a), agent: a.value("agent"), vm: a.value("vm")))
         case "add":
             var p = try find(name ?? "")
             guard let text = a.pos.dropFirst(2).first, !text.isEmpty else { throw Fail(5, "pipeline add <name> \"what to do\" [--title \"…\"]") }
@@ -383,7 +356,23 @@ enum Pipelines {
             return "\(p.ref): step \(p.steps.count) added"
         case "run":
             let p = try find(name ?? "")
-            return try run(p, from: a.int("from", 1), keepGoing: a.has("keep-going"))
+            return try PipelineEngine.start(p, options: Options(fresh: a.has("fresh"), keepGoing: a.has("keep-going"), from: a.int("from", 1)))
+        case "check":
+            let p = try find(name ?? "")
+            return try PipelineCLI.check(p)
+        case "audit":
+            let p = try find(name ?? "")
+            return try PipelineCLI.audit(p)
+        case "status":
+            return try PipelineCLI.status(name, a)
+        case "answer":
+            return try PipelineCLI.answer(a)
+        case "resume":
+            return try PipelineCLI.resume(name, a)
+        case "stop":
+            return try PipelineCLI.stop(name, a)
+        case "notes":
+            return try PipelineCLI.notes(name, a)
         case "rm":
             let p = try find(name ?? "")
             guard let url = p.url else { throw Fail(5, "no file for \(p.ref)") }

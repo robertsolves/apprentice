@@ -21,6 +21,18 @@ struct Request: Codable {
     /// The app the caller runs inside (a terminal, an editor): the nearest app that owns a window among the
     /// caller's parents. The overlay's "Go to agent" button takes the user there.
     var host: Int32? = Request.callerHost
+    /// The pipeline step this command belongs to (`APPRENTICE_STEP_OWNER`): each running step is its own owner of
+    /// the screen, whichever tab or schedule started the run.
+    var step: String? = Request.callerStep
+    /// True when that step does not have the screen.
+    var noScreen: Bool? = Request.callerNoScreen
+
+    static var callerStep: String? {
+        let raw = ProcessInfo.processInfo.environment["APPRENTICE_STEP_OWNER"] ?? ""
+        return raw.isEmpty ? nil : raw
+    }
+
+    static var callerNoScreen: Bool? { ProcessInfo.processInfo.environment["APPRENTICE_STEP_SCREEN"] == "0" ? true : nil }
 
     /// The calling agent's model (`Agent.detected`: `APPRENTICE_MODEL`, else found from the agent itself);
     /// `run --model` and an MCP client's name set it for their own requests.

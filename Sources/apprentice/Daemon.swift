@@ -98,6 +98,8 @@ enum Daemon {
         Schedules.install()
         Away.install()
         if Config.current.keepAwake { Awake.set(true) }
+        // Apprentice's own CLI sessions and expired pipeline output: looked at hourly, done once a day.
+        Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { _ in Tidy.daily() }
 
         let server = UnixServer(path: Store.socketPath) { req -> (Response, Bool) in
             if req.cmd == "stop" {
@@ -145,6 +147,7 @@ enum Daemon {
         // queue, so it never rewrites events.jsonl under a command recording one.
         Daemon.queue.async {
             Store.pruneLogs()
+            Tidy.daily()
             Events.prune()
         }
 

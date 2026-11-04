@@ -8,7 +8,7 @@ enum SelfTest {
     private static var failures: [String] = []
     private static var count = 0
 
-    private static func check(_ ok: Bool, _ what: String, line: Int = #line) {
+    static func check(_ ok: Bool, _ what: String, line: Int = #line) {
         count += 1
         if !ok { failures.append("SelfTest.swift:\(line) \(what)") }
     }
@@ -56,6 +56,11 @@ enum SelfTest {
         release()
         tomlEdits()
         terminal()
+        helpBook()
+        namedAgents()
+        pipelineGraph()
+        projectFiles()
+        pipelineRuns()
         try? FileManager.default.removeItem(at: Store.dir)
         if failures.isEmpty {
             print("selftest: \(count) checks passed")
@@ -1412,8 +1417,6 @@ enum SelfTest {
         hashed.name = "Budget #2 \"review\""
         check(Pipelines.parse(Pipelines.render(hashed)).name == hashed.name, "pipelines: a name with \" #\" survives a round trip (F6)")
         check(Pipelines.metaValue("codex # the agent") == "codex", "pipelines: an unquoted value still drops a comment")
-        let prompt = Pipelines.prompt(p, step: 1, previous: String(repeating: "x", count: 9000))
-        check(prompt.hasPrefix("This is step 2 of 2") && prompt.count < 6400, "pipelines: the previous output is passed, capped")
         check(Pipelines.taskName("Answer the new comments on my newest post\nthen stop") == "Answer the new comments on my",
               "pipelines: a simple task is named by its first words")
         let taskHome = Store.dir.appendingPathComponent("pipeline-test-\(UUID().uuidString)")

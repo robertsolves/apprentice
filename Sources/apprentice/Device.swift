@@ -5,8 +5,8 @@ import Foundation
 /// (exit 4) with who holds it, until the holder has been quiet for `[device] busy_min` minutes (5) or frees it
 /// (`device free`). Several agents can still run at once on different devices: one per VM.
 ///
-/// Who an agent is: its terminal tab (`APPRENTICE_TAB`: a window tab, `schedule:<id>`, `pipeline:<ref>`),
-/// else its project folder, else its model. Two agents in plain terminals with the same model and no project
+/// Who an agent is: its pipeline step (`APPRENTICE_STEP_OWNER`), else its terminal tab (`APPRENTICE_TAB`: a window
+/// tab, `schedule:<id>`, `pipeline:<ref>`), else its project folder, else its model. Two agents in plain terminals with the same model and no project
 /// look like one; give each a project or a tab.
 enum Device {
     struct Owner: Codable, Equatable {
@@ -35,6 +35,12 @@ enum Device {
 
     /// Who is asking, and how to name them to the user.
     static func caller(_ req: Request) -> (who: String, label: String) {
+        // A pipeline step is its own owner, whichever tab or schedule the run started from.
+        if let step = req.step, !step.isEmpty {
+            let parts = step.dropFirst("pipeline:".count).split(separator: "#", maxSplits: 1).map(String.init)
+            let where_ = parts.count == 2 ? "the \(parts[1].split(separator: "/").last ?? "") step of the pipeline \(parts[0])" : "a pipeline step"
+            return (step, where_)
+        }
         let projectName: String? = req.project.flatMap { project in
             guard !project.isEmpty else { return nil }
             let folder = URL(fileURLWithPath: project).deletingLastPathComponent()
@@ -64,6 +70,9 @@ enum Device {
     /// caller as the holder otherwise. The user's own clicks in the window are never refused.
     static func check(_ req: Request, now: Double = Date().timeIntervalSince1970) throws {
         guard screen.contains(req.cmd), req.user != true else { return }
+        if req.noScreen == true {
+            throw Fail(4, "blocked: this pipeline step does not have the screen. Only a step with ui: true may use it; ask that step on the board, or say what you need in what you print.")
+        }
         let (who, label) = caller(req)
         let current = owner()
         if let current, current.who != who, holds(current, now: now) {
@@ -87,6 +96,12 @@ enum Device {
         guard let o = owner(), holds(o) else { return "\(place) is free" }
         let since = Date(timeIntervalSince1970: o.since).formatted(date: .omitted, time: .shortened)
         return "\(place) is in use by \(o.label) since \(since), last action \(Int((Date().timeIntervalSince1970 - o.at) / 60)) min ago"
+    }
+
+    /// A step that has ended lets the screen go at once, rather than holding it for `busy_min`.
+    static func release(who: String, vm: String?) {
+        guard owner(vm: vm)?.who == who else { return }
+        try? FileManager.default.removeItem(at: file(vm: vm))
     }
 
     /// Whether a schedule or pipeline for `vm` would be refused right now, and by whom.

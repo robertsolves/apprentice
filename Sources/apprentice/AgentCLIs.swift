@@ -20,12 +20,43 @@ enum AgentCLIs {
         var install: String? = nil
         /// An editor app rather than a terminal agent: opened on a project's folder, `{folder}` where it goes.
         var editor: [String] = []
+        /// The one line that installs it, typed into a shell tab from Settings ▸ Agents.
+        var installCommand: String? = nil
+        /// Flags for a named agent's model and effort (`{model}`, `{effort}`). Empty: the CLI has none.
+        var modelFlags: [String] = []
+        var effortFlags: [String] = []
+        /// Flags per permission level. A level with no entry is one this CLI cannot enforce.
+        var permissionFlags: [String: [String]] = [:]
+        /// Levels whose sandbox stops apprentice's own commands (no board posts, no questions).
+        var sealed: [String] = []
+        var addDir: [String] = []
+        /// Its session: flags naming it, flags keeping it from being written, or where its id is in JSON output.
+        var session: [String] = []
+        var sessionShort: Int? = nil
+        var ephemeral: [String] = []
+        var sessionFrom: String? = nil
+        var textFrom: String? = nil
+        var errorFrom: String? = nil
+        var transcript: String? = nil
+        var projectDir: String? = nil
+        var forget: [String] = []
+        /// Phrases it prints when out of usage, and when refused a tool or a permission.
+        var limits: [String] = []
+        var refusals: [String] = []
+        var sessionsRoot: String? = nil
+        var clearHint: String? = nil
+        /// Where it reads a project's skills and slash commands.
+        var skillsDir: String? = nil
+        var commandsDir: String? = nil
+        var commandsFormat: String = "md"
 
         var isEditor: Bool { !editor.isEmpty }
+        /// The permission levels this CLI can enforce, loosest last.
+        var levels: [String] { NamedAgents.levels.filter { permissionFlags[$0] != nil } }
     }
 
     static var files: [URL] {
-        [Repo.resources.appendingPathComponent("agent/agents.toml"), Settings.dir.appendingPathComponent("agents.toml")]
+        [Repo.shipped("agent/agents.toml"), Settings.dir.appendingPathComponent("agents.toml")]
     }
 
     static func all(_ files: [URL] = files) -> [CLI] {
@@ -54,10 +85,22 @@ enum AgentCLIs {
             // Unless the file says otherwise, an agent is installed when its own command is on the PATH.
             let firstWord = open.split(separator: " ").first.map(String.init)
             let detect = v["detect"].flatMap(Toml.array) ?? (shell ? [] : firstWord.map { [$0] } ?? [])
+            func list(_ key: String) -> [String] { v[key].flatMap(Toml.array) ?? [] }
+            func text(_ key: String) -> String? { v[key].map(Toml.unquote).flatMap { $0.isEmpty ? nil : $0 } }
+            var permissions: [String: [String]] = [:]
+            for level in NamedAgents.levels {
+                if let flags = v["permission_" + level.replacingOccurrences(of: "-", with: "_")].flatMap(Toml.array) { permissions[level] = flags }
+            }
             return CLI(id: id, label: v["label"].map(Toml.unquote) ?? id, open: open.isEmpty ? nil : open,
                        run: v["run"].flatMap(Toml.array) ?? [], aliases: (v["aliases"].flatMap(Toml.array) ?? []).map { $0.lowercased() },
                        shell: shell, detect: detect, install: v["install"].map(Toml.unquote).flatMap { $0.isEmpty ? nil : $0 },
-                       editor: editor)
+                       editor: editor, installCommand: text("install_command"), modelFlags: list("model"), effortFlags: list("effort"),
+                       permissionFlags: permissions, sealed: list("sealed"), addDir: list("add_dir"), session: list("session"),
+                       sessionShort: text("session_short").flatMap(Int.init), ephemeral: list("ephemeral"), sessionFrom: text("session_from"),
+                       textFrom: text("text_from"), errorFrom: text("error_from"), transcript: text("transcript"), projectDir: text("project_dir"),
+                       forget: list("forget"), limits: list("limits"), refusals: list("refusals"), sessionsRoot: text("sessions_root"),
+                       clearHint: text("clear_hint"), skillsDir: text("skills_dir"), commandsDir: text("commands_dir"),
+                       commandsFormat: text("commands_format") ?? "md")
         }
     }
 
@@ -87,7 +130,7 @@ enum AgentCLIs {
             let shell = ProcessInfo.processInfo.environment["SHELL"].flatMap { $0.isEmpty ? nil : $0 } ?? "/bin/zsh"
             let p = Process()
             p.executableURL = URL(fileURLWithPath: shell)
-            p.arguments = ["-lc", script + "; true"]
+            p.arguments = [AgentRun.plainShell ? "-c" : "-lc", script + "; true"]
             let out = Pipe()
             p.standardOutput = out
             p.standardError = FileHandle.nullDevice

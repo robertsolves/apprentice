@@ -10,8 +10,27 @@
 #   detect  what says it is installed: command names looked up in the login shell, or app paths; the
 #           first word of `open` when left out. Pickers grey out the ones not installed.
 #   install where to get it, offered for one that is not installed
+#   install_command  the one line Settings ▸ Agents types into a shell tab to install it
 #   editor  an editor app, not a terminal agent: the command that opens a project's folder in it, {folder}
 #           where the folder goes. It shows as "Open in …" on a project, not in the terminal pickers.
+#
+# How a pipeline step runs it (PLAN.md sections 1, 8 and 14). Leave a key out when the CLI has no such thing:
+#   model, effort     the flags for a named agent's model and effort, {model} and {effort} where they go
+#   permission_read_only, permission_edit, permission_full   the flags for each permission level. A level with no
+#                     key is one this CLI cannot enforce, and the Agents form does not offer it.
+#   sealed            levels whose sandbox stops apprentice's own commands: no board posts and no questions
+#   add_dir           how to let it write one more folder, {dir} where it goes (a worktree's run folder)
+#   session           the flags that name its session, {session} where the id goes
+#   session_short     characters of the id its file names use, when not all of them
+#   ephemeral         the flags that keep it from writing a session at all
+#   session_from, text_from, error_from   for a CLI that prints JSON lines: where the id, its text and its errors are
+#   transcript        the session's file to delete (* matches anything); {cwd_escaped}, {cwd_base} and {session} are filled in
+#   project_dir       a folder it keeps per working folder, removed along with a worktree
+#   forget            the command that removes a session, {session} where the id goes
+#   limits            phrases it prints when out of usage (the run skips it until the limit resets)
+#   refusals          phrases it prints when refused a tool or a permission (no fallback: the user decides)
+#   sessions_root, clear_hint   where its sessions live, and its own way to clear them, for `tidy --report`
+#   skills_dir, commands_dir, commands_format   where it reads a project's skills and slash commands ("md" or "toml")
 
 [agent.claude]
 label = "Claude Code"
@@ -20,31 +39,131 @@ open = "claude"
 run = ["claude", "-p", "{prompt}", "--allowedTools", "Bash(apprentice:*)"]
 aliases = ["claude-code"]
 install = "https://docs.claude.com/en/docs/claude-code/setup"
+install_command = "npm install -g @anthropic-ai/claude-code"
+model = ["--model", "{model}"]
+effort = ["--effort", "{effort}"]
+# Tested 2026-11-05: `default` refuses Write and says so, then exits 0; `acceptEdits` writes, and Bash(apprentice:*) still runs.
+permission_read_only = ["--permission-mode", "default"]
+permission_edit = ["--permission-mode", "acceptEdits"]
+permission_full = ["--dangerously-skip-permissions"]
+add_dir = ["--add-dir", "{dir}"]
+session = ["--session-id", "{session}"]
+transcript = "~/.claude/projects/{cwd_escaped}/{session}.jsonl"
+project_dir = "~/.claude/projects/{cwd_escaped}"
+limits = ["usage limit reached", "You've hit your limit", "You’ve hit your limit", "out of extra usage", "rate_limit_error", "credit balance is too low"]
+refusals = ["requires approval", "hasn't been granted", "permission to use"]
+sessions_root = "~/.claude/projects"
+clear_hint = "Claude Code removes its own after cleanupPeriodDays in ~/.claude/settings.json"
+skills_dir = ".claude/skills"
+commands_dir = ".claude/commands"
+commands_format = "md"
 
 [agent.codex]
 label = "Codex"
 open = "codex"
-run = ["codex", "exec", "{prompt}"]
+run = ["codex", "exec", "--skip-git-repo-check", "{prompt}"]
 install = "https://github.com/openai/codex"
+install_command = "npm install -g @openai/codex"
+model = ["-m", "{model}"]
+effort = ["-c", "model_reasoning_effort={effort}"]
+# Tested 2026-11-05: read-only stops apprentice's socket and every write. workspace-write writes the folder,
+# and network_access is what lets apprentice reach its daemon's socket.
+permission_read_only = ["-s", "read-only"]
+permission_edit = ["-s", "workspace-write", "-c", "sandbox_workspace_write.network_access=true"]
+permission_full = ["-s", "danger-full-access"]
+sealed = ["read-only"]
+add_dir = ["--add-dir", "{dir}"]
+ephemeral = ["--ephemeral"]
+limits = ["hit your usage limit", "You’ve hit your usage limit", "usage limit reached", "rate_limit_exceeded", "insufficient_quota"]
+refusals = ["blocked by policy", "rejected by user", "approval required"]
+sessions_root = "~/.codex/sessions"
+clear_hint = "codex delete <id> removes one"
+skills_dir = ".agents/skills"
 
 [agent.gemini]
 label = "Gemini CLI"
 open = "gemini"
-run = ["gemini", "-p", "{prompt}"]
+run = ["gemini", "--skip-trust", "-p", "{prompt}"]
 aliases = ["gemini-cli"]
 install = "https://github.com/google-gemini/gemini-cli"
+install_command = "npm install -g @google/gemini-cli"
+model = ["-m", "{model}"]
+# No effort flag: the Agents form says so instead of pretending it applied.
+permission_read_only = ["--approval-mode", "plan"]
+permission_edit = ["--approval-mode", "auto_edit"]
+permission_full = ["--approval-mode", "yolo"]
+add_dir = ["--include-directories", "{dir}"]
+session = ["--session-id", "{session}"]
+session_short = 8
+transcript = "~/.gemini/tmp/{cwd_base}/chats/session-*-{session}.jsonl"
+limits = ["RESOURCE_EXHAUSTED", "exceeded your current quota", "quota exceeded", "Quota exceeded"]
+refusals = ["not allowed in", "denied by policy"]
+sessions_root = "~/.gemini/tmp"
+clear_hint = "gemini --delete-session <index> in each project folder"
+skills_dir = ".agents/skills"
+commands_dir = ".gemini/commands"
+commands_format = "toml"
 
 [agent.opencode]
 label = "opencode"
 open = "opencode"
-run = ["opencode", "run", "{prompt}"]
+run = ["opencode", "run", "--format", "json", "{prompt}"]
 install = "https://opencode.ai"
+install_command = "npm install -g opencode-ai"
+model = ["-m", "{model}"]
+effort = ["--variant", "{effort}"]
+permission_read_only = ["--agent", "plan"]
+permission_edit = []
+permission_full = ["--auto"]
+session_from = "sessionID"
+text_from = "part.text"
+error_from = "error.data.message"
+forget = ["opencode", "session", "delete", "{session}"]
+limits = ["rate limit", "quota", "insufficient credit", "Insufficient credit", "payment required"]
+refusals = ["permission requested", "auto-rejecting"]
+sessions_root = "~/.local/share/opencode"
+clear_hint = "opencode session delete <id> removes one"
+skills_dir = ".agents/skills"
+commands_dir = ".opencode/command"
+commands_format = "md"
 
 [agent.kilo]
 label = "Kilo"
 open = "kilo"
-run = ["kilo", "run", "{prompt}"]
+run = ["kilo", "run", "--format", "json", "{prompt}"]
 install = "https://kilo.ai"
+install_command = "npm install -g @kilocode/cli"
+model = ["-m", "{model}"]
+effort = ["--variant", "{effort}"]
+permission_read_only = ["--agent", "plan"]
+permission_edit = []
+permission_full = ["--auto"]
+session_from = "sessionID"
+text_from = "part.text"
+error_from = "error.data.message"
+forget = ["kilo", "session", "delete", "{session}"]
+limits = ["rate limit", "quota", "insufficient credit", "Insufficient credit", "Insufficient balance", "payment required"]
+refusals = ["permission requested", "auto-rejecting"]
+sessions_root = "~/.local/share/kilo"
+clear_hint = "kilo session delete <id> removes one"
+skills_dir = ".agents/skills"
+commands_dir = ".kilo/command"
+commands_format = "md"
+
+# Tested 2026-11-05: `agy -p` answers and exits 0. It offers no session id or removal, and wrote no session file.
+[agent.agy]
+label = "Antigravity CLI"
+open = "agy"
+run = ["agy", "-p", "{prompt}"]
+model = ["--model", "{model}"]
+effort = ["--effort", "{effort}"]
+permission_read_only = ["--mode", "plan"]
+permission_edit = ["--mode", "accept-edits"]
+permission_full = ["--dangerously-skip-permissions"]
+add_dir = ["--add-dir", "{dir}"]
+limits = ["quota", "RESOURCE_EXHAUSTED", "usage limit"]
+sessions_root = "~/.gemini/antigravity"
+skills_dir = ".agents/skills"
 
 [agent.shell]
 label = "Shell"

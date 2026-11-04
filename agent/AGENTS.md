@@ -54,4 +54,4 @@ Starting: run `apprentice here` as the user sends you a task (a hook can run it 
 
 Finishing: when the task is done, run `apprentice done "one line of what was done"`. It gives the user back the app and window they were in when `session` began, and the overlay says Done. An agent that goes quiet for 2 minutes is shown as "Agent stopped" and the user is put back too (only while they are still on apprentice's window).
 
-Exit codes: 0 ok · 2 stale, read then decide · 3 denied · 4 blocked · 5 not found/timeout · 6 interrupted · 7 permission · 8 approval needed · 9 ask in the chat · 10 yielded, the user is back.
+Exit codes: 0 ok · 1 a pipeline step failed · 2 stale, read then decide · 3 denied · 4 blocked · 5 not found/timeout · 6 interrupted · 7 permission · 8 approval needed · 9 ask in the chat · 10 yielded, the user is back.

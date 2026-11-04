@@ -192,14 +192,15 @@ Exit codes (kept in sync with `usage()` and `agent/*.md`):
 | Code | Meaning |
 | --- | --- |
 | 0 | ok |
+| 1 | a pipeline run failed (`pipeline resume <run>` after fixing it), or a self-test check |
 | 2 | stale snapshot, or the page changed without apprentice (the user or another tool): re-read, then decide again. Reading commands take the new page in; actions are refused until then |
 | 3 | The user denied the step in the little window (`confirm`) |
 | 4 | blocked: allowlist, rate limit (`refresh limit`), budget (`budget:`), a site cooling down after it throttled the account (`soft block:`), or a check only the user may complete (`challenge:`) |
 | 5 | element or text not found, or timeout |
-| 6 | interrupted by the user during borrow mode, or by the kill switch (later steps are held until the user answers) |
+| 6 | interrupted by the user during borrow mode, or by the kill switch (later steps are held until the user answers); a pipeline run that was stopped |
 | 7 | permission missing (Accessibility or Screen Recording) |
 | 8 | approval needed: the action was proposed, nothing was done |
-| 9 | ask the user in the chat: they are away (`away on`) or did not answer the little window in time. The output names a screenshot of the screen it is about, and `[agent] notify` pushes the question to the phone |
+| 9 | ask the user in the chat: they are away (`away on`) or did not answer the little window in time. The output names a screenshot of the screen it is about, and `[agent] notify` pushes the question to the phone. Inside a pipeline step: save your progress and exit, the answer restarts the step. `pipeline run` exits 9 when a run is parked waiting for the user |
 | 10 | yielded: in away mode the user is back at the Mac, so the acting command (or the flow's next step) did nothing. Do not retry; wait with `apprentice away wait` |
 
 ## Pacing
