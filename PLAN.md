@@ -46,6 +46,13 @@ What reaches the user's private `apprentice-home` repo, added during the build:
 
 A project's sync round now waits while a run is live there, since it commits and stashes the whole folder: half a step's work would be pushed, and a stash could pull files from under a running agent. The next round after the run sends everything, so a run commits nothing itself, and sync then commits it as it commits anything in a project.
 
+Not exercised, and worth watching on first use:
+
+- **The real daemon.** Accessibility belongs to the signed binary `kit.sh` installs, so a development build's daemon cannot start. These passed against tests and a stub socket, never live: the question queue's windows on screen, the daemon's screen refusal, the `learned?` line after a real action, the environment captured by `session`, and the VM's version lookup.
+- **The window.** Its screens were rendered offscreen and looked at; their buttons were not clicked.
+- **Real Codex, Gemini and Kilo steps**, per the table above. Their flags come from their `--help` and the sandbox test.
+- **`skills share --library`** and fetching from a real library: no repo exists yet.
+
 Not built, as the plan says "later": real interruption of a running agent, and the shared library's own repo and CI merge. The client side of the library is built and untested against a real repo, since none exists: fetching per place, the checks, and `skills share --library`.
 
 ## What this is for

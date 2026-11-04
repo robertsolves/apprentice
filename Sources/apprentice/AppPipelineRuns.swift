@@ -40,7 +40,7 @@ struct PipelineRunsPanel: View {
                 if let run = current {
                     if live(run.state) {
                         IconButton("Stop", "stop.fill") { act(["pipeline", "stop", "\(run.state.run)"] + scope) }
-                    } else if ["parked", "failed", "stopped"].contains(run.state.status) || (run.state.status == "running" && !Runs.alive(run.state.pid)) {
+                    } else if ["failed", "stopped"].contains(run.state.status) || (run.state.status == "running" && !Runs.alive(run.state.pid)) {
                         IconButton("Carry on", "play.fill") { resume(run) }
                     }
                     IconButton(showBoard ? "Hide the board" : "The board", "bubble.left.and.bubble.right") { showBoard.toggle() }
