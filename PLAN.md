@@ -144,8 +144,9 @@ that could run at the same time (both between one fork and its join), a loop wit
 ## 3. Running a step
 
 Every step is a fresh headless run (`Schedules.agentArgv` with the named agent's model, effort and
-permission flags). That is the compaction the user asked for, and it works for every CLI. `continue: true`
-with a CLI's resume flag can come later for steps that keep the same agent and model.
+permission flags). That is the compaction the user asked for, and it works for every CLI. A CLI's own
+session is never resumed, not even to restart a parked step: the step's saved progress, summary and board
+are what carry over, which is what lets apprentice throw the CLI's session away (section 14).
 
 Apprentice writes the whole prompt the agent sees. In order:
 
@@ -302,8 +303,8 @@ When an agent cannot continue it works down this list and stops only at the last
 `ask` in a pipeline step: the popup names the agent and the step ("Joseph, on the `code` step"); other
 steps keep running; an answer in time goes straight back; after `[agent] ask_window_s` the question stays
 open on the Pipelines screen and the phone (`[agent] notify`), the step exits with 9 and parks; the answer
-later restarts the step in the same worktree with its saved progress (a CLI's resume flag where it has
-one). Answers also go on the board so a parallel step does not ask again. `away on` sends pipeline questions
+later restarts the step in the same worktree as a fresh run, given its saved progress and the answer.
+Answers also go on the board so a parallel step does not ask again. `away on` sends pipeline questions
 straight to the screen and phone. Several parallel agents may ask at once: check how the popups stack
 (build step 1); if badly, queue them with a count.
 
@@ -431,6 +432,58 @@ Apache-2.0 and opencode and Kilo MIT (npm `license` fields, checked 2026-11-05),
 says "see license in README" and Antigravity's terms are unread, so bundling those needs a licence check;
 bundled copies age fast; the user still signs in to each. Open decision.
 
+## 14. Cleaning up the CLIs' own sessions
+
+Every headless step is a new session for its CLI, and each CLI keeps a transcript of it. On this Mac on
+2026-11-05, before any of this exists, Claude Code's transcripts were 4.5 GB (`~/.claude/projects/<escaped
+cwd>/<session>.jsonl`, 2,961 files), opencode 1.0 GB (`~/.local/share/opencode/opencode.db` 936 MB plus
+`snapshot/`), Kilo 0.9 GB (`kilo.db` 663 MB, `snapshot/`, `worktree-pool/`), Codex 208 MB
+(`~/.codex/sessions/<y>/<m>/<d>/rollout-….jsonl` plus `thread_history_1.sqlite`), Gemini 42 MB
+(`~/.gemini/tmp/<project hash>/`). A pipeline that runs hourly with five steps would add 120 sessions a day
+to that, each worktree path giving Claude Code a new project folder of its own.
+
+The rule: apprentice removes only the sessions it started, identified by ids it chose or captured and
+recorded in the step's `result.json`, and never touches the user's own sessions. The CLI transcript
+duplicates what the cache already keeps (`prompt.md`, `output.log`, the scribe's summary), so it has no
+reason to outlive the run.
+
+How, per CLI, all from `agents.toml` so nothing is hard-coded and a new CLI adds its own lines:
+
+| CLI | start the session so apprentice knows it | remove it |
+|---|---|---|
+| Codex | `exec --ephemeral` (no session files written) | nothing to do; `codex delete <id>` if a test shows `--ephemeral` still leaves sqlite rows |
+| Claude Code | `--session-id <uuid apprentice draws>` | delete `~/.claude/projects/<escaped cwd>/<uuid>.jsonl`; a worktree's whole project folder once the worktree is gone |
+| opencode, Kilo | the id from `--format json` output | `opencode session delete <id>`, `kilo session delete <id>` |
+| Gemini | `--session-id <uuid>` | `--delete-session` takes an index, not an id: delete the session file under `~/.gemini/tmp/<hash>/` by id, with the layout confirmed first |
+
+```toml
+[agent.claude]
+session = ["--session-id", "{session}"]                           # how apprentice names the session
+transcript = "~/.claude/projects/{cwd_escaped}/{session}.jsonl"   # what to delete
+[agent.codex]
+ephemeral = ["--ephemeral"]                                        # nothing written
+[agent.opencode]
+session_from = "json:sessionID"                                   # where the id is in the output
+forget = ["opencode", "session", "delete", "{session}"]
+```
+
+When: a step's session goes as soon as the step ends and the scribe has its summary; a parked step's goes
+too, since a restart is a fresh run. `[pipelines] keep_sessions_days` (default 0) keeps them longer for
+someone debugging with the CLI's own `resume`. Worktree project folders go with the worktree.
+
+`apprentice tidy [--report]`: removes any apprentice-started session older than the setting (a step that
+crashed before cleanup, a daemon that died mid-run), and the cache's expired outputs and worktrees, and
+prints what it freed. `--report` also shows each CLI's total session size and the CLI's own way to clear
+it (Claude Code's `cleanupPeriodDays`, `codex delete`, `opencode session delete`), without deleting any of
+it: those are the user's sessions. The daemon runs `tidy` once a day beside the existing 30-day log prune;
+Settings ▸ Storage shows the report.
+
+To confirm in build step 1: Claude Code's transcript path under `-p --session-id` and whether it also
+writes to `history.jsonl`; whether `--ephemeral` keeps Codex out of `thread_history_1.sqlite`; that
+opencode's and Kilo's `--format json` carry the session id and that `session delete` also drops the
+`snapshot/` entry; Gemini's per-session file layout. Antigravity and Freebuff are not run headless, so
+they keep nothing from pipelines.
+
 ## Commands to build
 
 | command | used by | does |
@@ -442,6 +495,7 @@ bundled copies age fast; the user still signs in to each. Open decision.
 | `pipeline status`, `resume <run>`, `stop <run>` | the user, the window | section 9 |
 | `pipeline run <name>` | existing, new engine | graph, parallel, named agents, fallback, scribe |
 | `agents list`, `agents test <name>` | the user, Settings | named agents after inheritance; one tiny prompt |
+| `tidy [--report]` | the daemon daily, the user | section 14: apprentice's own CLI sessions and expired cache |
 | `help`, `help <command>`, `help --all` | agents, the user | section 12 |
 | `ask` | existing, pipeline-aware | section 8 |
 
@@ -459,6 +513,7 @@ bundled copies age fast; the user still signs in to each. Open decision.
    - Where each CLI reads project-level skills and slash commands, and what `connect.py` covers.
    - How several `ask` popups behave at once.
    - Whether project sync honours `.gitignore` for the cache.
+   - Each CLI's session naming and removal (section 14's list).
    - `agy` on this Mac: anything headless?
    - A two-step real run, Claude Code then Codex, and a parallel pair passing one message on a prototype
      board (small usage on both).
@@ -466,7 +521,7 @@ bundled copies age fast; the user still signs in to each. Open decision.
    Agents screens, Test, the priority list, the first-use permission question, the project repo files
    (section 10: `AGENTS.md` section, per-CLI generation, Instructions tab).
 3. **Headless steps**: the new file format and parser, per-step agent, the generated prompt, the scribe's
-   step summaries, the cache folder, `pipeline check`, the Audit button and brief. Linear pipelines only,
+   step summaries, the cache folder, session cleanup and `tidy`, `pipeline check`, the Audit button and brief. Linear pipelines only,
    so this ships useful on its own.
 4. **Blocking and fallback**: pipeline-aware `ask`, parking, permission buttons, limit and stall detection,
    takeover, past-run notes, `status`/`resume`/`stop`.
