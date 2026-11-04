@@ -171,14 +171,14 @@ struct ProjectDetail: View {
                 .controlSize(.small)
                 if !output.isEmpty { Output(text: output) }
             }
-            if !project.isGeneral { HStack {
+            HStack {
                 Spacer()
                 Button("Remove from this list") {
                     model.runCLI(["project", "forget", project.folder.path]) { _, out in output = out; model.refresh() }
                 }
                 .controlSize(.small)
                 .help("The folder stays where it is")
-            } }
+            }
         }
         .onAppear {
             let folder = project.folder
@@ -312,20 +312,16 @@ struct NewProjectSheet: View {
 struct PipelinesView: View {
     @ObservedObject var model: AppModel
     /// Only this project's pipelines; new ones are made in its folder.
-    var project: Projects.Info? = nil
+    let project: Projects.Info
 
-    private var pipelines: [Pipelines.Pipeline] { project.map { model.pipelinesIn($0) } ?? model.pipelines }
+    private var pipelines: [Pipelines.Pipeline] { model.pipelinesIn(project) }
 
-    private var blank: Pipelines.Pipeline {
-        guard let project else { return Pipelines.Pipeline(name: "") }
-        return Pipelines.Pipeline(name: "", project: project.folder)
-    }
+    private var blank: Pipelines.Pipeline { Pipelines.Pipeline(name: "", project: project.folder) }
 
     /// The pipeline open in the editor, when it is one of this screen's (or a new one for this project).
     private var draft: Pipelines.Pipeline? {
         guard let d = model.pipelineDraft else { return nil }
-        guard let project else { return d }
-        if d.url == nil { return (d.project?.standardizedFileURL.path ?? (project.isGeneral ? project.id : nil)) == project.id ? d : nil }
+        if d.url == nil { return d.project?.standardizedFileURL.path == project.id ? d : nil }
         return pipelines.contains { $0.id == d.id } ? d : nil
     }
 
@@ -341,9 +337,7 @@ struct PipelinesView: View {
                         if let p = pipelines.first(where: { $0.id == id }) { model.editPipeline(p) }
                     })) {
                         ForEach(pipelines) { p in
-                            IconRow(icon: "list.number", title: p.name,
-                                    detail: (project == nil ? "\(p.project.map { Projects.info($0)?.name ?? $0.lastPathComponent } ?? "no project") · " : "")
-                                        + "\(p.steps.count) step\(p.steps.count == 1 ? "" : "s")")
+                            IconRow(icon: "list.number", title: p.name, detail: "\(p.steps.count) step\(p.steps.count == 1 ? "" : "s")")
                                 .tag(p.id)
                         }
                     }
@@ -377,7 +371,6 @@ struct PipelineEditor: View {
 
     @State private var name = ""
     @State private var agent = AgentCLIs.defaultID
-    @State private var project = ""
     @State private var vm = ""
     @State private var steps: [EditStep] = []
     @State private var problem = ""
@@ -399,15 +392,6 @@ struct PipelineEditor: View {
         } content: {
             Panel(title: "Pipeline") {
                 LabeledField("Name") { TextField("Morning round", text: $name) }
-                if isNew {
-                    LabeledField("Project") {
-                        Picker("", selection: $project) {
-                            Text("None").tag("")
-                            ForEach(model.projects) { Text($0.name).tag($0.folder.path) }
-                        }
-                        .labelsHidden().pickerStyle(.menu).frame(maxWidth: 280, alignment: .leading)
-                    }
-                }
                 LabeledField("Runs on") {
                     Picker("", selection: $vm) {
                         Text(projectVM.map { "The project's VM (\($0))" } ?? "This Mac").tag("")
@@ -447,10 +431,7 @@ struct PipelineEditor: View {
         }
     }
 
-    private var projectVM: String? {
-        let folder = isNew ? (project.isEmpty ? nil : URL(fileURLWithPath: project)) : original.project
-        return folder.flatMap { Projects.info($0)?.vm }
-    }
+    private var projectVM: String? { original.project.flatMap { Projects.info($0)?.vm } }
 
     private var currentRef: String {
         var p = original
@@ -501,7 +482,6 @@ struct PipelineEditor: View {
     private func load() {
         name = original.name
         agent = original.agent
-        project = original.project?.path ?? ""
         vm = original.vm ?? ""
         steps = original.steps.map { EditStep(title: $0.title, prompt: $0.prompt) }
         if steps.isEmpty { steps = [EditStep(title: "", prompt: "")] }
@@ -520,8 +500,8 @@ struct PipelineEditor: View {
         p.agent = agent
         p.vm = vm.isEmpty ? nil : vm
         if isNew {
-            p.project = project.isEmpty ? nil : URL(fileURLWithPath: project)
-            let url = (p.project.map { $0.appendingPathComponent("pipelines") } ?? Pipelines.homeDir).appendingPathComponent(Pipelines.slug(trimmed) + ".md")
+            guard let folder = p.project else { problem = "A pipeline belongs to a project."; return nil }
+            let url = folder.appendingPathComponent("pipelines").appendingPathComponent(Pipelines.slug(trimmed) + ".md")
             guard !FileManager.default.fileExists(atPath: url.path) else { problem = "There is already a pipeline called \(trimmed) there."; return nil }
             p.url = url
         }
@@ -538,6 +518,48 @@ struct PipelineEditor: View {
         } catch {
             problem = error.localizedDescription
             return nil
+        }
+    }
+}
+
+// MARK: - Outside a project
+
+/// Settings: schedules and pipelines that no listed project owns (its folder moved or was forgotten, or an older
+/// version made them), so nothing keeps running where the person cannot see it. Shown only when there are any.
+struct OutsideProjectsPanel: View {
+    @ObservedObject var model: AppModel
+
+    private var schedules: [Schedules.Schedule] { model.schedules.filter { model.owner(of: $0) == nil } }
+    private var pipelines: [Pipelines.Pipeline] { model.pipelines.filter { $0.project == nil } }
+
+    var body: some View {
+        if !schedules.isEmpty || !pipelines.isEmpty {
+            Panel(title: "Not in a project", note: "\(schedules.count + pipelines.count)") {
+                Text("These belong to no project on this list. Schedules here still run until you remove them.")
+                    .font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                ForEach(schedules) { s in
+                    HStack(spacing: Theme.s2) {
+                        IconRow(icon: Section.schedules.icon, title: s.name, detail: s.when_ + (s.enabled ? "" : " · paused"))
+                        Spacer()
+                        Button("Remove") {
+                            if AppModel.confirm("Remove \(s.name)?", "It will not run again. Its past logs stay.", "Remove") {
+                                model.act("schedule", ["rm", s.id])
+                            }
+                        }
+                        .controlSize(.small)
+                    }
+                }
+                ForEach(pipelines) { p in
+                    HStack(spacing: Theme.s2) {
+                        IconRow(icon: Section.pipelines.icon, title: p.name, detail: "\(p.steps.count) step\(p.steps.count == 1 ? "" : "s")")
+                        Spacer()
+                        if let url = p.url {
+                            IconButton("Show in Finder", "folder") { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+                                .controlSize(.small)
+                        }
+                    }
+                }
+            }
         }
     }
 }

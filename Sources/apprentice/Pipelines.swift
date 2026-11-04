@@ -22,7 +22,8 @@ import Foundation
 ///     ## Answer by email
 ///     …
 ///
-/// It lives in a project's `pipelines/` folder, or in `~/.apprentice/pipelines/` when it belongs to no project.
+/// It lives in its project's `pipelines/` folder: a project's work runs as pipelines, and a simple task is a
+/// pipeline of one step (`pipeline task`). One left in `~/.apprentice/pipelines/` by an older version still runs.
 enum Pipelines {
     struct Step: Equatable {
         var title: String
@@ -180,7 +181,9 @@ enum Pipelines {
     static func find(_ ref: String) throws -> Pipeline {
         let all = all()
         let key = ref.lowercased()
-        let hits = all.filter { $0.ref.lowercased() == key || slug($0.slug) == slug(ref) || $0.name.lowercased() == key }
+        // The window names a pipeline by its file, which stays exact when two projects use one name.
+        let path = URL(fileURLWithPath: (ref as NSString).expandingTildeInPath).standardizedFileURL.path
+        let hits = all.filter { $0.url?.standardizedFileURL.path == path || $0.ref.lowercased() == key || slug($0.slug) == slug(ref) || $0.name.lowercased() == key }
         if hits.count == 1 { return hits[0] }
         if hits.isEmpty { throw Fail(5, "no pipeline \(ref) · apprentice pipeline list") }
         if let here = Projects.here()?.folder, let mine = hits.first(where: { $0.project?.standardizedFileURL == here.standardizedFileURL }) { return mine }
@@ -192,6 +195,33 @@ enum Pipelines {
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try render(p).write(to: url, atomically: true, encoding: .utf8)
         return url
+    }
+
+    /// What to call a simple task: its first words.
+    static func taskName(_ text: String) -> String {
+        let line = text.split(whereSeparator: \.isNewline).first.map(String.init) ?? ""
+        let words = line.split(whereSeparator: \.isWhitespace).prefix(6).joined(separator: " ")
+        return words.count <= 48 ? words : String(words.prefix(47)) + "…"
+    }
+
+    /// Saves a simple task as a pipeline of one step in the project, under a file name of its own.
+    static func oneStep(_ text: String, name: String? = nil, in project: URL, agent: String? = nil, vm: String? = nil) throws -> Pipeline {
+        let title = name ?? taskName(text)
+        var p = Pipeline(name: title)
+        p.project = project
+        if let agent { p.agent = agent.lowercased() }
+        p.vm = vm
+        p.steps = [Step(title: title, prompt: text)]
+        let dir = project.appendingPathComponent("pipelines")
+        var url = dir.appendingPathComponent(slug(title) + ".md")
+        var n = 2
+        while FileManager.default.fileExists(atPath: url.path) {
+            url = dir.appendingPathComponent("\(slug(title))-\(n).md")
+            n += 1
+        }
+        p.url = url
+        _ = try write(p)
+        return p
     }
 
     // MARK: - running
@@ -298,7 +328,19 @@ enum Pipelines {
 
     // MARK: - CLI
 
-    static let usage = "pipeline list · show <name> · new <name> [\"step\" …] [--project <name>] [--agent <one of agents.toml>] [--vm <name>] · add <name> \"what to do\" [--title \"…\"] · run <name> [--from N] [--keep-going] · path <name> · rm <name>   (on a schedule: apprentice schedule add <name> --daily 09:00 --pipeline <name>)"
+    static let usage = "pipeline list · show <name> · task \"what to do\" [--project <name>] [--agent <one of agents.toml>] [--vm <name>] · new <name> [\"step\" …] [--project <name>] [--agent <one of agents.toml>] [--vm <name>] · add <name> \"what to do\" [--title \"…\"] · run <name> [--from N] [--keep-going] · path <name> · rm <name>   (on a schedule: apprentice schedule add <name> --daily 09:00 --pipeline <name>)"
+
+    /// The project a new pipeline belongs to: the one named, else the one the caller is in.
+    private static func owningProject(_ a: Args) throws -> URL {
+        if let ref = a.value("project") {
+            guard let found = Projects.find(ref) else { throw Fail(5, "no project \(ref) · apprentice project list") }
+            return found.folder
+        }
+        guard let here = Projects.here()?.folder else {
+            throw Fail(5, "a pipeline belongs to a project: run this inside one, or add --project <name> · apprentice project list")
+        }
+        return here
+    }
 
     static func command(_ a: Args) throws -> String {
         let name = a.pos.dropFirst().first
@@ -319,23 +361,20 @@ enum Pipelines {
             return try find(name ?? "").url?.path ?? ""
         case "new":
             guard let name, !name.trimmingCharacters(in: .whitespaces).isEmpty else { throw Fail(5, usage) }
-            var project: URL?
-            if let ref = a.value("project") {
-                guard let found = Projects.find(ref) else { throw Fail(5, "no project \(ref) · apprentice project list") }
-                project = found.folder
-            } else {
-                project = Projects.here()?.folder
-            }
+            let project = try owningProject(a)
             var p = Pipeline(name: name)
             p.project = project
             p.agent = (a.value("agent") ?? AgentCLIs.defaultID).lowercased()
             p.vm = a.value("vm")
             p.steps = a.pos.dropFirst(2).enumerated().map { Step(title: "Step \($0.offset + 1)", prompt: $0.element) }
-            let url = (project.map { $0.appendingPathComponent("pipelines") } ?? homeDir).appendingPathComponent(slug(name) + ".md")
+            let url = project.appendingPathComponent("pipelines").appendingPathComponent(slug(name) + ".md")
             guard !FileManager.default.fileExists(atPath: url.path) else { throw Fail(5, "\(url.path) already exists") }
             p.url = url
             _ = try write(p)
             return "pipeline \(p.ref) · \(p.steps.count) steps · \(url.path)\nadd a step: apprentice pipeline add \(p.ref) \"what to do\""
+        case "task":
+            guard let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw Fail(5, usage) }
+            return try run(oneStep(name, in: owningProject(a), agent: a.value("agent"), vm: a.value("vm")))
         case "add":
             var p = try find(name ?? "")
             guard let text = a.pos.dropFirst(2).first, !text.isEmpty else { throw Fail(5, "pipeline add <name> \"what to do\" [--title \"…\"]") }

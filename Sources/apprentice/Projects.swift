@@ -33,39 +33,30 @@ enum Projects {
         }
 
         var slug: String { Playbooks.slugify(name) }
-
-        /// The project apprentice makes for work that has no project of its own yet.
-        var isGeneral: Bool { folder.standardizedFileURL.path == Projects.generalFolder.standardizedFileURL.path }
     }
 
     static var listFile: URL { Store.dir.appendingPathComponent("projects.json") }
     /// Where new projects go unless the user picks another folder.
     static var defaultRoot: URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Apprentice") }
 
-    /// General: where a shell, Help and anything else started without a project goes.
-    static var generalFolder: URL { defaultRoot.appendingPathComponent("general") }
-
-    /// General, made and listed the first time it is asked for. Its folder is a project like any other.
-    @discardableResult
-    static func general() -> Info {
-        let folder = generalFolder
-        if let p = info(folder), FileManager.default.fileExists(atPath: settingsFile(folder).path) {
-            if !entries().contains(where: { $0.path == folder.path }) { remember(p) }
-            return p
-        }
-        try? scaffold(folder, name: "General", vm: nil,
-                      about: "Anything that is not part of another project yet: quick questions, a shell, trying something out.")
-        let p = info(folder) ?? Info(name: "General", folder: folder, vm: nil)
-        remember(p)
-        return p
+    /// True for the notes of General, the catch-all project older versions made. A project the user
+    /// named General themselves has other notes.
+    static func wasGeneral(notes: String) -> Bool {
+        notes.contains("Anything that is not part of another project yet: quick questions, a shell, trying something out.")
     }
 
-    /// The order the window lists projects in: by name, General last.
+    /// Takes the old General off the list. Like any forgotten project, its folder and repository stay.
+    static func retireGeneral() {
+        let folder = defaultRoot.appendingPathComponent("general")
+        guard entries().contains(where: { $0.path == folder.path }),
+              let notes = try? String(contentsOf: folder.appendingPathComponent("AGENTS.md"), encoding: .utf8),
+              wasGeneral(notes: notes) else { return }
+        saveEntries(entries().filter { $0.path != folder.path })
+    }
+
+    /// The order the window lists projects in: by name.
     static func ordered(_ list: [Info]) -> [Info] {
-        list.sorted { a, b in
-            if a.isGeneral != b.isGeneral { return !a.isGeneral }
-            return a.name.localizedStandardCompare(b.name) == .orderedAscending
-        }
+        list.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
     // MARK: - the list
@@ -207,7 +198,8 @@ enum Projects {
         that must happen on screen, and the shell for everything else.
 
         - \(place)
-        - Pipelines (lists of prompts that run one after another) are in `pipelines/`: `apprentice pipeline list`, \
+        - This project's work runs as pipelines (prompts that run one after another), kept in `pipelines/`; one with \
+        a single step is a simple task: `apprentice pipeline task "what to do"`, `apprentice pipeline list`, \
         `apprentice pipeline run <name>`.
         - Keep files for this work in this folder. `apprentice project save` commits them.
         - Skills for this project only go in `.apprentice/skills/` (Markdown, same format as apprentice's \

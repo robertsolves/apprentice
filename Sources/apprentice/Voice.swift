@@ -376,7 +376,7 @@ enum Voice {
     /// the idle timer. Blocks while the agent answers. Sends names of sites, apps, tasks and projects only.
     @discardableResult
     static func suggest() -> [Open] {
-        var projects = Projects.all().filter { !$0.isGeneral }.map(\.name)
+        var projects = Projects.all().map(\.name)
         projects = Array(projects.prefix(10))
         let use = usage(Sessions.folders().flatMap(Sessions.rows), projects: projects)
         var asked = Store.load(Asked.self, askedFile) ?? Asked()
@@ -417,7 +417,7 @@ enum Voice {
         guard !suggesting, asked.suggested.map({ Date().timeIntervalSince($0) > hours * 3600 }) ?? true else { return }
         suggesting = true
         DispatchQueue.global(qos: .utility).async {
-            let use = usage(Sessions.folders().flatMap(Sessions.rows), projects: Projects.all().filter { !$0.isGeneral }.map(\.name))
+            let use = usage(Sessions.folders().flatMap(Sessions.rows), projects: Projects.all().map(\.name))
             if !Set(use.names).isSubset(of: Set(asked.suggestedFrom ?? [])) { suggest() }
             DispatchQueue.main.async { suggesting = false }
         }

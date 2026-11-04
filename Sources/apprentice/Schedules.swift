@@ -741,6 +741,9 @@ enum Schedules {
             if kind == .pipeline, !target.contains("/") { target = Projects.folderName(p.name) + "/" + target }
         }
         if kind == .pipeline { _ = try Pipelines.find(target) }
+        // A project's work runs as pipelines: its prompt or command is saved as a pipeline of one step, once approved.
+        let home = project?.folder ?? a.value("dir").flatMap { Projects.here(from: ($0 as NSString).expandingTildeInPath)?.folder }
+        let asPipeline = home != nil && (kind == .prompt || (kind == .sh && !target.contains("\n")))
 
         var s = Schedule(id: id, name: name, kind: kind, target: target)
         if let old = existing { s = old; s.name = name; s.kind = kind; s.target = target }
@@ -771,7 +774,7 @@ enum Schedules {
         s.dir = a.value("dir").map { ($0 as NSString).expandingTildeInPath } ?? project?.folder.path ?? existing?.dir
         s.vm = a.value("vm") ?? (kind == .sh ? nil : project?.vm) ?? existing?.vm
         s.model = a.value("model") ?? existing?.model
-        if kind == .sh, s.vm != nil { throw Fail(6, "schedule add: --vm does not apply to --sh; the command would run on this Mac") }
+        if kind == .sh, s.vm != nil, !asPipeline { throw Fail(6, "schedule add: --vm does not apply to --sh; the command would run on this Mac") }
         s.enabled = true
         if existing == nil { s.created = Date() }
         let first = fireTime(s, after: Date())
@@ -784,6 +787,12 @@ enum Schedules {
             "when: \(s.when_)" + (s.jitter > 0 ? " ±\(s.jitter) min" : ""),
             s.vm.map { "in VM \($0)" } ?? "on this Mac",
         ])
+
+        if asPipeline, let home {
+            let own = s.vm == Projects.info(home)?.vm ? nil : s.vm
+            let p = try Pipelines.oneStep(kind == .sh ? "sh: \(target)" : target, name: name, in: home, agent: s.agent, vm: own)
+            (s.kind, s.target, s.agent) = (.pipeline, p.ref, nil)
+        }
 
         update { list in
             list.removeAll { $0.id == id }

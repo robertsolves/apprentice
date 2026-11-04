@@ -10,7 +10,7 @@ explainer_title = "What is a project?"
 about = "A project is one piece of work, like running a shop's Instagram or sending the weekly invoices. Everything starts in one: its terminal, its VM, its pipelines, its schedules and its skills. It is a folder on this Mac, so any agent you open in it knows what the project is and which VM to use."
 points = [
     "Choose a project on the left. Work shows its terminal, with its VM's screen beside it.",
-    "General holds anything that is not part of a project yet.",
+    "A project's work runs as pipelines. Tell it what to do on Work and that is a pipeline of one step.",
     "Projects on their own VMs work at the same time. This Mac and each VM take one agent at a time.",
     "Save keeps a version. Save to GitHub puts it online, private, so you can open it on another Mac.",
     "In a terminal: apprentice project list, new, open and save.",
@@ -20,8 +20,9 @@ points = [
 label = "Terminal"
 icon = "terminal.fill"
 explainer_title = "What is the terminal?"
-about = "A terminal is where an agent works. Each tab is a shell in this project's folder and its VM: run any agent in it. Type to it like a chat, and answer its questions with the arrow keys and Return."
+about = "A terminal is where work shows. A pipeline runs in a tab of its own, and any other tab is a shell in this project's folder and its VM. Type to it like a chat, and answer its questions with the arrow keys and Return."
 points = [
+    "The box at the top runs a simple task: it is saved as a pipeline of one step and runs in a new tab.",
     "The blue + opens another shell. The list icon beside it edits this project's commands, one button each.",
     "Tabs keep running when you look at another project.",
     "⌘T opens a shell. ⌘1 to ⌘9 choose a project.",
@@ -31,18 +32,18 @@ points = [
 label = "Pipelines"
 icon = "list.number"
 explainer_title = "What is a pipeline?"
-about = "A pipeline is a list of prompts that run one after another. Each step goes to your agent, and the agent sees what the step before it found."
+about = "A pipeline is how a project gets work done: a list of prompts that run one after another. Each step goes to your agent, and the agent sees what the step before it found. A pipeline with one step is just a simple task."
 points = [
     "For example: 1. Get the new comments on my Instagram post. 2. Answer the ones that ask about prices by email. 3. Write me a two-line summary.",
     "Run it now, or put it on a schedule: every morning, every Monday.",
-    "Each pipeline is a file in its project's pipelines folder. In a terminal: apprentice pipeline list, run and new.",
+    "Each pipeline is a file in its project's pipelines folder. In a terminal: apprentice pipeline task, list, run and new.",
 ]
 
 [section.schedules]
 label = "Schedules"
 icon = "calendar"
 explainer_title = "What is a schedule?"
-about = "A schedule runs something later, or again and again: a prompt for your agent, a pipeline, or a command. It asks for the same approvals as anything you start yourself."
+about = "A schedule runs something later, or again and again: a simple task or a pipeline. In a project, a task or a command is saved as a pipeline of one step. It asks for the same approvals as anything you start yourself."
 points = [
     "It runs while this Mac is on and awake, even with this window closed.",
     "A run missed while the Mac slept is skipped, not repeated in a burst.",

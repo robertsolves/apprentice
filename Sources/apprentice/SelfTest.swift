@@ -1145,10 +1145,12 @@ enum SelfTest {
         check(named.who == "tab:C" && named.label == "the project Shop", "device: a tab is named by its project (\(named.label))")
         var bare = Request(cmd: "click", args: ["1"]); bare.tab = "D"; bare.project = nil
         check(Device.caller(bare).label == "an agent in a window tab", "device: a tab with no project is still named")
-        let general = Projects.Info(name: "General", folder: Projects.generalFolder, vm: nil)
-        let listed = Projects.ordered([general, Projects.Info(name: "shop", folder: shop, vm: nil),
+        let listed = Projects.ordered([Projects.Info(name: "shop", folder: shop, vm: nil),
                                        Projects.Info(name: "Accounts", folder: shop.appendingPathComponent("a"), vm: "acc")])
-        check(listed.map(\.name) == ["Accounts", "shop", "General"], "projects: listed by name, General last (\(listed.map(\.name)))")
+        check(listed.map(\.name) == ["Accounts", "shop"], "projects: listed by name (\(listed.map(\.name)))")
+        check(Projects.wasGeneral(notes: "Anything that is not part of another project yet: quick questions, a shell, trying something out.")
+                && !Projects.wasGeneral(notes: Projects.notes(name: "General", vm: nil, about: "")),
+              "projects: only the old catch-all General is retired, not a project the user named General")
         check(Projects.vmName(Projects.folderName("Shop Socials!")) == "shop-socials" && Projects.vmName("  ") == nil,
               "projects: a new project's own VM is named after it")
         check(Projects.ownVM("Café Orders") == "caf-orders" && Projects.ownVM("日本") == "vm-65e5-672c" && Projects.ownVM("日本") != Projects.ownVM("中国"),
@@ -1412,6 +1414,17 @@ enum SelfTest {
         check(Pipelines.metaValue("codex # the agent") == "codex", "pipelines: an unquoted value still drops a comment")
         let prompt = Pipelines.prompt(p, step: 1, previous: String(repeating: "x", count: 9000))
         check(prompt.hasPrefix("This is step 2 of 2") && prompt.count < 6400, "pipelines: the previous output is passed, capped")
+        check(Pipelines.taskName("Answer the new comments on my newest post\nthen stop") == "Answer the new comments on my",
+              "pipelines: a simple task is named by its first words")
+        let taskHome = Store.dir.appendingPathComponent("pipeline-test-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: taskHome) }
+        let firstTask = try? Pipelines.oneStep("Check the shop", in: taskHome, agent: "codex", vm: "shop")
+        let secondTask = try? Pipelines.oneStep("Check the shop", in: taskHome)
+        check(firstTask?.steps.count == 1 && firstTask?.agent == "codex" && firstTask?.vm == "shop"
+                && Pipelines.inFolder(taskHome).first?.steps.first?.prompt == "Check the shop",
+              "pipelines: a simple task is saved as a pipeline of one step")
+        check(firstTask?.url != nil && firstTask?.url != secondTask?.url && Pipelines.inFolder(taskHome).count == 2,
+              "pipelines: the same task twice keeps both files")
         check(Projects.notes(name: "Shop", vm: "shop", about: "").contains("APPRENTICE_VM=shop"),
               "projects: the agent notes name the project's VM")
     }

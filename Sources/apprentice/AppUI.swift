@@ -665,11 +665,10 @@ final class AppModel: ObservableObject {
     let home = FileManager.default.homeDirectoryForCurrentUser
 
     init() {
-        // Work with no project yet goes to General, so a shell is always one click away.
-        let general = Projects.general()
+        Projects.retireGeneral()
         refresh()
         checkRelease()
-        newTab(title: "Shell", command: nil, project: general)
+        if let first = projects.first { show(project: first) } else { section = .projects }
         refreshMachines()
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.refresh() }
     }
@@ -760,8 +759,8 @@ final class AppModel: ObservableObject {
         section = s
     }
 
-    /// The project new work belongs to: the one on screen, else General.
-    var workProject: Projects.Info { currentProject ?? projects.first(where: \.isGeneral) ?? Projects.general() }
+    /// The project new work belongs to: the one on screen, else the first; nil when there are none yet.
+    var workProject: Projects.Info? { currentProject ?? projects.first }
 
     /// The tabs of one project, in the order they were opened.
     func tabsIn(_ p: Projects.Info) -> [TermSession] { tabs.filter { $0.project == p.id } }
@@ -775,7 +774,7 @@ final class AppModel: ObservableObject {
         return .idle
     }
 
-    /// The project a schedule belongs to: the one whose folder it runs in, or whose pipeline it runs; else General.
+    /// The project a schedule belongs to: the one whose folder it runs in, or whose pipeline it runs.
     func owner(of schedule: Schedules.Schedule) -> Projects.Info? {
         func inside(_ path: String) -> Projects.Info? {
             let full = URL(fileURLWithPath: (path as NSString).expandingTildeInPath).standardizedFileURL.path
@@ -787,15 +786,12 @@ final class AppModel: ObservableObject {
             if let head = schedule.target.split(separator: "/").first, schedule.target.contains("/"),
                let p = projects.first(where: { Projects.folderName($0.name) == String(head) }) { return p }
         }
-        return projects.first(where: \.isGeneral)
+        return nil
     }
 
-    /// The pipelines of one project; General also shows the ones that belong to no project.
+    /// The pipelines of one project.
     func pipelinesIn(_ p: Projects.Info) -> [Pipelines.Pipeline] {
-        pipelines.filter { pipeline in
-            guard let folder = pipeline.project?.standardizedFileURL.path else { return p.isGeneral }
-            return folder == p.id
-        }
+        pipelines.filter { $0.project?.standardizedFileURL.path == p.id }
     }
 
     /// Who else is using this project's screen (its VM, or this Mac) right now, if anyone: one agent per screen.
@@ -811,7 +807,14 @@ final class AppModel: ObservableObject {
         let ref = p.url?.path ?? p.ref
         let owner = p.project.flatMap { folder in projects.first { $0.id == folder.standardizedFileURL.path || $0.id == folder.path } }
         newTab(title: p.name, command: "apprentice pipeline run \(VM.shellQuoted(ref)); echo; exec \"$SHELL\" -l", dir: p.folder, vm: p.effectiveVM,
-               project: owner ?? projects.first(where: \.isGeneral))
+               project: owner)
+    }
+
+    /// A simple task: saved as a pipeline of one step and run in a new tab of the project, like any other.
+    func runTask(_ text: String, in p: Projects.Info) {
+        newTab(title: Pipelines.taskName(text),
+               command: "apprentice pipeline task \(VM.shellQuoted(text)) --project \(VM.shellQuoted(p.folder.path)); echo; exec \"$SHELL\" -l",
+               project: p)
     }
 
     /// Shows a pipeline in the Pipelines screen's editor (a new one when it has no file).
@@ -819,7 +822,7 @@ final class AppModel: ObservableObject {
         pipelineDraft = p
         pipelineEdits += 1
         let owner = p.project.flatMap { folder in projects.first { $0.id == folder.standardizedFileURL.path || $0.id == folder.path } }
-        show(project: owner ?? workProject, tab: .pipelines)
+        if let shown = owner ?? workProject { show(project: shown, tab: .pipelines) }
     }
 
     /// The installed CLI with these arguments, off the main thread.
@@ -984,8 +987,9 @@ final class AppModel: ObservableObject {
     // MARK: - tabs
 
     /// Opens a tab in a project (the one on screen when none is given): in its folder, working in its VM.
+    /// With no project yet, it asks for one: all work starts in a project.
     func newTab(title: String, command: String?, dir: URL? = nil, vm: String? = nil, project p: Projects.Info? = nil) {
-        let owner = p ?? workProject
+        guard let owner = p ?? workProject else { newProject = .empty; return }
         let session = TermSession(title: title, dir: dir ?? owner.folder, command: command, env: [:], vm: vm ?? owner.vm, project: owner.id)
         tabs.append(session)
         show(project: owner, tab: .work)
@@ -1127,7 +1131,7 @@ struct RootView: View {
                 ForEach(model.projects) { p in
                     let state = model.state(of: p)
                     HStack(spacing: Theme.s3) {
-                        Image(systemName: p.isGeneral ? "tray.fill" : Section.projects.icon)
+                        Image(systemName: Section.projects.icon)
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(Theme.accent)
                             .frame(width: 22)
@@ -1223,8 +1227,13 @@ struct RootView: View {
             ProjectWorkspace(model: model, project: p).id(p.id)
         } else {
             switch model.section {
-            // Inside a project now; reaching one of these with none chosen shows General.
-            case .projects, .pipelines, .terminal, .schedules: ProjectWorkspace(model: model, project: model.workProject)
+            // Inside a project now; reaching one of these with none chosen shows the first, or how to make one.
+            case .projects, .pipelines, .terminal, .schedules:
+                if let p = model.workProject {
+                    ProjectWorkspace(model: model, project: p)
+                } else {
+                    NoProjectsView(model: model)
+                }
             case .skills: SkillsView(model: model)
             case .sites: SitesView(model: model)
             case .vms: SettingsView(model: model)
@@ -1270,9 +1279,26 @@ struct RootView: View {
 // MARK: - Terminal
 
 /// A project's terminal: its own tabs, each started in its folder and working in its VM.
+/// What the window shows until there is a project: all work starts in one.
+struct NoProjectsView: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        ScreenPage(title: Section.projects.label, subtitle: "") {
+            AnyView(HStack(spacing: Theme.s2) {
+                IconButton("Open from GitHub", "icloud.and.arrow.down") { model.newProject = .github }
+                IconButton("New project", "plus", prominent: true) { model.newProject = .empty }
+            })
+        } content: {
+            Explainer.projects
+        }
+    }
+}
+
 struct TerminalWorkspace: View {
     @ObservedObject var model: AppModel
     let project: Projects.Info
+    @State private var task = ""
 
     private var pendingForSelected: Approvals.Pending? {
         model.pending.first { $0.tab == model.selectedTab }
@@ -1285,6 +1311,8 @@ struct TerminalWorkspace: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            taskBar
+            Divider().opacity(0.6)
             tabBar
             Divider().opacity(0.6)
             if !commands.isEmpty {
@@ -1325,6 +1353,28 @@ struct TerminalWorkspace: View {
     }
 
     private var font: NSFont { AppLook.terminalFont }
+
+    /// A simple task: one line that runs as a pipeline of one step, kept on the project's Pipelines tab.
+    private var taskBar: some View {
+        HStack(spacing: Theme.s2) {
+            TextField("Tell this project what to do", text: $task)
+                .textFieldStyle(.roundedBorder)
+                .onSubmit(startTask)
+            IconButton("Run", "play.fill", prominent: true, action: startTask)
+                .disabled(task.trimmingCharacters(in: .whitespaces).isEmpty)
+        }
+        .controlSize(.small)
+        .padding(.horizontal, Theme.s3)
+        .padding(.vertical, Theme.s2)
+        .background(.bar)
+    }
+
+    private func startTask() {
+        let text = task.trimmingCharacters(in: .whitespaces)
+        guard !text.isEmpty else { return }
+        task = ""
+        model.runTask(text, in: project)
+    }
 
     /// The project's own commands, each a button showing exactly what it types.
     private var commandBar: some View {
@@ -1557,7 +1607,7 @@ struct SchedulesView: View {
                 if schedules.isEmpty {
                     VStack(alignment: .leading, spacing: Theme.s2) {
                         Text("Nothing scheduled").font(Theme.heading)
-                        Text("Something that runs later, or again and again: a prompt for an agent, a task, or saved steps from a playbook.")
+                        Text("Something that runs later, or again and again: a simple task or one of this project's pipelines.")
                             .font(Theme.caption).foregroundStyle(.secondary).multilineTextAlignment(.leading)
                     }
                     .padding(Theme.s4)
@@ -1723,6 +1773,9 @@ struct ScheduleEditor: View {
     @State private var vm = ""
     @State private var problem = ""
 
+    /// The pipelines it can run: the project's own when it is made from one.
+    private var choices: [Pipelines.Pipeline] { project.map { model.pipelinesIn($0) } ?? model.pipelines }
+
     private var targetLabel: String {
         switch kind {
         case "prompt": return "Prompt"
@@ -1741,19 +1794,20 @@ struct ScheduleEditor: View {
                 LabeledField("Name") { TextField("what it does, in a few words", text: $name) }
                 LabeledField("Runs") {
                     Picker("", selection: $kind) {
-                        Text("a prompt in an agent").tag("prompt")
+                        Text("a simple task").tag("prompt")
                         Text("a pipeline").tag("pipeline")
-                        Text("an apprentice task").tag("run")
-                        Text("steps from a playbook").tag("do")
                         Text("a shell command").tag("sh")
+                        // Older schedules keep what they run until it is changed; new ones are tasks and pipelines.
+                        if existing?.kind == .run { Text("an apprentice task").tag("run") }
+                        if existing?.kind == .flow { Text("steps from a playbook").tag("do") }
                     }
                     .labelsHidden().pickerStyle(.menu).frame(maxWidth: 240, alignment: .leading)
                 }
                 if kind == "pipeline" {
                     LabeledField(targetLabel) {
                         Picker("", selection: $target) {
-                            Text(model.pipelines.isEmpty ? "no pipelines yet" : "Choose a pipeline").tag("")
-                            ForEach(model.pipelines) { Text($0.name).tag($0.ref) }
+                            Text(choices.isEmpty ? "no pipelines yet" : "Choose a pipeline").tag("")
+                            ForEach(choices) { Text($0.name).tag($0.ref) }
                         }
                         .labelsHidden().pickerStyle(.menu).frame(maxWidth: 320, alignment: .leading)
                     }
@@ -2066,6 +2120,7 @@ struct SettingsView: View {
             if scope == .mac {
                 AccountCard(model: model)
                 VMsPanel(model: model)
+                OutsideProjectsPanel(model: model)
             }
             ForEach(sections, id: \.self) { section in
                 Panel(title: Setting.title(section)) {

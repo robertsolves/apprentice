@@ -75,7 +75,7 @@ func usage() {
       apprentice pace [site [fastest|fast|steady|careful|default]]   how fast a site or app goes; fastest (pasted text, no waits) suits logged-out scouting. Apps are fastest, web pages steady, social sites careful
       apprentice project new "name" [--from <git url>] [--vm <name> | --no-vm] | list | open | set [--vm|--no-vm|--name] | save [--push] | add <folder> | forget   a folder for one piece of work: notes agents read, its pipelines, its VM; save commits it, --push puts it on GitHub
       apprentice project [init | status]        a project's own .apprentice/ folder: its own site counts and tighter caps, on top of the account-wide ones
-      apprentice pipeline list | show | new "name" "step" … | add <name> "step" | run <name> [--from N] | rm   prompts that run one after another, now or on a schedule (schedule add … --pipeline <name>)
+      apprentice pipeline task "what to do" | list | show | new "name" "step" … | add <name> "step" | run <name> [--from N] | rm   how a project's work runs: prompts one after another, now or on a schedule; one step is a simple task (schedule add … --pipeline <name>)
       apprentice cool [--clear domain]          sites cooling down after a rate limit; clearing asks the user
       apprentice activity <domain> [--days 7]   actions per day, rate limits, challenges and flags on one site
       apprentice flag <domain> "what you saw"   record when the user saw a warning or restriction
