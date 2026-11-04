@@ -77,3 +77,4 @@
 {"cmd":"stop","model":"claude-opus-5-5","ms":165052,"pace":"default fast","ts":"2026-11-04T21:05:35.199+10:00"}
 {"client":true,"cmd":"vm","code":0,"model":"claude-opus-5-5","ms":128,"pace":"default fast","ts":"2026-11-04T21:07:41.252+10:00"}
 {"model":"claude-opus-5-5","ts":"2026-11-04T21:07:41.590+10:00"}
+{"code":5,"error":"the VM is not running: start it with `apprentice vm up`","failed":"session","model":"claude-opus-5-5","ts":"2026-11-04T21:08:46.400+10:00"}
