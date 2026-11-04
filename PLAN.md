@@ -1,8 +1,39 @@
 # Plan: pipelines across agents
 
-Status: design, agreed in conversation on 2026-11-05, nothing built. Each build step below lands as its own
-small commits with `selftest` checks. Where a point is still untested it says so; the first build step is
-the tests.
+Status: built on 2026-11-05. "What the build found" below records the test results and where the build differs from
+the design; the rest of this file is the design it was built from.
+
+## What the build found
+
+Real tests on this Mac, 2026-11-05 (build step 1), each now encoded in `agent/agents.toml`:
+
+| CLI | Headless | Read-only | Edit | Session | Out of usage |
+|---|---|---|---|---|---|
+| Claude Code 2.1.311 | `-p`; a refused tool is said in words, exit 0, no hang | `--permission-mode default`: Write refused | `acceptEdits`; `Bash(apprentice:*)` still runs | `--session-id`; one `~/.claude/projects/<cwd with / and . as ->/<id>.jsonl`, about 280 KB; nothing in `history.jsonl` | phrases from memory, not triggered |
+| Codex 0.164.0 | `exec`; sandbox tested with `codex sandbox` | `-s read-only`: no writes and no socket, so no board posts and no `ask` | `-s workspace-write -c sandbox_workspace_write.network_access=true`: the network setting is what reaches apprentice's socket | `--ephemeral`: no rollout file | "You've hit your usage limit … try again at Nov 17th, 2026 1:16 PM", exit 1. **Out of usage on this Mac until then, so no real Codex step ran** |
+| opencode 1.19.5 | `run --format json`; errors are JSON lines; session in every event | `--agent plan`, not exercised | default: a tool outside the folder prints `auto-rejecting`, **exit 0** | `session delete <id>` tested | not triggered |
+| Kilo 7.8.18 | same as opencode | same | same | `session delete` not exercised | hung for over 4 minutes retrying a local proxy that was down, which is what the stall timer is for; not otherwise run |
+| Gemini CLI 0.64.0 | needs `--skip-trust` outside a trusted folder (exit 55 without) | flags from `--help` | flags from `--help` | `~/.gemini/tmp/<cwd name>/chats/session-<time>-<first 8 of id>.jsonl` | **this Mac's sign-in is not eligible, so no real Gemini step ran** |
+| Antigravity `agy` | `-p` answered and exited 0: proven headless, so it is an agent now | `--mode plan` | `--mode accept-edits` | no id flag and no removal; wrote no session file | not triggered |
+
+- Project skills: Kilo was seen to read `.agents/skills`, `.claude/skills`, `.kilo/skills`; opencode's and Kilo's commands in `.opencode/command`, `.kilo/command`. Claude Code's, Gemini's and Codex's folders are from their docs, not tested here. Codex has no project-level slash commands.
+- `ask` popups nested as modal windows, and the lower one's timer closed the top one. They now queue with a count.
+- Project sync uses `git add -A`, so it honours the cache's `.gitignore`.
+- Real runs: Claude Code then opencode in sequence; a routed run with Claude Code and opencode in parallel worktrees passing one word on the board, a parked permission answered, and the join. All on small models. It cost about 12 Haiku calls and a free opencode model.
+
+Where the build differs from the design, each a judgement call worth a look:
+
+- **`board wait` exits 5 on timeout, not 7.** 7 means a permission is missing in the agent contract; 5 already means not found or timeout.
+- **Exit 1 joined the contract**, for a failed run, and `pipeline run` exits 9 when parked and 6 when stopped.
+- **A file with no settings keeps the screen**, one step at a time, or every existing pipeline and simple task would have lost it. Once a file has settings, only `ui: true` does.
+- **A join applies its result to the folder uncommitted.** "Into the user's branch" would have committed on their behalf and could not hold their uncommitted work; sequential steps leave their work uncommitted too. Nothing is ever committed to their branch.
+- **A permission limit is also read from the agent's own last line** (`BLOCKED: what you need`), since Claude Code refuses in words with exit 0 and Codex's read-only sandbox cannot reach apprentice at all. A CLI's own refusal phrase counts even at exit 0, because opencode's does.
+- **A silent step that changed files counts as having output.**
+- **An older file's `agent:` counts as its steps' `use:`**, and a new file writes no `agent:`. With nothing listed at all, a pipeline still runs on the first CLI installed, as it always did; once anything is listed, only what is listed is ever used.
+- **The interpreter and scribe run at the CLI's tightest level**, whatever the named agent's own permissions.
+- **Two choices in the open list were taken as recommended:** generated files committed, and one-click install (an Install button that types the CLI's own install line into a shell tab; nothing is bundled). The job-context check warns and saves.
+
+Not built, as the plan says "later": real interruption of a running agent, and the shared library's own repo and CI merge. The client side of the library is built and untested against a real repo, since none exists: fetching per place, the checks, and `skills share --library`.
 
 ## What this is for
 
@@ -486,8 +517,8 @@ they keep nothing from pipelines.
 
 ## 15. Learning a place: what apprentice keeps about a site, an app or a system
 
-Status: design, 2026-11-05, nothing built. It stands on its own: nothing here depends on the pipeline
-work above, and its build steps can land before or after it. The fresh start happened the same day: the
+Status: built on 2026-11-05, except the library's own repo and CI (step g). It stands on its own: nothing here depends
+on the pipeline work above. The fresh start happened the same day: the
 learned skills on this Mac and every packaged playbook in `playbooks/` were removed, so what follows
 starts from the format in `playbooks/README.md` and an empty folder.
 
@@ -859,9 +890,6 @@ g. **The library** (later, once a repo exists): the origin, the fetch and cache,
 
 ## Open decisions
 
-1. Generated per-CLI files committed to git (recommended yes).
-2. One-click install instead of bundling the CLIs (recommended yes).
-3. The scribe writes every step summary (one extra agent call per feeding step; consistent). The
-   alternative, each step summarising itself, is cheaper and less consistent.
-4. The rolling summary stays tracked in git while notes are gitignored.
-5. Real interruption of a running agent: later, if the board's check-when-you-can proves too slow.
+Built as recommended, and easy to change: generated per-CLI files are committed; one-click install rather than bundling;
+the scribe writes every step summary; the rolling summary is tracked while notes are gitignored. Still open: real
+interruption of a running agent, if the board's check-when-you-can proves too slow.

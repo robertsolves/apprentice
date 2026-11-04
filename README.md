@@ -53,6 +53,11 @@ ok · snap 4 · +2 -0 ~0
 + 24 button "Confirm"
 ```
 
+
+## Bigger work: pipelines across agents
+
+A project's work runs as pipelines: steps in one Markdown file, each given to an agent you name, such as Claude Code on one step and opencode on the next. A step can branch, with an agent you choose picking the way; steps can run at the same time, each in its own git worktree, and talk through a shared board. If an agent runs out of tokens or stalls, the next on your list takes over. If it needs you, the run waits with your choices, on screen and on your phone. Permissions always win over what a prompt asks for. `apprentice help pipeline` has the commands, and the window's Pipelines screen has all of it without a terminal.
+
 ## How it works
 
 - **It reads text, not pixels.** The macOS accessibility tree becomes a numbered list of what is on screen. A step costs tens of tokens, not a screenshot. `shot` and `ocr` exist for the rare page that hides from accessibility.

@@ -61,6 +61,7 @@ enum MCP {
         tool("confirm", ["token": ["type": "string"], "why": ["type": "string"]], ["token"]),
         tool("approve", ["token": ["type": "string"], "text": ["type": "string"]], ["token"]),
         tool("deny", ["token": ["type": "string"]], ["token"]),
+        tool("help", ["command": ["type": "string"]]),
     ]
 
     static func run() {
@@ -117,6 +118,7 @@ enum MCP {
     static func runLocally(_ name: String, _ args: [String: Any]) throws -> String? {
         switch name {
         case "playbooks", "notes": return Playbooks.search(args["query"] as? String ?? "")
+        case "help": return Help.command(Args.parse([args["command"] as? String ?? ""].filter { !$0.isEmpty }))
         case "learn":
             var a = [args["task"] as? String ?? ""]
             if let n = args["name"] as? String { a += ["--name", n] }

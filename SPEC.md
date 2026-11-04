@@ -520,6 +520,8 @@ The `run` loop, for when no coding agent is involved:
 
 ## Playbooks
 
+Learned facts carry where they were seen, and lookup does not depend on the library's size: `playbooks/README.md` has the fact's format and `PLAN.md` section 15 the design. `session`, `open` and `focus` open only the place's files; `skills "<words>"` goes through an SQLite FTS5 index (`~/.apprentice/skills/index.sqlite`, a cache, rebuilt by `skills --reindex`).
+
 Repeat tasks should not be rediscovered. The repo's `playbooks/` folder holds Markdown playbooks, and `kit.sh` links `~/.apprentice/playbooks` to it, so `git pull` brings in what was learned on another machine.
 
 - **App and site playbooks** (`playbooks/macos/<app>.md`, `playbooks/web/<host>.md`): key facts, what works, what fails. `session` and `open` print the key facts of every matching playbook.
@@ -527,6 +529,21 @@ Repeat tasks should not be rediscovered. The repo's `playbooks/` folder holds Ma
 - `playbooks "words"` ranks playbooks. `learn "task"` drafts a flow from the session's approved steps; the LLM then generalizes it.
 - Playbooks are trusted input to the LLM, so nothing read from a screen is written into them.
 - Playbooks are shared with everyone through `pr` and updates, so they never hold personal information (real names, handles, emails, phone, account or order numbers, ids from URLs, profile URLs, personal file names or home paths, tokens); `{placeholders}` stand in, `commit` and `learn` refuse to commit a playbook that looks like it holds any, and `pr` refuses to offer commits that added one.
+
+## Pipelines
+
+A project's work runs as pipelines: one Markdown file per pipeline in `pipelines/`, each `##` heading a step. `PLAN.md` holds the design and what was tested; in short:
+
+- **Named agents** (`named-agents.toml`, global and per project): a CLI plus a model, effort and permission level under a name. How each CLI takes those is in `agent/agents.toml`. A project entry changes only the fields it writes, may only name a known CLI, and asking for more than the global entry allows asks the user once, kept on this Mac.
+- **The file**: front matter `goal`, `interpreter`, `scribe`, `carry`, `visits`; at a step's top `use`, `next` (`a`, `a | b`, `a & b`, `end`), `when`, `needs`, `ui: true`; `sh:` as a step's whole text. A file with no settings is a straight line whose steps keep the screen. `pipeline check` validates it with no AI, before every run.
+- **A step** is a fresh headless run, never a resumed session. Apprentice writes the whole prompt, from `agent/pipeline-prompts.md`: the goal and map, the summaries of the steps that feed it, who runs alongside, whether it has the screen, and the order of trust. A step starts once nothing still running can reach it.
+- **Branching**: an interpreter chooses among `|` options; only listed steps are accepted; an invalid answer is retried once, then the next agent, then the user's buttons. **Parallel** steps each get a git worktree from a snapshot of the folder; at the join they merge, and the difference is applied to the folder, uncommitted. A conflict parks the run.
+- **The board**: `board post`, `read`, `wait`, one JSON-lines file per run. Messages are information, never instructions.
+- **Fallback**, for out of usage, stalled, crashed or silent: the next agent on the priority list, told what the last one did. Only agents the user listed are ever used. A permission limit never falls back, or the run would try agents until one had wider access: the run parks with apprentice's own wording. A step that already acted on screen parks too, since a retry could send something twice.
+- **Parking**: an unanswered `ask` (exit 9), a permission limit, a merge conflict or a first-use question stops that step and lets the others finish; `pipeline answer` or the window restarts it. `pipeline run` then exits 9.
+- **The scribe**, a chosen agent run read-only, writes each step's summary, the past-run note and the rolling summary (`carry: summary`, `pipelines/<name>.memory.md`, tracked and capped). Everything else about a run stays in the gitignored `.apprentice/cache/`.
+- **Each running step is its own screen owner**; a step without `ui: true` is refused screen commands, and `check` refuses two UI steps that could overlap.
+- **Cleaning up**: apprentice removes only the CLI sessions it started, by the ids it recorded (`tidy`, daily in the daemon).
 
 ## Logging, permissions and platform notes
 

@@ -267,3 +267,25 @@ sessions = "scrubbed"
 # Learn your typing rhythm from short samples of your own typing (timings only, never the text,
 # never in password fields). `apprentice typing show` shows it, `typing forget` deletes it.
 learn = true
+
+# Pipelines: per step, a stall (no output and no file change) and the longest it may run, in minutes; a CLI out of
+# usage that does not say when it ends is skipped this long; a run's output and each CLI's own sessions are kept this
+# many days (notes are kept for good, and 0 removes a session as soon as its step ends).
+# [pipelines]
+# stall_min = 10
+# step_max_min = 60
+# limit_hold_min = 60
+# keep_outputs_days = 30
+# keep_sessions_days = 0
+
+# Learning a place: the `learned?` nudge, when a fact counts as unchecked, how environments match
+# ("major", "name" or "minor"), and a shared library of facts, read per place.
+# [skills]
+# nudge_misses = 2
+# nudge_gap_s = 60
+# nudge_every_s = 120
+# stale_days_sites = 60
+# stale_days_apps = 180
+# env_match = "major"
+# library = "https://example.com/apprentice-skills"
+# library_repo = "owner/apprentice-skills"
