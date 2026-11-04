@@ -135,21 +135,11 @@ struct ProjectDetail: View {
     @State private var output = ""
     @State private var remote: String?
 
-    private var pipelines: [Pipelines.Pipeline] {
-        model.pipelines.filter { $0.project?.standardizedFileURL.path == project.folder.standardizedFileURL.path }
-    }
-
     var body: some View {
         ScreenPage(title: "Settings", subtitle: (project.folder.path as NSString).abbreviatingWithTildeInPath) {
-            AnyView(IconButton("Open", "play.fill", prominent: true) { model.openProject(project) })
+            AnyView(EmptyView())
         } content: {
             Panel(title: "How it runs") {
-                LabeledField("Agent") {
-                    Picker("", selection: Binding(get: { project.agent }, set: { change(["--agent", $0]) })) {
-                        ForEach(model.agentChoices(keeping: project.agent), id: \.id) { Text($0.label).tag($0.id) }
-                    }
-                    .labelsHidden().pickerStyle(.menu).frame(maxWidth: 280)
-                }
                 LabeledField("Runs on") {
                     Picker("", selection: Binding(get: { project.vm ?? "" }, set: { change($0.isEmpty ? ["--no-vm"] : ["--vm", $0]) })) {
                         Text("This Mac").tag("")
@@ -161,7 +151,7 @@ struct ProjectDetail: View {
                             Text("The VM \(vm)").tag(vm)
                         }
                     }
-                    .labelsHidden().pickerStyle(.menu).frame(maxWidth: 280)
+                    .labelsHidden().pickerStyle(.menu).frame(maxWidth: 280, alignment: .leading)
                 }
                 if let vm = project.vm {
                     let shared = model.projects.filter { $0.vm == vm && $0.id != project.id }.map(\.name)
@@ -172,28 +162,13 @@ struct ProjectDetail: View {
                         }
                     }
                 }
-                Text("Open starts \(AgentChoice.label(project.agent)) in this folder\(project.vm.map { ", working in the VM \($0)" } ?? ""). Projects on their own VMs work at the same time.")
+                Text("Any agent opened in this folder\(project.vm.map { " works in the VM \($0)" } ?? " works on this Mac"). Projects on their own VMs work at the same time.")
                     .font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: Theme.s2) {
                     IconButton("Notes for agents", "doc.text") { NSWorkspace.shared.open(project.folder.appendingPathComponent("AGENTS.md")) }
                     IconButton("Settings file", "slider.horizontal.3") { NSWorkspace.shared.open(Projects.settingsFile(project.folder)) }
                 }
                 .controlSize(.small)
-            }
-            Panel(title: "Pipelines", note: "\(pipelines.count)") {
-                if pipelines.isEmpty {
-                    Text("None yet. A pipeline is a list of prompts that run one after another.")
-                        .font(Theme.caption).foregroundStyle(.secondary)
-                }
-                ForEach(pipelines) { p in
-                    HStack(spacing: Theme.s2) {
-                        IconRow(icon: "list.number", title: p.name, detail: "\(p.steps.count) step\(p.steps.count == 1 ? "" : "s")")
-                        Spacer()
-                        IconButton("Run", "play") { model.runPipeline(p) }.controlSize(.small)
-                    }
-                }
-                IconButton("New pipeline", "plus") { model.editPipeline(Pipelines.Pipeline(name: "", agent: project.agent, project: project.folder)) }
-                    .controlSize(.small)
             }
             Panel(title: "Save") {
                 Text(remote.map { "Saved versions go to \($0)." } ?? "Save keeps a version of everything in the folder on this Mac. Save to GitHub also puts it in a private GitHub repository.")
@@ -223,7 +198,7 @@ struct ProjectDetail: View {
         }
     }
 
-    /// Changes the project's agent or VM through `project set`, so the window and the CLI write the same file.
+    /// Changes the project's VM through `project set`, so the window and the CLI write the same file.
     private func change(_ args: [String]) {
         output = "…"
         model.runCLI(["project", "set", project.folder.path] + args) { code, out in
@@ -241,7 +216,7 @@ struct ProjectDetail: View {
     }
 }
 
-/// New project: a name, where it lives, what it starts from, which agent and where it runs.
+/// New project: a name, where it lives, what it starts from and where it runs.
 struct NewProjectSheet: View {
     enum Start: Identifiable { case empty, github; var id: Int { self == .empty ? 0 : 1 } }
 
@@ -251,7 +226,6 @@ struct NewProjectSheet: View {
     @State private var fromGitHub = false
     @State private var source = ""
     @State private var parent = (Projects.defaultRoot.path as NSString).abbreviatingWithTildeInPath
-    @State private var agent = AgentCLIs.defaultID
     /// Where it runs: its own new VM (the default, so each project's accounts stay apart), this Mac, or a VM
     /// another project already uses.
     @State private var place = "+new"
@@ -278,7 +252,7 @@ struct NewProjectSheet: View {
                         Text("An empty folder").tag(false)
                         Text("A GitHub repository").tag(true)
                     }
-                    .labelsHidden().pickerStyle(.segmented).frame(maxWidth: 320)
+                    .labelsHidden().pickerStyle(.segmented).fixedSize()
                 }
                 if fromGitHub {
                     LabeledField("Repository") { TextField("https://github.com/you/shop-socials", text: $source).font(Theme.mono) }
@@ -289,12 +263,6 @@ struct NewProjectSheet: View {
                 }
             }
             Panel(title: "How it runs") {
-                LabeledField("Agent") {
-                    Picker("", selection: $agent) {
-                        ForEach(model.agentChoices(keeping: agent), id: \.id) { Text($0.label).tag($0.id) }
-                    }
-                    .labelsHidden().pickerStyle(.segmented)
-                }
                 LabeledField("Runs on") {
                     Picker("", selection: $place) {
                         Text("Its own VM").tag("+new")
@@ -305,7 +273,7 @@ struct NewProjectSheet: View {
                             ForEach(others) { Text("Share the VM \($0.name)").tag($0.name) }
                         }
                     }
-                    .labelsHidden().pickerStyle(.menu).frame(maxWidth: 280)
+                    .labelsHidden().pickerStyle(.menu).frame(maxWidth: 280, alignment: .leading)
                 }
                 if place == "+new" {
                     LabeledField("VM name") { TextField(Projects.folderName(name.isEmpty ? "shop" : name), text: $newVM) }
@@ -343,7 +311,7 @@ struct NewProjectSheet: View {
         problem = ""
         working = true
         let dir = (folder as NSString).expandingTildeInPath
-        var argv = ["project", "new", name.trimmingCharacters(in: .whitespaces), "--dir", dir, "--agent", agent]
+        var argv = ["project", "new", name.trimmingCharacters(in: .whitespaces), "--dir", dir]
         if fromGitHub { argv += ["--from", source.trimmingCharacters(in: .whitespaces)] }
         if let vm { argv += ["--vm", vm] } else { argv.append("--no-vm") }
         if !about.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { argv += ["--about", about] }
@@ -370,7 +338,7 @@ struct PipelinesView: View {
 
     private var blank: Pipelines.Pipeline {
         guard let project else { return Pipelines.Pipeline(name: "") }
-        return Pipelines.Pipeline(name: "", agent: project.agent, project: project.folder)
+        return Pipelines.Pipeline(name: "", project: project.folder)
     }
 
     /// The pipeline open in the editor, when it is one of this screen's (or a new one for this project).
@@ -387,7 +355,7 @@ struct PipelinesView: View {
                        new: { model.editPipeline(blank) }) {
                 if pipelines.isEmpty {
                     Text("No pipelines yet").font(Theme.caption).foregroundStyle(.secondary)
-                        .padding(Theme.s4).frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(Theme.s4).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 } else {
                     List(selection: Binding(get: { draft?.id }, set: { id in
                         if let p = pipelines.first(where: { $0.id == id }) { model.editPipeline(p) }
@@ -457,21 +425,15 @@ struct PipelineEditor: View {
                             Text("None").tag("")
                             ForEach(model.projects) { Text($0.name).tag($0.folder.path) }
                         }
-                        .labelsHidden().pickerStyle(.menu).frame(maxWidth: 280)
+                        .labelsHidden().pickerStyle(.menu).frame(maxWidth: 280, alignment: .leading)
                     }
-                }
-                LabeledField("Agent") {
-                    Picker("", selection: $agent) {
-                        ForEach(model.agentChoices(keeping: agent), id: \.id) { Text($0.label).tag($0.id) }
-                    }
-                    .labelsHidden().pickerStyle(.segmented)
                 }
                 LabeledField("Runs on") {
                     Picker("", selection: $vm) {
                         Text(projectVM.map { "The project's VM (\($0))" } ?? "This Mac").tag("")
                         ForEach(model.machines.filter { !$0.name.isEmpty }) { Text("The VM \($0.name)").tag($0.name) }
                     }
-                    .labelsHidden().pickerStyle(.menu).frame(maxWidth: 280)
+                    .labelsHidden().pickerStyle(.menu).frame(maxWidth: 280, alignment: .leading)
                 }
                 if agent == "shell" {
                     LabeledField("") {

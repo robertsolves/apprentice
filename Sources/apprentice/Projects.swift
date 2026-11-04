@@ -7,7 +7,7 @@ import Foundation
 /// (`projects.json`); forgetting one never deletes it.
 ///
 /// Inside a project folder:
-///   .apprentice/project.toml   name, VM and agent (the site counts and caps of `Project` live beside it)
+///   .apprentice/project.toml   name and VM (the site counts and caps of `Project` live beside it)
 ///   .apprentice/skills/        skills for this project only, shown before anyone else's (`Skills`)
 ///   AGENTS.md                  what an agent needs to know; CLAUDE.md and GEMINI.md point at it
 ///   pipelines/                 the project's pipelines (`Pipelines`)
@@ -24,7 +24,6 @@ enum Projects {
         var name: String
         var folder: URL
         var vm: String?
-        var agent: String
 
         /// The git remote the project saves to, if any (a git call: not for every command).
         var remote: String? {
@@ -53,9 +52,9 @@ enum Projects {
             if !entries().contains(where: { $0.path == folder.path }) { remember(p) }
             return p
         }
-        try? scaffold(folder, name: "General", vm: nil, agent: AgentCLIs.defaultID,
+        try? scaffold(folder, name: "General", vm: nil,
                       about: "Anything that is not part of another project yet: quick questions, a shell, trying something out.")
-        let p = info(folder) ?? Info(name: "General", folder: folder, vm: nil, agent: AgentCLIs.defaultID)
+        let p = info(folder) ?? Info(name: "General", folder: folder, vm: nil)
         remember(p)
         return p
     }
@@ -105,7 +104,7 @@ enum Projects {
         func text(_ key: String) -> String? { v[key].map(Toml.unquote).flatMap { $0.isEmpty ? nil : $0 } }
         // The VM as its daemon names itself (`Store.cleanVM`): a hand-written "Shop" matches the VM shop, and a
         // project.toml from someone else's repository cannot put shell syntax into the window's commands.
-        return Info(name: text("name") ?? folder.lastPathComponent, folder: folder, vm: text("vm").flatMap(Store.cleanVM), agent: text("agent") ?? AgentCLIs.defaultID)
+        return Info(name: text("name") ?? folder.lastPathComponent, folder: folder, vm: text("vm").flatMap(Store.cleanVM))
     }
 
     static func settingsFile(_ folder: URL) -> URL { folder.appendingPathComponent(".apprentice/project.toml") }
@@ -139,15 +138,15 @@ enum Projects {
     // MARK: - making one
 
     /// Writes the project's settings and agent notes into `folder`, keeping any the folder already has.
-    static func scaffold(_ folder: URL, name: String, vm: String?, agent: String, about: String) throws {
+    static func scaffold(_ folder: URL, name: String, vm: String?, about: String) throws {
         let fm = FileManager.default
         try fm.createDirectory(at: folder.appendingPathComponent(".apprentice"), withIntermediateDirectories: true)
         try fm.createDirectory(at: folder.appendingPathComponent("pipelines"), withIntermediateDirectories: true)
         let settings = settingsFile(folder)
         var lines = ["# This folder is an apprentice project. `apprentice project` reads this file.", "[project]",
-                     "name = \(quote(name))", "agent = \(quote(agent))"]
+                     "name = \(quote(name))"]
         if let vm { lines.append("vm = \(quote(vm))") }
-        // A cloned project keeps the name and agent it was saved with (`new` then sets its VM: this Mac's choice).
+        // A cloned project keeps the name it was saved with (`new` then sets its VM: this Mac's choice).
         if !fm.fileExists(atPath: settings.path) { try (lines.joined(separator: "\n") + "\n").write(to: settings, atomically: true, encoding: .utf8) }
         // The counts are this Mac's; everything else in the project travels with it.
         let ignore = folder.appendingPathComponent(".apprentice/.gitignore")
@@ -200,7 +199,7 @@ enum Projects {
 
     // MARK: - CLI
 
-    static let usage = "project new <name> [--dir <folder>] [--from <git url>] [--vm <name> | --no-vm] [--agent <one of agents.toml>] [--about \"…\"] · list · open [name] · set [name] [--vm <name> | --no-vm] [--agent <id>] [--name \"…\"] · save [name] [--message \"…\"] [--push] · add <folder> · forget <name> · init · status"
+    static let usage = "project new <name> [--dir <folder>] [--from <git url>] [--vm <name> | --no-vm] [--about \"…\"] · list · open [name] · set [name] [--vm <name> | --no-vm] [--name \"…\"] · save [name] [--message \"…\"] [--push] · add <folder> · forget <name> · init · status"
 
     static func command(_ a: Args) throws -> String {
         switch a.pos.first ?? "status" {
@@ -216,7 +215,7 @@ enum Projects {
             let folder = URL(fileURLWithPath: (raw as NSString).expandingTildeInPath).standardizedFileURL
             guard FileManager.default.fileExists(atPath: folder.path) else { throw Fail(5, "no folder \(folder.path)") }
             if !FileManager.default.fileExists(atPath: settingsFile(folder).path) {
-                try scaffold(folder, name: a.value("name") ?? folder.lastPathComponent, vm: a.value("vm").flatMap(vmName), agent: a.value("agent") ?? "claude", about: "")
+                try scaffold(folder, name: a.value("name") ?? folder.lastPathComponent, vm: a.value("vm").flatMap(vmName), about: "")
             }
             guard let p = info(folder) else { throw Fail(5, "could not read \(folder.path)") }
             remember(p)
@@ -234,17 +233,13 @@ enum Projects {
         let all = all()
         guard !all.isEmpty else { return "no projects yet · apprentice project new \"name\"" }
         return all.map { p in
-            "\(p.name) · \(p.folder.path) · " + (p.vm.map { "VM \($0)" } ?? "this Mac") + " · \(p.agent)"
+            "\(p.name) · \(p.folder.path) · " + (p.vm.map { "VM \($0)" } ?? "this Mac")
                 + " · \(Pipelines.inFolder(p.folder).count) pipelines" + (p.remote.map { " · \($0)" } ?? "")
         }.joined(separator: "\n")
     }
 
     private static func new(_ a: Args) throws -> String {
         guard let name = a.pos.dropFirst().first?.trimmingCharacters(in: .whitespaces), !name.isEmpty else { throw Fail(5, usage) }
-        let agents = AgentCLIs.all()
-        guard let agent = AgentCLIs.find(a.value("agent") ?? AgentCLIs.defaultID, in: agents)?.id else {
-            throw Fail(6, "--agent is one of \(agents.map(\.id).joined(separator: ", ")) (agent/agents.toml, ~/.apprentice/agents.toml)")
-        }
         // Each project works in its own VM unless told otherwise: its accounts stay apart from every other project's.
         let vm = a.has("no-vm") ? nil : vmName(a.value("vm") ?? folderName(name))
         let folder = a.value("dir").map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath).standardizedFileURL }
@@ -259,7 +254,7 @@ enum Projects {
         } else if FileManager.default.fileExists(atPath: settingsFile(folder).path) {
             throw Fail(5, "\(folder.path) is already a project · apprentice project add \(folder.path)")
         }
-        try scaffold(folder, name: name, vm: vm, agent: agent, about: a.value("about") ?? "")
+        try scaffold(folder, name: name, vm: vm, about: a.value("about") ?? "")
         if a.value("from") != nil {
             // Where it runs is this Mac's choice, never the repository's: a project.toml from someone else could
             // name a VM of the user's that is signed in to their own accounts.
@@ -269,7 +264,6 @@ enum Projects {
         guard let p = info(folder) else { throw Fail(5, "could not read \(folder.path)") }
         remember(p)
         out.append("project \(name) · \(folder.path) · " + (vm.map { "VM \($0)" } ?? "this Mac"))
-        if let note = AgentCLIs.missingNote(agent) { out.append(note) }
         if let vm, !VM.exists(vm) { out.append("the VM \(vm) is not set up yet: apprentice --vm \(vm) vm setup") }
         out.append("open it: cd \(VM.shellQuoted(folder.path))" + (vm.map { " && export APPRENTICE_VM=\($0)" } ?? ""))
         return out.joined(separator: "\n")
@@ -293,7 +287,7 @@ enum Projects {
     /// The VM a project gets of its own unless told otherwise: named after its folder.
     static func ownVM(_ name: String) -> String? { vmName(folderName(name)) }
 
-    /// Changes how a project runs: its VM (or none), its agent, its name. The rest of `project.toml` stays as written.
+    /// Changes how a project runs: its VM (or none), its name. The rest of `project.toml` stays as written.
     private static func set(_ a: Args) throws -> String {
         guard let p = find(a.pos.dropFirst().first) else { throw Fail(5, "no such project · apprentice project list") }
         let file = settingsFile(p.folder)
@@ -301,15 +295,6 @@ enum Projects {
         if let name = a.value("name")?.trimmingCharacters(in: .whitespaces), !name.isEmpty {
             Toml.set(file, "project", "name", quote(name))
             out.append("named \(name)")
-        }
-        if let raw = a.value("agent") {
-            let agents = AgentCLIs.all()
-            guard let agent = AgentCLIs.find(raw, in: agents)?.id else {
-                throw Fail(6, "--agent is one of \(agents.map(\.id).joined(separator: ", ")) (agent/agents.toml, ~/.apprentice/agents.toml)")
-            }
-            Toml.set(file, "project", "agent", quote(agent))
-            out.append("agent \(agent)")
-            if let note = AgentCLIs.missingNote(agent) { out.append(note) }
         }
         if a.has("no-vm") {
             Toml.remove(file, "project", "vm")

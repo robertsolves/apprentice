@@ -158,7 +158,7 @@ enum Voice {
         switch a.pos.first ?? "show" {
         case "show":
             guard let text = read() else {
-                return "voice: none yet · apprentice asks a few optional questions now and then and writes \(url.path); `voice init` starts it now, `voice ask` asks one now"
+                return "voice: none yet · apprentice asks a few optional questions now and then and writes \(url.path); `voice init` starts it now, `voice suggest` writes questions from what you use apprentice for, `voice ask` asks one now"
             }
             return text
         case "init":
@@ -166,12 +166,20 @@ enum Voice {
             for q in questions where answers(read() ?? "")[q.id] == nil { save(q.id, q.assume, assumed: true) }
             return "voice: \(url.path) · edit the top in your own words; the answers fill in as you answer the optional questions"
         case "ask":
+            if let o = waiting(Store.load(Asked.self, askedFile) ?? Asked()) {
+                let reply = OptionalAsk.wait(o.question, choices: o.choices, multi: o.multi, assume: o.assume, timeout: Config.current.optionalWaitSeconds)
+                noteAsked(o.key, o.scope, question: o.question, choices: o.choices, multi: o.multi, assume: o.assume, answered: reply != nil)
+                guard let reply else { return "voice: no answer; assumed \(o.key) = \(o.assume)" }
+                let value = reply.isEmpty ? "none" : reply.joined(separator: ", ")
+                save(o.key, value, assumed: false, scope: o.scope)
+                return "voice: \(o.key) = \(value)"
+            }
             guard let q = next(force: true) else { return "voice: every question is answered" }
             let reply = OptionalAsk.wait(q.text, choices: q.choices, multi: q.multi, assume: q.assume, timeout: Config.current.optionalWaitSeconds)
             record(q, reply)
             return reply.map { "voice: \(q.id) = \($0.joined(separator: ", "))" } ?? "voice: no answer; assumed \(q.id) = \(q.assume)"
         default:
-            throw Fail(5, "voice [show | init | ask]")
+            throw Fail(5, "voice [show | init | ask | suggest]")
         }
     }
 
@@ -222,6 +230,9 @@ enum Voice {
         var last: Date?
         var lastBy: [String: Date]?
         var open: [String: Open]?
+        /// When the user's agent last wrote questions, and from which sites, apps, tasks and projects.
+        var suggested: Date?
+        var suggestedFrom: [String]?
     }
     struct Open: Codable { var key: String; var scope: String?; var question: String; var choices: [String]; var multi: Bool; var assume: String }
     static let askedFile = "voice-asked.json"
@@ -247,6 +258,11 @@ enum Voice {
         Store.save(asked, askedFile)
     }
 
+    /// The next waiting question, in a steady order.
+    static func waiting(_ asked: Asked) -> Open? {
+        (asked.open ?? [:]).sorted { $0.key < $1.key }.first { shouldAsk($0.value.key, $0.value.scope) }?.value
+    }
+
     /// The next built-in question with no real answer that has not been asked three times; any one when forced.
     static func next(force: Bool = false) -> Question? {
         let have = answers(read() ?? "")
@@ -268,9 +284,149 @@ enum Voice {
         }
     }
 
+    // MARK: Questions from what the user does
+
+    /// What apprentice has been used for, from the logs: names only, never URLs, screen text or typed text.
+    struct Usage {
+        var sites: [String] = []
+        var apps: [String] = []
+        var tasks: [String] = []
+        var projects: [String] = []
+
+        var names: [String] { sites + apps + tasks + projects }
+        var scopes: Set<String> { Set((sites + apps).map { $0.lowercased() }) }
+        var text: String {
+            [("Websites, most used first", sites), ("Apps, most used first", apps), ("Tasks they gave", tasks), ("Their projects", projects)]
+                .filter { !$0.1.isEmpty }
+                .map { "\($0.0): \($0.1.joined(separator: "; "))" }
+                .joined(separator: "\n")
+        }
+    }
+
+    static func usage(_ rows: [[String: Any]], projects: [String] = []) -> Usage {
+        var sites: [String: Int] = [:], apps: [String: Int] = [:]
+        var tasks: [String] = []
+        for r in rows {
+            if let h = (r["host"] as? String) ?? hostOf(r["url"] as? String), h.contains(".") { sites[Site.domain(h), default: 0] += 1 }
+            if r["cmd"] as? String == "session", let a = r["app"] as? String, a.lowercased() != "apprentice" { apps[a, default: 0] += 1 }
+            if let t = (r["task"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty, !tasks.contains(t) { tasks.append(t) }
+        }
+        func top(_ d: [String: Int], _ n: Int) -> [String] {
+            d.sorted { $0.value != $1.value ? $0.value > $1.value : $0.key < $1.key }.prefix(n).map(\.key)
+        }
+        let oneLine = tasks.suffix(15).map { String($0.split(whereSeparator: \.isNewline).joined(separator: " ").prefix(120)) }
+        return Usage(sites: top(sites, 15), apps: top(apps, 10), tasks: oneLine, projects: projects)
+    }
+
+    /// The questions in an agent's reply worth asking: well formed, about the usage it was given, and not
+    /// known yet. The reply is an LLM's, so nothing in it is trusted beyond being shown as a choice.
+    static func suggestions(_ reply: String, usage: Usage, known: Set<String>, limit: Int = 5) -> [Open] {
+        guard let from = reply.firstIndex(of: "["), let to = reply.lastIndex(of: "]"), from < to,
+              let list = (try? JSONSerialization.jsonObject(with: Data(reply[from...to].utf8))) as? [[String: Any]] else { return [] }
+        var seen = known
+        var out: [Open] = []
+        for q in list where out.count < limit {
+            guard let key = (q["key"] as? String)?.lowercased(), key.range(of: "^[a-z0-9_.-]{1,40}$", options: .regularExpression) != nil,
+                  !seen.contains(key), let question = q["question"] as? String, !question.isEmpty, question.count <= 200, !question.contains("\n"),
+                  let choices = q["choices"] as? [String], (2...5).contains(choices.count),
+                  choices.allSatisfy({ !$0.isEmpty && $0.count <= 60 && !$0.contains("\n") }), Set(choices).count == choices.count else { continue }
+            let scope = (q["scope"] as? String)?.lowercased()
+            if let scope, !usage.scopes.contains(scope) { continue }
+            let assume = q["assume"] as? String
+            seen.insert(key)
+            out.append(Open(key: key, scope: scope, question: question, choices: choices, multi: q["multi"] as? Bool ?? false,
+                            assume: assume.flatMap { choices.contains($0) ? $0 : nil } ?? choices[0]))
+        }
+        return out
+    }
+
+    /// The keys with a real answer, or a question still waiting, which a new question must not repeat.
+    static func knownKeys(_ text: String, _ asked: Asked) -> Set<String> {
+        let real = all(text).values.flatMap { $0.filter { !$0.value.assumed }.keys }
+        return Set(real).union((asked.open ?? [:]).values.map(\.key))
+    }
+
+    /// The real answers an agent should use here: this scope's, then those for everywhere.
+    static func knownLine(_ text: String, scope: String?) -> String? {
+        let every = all(text)
+        var answers = (every[nil] ?? [:]).filter { !$0.value.assumed }
+        if let scope { answers.merge((every[scope] ?? [:]).filter { !$0.value.assumed }) { $1 } }
+        guard !answers.isEmpty else { return nil }
+        return "prefs (the user's answers, use them): " + answers.sorted { $0.key < $1.key }.map { "\($0.key) = \($0.value.value)" }.joined(separator: "; ")
+    }
+
+    /// One prompt to an installed agent; its reply, or nil when none ran or it took over three minutes.
+    private static func askAgent(_ prompt: String) -> String? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        p.arguments = ["-lc", "exec \"$@\"", "zsh"] + Schedules.agentArgv(AgentCLIs.runnable(), prompt)
+        p.currentDirectoryURL = FileManager.default.temporaryDirectory
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = FileHandle.nullDevice
+        p.standardInput = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return nil }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 180) { if p.isRunning { p.terminate() } }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return p.terminationStatus == 0 ? String(decoding: data, as: UTF8.self) : nil
+    }
+
+    /// Asks the user's own agent for questions about what apprentice has been used for, and queues them for
+    /// the idle timer. Blocks while the agent answers. Sends names of sites, apps, tasks and projects only.
+    @discardableResult
+    static func suggest() -> [Open] {
+        var projects = Projects.all().filter { !$0.isGeneral }.map(\.name)
+        projects = Array(projects.prefix(10))
+        let use = usage(Sessions.folders().flatMap(Sessions.rows), projects: projects)
+        var asked = Store.load(Asked.self, askedFile) ?? Asked()
+        asked.suggested = Date()
+        asked.suggestedFrom = use.names
+        Store.save(asked, askedFile)
+        let file = Repo.resources.appendingPathComponent("agent/preference-questions.md")
+        guard !use.names.isEmpty, let template = try? String(contentsOf: file, encoding: .utf8) else { return [] }
+        let text = read() ?? ""
+        let knownNow = knownKeys(text, asked)
+        let prompt = template.replacingOccurrences(of: "{known}", with: knownNow.isEmpty ? "(none)" : knownNow.sorted().joined(separator: ", "))
+            .replacingOccurrences(of: "{count}", with: "5")
+            .replacingOccurrences(of: "{usage}", with: use.text)
+        guard let reply = askAgent(prompt) else { return [] }
+        let found = suggestions(reply, usage: use, known: knownNow)
+        // Read again: a question may have been answered while the agent thought.
+        var latest = Store.load(Asked.self, askedFile) ?? asked
+        var open = latest.open ?? [:]
+        for q in found where open[slot(q.key, q.scope)] == nil { open[slot(q.key, q.scope)] = q }
+        latest.open = open
+        Store.save(latest, askedFile)
+        Store.log(["voice_suggested": found.count, "sites": use.sites.count, "apps": use.apps.count])
+        return found
+    }
+
+    /// `voice suggest`: the same, now, printing what it queued.
+    static func suggestNow() -> String {
+        let found = suggest()
+        guard !found.isEmpty else { return "voice: no new questions" }
+        return (["voice: \(found.count) new question\(found.count == 1 ? "" : "s"), asked when apprentice is idle (`voice ask` asks one now):"]
+            + found.map { "- \($0.scope.map { "[\($0)] " } ?? "")\($0.question) (\($0.choices.joined(separator: " | ")))" }).joined(separator: "\n")
+    }
+
+    private static var suggesting = false
+
+    /// Whether the agent may be asked again: not within `optional_suggest_h`, and only for something new.
+    private static func suggestInBackground(_ asked: Asked, every hours: Double) {
+        guard !suggesting, asked.suggested.map({ Date().timeIntervalSince($0) > hours * 3600 }) ?? true else { return }
+        suggesting = true
+        DispatchQueue.global(qos: .utility).async {
+            let use = usage(Sessions.folders().flatMap(Sessions.rows), projects: Projects.all().filter { !$0.isGeneral }.map(\.name))
+            if !Set(use.names).isSubset(of: Set(asked.suggestedFrom ?? [])) { suggest() }
+            DispatchQueue.main.async { suggesting = false }
+        }
+    }
+
     /// Every minute: when apprentice has been idle for two minutes, nothing is waiting on the user and
-    /// the last optional question is `[agent] optional_every_h` old, it asks one: a built-in voice
-    /// question, else a site's preference that is still only assumed. Main daemon only.
+    /// the last optional question is `[agent] optional_every_h` old, it asks one waiting question: a site's
+    /// preference still only assumed, or one the user's agent wrote from what apprentice is used for
+    /// (`suggest`, when none is waiting). Main daemon only.
     static func install() {
         guard Store.vmName == nil else { return }
         let timer = Timer(timeInterval: 60, repeats: true) { _ in
@@ -279,11 +435,7 @@ enum Voice {
                   Date().timeIntervalSince(Commands.lastAt) > 120 else { return }
             var asked = Store.load(Asked.self, askedFile) ?? Asked()
             if let last = asked.last, Date().timeIntervalSince(last) < c.optionalEveryHours * 3600 { return }
-            if let q = next() {
-                OptionalAsk.present(q.text, choices: q.choices, multi: q.multi, assume: q.assume, timeout: c.optionalWaitSeconds) { record(q, $0) }
-                return
-            }
-            guard let o = (asked.open ?? [:]).values.first(where: { shouldAsk($0.key, $0.scope) }) else { return }
+            guard let o = waiting(asked) else { return suggestInBackground(asked, every: c.optionalSuggestHours) }
             asked.last = Date()
             Store.save(asked, askedFile)
             OptionalAsk.present(o.question, choices: o.choices, multi: o.multi, assume: o.assume, timeout: c.optionalWaitSeconds) { reply in

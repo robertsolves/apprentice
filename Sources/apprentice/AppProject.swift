@@ -35,7 +35,7 @@ struct ProjectWorkspace: View {
         VStack(alignment: .leading, spacing: Theme.s2) {
             HStack(alignment: .firstTextBaseline, spacing: Theme.s3) {
                 Text(project.name).font(Theme.title(17))
-                Text("\(AgentChoice.label(project.agent)) · \(runsOn)")
+                Text(runsOn)
                     .font(Theme.caption).foregroundStyle(.secondary).lineLimit(1)
                 Spacer(minLength: Theme.s3)
                 if let who = model.screenBusy(for: project) {
@@ -56,8 +56,7 @@ struct ProjectWorkspace: View {
                 ForEach(ProjectTab.allCases) { Text($0.label).tag($0) }
             }
             .labelsHidden()
-            .pickerStyle(.segmented)
-            .frame(maxWidth: 520)
+            .pickerStyle(.segmented).fixedSize()
         }
         .padding(.horizontal, Theme.s4)
         .padding(.vertical, Theme.s3)
@@ -79,7 +78,7 @@ struct ProjectWork: View {
     var body: some View {
         HStack(spacing: 0) {
             TerminalWorkspace(model: model, project: project)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             if let vm = project.vm {
                 if vmShown {
                     handle
@@ -183,7 +182,7 @@ struct ProjectSkillsView: View {
             ListColumn(count: "\(items.count) skill\(items.count == 1 ? "" : "s")", newTitle: "New", new: { adding = true }) {
                 if items.isEmpty {
                     Text("No skills for this project yet").font(Theme.caption).foregroundStyle(.secondary)
-                        .padding(Theme.s4).frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .padding(Theme.s4).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 } else {
                     List(selection: $selected) {
                         ForEach(items) { item in IconRow(icon: item.icon, title: item.title, detail: item.detail).tag(item.id) }

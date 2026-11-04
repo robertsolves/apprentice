@@ -225,6 +225,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             else { model.show(section: .settings) }
             model.selectedVM = r.vm
             model.refreshMachines()
+        } else if let section = Section(rawValue: r.section) {
+            model.show(section: section)
         }
         if r.activate { window?.makeKeyAndOrderFront(nil) }
     }
@@ -552,7 +554,7 @@ struct LabeledField<Content: View>: View {
             Text(label)
                 .font(Theme.caption)
                 .foregroundStyle(.secondary)
-                .frame(width: 112, alignment: .trailing)
+                .frame(width: 112, alignment: .leading)
             content()
                 .textFieldStyle(.roundedBorder)
                 .controlSize(.small)
@@ -763,14 +765,15 @@ final class AppModel: ObservableObject {
         do { try proc.run() } catch { output = "could not open \(cli.label): \(error.localizedDescription)" }
     }
 
-    /// Opens the project's agent (or `agent`, for this tab only) in a tab in its folder, working in its VM;
+    /// Opens `agent` (else the first one installed) in a tab in the project's folder, working in its VM;
     /// `setUpVM` makes that VM first, in the same tab, so the user watches it being made.
     func openProject(_ p: Projects.Info, agent: String? = nil, setUpVM: String? = nil) {
-        var command = AgentChoice.command(agent ?? p.agent)
+        let agent = agent ?? agentChoices().first { !$0.shell }?.id ?? AgentCLIs.defaultID
+        var command = AgentChoice.command(agent)
         if let vm = setUpVM {
             command = "apprentice --vm \(vm) vm setup && " + (command ?? "exec \"$SHELL\" -l")
         }
-        newTab(preset: AgentChoice.label(agent ?? p.agent), command: command, project: p)
+        newTab(preset: AgentChoice.label(agent), command: command, project: p)
     }
 
     // MARK: - projects
@@ -1286,13 +1289,6 @@ struct RootView: View {
     }
 
     @ToolbarContentBuilder private var toolbar: some ToolbarContent {
-        ToolbarItem(placement: .status) {
-            if let session = model.session, let url = session.url, let host = URL(string: url)?.host {
-                Text(host).font(Theme.monoSmall).foregroundStyle(.secondary)
-            } else if let session = model.session {
-                Text(session.app).font(Theme.monoSmall).foregroundStyle(.secondary)
-            }
-        }
         ToolbarItem(placement: .primaryAction) {
             Button { model.openHelpTab() } label: { Label("Help", systemImage: "questionmark.circle") }
                 .help("Ask anything about apprentice in a tab")
@@ -1368,14 +1364,16 @@ struct TerminalWorkspace: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: Theme.s4) {
                         HStack(spacing: Theme.s2) {
-                            IconButton("Start \(AgentChoice.label(project.agent))", "play.fill", prominent: true) { model.openProject(project) }
+                            ForEach(model.agentChoices().filter { !$0.shell }) { cli in
+                                IconButton("Start \(cli.label)", "play.fill", prominent: true) { model.openProject(project, agent: cli.id) }
+                            }
                             IconButton("A shell", "terminal") { model.newTab(preset: "Shell", command: nil, project: project) }
                         }
                         Explainer(.terminal)
                     }
                     .frame(maxWidth: Theme.column, alignment: .leading)
                     .padding(Theme.page)
-                    .frame(maxWidth: .infinity)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
         }
@@ -1398,14 +1396,8 @@ struct TerminalWorkspace: View {
                 .padding(.vertical, Theme.s2)
             }
             Menu {
-                // The project's own agent in one click; another agent, a shell or its VM's shell beside it.
-                Button("\(AgentChoice.label(project.agent))") { model.openProject(project) }
-                let others = model.agentChoices().filter { $0.id != project.agent }
-                if !others.isEmpty {
-                    SwiftUI.Section("Another agent") {
-                        ForEach(others) { cli in Button(cli.label) { model.openProject(project, agent: cli.id) } }
-                    }
-                }
+                // Any agent installed, or a shell; its VM's shell beside them.
+                ForEach(model.agentChoices()) { cli in Button(cli.label) { model.openProject(project, agent: cli.id) } }
                 if let vm = project.vm {
                     Button("A shell in the VM \(vm)") { model.newTab(preset: "VM \(vm)", command: "apprentice --vm \(vm) vm ssh", project: project) }
                 }
@@ -1448,11 +1440,6 @@ struct TerminalWorkspace: View {
                 Text(session.subtitle).font(Theme.monoSmall).foregroundStyle(.tertiary)
             }
             Spacer()
-            if let bound = model.session {
-                StatusPill(text: bound.app, dot: false)
-            } else {
-                Text("no app bound").font(Theme.monoSmall).foregroundStyle(.tertiary)
-            }
         }
         .padding(.horizontal, Theme.s4)
         .padding(.vertical, Theme.s2)
@@ -1604,13 +1591,13 @@ struct SchedulesView: View {
                 .padding(.vertical, Theme.s2)
                 Divider()
                 if schedules.isEmpty {
-                    VStack(spacing: Theme.s2) {
+                    VStack(alignment: .leading, spacing: Theme.s2) {
                         Text("Nothing scheduled").font(Theme.heading)
                         Text("Something that runs later, or again and again: a prompt for an agent, a task, or saved steps from a playbook.")
-                            .font(Theme.caption).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                            .font(Theme.caption).foregroundStyle(.secondary).multilineTextAlignment(.leading)
                     }
                     .padding(Theme.s4)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 } else {
                     List(selection: $selected) {
                         ForEach(schedules) { schedule in
@@ -1761,7 +1748,6 @@ struct ScheduleEditor: View {
     @State private var name = ""
     @State private var kind = "prompt"
     @State private var target = ""
-    @State private var agent = AgentCLIs.defaultID
     @State private var trigger = "daily"
     @State private var at = Date().addingTimeInterval(3600)
     @State private var every = 60
@@ -1797,15 +1783,7 @@ struct ScheduleEditor: View {
                         Text("steps from a playbook").tag("do")
                         Text("a shell command").tag("sh")
                     }
-                    .labelsHidden().pickerStyle(.menu).frame(maxWidth: 240)
-                }
-                if kind == "prompt" {
-                    LabeledField("Agent") {
-                        Picker("", selection: $agent) {
-                            ForEach(model.agentChoices(keeping: agent).filter { !$0.shell }) { Text($0.label).tag($0.id) }
-                        }
-                        .labelsHidden().pickerStyle(.segmented).frame(maxWidth: 320)
-                    }
+                    .labelsHidden().pickerStyle(.menu).frame(maxWidth: 240, alignment: .leading)
                 }
                 if kind == "pipeline" {
                     LabeledField(targetLabel) {
@@ -1813,7 +1791,7 @@ struct ScheduleEditor: View {
                             Text(model.pipelines.isEmpty ? "no pipelines yet" : "Choose a pipeline").tag("")
                             ForEach(model.pipelines) { Text($0.name).tag($0.ref) }
                         }
-                        .labelsHidden().pickerStyle(.menu).frame(maxWidth: 320)
+                        .labelsHidden().pickerStyle(.menu).frame(maxWidth: 320, alignment: .leading)
                     }
                 } else {
                     LabeledField(targetLabel) {
@@ -1832,7 +1810,7 @@ struct ScheduleEditor: View {
                         Text("on chosen days").tag("weekly")
                         Text("a cron line").tag("cron")
                     }
-                    .labelsHidden().pickerStyle(.menu).frame(maxWidth: 240)
+                    .labelsHidden().pickerStyle(.menu).frame(maxWidth: 240, alignment: .leading)
                     .onChange(of: trigger) { _, now in if now == "cron", cron.isEmpty { cron = "0 9 * * 1-5" } }
                 }
                 switch trigger {
@@ -1863,7 +1841,7 @@ struct ScheduleEditor: View {
                             Text("this Mac").tag("")
                             ForEach(model.vmNames, id: \.self) { Text("VM \($0)").tag($0) }
                         }
-                        .labelsHidden().pickerStyle(.menu).frame(maxWidth: 240)
+                        .labelsHidden().pickerStyle(.menu).frame(maxWidth: 240, alignment: .leading)
                     }
                 }
             }
@@ -1890,13 +1868,11 @@ struct ScheduleEditor: View {
         if existing == nil, let project {
             dir = (project.folder.path as NSString).abbreviatingWithTildeInPath
             vm = project.vm ?? ""
-            agent = project.agent
         }
         guard let s = existing else { return }
         name = s.name
         kind = s.kind == .flow ? "do" : s.kind.rawValue
         target = s.target
-        agent = s.agent ?? AgentCLIs.defaultID
         if let d = s.at { trigger = "at"; at = d }
         if let v = s.every { trigger = "every"; every = v }
         if let v = s.daily, let m = Schedules.timeOfDay(v) { trigger = "daily"; clock = m }
@@ -1919,7 +1895,6 @@ struct ScheduleEditor: View {
         default: args += ["--cron", cron]
         }
         args += ["--\(kind)", target]
-        if kind == "prompt" { args += ["--agent", agent] }
         args += ["--jitter", "\(trigger == "at" ? 0 : jitter)"]
         if !dir.isEmpty { args += ["--dir", (dir as NSString).expandingTildeInPath] }
         if !vm.isEmpty { args += ["--vm", vm] }
@@ -1991,7 +1966,7 @@ struct NewPlaybookSheet: View {
                     Picker("", selection: $scope) {
                         ForEach(Self.kinds, id: \.id) { Text($0.label).tag($0.id) }
                     }
-                    .labelsHidden().pickerStyle(.segmented)
+                    .labelsHidden().pickerStyle(.segmented).fixedSize()
                 }
                 LabeledField("") {
                     Text(kind.how).font(Theme.caption).foregroundStyle(.secondary)
@@ -2116,7 +2091,6 @@ struct SettingsView: View {
                 }
             )
         } content: {
-            Explainer(.settings)
             if scopes.count > 1 {
                 Panel(title: "Settings for") {
                     Picker("", selection: $scope) {
@@ -2234,7 +2208,7 @@ private struct SettingRow: View {
             Picker("", selection: Binding(get: { choices.contains(value) ? value : choices.first ?? "" }, set: { value = $0 })) {
                 ForEach(choices, id: \.self) { Text($0).tag($0) }
             }
-            .labelsHidden().pickerStyle(.segmented).frame(width: 200)
+            .labelsHidden().pickerStyle(.segmented).fixedSize()
         case .text:
             TextField("", text: $value).textFieldStyle(.roundedBorder).controlSize(.small).frame(width: 200)
         case .font:
@@ -2373,7 +2347,6 @@ struct UpdatesView: View {
         ScreenPage(title: Section.updates.label, subtitle: "") {
             AnyView(IconButton("Check again", "arrow.clockwise") { load() })
         } content: {
-            Explainer(.updates)
             Panel(title: "Installed") {
                 FieldRow(label: "version", value: Build.version, mono: true)
                 if Release.isRelease, !Release.cloneInstalled {

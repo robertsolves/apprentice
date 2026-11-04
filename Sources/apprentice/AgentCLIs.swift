@@ -113,6 +113,18 @@ enum AgentCLIs {
     /// The first one listed.
     static var defaultID: String { agents().first?.id ?? "" }
 
+    /// The agent for a run with nobody there to pick: the one a file names if it is installed or is not ours to
+    /// judge (not listed), else the first installed. Any agent will do, so a missing one never stops a run.
+    static func pick(_ wanted: String?, agents list: [CLI], installed: Set<String>) -> String {
+        if let wanted, !wanted.isEmpty, installed.contains(wanted) || !list.contains(where: { $0.id == wanted }) { return wanted }
+        return list.first { !$0.shell && installed.contains($0.id) }?.id ?? wanted ?? list.first?.id ?? ""
+    }
+
+    static func runnable(_ wanted: String? = nil) -> String {
+        let list = agents()
+        return pick(find(wanted ?? "", in: list)?.id ?? wanted, agents: list, installed: installed(list))
+    }
+
     static func find(_ name: String, in list: [CLI] = all()) -> CLI? {
         let n = name.lowercased()
         return list.first { $0.id == n || $0.aliases.contains(n) }

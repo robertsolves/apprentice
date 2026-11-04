@@ -110,6 +110,8 @@ The window (`apprentice app`), schedules and away are built; FEATURES.md lists w
 
 ## Agent commands
 
+- Agents, decided pending the owner's word (2026-11-04): projects no longer name an agent. Proposed next: one Settings ▸ Agents card over `agents.toml`, the shipped agents plus "Add an agent" (its command), and an optional per-agent "extra options" line for unattended runs (`--model … --effort …`). Blank uses the agent's own config. Pipelines and schedules take the first installed agent until then (`AgentCLIs.runnable`).
+
 - Site skills (`skills/apprentice-<site>`) were written from general knowledge, not from runs: the limits and messages they name (LinkedIn's weekly invitations and note allowance, X's duplicate rule, Reddit's "doing that too much", TikTok's puzzles) need confirming on real sessions, then the wording tightened. Add skills for other `Config.socialSites` (threads, pinterest, youtube, bsky) once they see use.
 - The MCP apps (Claude desktop, Cursor) don't get skills as skills: they rely on `session`'s `skills ·` line and the `playbooks` tool with the skill's name. Check in `grow` whether they actually load them, and if not, expose the skills as MCP prompts or resources, or have `session` print a site skill's first section on the first visit.
 

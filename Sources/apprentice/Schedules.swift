@@ -505,7 +505,7 @@ enum Schedules {
         let vm = s.vm.map { ["--vm", $0] } ?? []
         switch s.kind {
         case .prompt:
-            return agentArgv(s.agent ?? AgentCLIs.defaultID, s.target)
+            return agentArgv(AgentCLIs.runnable(s.agent), s.target)
         case .pipeline:
             return [binary] + vm + ["pipeline", "run", s.target]
         case .run:
@@ -765,7 +765,7 @@ enum Schedules {
             guard let raw = a.value("cron"), nextCron(raw, after: Date()) != nil else { throw Fail(6, "schedule add: --cron takes five fields, \"0 9 * * mon\"") }
             (s.at, s.every, s.daily, s.weekly, s.cron) = (nil, nil, nil, nil, raw)
         }
-        s.agent = a.value("agent") ?? (kind == .prompt ? (existing?.agent ?? AgentCLIs.defaultID) : nil)
+        s.agent = a.value("agent") ?? (kind == .prompt ? existing?.agent : nil)
         s.jitter = max(0, a.int("jitter", existing?.jitter ?? 15))
         s.site = a.value("site") ?? existing?.site
         s.dir = a.value("dir").map { ($0 as NSString).expandingTildeInPath } ?? project?.folder.path ?? existing?.dir

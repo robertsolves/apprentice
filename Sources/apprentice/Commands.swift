@@ -582,6 +582,7 @@ enum Commands {
         if !hints.isEmpty { out += "\n" + hints.joined(separator: "\n") }
         out += "\n" + Config.policyLine
         if let voice = Voice.sessionLine { out += "\n" + voice }
+        if let known = Voice.knownLine(Voice.read() ?? "", scope: Voice.currentScope) { out += "\n" + known }
         if Awake.enabled { out += "\n" + Awake.status }
         if let update = Repo.updateLine() { out += "\n" + update }
         out += playbookLines(s)

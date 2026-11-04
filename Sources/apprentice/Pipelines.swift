@@ -235,7 +235,7 @@ enum Pipelines {
                 if Config.current.uiOnly { throw Fail(5, "step \(i + 1) is a shell command, and shells are off under [agent] ui_only") }
                 argv = ["/bin/zsh", "-lc", command]
             } else {
-                argv = ["/bin/zsh", "-lc", "exec \"$@\"", "zsh"] + Schedules.agentArgv(p.agent, prompt(p, step: i, previous: previous))
+                argv = ["/bin/zsh", "-lc", "exec \"$@\"", "zsh"] + Schedules.agentArgv(AgentCLIs.runnable(p.agent), prompt(p, step: i, previous: previous))
             }
             let (code, output) = stream(argv, in: p.folder, vm: p.effectiveVM, project: p.project, tab: tab)
             Store.log(["cmd": "pipeline", "pipeline": p.ref, "step": i + 1, "code": Int(code)])
@@ -328,7 +328,7 @@ enum Pipelines {
             }
             var p = Pipeline(name: name)
             p.project = project
-            p.agent = (a.value("agent") ?? Projects.here()?.agent ?? AgentCLIs.defaultID).lowercased()
+            p.agent = (a.value("agent") ?? AgentCLIs.defaultID).lowercased()
             p.vm = a.value("vm")
             p.steps = a.pos.dropFirst(2).enumerated().map { Step(title: "Step \($0.offset + 1)", prompt: $0.element) }
             let url = (project.map { $0.appendingPathComponent("pipelines") } ?? homeDir).appendingPathComponent(slug(name) + ".md")

@@ -485,6 +485,8 @@ struct Config {
     var optionalQuestions = true
     var optionalWaitSeconds = 60.0
     var optionalEveryHours = 4.0
+    /// `[agent] optional_suggest_h`: how often the user's agent may be asked for new questions (`Voice.suggest`).
+    var optionalSuggestHours = 24.0
     var overlay = true
     var sounds = true
     /// A VM session opens Screen Sharing on the VM once per run, so its pointer and typing can be seen.
@@ -643,6 +645,7 @@ struct Config {
         if let v = toml["agent"]?["optional_questions"] { c.optionalQuestions = Toml.unquote(v) != "false" }
         if let v = toml["agent"]?["optional_wait_s"].flatMap({ Double(Toml.unquote($0)) }), v.isFinite { c.optionalWaitSeconds = min(max(v, 10), 600) }
         if let v = toml["agent"]?["optional_every_h"].flatMap({ Double(Toml.unquote($0)) }), v.isFinite { c.optionalEveryHours = min(max(v, 0.25), 168) }
+        if let v = toml["agent"]?["optional_suggest_h"].flatMap({ Double(Toml.unquote($0)) }), v.isFinite { c.optionalSuggestHours = min(max(v, 1), 720) }
         if let v = toml["agent"]?["dock_icon"] { c.dockIcon = Toml.unquote(v) != "false" }
         if let v = toml["agent"]?["notifications"] { c.notifications = Toml.unquote(v) == "true" }
         if let v = toml["agent"]?["sounds"] { c.sounds = Toml.unquote(v) != "false" }

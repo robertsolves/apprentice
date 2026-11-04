@@ -60,9 +60,12 @@ struct SkillsView: View {
     @State private var selected: String?
     @State private var adding = false
     @State private var items: [SkillItem] = []
+    @AppStorage("skills.showShipped") private var showShipped = false
 
     private var shown: [SkillItem] {
-        guard !query.isEmpty else { return items }
+        guard !query.isEmpty else {
+            return showShipped ? items : items.filter { $0.origin != .builtIn && $0.origin != .learned }
+        }
         let needle = query.lowercased()
         return items.filter { $0.title.lowercased().contains(needle) || $0.detail.lowercased().contains(needle) || $0.path.lowercased().contains(needle) }
     }
@@ -89,6 +92,20 @@ struct SkillsView: View {
                 }
                 .listStyle(.sidebar)
                 .scrollContentBackground(.hidden)
+                .overlay(alignment: .topLeading) {
+                    if shown.isEmpty {
+                        Text(query.isEmpty ? "No skills of your own yet" : "Nothing found").font(Theme.caption).foregroundStyle(.secondary)
+                            .padding(Theme.s4)
+                    }
+                }
+                Divider()
+                Toggle("Show built-in and learned", isOn: $showShipped)
+                    .toggleStyle(.switch)
+                    .controlSize(.mini)
+                    .font(Theme.caption)
+                    .padding(.horizontal, Theme.s3)
+                    .padding(.vertical, Theme.s2)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
         } right: {
             if let id = selected, let item = items.first(where: { $0.id == id }) {
@@ -279,7 +296,7 @@ struct SplitPane<Left: View, Right: View>: View {
                             }
                             .onEnded { _ in start = nil })
                 )
-            right().frame(maxWidth: .infinity, maxHeight: .infinity)
+            right().frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .overlay(alignment: .topTrailing) {
                     if let help {
                         Button { helping.toggle() } label: { Image(systemName: "questionmark.circle") }

@@ -225,6 +225,28 @@ enum SelfTest {
         Tour.save(Tour.Setup(name: "work", values: ["agent.ui_only": "true"]))
         try? "# home voice\n".write(to: Voice.url, atomically: true, encoding: .utf8)
         Tour.save(Tour.Setup(name: "home", values: ["agent.ui_only": "false"]))
+        let used = Voice.usage([["url": "https://www.example.com/private/42", "cmd": "click"], ["cmd": "session", "app": "Mail"],
+                                ["cmd": "session", "app": "apprentice"], ["url": "chrome://new-tab-page"], ["task": "file the invoices"]], projects: ["Shop"])
+        check(used.sites == ["example.com"] && used.apps == ["Mail"] && used.tasks == ["file the invoices"] && !used.text.contains("private"),
+              "usage for questions names sites and apps, never a URL, and not apprentice itself")
+        let reply = #"""
+        Here you go: [{"key":"reply_to","scope":"mail","question":"Reply from which account?","choices":["Work","Home"],"assume":"Home"},
+        {"key":"known_one","scope":null,"question":"Known?","choices":["A","B"]},
+        {"key":"elsewhere","scope":"x.com","question":"Not in the usage?","choices":["A","B"]},
+        {"key":"one_choice","scope":null,"question":"No real choice?","choices":["A"]},
+        {"key":"bad key!","scope":null,"question":"Bad key?","choices":["A","B"]},
+        {"key":"guess","scope":null,"question":"Assume is not a choice?","choices":["A","B"],"assume":"C"}]
+        """#
+        let found = Voice.suggestions(reply, usage: used, known: ["known_one"])
+        check(found.map(\.key) == ["reply_to", "guess"] && found[0].scope == "mail" && found[0].assume == "Home" && found[1].assume == "A"
+              && Voice.suggestions("no json here", usage: used, known: []).isEmpty,
+              "an agent's questions are kept only when well formed, new and about the usage")
+        check(Voice.knownLine(Voice.setting(Voice.setting("", "a", "1", assumed: false, scope: "mail"), "b", "2", assumed: true), scope: "mail") == "prefs (the user's answers, use them): a = 1"
+              && Voice.knownLine("", scope: nil) == nil, "session lists real answers for the scope, not assumed ones")
+        let clis = AgentCLIs.parse("[agent.one]\nopen = \"one\"\nrun = [\"one\", \"{prompt}\"]\n[agent.two]\nopen = \"two\"\nrun = [\"two\", \"{prompt}\"]\n")
+        check(AgentCLIs.pick("one", agents: clis, installed: ["two"]) == "two" && AgentCLIs.pick("two", agents: clis, installed: ["one", "two"]) == "two"
+              && AgentCLIs.pick(nil, agents: clis, installed: ["two"]) == "two" && AgentCLIs.pick("mine", agents: clis, installed: []) == "mine",
+              "a run takes any installed agent when the one named is missing")
         _ = try? Tour.use("work")
         let workConfig = (try? String(contentsOf: Config.path, encoding: .utf8)) ?? ""
         let workVoice = Voice.read() ?? ""
@@ -1081,15 +1103,15 @@ enum SelfTest {
         // A window tab is named by its project, so "busy with" says which project has the screen.
         let shop = Store.dir.appendingPathComponent("device-test-shop")
         defer { try? FileManager.default.removeItem(at: shop) }
-        try? Projects.scaffold(shop, name: "Shop", vm: nil, agent: "claude", about: "")
+        try? Projects.scaffold(shop, name: "Shop", vm: nil, about: "")
         var inShop = Request(cmd: "click", args: ["1"]); inShop.tab = "C"; inShop.project = shop.appendingPathComponent(".apprentice").path
         let named = Device.caller(inShop)
         check(named.who == "tab:C" && named.label == "the project Shop", "device: a tab is named by its project (\(named.label))")
         var bare = Request(cmd: "click", args: ["1"]); bare.tab = "D"; bare.project = nil
         check(Device.caller(bare).label == "an agent in a window tab", "device: a tab with no project is still named")
-        let general = Projects.Info(name: "General", folder: Projects.generalFolder, vm: nil, agent: "claude")
-        let listed = Projects.ordered([general, Projects.Info(name: "shop", folder: shop, vm: nil, agent: "claude"),
-                                       Projects.Info(name: "Accounts", folder: shop.appendingPathComponent("a"), vm: "acc", agent: "claude")])
+        let general = Projects.Info(name: "General", folder: Projects.generalFolder, vm: nil)
+        let listed = Projects.ordered([general, Projects.Info(name: "shop", folder: shop, vm: nil),
+                                       Projects.Info(name: "Accounts", folder: shop.appendingPathComponent("a"), vm: "acc")])
         check(listed.map(\.name) == ["Accounts", "shop", "General"], "projects: listed by name, General last (\(listed.map(\.name)))")
         check(Projects.vmName(Projects.folderName("Shop Socials!")) == "shop-socials" && Projects.vmName("  ") == nil,
               "projects: a new project's own VM is named after it")
@@ -1269,7 +1291,7 @@ enum SelfTest {
         check(found == ["sh", "ed", "here"], "agents: installed means on the login shell's PATH or an app that exists (got \(found.sorted()))")
         let folder = Store.dir.appendingPathComponent("project-test")
         defer { try? FileManager.default.removeItem(at: folder) }
-        try? Projects.scaffold(folder, name: "Test", vm: nil, agent: "claude", about: "")
+        try? Projects.scaffold(folder, name: "Test", vm: nil, about: "")
         check(["CLAUDE.md", "GEMINI.md"].allSatisfy { (try? String(contentsOf: folder.appendingPathComponent($0), encoding: .utf8)) == "@AGENTS.md\n" },
               "projects: Claude Code and Gemini CLI are pointed at AGENTS.md")
     }
@@ -1527,7 +1549,7 @@ enum SelfTest {
         Sync.testProjectRemote = { _ in projBare }
         let listBefore = try? Data(contentsOf: Projects.listFile)
         defer { Sync.testProjectRemote = nil; try? (listBefore ?? Data("[]".utf8)).write(to: Projects.listFile, options: .atomic) }
-        Projects.remember(Projects.Info(name: "Demo", folder: proj, vm: nil, agent: "claude"))
+        Projects.remember(Projects.Info(name: "Demo", folder: proj, vm: nil))
         let withProject = try? Sync.round()
         let projTree = Repo.run("git", ["--git-dir", projBare, "ls-tree", "-r", "--name-only", "main"], in: root).out
         check(withProject?.projects["Demo"]?.hasPrefix("sent") == true && projTree.contains("notes.md"), "sync: a project goes to its own repo")

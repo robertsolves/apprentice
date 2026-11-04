@@ -471,7 +471,7 @@ struct PercentSlider: View {
     var body: some View {
         HStack(spacing: Theme.s3) {
             Slider(value: $shown, in: 0...max, step: max / 100) { editing in if !editing { commit(shown) } }
-                .frame(maxWidth: 260)
+                .frame(maxWidth: 260, alignment: .leading)
                 .controlSize(.small)
             Text(shown == 0 ? off : String(format: shown * 100 < 1 ? "%.1f%%" : "%.0f%%", shown * 100))
                 .font(Theme.mono)

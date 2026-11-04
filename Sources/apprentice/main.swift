@@ -73,7 +73,7 @@ func usage() {
       apprentice policy [domain]                may the LLM use shell commands for macOS tasks? With a domain: notes on its terms
       apprentice budget [domain]                what is left of this hour's, today's and this week's caps per site and kind
       apprentice pace [site [fastest|fast|steady|careful|default]]   how fast a site or app goes; fastest (pasted text, no waits) suits logged-out scouting. Apps are fastest, web pages steady, social sites careful
-      apprentice project new "name" [--from <git url>] [--vm <name> | --no-vm] [--agent claude] | list | open | set [--vm|--no-vm|--agent|--name] | save [--push] | add <folder> | forget   a folder for one piece of work: notes agents read, its pipelines, its VM; save commits it, --push puts it on GitHub
+      apprentice project new "name" [--from <git url>] [--vm <name> | --no-vm] | list | open | set [--vm|--no-vm|--name] | save [--push] | add <folder> | forget   a folder for one piece of work: notes agents read, its pipelines, its VM; save commits it, --push puts it on GitHub
       apprentice project [init | status]        a project's own .apprentice/ folder: its own site counts and tighter caps, on top of the account-wide ones
       apprentice pipeline list | show | new "name" "step" … | add <name> "step" | run <name> [--from N] | rm   prompts that run one after another, now or on a schedule (schedule add … --pipeline <name>)
       apprentice cool [--clear domain]          sites cooling down after a rate limit; clearing asks the user
@@ -82,7 +82,7 @@ func usage() {
       apprentice awake on|off|status            keep the Mac from idle sleep and locking while tasks run
       apprentice ask --optional "question" --choices "A|B" [--multi] [--assume A]   a question the user may leave; carries on with the assumption
       apprentice pref <key> [--for site] [--choices "A|B"] [--assume A]   the user's preference here: this site's, else elsewhere, then an optional question
-      apprentice voice [show | init | ask]      how the user wants comments and posts written, and their answers per site
+      apprentice voice [show | init | ask | suggest]   how the user wants comments and posts written, and their answers per site; suggest writes new questions from what apprentice is used for
       apprentice typing [learn | show | forget]   record how you type (only key timings), so typing keeps your rhythm per letter pair
       apprentice resume                         after the kill switch, carry on once the user says so
       apprentice phone [on|off|test]            one-tap phone setup: questions that go to the chat buzz the phone
@@ -223,6 +223,9 @@ case "pace":
     attempt { print(try PaceStyles.run(Args.parse(rest))) }
 case "activity":
     attempt { print(try Events.activity(Args.parse(rest))) }
+case "voice" where rest.first == "suggest":
+    print(Voice.suggestNow())
+    done(0)
 case "flag":
     attempt { print(try Events.flag(Args.parse(rest))) }
 case "grow":

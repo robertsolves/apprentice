@@ -245,7 +245,7 @@ struct VMScreen: View {
                         .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
                 } else {
                     Text(feed.problem ?? "Connecting to the VM…").font(Theme.caption).foregroundStyle(.white.opacity(0.7))
-                        .multilineTextAlignment(.center).padding(Theme.s4)
+                        .multilineTextAlignment(.leading).padding(Theme.s4)
                 }
             }
             .aspectRatio(1280.0 / 800.0, contentMode: .fit)
