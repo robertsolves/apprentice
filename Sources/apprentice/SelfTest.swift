@@ -56,6 +56,8 @@ enum SelfTest {
         release()
         tomlEdits()
         terminal()
+        questionQueue()
+        stepOwners()
         helpBook()
         namedAgents()
         pipelineGraph()

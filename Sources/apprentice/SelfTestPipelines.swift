@@ -4,6 +4,60 @@ import Foundation
 /// do what their prompt's `RUN:` line says, so no tokens are spent and fallback, parking, worktrees and the board all
 /// run for real.
 extension SelfTest {
+    /// Two parallel steps ask at once: one window at a time, in turn, and one whose time runs out while waiting comes
+    /// back unanswered. The window itself needs the daemon, so this checks the queue around it.
+    static func questionQueue() {
+        let started = DispatchGroup()
+        let lock = NSLock()
+        var order: [String] = [], overlapping = false, inside = 0
+        func ask(_ name: String, hold: Double, timeout: Double, result: @escaping (Ask.Reply?) -> Void) {
+            started.enter()
+            DispatchQueue.global().async {
+                let reply = Ask.oneAtATime(timeout: timeout) {
+                    lock.lock(); inside += 1; if inside > 1 { overlapping = true }; order.append(name); lock.unlock()
+                    Thread.sleep(forTimeInterval: hold)
+                    lock.lock(); inside -= 1; lock.unlock()
+                    return Ask.Reply(chosen: [name], text: "")
+                }
+                result(reply)
+                started.leave()
+            }
+        }
+        var late: Ask.Reply? = Ask.Reply(chosen: ["unset"], text: "")
+        var second: Ask.Reply?
+        ask("first", hold: 0.4, timeout: 5) { _ in }
+        Thread.sleep(forTimeInterval: 0.1)
+        check(Ask.behind == 0, "questions: none behind the one on screen")
+        ask("second", hold: 0.1, timeout: 5) { second = $0 }
+        ask("late", hold: 0.1, timeout: 0.05) { late = $0 }
+        Thread.sleep(forTimeInterval: 0.02)
+        check(Ask.behind >= 1, "questions: the window can say how many wait")
+        started.wait()
+        check(!overlapping && order.first == "first" && second?.chosen == ["second"], "questions: one window at a time, in turn")
+        check(late == nil, "questions: one whose time runs out in the queue comes back unanswered")
+    }
+
+    /// Each running step is its own owner of the screen, and a step without it is refused.
+    static func stepOwners() {
+        var req = Request(cmd: "read")
+        req.user = nil
+        req.step = "pipeline:shop/fix#4/browser-check"
+        req.noScreen = true
+        var refused = false
+        do { try Device.check(req) } catch let f as Fail { refused = f.code == 4 && f.message.contains("does not have the screen") } catch {}
+        check(refused, "device: a step without ui: true is refused the screen by the daemon too")
+        req.noScreen = nil
+        check(Device.caller(req).who == "pipeline:shop/fix#4/browser-check" && Device.caller(req).label == "the browser-check step of the pipeline shop/fix", "device: a step is its own owner, named to the user")
+        check((try? Device.check(req)) != nil && Device.owner()?.who == req.step, "device: it takes the screen")
+        var other = req
+        other.step = "pipeline:shop/fix#4/code"
+        check((try? Device.check(other)) == nil, "device: a second step is refused while the first holds it")
+        Device.release(who: "pipeline:shop/fix#4/code", vm: nil)
+        check(Device.owner()?.who == req.step, "device: only the holder can let it go")
+        Device.release(who: req.step ?? "", vm: nil)
+        check(Device.owner() == nil, "device: a step that ends lets it go at once")
+    }
+
     static func helpBook() {
         let book = Help.parse((try? String(contentsOf: Help.file, encoding: .utf8)) ?? "")
         check(!book.entries.isEmpty && !book.about.isEmpty, "help: agent/commands.toml reads")
