@@ -456,7 +456,8 @@ enum Commands {
         case "done":
             // `done --goto` only takes the user to the agent's window, as the overlay's button does.
             if a.has("goto") { Handback.showAgent(); return "went to the agent's window" }
-            return Handback.done(a.pos.joined(separator: " "))
+            let closing = Struggle.closing()
+            return [Handback.done(a.pos.joined(separator: " ")), closing].compactMap { $0 }.joined(separator: "\n")
         case "open": return try open(a)
         case "read": return try read(a)
         case "click": return try click(a)
@@ -677,6 +678,7 @@ enum Commands {
             throw Fail(5, "\(name) has no window: open one, or run `apprentice session --new-window`")
         }
         var s = try makeSession(app: app, window: window)
+        s.env = SessionEnv.mac(app: app, name: s.app)
         // `focus` keeps the session: its id, its allowlist and the UI-only choice made in the
         // start-up window, which would otherwise fall back to the config default (E5).
         if let keep { s.id = keep.id; s.allow = keep.allow; s.uiOnly = keep.uiOnly }

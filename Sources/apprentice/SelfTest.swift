@@ -61,6 +61,7 @@ enum SelfTest {
         pipelineGraph()
         markdownStyle()
         projectFiles()
+        placeFacts()
         pipelineRuns()
         try? FileManager.default.removeItem(at: Store.dir)
         if failures.isEmpty {
@@ -1352,17 +1353,17 @@ enum SelfTest {
         put(Skills.learnedDir, "web/example.com.md", "learned")
         put(Skills.learnedDir, "web/other.example.md", "learned only")
         let all = Playbooks.all()
-        check(all.first { $0.path == "web/example.com.md" }?.origin == .learned, "skills: a learned skill takes the place of a built-in one with its path")
+        check(Set(all.filter { $0.path == "web/example.com.md" }.map(\.origin)) == [.learned, .builtIn], "skills: a learned file of a place adds to the built-in one and hides nothing")
         check(Playbooks.all(includeShadowed: true).filter { $0.path == "web/example.com.md" }.count == 2, "skills: the shadowed one is still there")
         put(Skills.yoursDir, "web/example.com.md", "mine")
-        check(Playbooks.all().first { $0.path == "web/example.com.md" }?.origin == .yours, "skills: yours come before learned ones")
+        check(Set(Playbooks.all().filter { $0.path == "web/example.com.md" }.map(\.origin)) == [.yours, .learned], "skills: yours replace a built-in one, with learned ones under them")
         let savedProject = Project.dir
         let projectDir = Store.dir.appendingPathComponent("skills-test-project/.apprentice")
         Project.dir = projectDir
         put(projectDir.appendingPathComponent("skills"), "web/example.com.md", "the project's")
-        check(Playbooks.all().first { $0.path == "web/example.com.md" }?.origin == .project, "skills: a project's own come first, in that project")
+        check(Playbooks.all().contains { $0.path == "web/example.com.md" && $0.origin == .project } && !Playbooks.all().contains { $0.path == "web/example.com.md" && $0.origin == .yours }, "skills: a project's own come first, in that project")
         Project.dir = nil
-        check(Playbooks.all().first { $0.path == "web/example.com.md" }?.origin == .yours, "skills: a project's own stay out of other work")
+        check(!Playbooks.all().contains { $0.path == "web/example.com.md" && $0.origin == .project }, "skills: a project's own stay out of other work")
         Project.dir = savedProject
         try? fm.removeItem(at: projectDir.deletingLastPathComponent())
         check(Playbooks.hintLines(app: nil, bundle: nil, host: "example.com").contains { $0.contains("yours: the user's own words") },
@@ -1372,12 +1373,11 @@ enum SelfTest {
         for i in 1...(Skills.maxFacts + 3) { _ = try? Skills.addFact("Fact number \(i) about the shop page", for: target, day: "2026-01-0\(i % 9 + 1)") }
         let file = Skills.factFile(for: target).url
         var facts = Playbooks.parse((try? String(contentsOf: file, encoding: .utf8)) ?? "", url: file, path: "x").keyFacts
-        check(facts.count == Skills.maxFacts && facts.first?.hasSuffix("Fact number \(Skills.maxFacts + 3) about the shop page") == true,
-              "skills: learned facts are capped, newest first")
+        check(facts.count == Skills.maxFacts && facts.first.flatMap(Fact.parse)?.date == "2026-01-09", "skills: learned facts are capped, newest first when none has been confirmed")
         _ = try? Skills.addFact("fact NUMBER 5 about the shop page", for: target, day: "2026-02-01")
         facts = Playbooks.parse((try? String(contentsOf: file, encoding: .utf8)) ?? "", url: file, path: "x").keyFacts
-        check(facts.first == "2026-02-01 · fact NUMBER 5 about the shop page" && facts.filter { Skills.factKey($0) == Skills.factKey("fact number 5 about the shop page") }.count == 1,
-              "skills: the same fact again moves up, dated, instead of repeating")
+        check(facts.first.flatMap(Fact.parse)?.date == "2026-02-01" && facts.first.flatMap(Fact.parse)?.count == 2 && facts.filter { Skills.factKey($0) == Skills.factKey("fact number 5 about the shop page") }.count == 1,
+              "skills: the same fact again moves up, dated and counted, instead of repeating")
         check((try? Skills.addFact("Write to sam@gmail.com for refunds", for: target)) == nil, "skills: a fact that looks personal is refused")
         check(Skills.factFile(for: "Finder").url.path.hasSuffix("learned/macos/finder.md"), "skills: an app's facts go under macos/")
 

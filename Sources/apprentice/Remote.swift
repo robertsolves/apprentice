@@ -429,6 +429,7 @@ enum Remote {
         if focusing, let keep = Session.stored { s.id = keep.id; s.allow = keep.allow; s.uiOnly = keep.uiOnly }
         if let allow = a.value("allow") { s.allow = Config.parseAllow(allow) }
         if let url = s.url { try allowCheck(s, url) }
+        s.env = SessionEnv.guest(app: s.app)
         s.save()
         VM.watch()
         SnapStore.clear()
@@ -497,6 +498,7 @@ enum Remote {
         if focusing, let keep = Session.stored { s.id = keep.id; s.allow = keep.allow; s.uiOnly = keep.uiOnly }
         if let allow = a.value("allow") { s.allow = Config.parseAllow(allow) }
         try allowCheck(s, nil)
+        s.env = SessionEnv.guest(app: s.app)
         s.save()
         VM.watch()
         SnapStore.clear()

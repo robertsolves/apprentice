@@ -47,7 +47,7 @@ enum Store {
     }()
 
     /// Files that belong to one agent session; every other file is shared.
-    static let perSession: Set<String> = ["session.json", "snap.json", "pending.json", "pace.json"]
+    static let perSession: Set<String> = ["session.json", "snap.json", "pending.json", "pace.json", "struggle.json"]
 
     static func url(_ name: String) -> URL { (perSession.contains(name) ? stateDir : dir).appendingPathComponent(name) }
 
@@ -192,6 +192,9 @@ struct Session: Codable {
     /// A browser session made with `--new-tab` or `--new-window`: the tab is apprentice's own. A session
     /// attached to a tab the person had open may only read and scroll, never navigate, type, click or close.
     var ownsTab: Bool?
+    /// Where this session is, captured by apprentice: learned facts keep it, so a fact seen in Chrome is not taken
+    /// for true in Safari.
+    var env: SessionEnv?
 
     var isBrowser: Bool {
         if vm == true { return app == "Chromium" }

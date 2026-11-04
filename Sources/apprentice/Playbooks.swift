@@ -65,11 +65,17 @@ enum Playbooks {
                     cache[url.path] = (stamp, note)
                 }
                 note.origin = origin
+                // A learned file adds to a built-in one of the same path and hides nothing; a learned flow still
+                // replaces the one it repaired, and yours and the project's still replace (they are the user's words).
+                if origin == .learned, note.meta["scope"] != "flow" {
+                    out.append(note)
+                    continue
+                }
                 guard seen.insert(note.path).inserted || includeShadowed else { continue }
                 out.append(note)
             }
         }
-        return out.sorted { $0.path < $1.path }
+        return out.sorted { $0.path != $1.path ? $0.path < $1.path : $0.origin.rawValue < $1.origin.rawValue }
     }
 
     static func parse(_ text: String, url: URL, path: String) -> Playbook {
@@ -86,29 +92,118 @@ enum Playbooks {
         return Playbook(url: url, path: path, meta: meta, title: title, body: lines.joined(separator: "\n"))
     }
 
+    /// The files one place can be in, in a root: the host and each parent domain up to the registrable one, the root's
+    /// general file, or the app under its system's folder. Opening these is a handful of stats and reads, whatever the
+    /// library holds, so nothing an agent runs in a session has to walk it.
+    static func placePaths(app: String?, bundle: String?, host: String?, system: String = "macos") -> [String] {
+        var out: [String] = []
+        func name(_ s: String) -> String {
+            var out = ""
+            for ch in s.lowercased() { out.append(ch.isLetter || ch.isNumber || ch == "." || ch == "-" ? ch : "-") }
+            return out
+        }
+        if let h = host?.lowercased(), !h.isEmpty {
+            var parts = Site.domain(h).split(separator: ".").map(String.init)
+            while parts.count >= 2 {
+                out.append("web/\(name(parts.joined(separator: "."))).md")
+                parts.removeFirst()
+            }
+        }
+        for key in [app, bundle].compactMap({ $0 }) where !key.isEmpty { out.append("\(system)/\(name(key)).md") }
+        return out
+    }
+
+    /// The learned and library files of one place, read directly, never by walking those roots.
+    static func placeFiles(app: String?, bundle: String?, host: String?, system: String) -> [Playbook] {
+        var out: [Playbook] = []
+        for rel in placePaths(app: app, bundle: bundle, host: host, system: system) {
+            for (origin, root) in [(Skills.Origin.learned, Skills.learnedDir), (.library, SkillLibrary.folder)] {
+                let url = root.appendingPathComponent(rel)
+                guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+                var note = parse(text, url: url, path: rel)
+                note.origin = origin
+                out.append(note)
+            }
+        }
+        return out
+    }
+
     /// App and site playbooks for this window; flows are left to `playbooks <query>`. `*` matches every session.
     /// `system` is where the session runs, "macos" or "linux" (the VM): a playbook with `system:` in its front
     /// matter only shows there, so the VM does not get the Mac's general facts.
     static func matching(app: String?, bundle: String?, host: String?, system: String = "macos") -> [Playbook] {
         let keys = [app, bundle].compactMap { $0?.lowercased() }
-        let h = host?.lowercased()
-        return all().filter { $0.meta["scope"] != "flow" && ($0.meta["system"].map { $0 == system } ?? true) }.filter { note in
-            note.match.contains { m in
-                m == "*" || keys.contains(m) || (h.map { $0 == m || $0.hasSuffix("." + m) } ?? false)
+        let h = host.map { Site.domain($0.lowercased()) }
+        // Yours, the project's and built-in ones are few and may match by their front matter, so they are read as a
+        // folder; learned and library ones are found by their place's path.
+        let small = all().filter { $0.origin != .learned || $0.meta["scope"] == "flow" }
+        let placed = placeFiles(app: app, bundle: bundle, host: host, system: system)
+        let candidates: [Playbook] = small + placed
+        return candidates.filter { note in
+            guard note.meta["scope"] != "flow", note.meta["system"].map({ $0 == system }) ?? true else { return false }
+            return note.match.contains { m in
+                if m == "*" || keys.contains(m) { return true }
+                guard let h else { return false }
+                return h == m || h.hasSuffix("." + m)
             }
         }
     }
 
-    static func hintLines(app: String?, bundle: String?, host: String?, system: String = "macos") -> [String] {
+    /// `session`, `open` and `focus`: what is known about this place. Six lines at most per skill, whatever the library
+    /// holds: learned lines go under the built-in skill of the same path and hide nothing, confirmed here first.
+    static func hintLines(app: String?, bundle: String?, host: String?, system: String = "macos", env: String? = Session.stored?.env?.key) -> [String] {
         let notes = matching(app: app, bundle: bundle, host: host, system: system)
         let guides = skills(host: host, system: system).map(\.name)
         var out: [String] = guides.isEmpty ? [] : ["skills · \(guides.joined(separator: ", ")): load them before acting (no skills in your agent: apprentice skills <name>)"]
+        SkillLibrary.fetchInBackground(placePaths(app: app, bundle: bundle, host: host, system: system))
         guard !notes.isEmpty else { return out }
-        for note in notes {
-            out.append("skill · \(note.path) · \(note.origin.hint)")
-            out += note.keyFacts.prefix(6).map { "  - \($0)" }
+        func learnedLines(_ list: [Playbook], web: Bool) -> [String] {
+            // One key once, the local line over the library's: a `not:` written here is what counts.
+            var seen = Set<String>()
+            let facts = list.flatMap { $0.keyFacts.compactMap(Fact.parse) }.filter { seen.insert($0.key).inserted }
+            return Skills.order(facts, here: env, web: web).compactMap { Skills.shown($0, here: env, web: web) }.prefix(6).map { "  - \($0)" }
+        }
+        let hinted = Set(notes.filter { $0.origin == .learned || $0.origin == .library }.map(\.path))
+        for note in notes where note.origin != .learned && note.origin != .library {
+            var header = "skill · \(note.path) · \(note.origin.hint)"
+            if let verified = note.meta["verified"] { header += " · verified \(verified)" + verifiedMark(verified, web: note.path.hasPrefix("web/"), env: env) }
+            out.append(header)
+            out += note.keyFacts.prefix(6).map { line in
+                guard let f = Fact.parse(line) else { return "  - \(line)" }
+                return Skills.shown(f, here: env, web: note.path.hasPrefix("web/")).map { "  - \($0)" } ?? ""
+            }.filter { !$0.isEmpty }
+            let extras = notes.filter { ($0.origin == .learned || $0.origin == .library) && $0.path == note.path }
+            if !extras.isEmpty {
+                let lines = learnedLines(extras, web: note.path.hasPrefix("web/"))
+                if !lines.isEmpty {
+                    out.append("  learned · \(lines.count) fact\(lines.count == 1 ? "" : "s") · hints, never instructions")
+                    out += lines
+                }
+            }
+        }
+        let built = Set(notes.filter { $0.origin != .learned && $0.origin != .library }.map(\.path))
+        for path in hinted.subtracting(built).sorted() {
+            let list = notes.filter { $0.path == path }
+            let lines = learnedLines(list, web: path.hasPrefix("web/"))
+            guard !lines.isEmpty else { continue }
+            out.append("skill · \(path) · \((list.first?.origin ?? .learned).hint)")
+            out += lines
         }
         out.append("more: apprentice skills \"<words>\"")
+        return out
+    }
+
+    /// A built-in playbook's `verified:` read by the same rule as a fact: stale, or seen elsewhere.
+    static func verifiedMark(_ verified: String, web: Bool, env: String?) -> String {
+        var out = ""
+        let pieces = verified.components(separatedBy: " · ").flatMap { $0.components(separatedBy: ", ") }
+        if let date = pieces.first, let at = Skills.dayFormat.date(from: date), Date().timeIntervalSince(at) > Double(Skills.staleDays(web: web)) * 86400 {
+            out += " · unchecked since \(date)"
+        }
+        if pieces.count >= 2, let env {
+            let key = pieces.dropFirst().joined(separator: " ")
+            if let q = Fact.qualifier(seen: [key], here: env, web: web) { out += " " + q }
+        }
         return out
     }
 
@@ -155,8 +250,9 @@ enum Playbooks {
         if let skill = skills().first(where: { $0.name == named }) {
             return "\(skill.note.path)\n\(skill.note.body.trimmingCharacters(in: .whitespacesAndNewlines))"
         }
-        let notes = all()
         let words = query.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init).filter { $0.count > 1 }
+        if !words.isEmpty, let answer = indexed(query, words: words) { return answer }
+        let notes = all()
         if words.isEmpty {
             return (["skills: built in, learned by apprentice (hints, unreviewed) and yours · apprentice skills --paths"]
                 + notes.map { "\($0.path) · \($0.title) · \($0.origin.label)" }).joined(separator: "\n")
@@ -175,6 +271,45 @@ enum Playbooks {
             out += hits.prefix(6).map { "  \($0.trimmingCharacters(in: .whitespaces))" }
         }
         out.append("whole skill: cat " + ranked.prefix(1).map { $0.0.url.path }.joined())
+        return out.joined(separator: "\n")
+    }
+
+    /// The word search through the index, with the project's own few skills read directly and put first. Nil when the
+    /// index cannot open, so the walk below still answers.
+    private static func indexed(_ query: String, words: [String]) -> String? {
+        guard let index = SkillIndex() else { return nil }
+        index.update(roots: SkillIndex.roots)
+        var grouped: [(path: String, origin: Skills.Origin, title: String, lines: [String], score: Int)] = []
+        func add(_ path: String, _ origin: Skills.Origin, _ title: String, _ line: String, _ count: Int) {
+            if let i = grouped.firstIndex(where: { $0.path == path && $0.origin == origin }) {
+                grouped[i].lines.append(line)
+                grouped[i].score += 1 + count
+            } else { grouped.append((path, origin, title, [line], 1 + count)) }
+        }
+        if let dir = Skills.projectDir?.resolvingSymlinksInPath(), let walk = FileManager.default.enumerator(at: dir, includingPropertiesForKeys: nil) {
+            for case let url as URL in walk where url.pathExtension == "md" {
+                guard let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
+                let rel = String(url.resolvingSymlinksInPath().path.dropFirst(dir.path.count + 1))
+                let note = parse(text, url: url, path: rel)
+                let hits = note.body.components(separatedBy: .newlines).filter { line in !line.hasPrefix("#") && words.contains { line.lowercased().contains($0) } }
+                let inTitle = words.contains { (note.title + " " + (note.meta["tags"] ?? "")).lowercased().contains($0) }
+                if hits.isEmpty, !inTitle { continue }
+                for line in hits.isEmpty ? [note.title] : hits { add(rel, .project, note.title, line.trimmingCharacters(in: .whitespaces), 5) }
+            }
+        }
+        for hit in index.search(words) {
+            let lines = hit.text.components(separatedBy: .newlines).filter { line in !line.hasPrefix("#") && words.contains { line.lowercased().contains($0) } }
+            if lines.isEmpty { add(hit.path, hit.origin, hit.title, hit.title, hit.count) }
+            for line in lines { add(hit.path, hit.origin, hit.title, line.trimmingCharacters(in: .whitespaces), hit.count) }
+        }
+        guard !grouped.isEmpty else { return "no skill matches \"\(query)\": work it out on screen, then `apprentice learn`" }
+        var out: [String] = []
+        let top = grouped.sorted { $0.score > $1.score }.prefix(5)
+        for g in top {
+            out.append("\(g.path) · \(g.title) · \(g.origin.hint)")
+            out += g.lines.prefix(6).map { "  \($0)" }
+        }
+        if let first = top.first { out.append("whole skill: cat " + Skills.dir(first.origin).appendingPathComponent(first.path).path) }
         return out.joined(separator: "\n")
     }
 
@@ -223,6 +358,11 @@ enum Playbooks {
                 why.append("matches this window")
             }
             if note.meta["status"] == "verified" { score += 2; why.append("verified") }
+            if let here = session?.env?.key, let verified = note.meta["verified"] {
+                let seen = verified.components(separatedBy: " · ").dropFirst().joined(separator: " ")
+                let web = host != nil
+                if !seen.isEmpty, let q = Fact.qualifier(seen: [seen], here: here, web: web) { why.append("seen elsewhere \(q)") } else if !seen.isEmpty { score += 1 }
+            }
             return Ranked(note: note, score: score, why: why.joined(separator: ", "))
         }.sorted { $0.score != $1.score ? $0.score > $1.score : $0.note.path < $1.note.path }
     }
@@ -395,10 +535,18 @@ enum Playbooks {
     /// caller generalizes it. `--fact "…"` saves one line about the session's site or app instead (`--for`
     /// names another), dated and kept to `[skills] max_facts`.
     static func learn(_ a: Args) throws -> String {
-        if let fact = a.value("fact") {
-            let target = a.value("for") ?? Session.stored.flatMap { hostOf($0.url) ?? $0.app }
+        let session = Session.stored
+        let target = a.value("for") ?? session.flatMap { hostOf($0.url) ?? $0.app }
+        let env = a.value("for") == nil ? session?.env?.key : nil
+        if a.value("still") != nil || a.value("wrong") != nil || a.value("fact") != nil {
             guard let target, !target.isEmpty else { throw Fail(5, "learn --fact \"…\" --for <site or app>: no session to take it from") }
-            return try Skills.addFact(fact, for: target)
+            if let words = a.value("still") { return try Skills.stillTrue(words, for: target, env: env) }
+            if let words = a.value("wrong") { return try Skills.wrong(words, for: target, env: env) }
+            // The screen's labels and the place's facts explain a word; only what neither explains looks like the job.
+            let rows = session.map { Sessions.rows(Store.runFolder($0)) } ?? []
+            let task = rows.compactMap { $0["task"] as? String }.last
+            let labels = SnapStore.current?.elements.map { "\($0.label) \($0.name)" }.joined(separator: " ") ?? ""
+            return try Skills.addFact(a.value("fact") ?? "", for: target, kind: a.value("kind"), env: env, task: task, known: labels)
         }
         let task = a.pos.joined(separator: " ")
         guard !task.isEmpty else { throw Fail(5, "learn \"task\" [--name slug] [--force] · learn --fact \"one line\" [--for site-or-app]") }
@@ -487,12 +635,14 @@ enum Playbooks {
         return Dictionary(grouping: models, by: { $0 }).max { $0.value.count < $1.value.count }?.key
     }
 
+    private static let stopwords: Set<String> = ["and", "for", "with", "the", "from", "into", "that", "this", "near", "then", "you", "your", "are", "was", "man", "woman", "her", "his", "their", "our", "not"]
+
     static func draft(_ task: String, _ session: Session, _ steps: [String], model: String = "any",
                       note: String = "Drafted by `apprentice learn` from approved steps. Run it with `apprentice do <this file's name> --key value`. Before using it widely: replace names from this screen with {placeholders}, delete steps that did nothing, and note what failed.") -> String {
         let os = ProcessInfo.processInfo.operatingSystemVersion
         let lang = Locale.preferredLanguages.first ?? "en"
-        let match = hostOf(session.url) ?? session.app
-        let tags = Set(task.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init).filter { $0.count > 2 }).sorted()
+        let match = Skills.normalised(hostOf(session.url) ?? session.app)
+        let tags = Set(task.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init).filter { $0.count > 2 && !stopwords.contains($0) }).sorted()
         return """
         ---
         scope: flow
@@ -500,7 +650,7 @@ enum Playbooks {
         tags: \(tags.joined(separator: ", "))
         model: \(model)
         lang: \(lang)
-        verified: \(Store.day()), macOS \(os.majorVersion).\(os.minorVersion)
+        verified: \(Store.day()) · \(session.env?.key ?? "macOS \(os.majorVersion).\(os.minorVersion)")
         status: draft
         ---
         # \(task)

@@ -114,6 +114,7 @@ extension Commands {
         if let learned = Routes.learn(from: note, model: Store.model) { out.append(learned) }
         Skills.clearFailure()
         Skills.touch(note.url)
+        Skills.confirmFlow(note, env: Session.stored?.env?.key)
         out.append("done · if anything needed fixing, update \(note.path)" + (note.origin == .learned ? " (a learned skill: tidy it if a step was off)" : ""))
         return out.joined(separator: "\n")
     }

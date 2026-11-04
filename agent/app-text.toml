@@ -104,3 +104,7 @@ label = "Updates"
 icon = "arrow.down.circle.fill"
 explainer_title = "What is here?"
 about = "The version you have, whether a newer one is out, the permissions apprentice needs from macOS, and the agents it is connected to."
+
+[learning]
+nudge = "learned? {tries} tries and {seconds} s on {place} before this worked. If you found something about the place that holds for any task, keep it once: apprentice learn --fact \"trap … | hidden … | works … | layout …\""
+closing = "{count} {things} you worked out on {place}, nothing kept: learn --fact?"

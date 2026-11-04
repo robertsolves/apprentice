@@ -49,6 +49,7 @@ struct SkillItem: Identifiable, Equatable {
         case .project: return "folder.fill"
         case .yours: return "person.fill"
         case .learned: return "sparkles"
+        case .library: return "books.vertical.fill"
         case .builtIn: return "shippingbox.fill"
         }
     }
@@ -141,6 +142,7 @@ struct SkillsView: View {
         case .project: return "This project's"
         case .yours: return "Yours"
         case .learned: return "Learned by apprentice"
+        case .library: return "From the shared library"
         case .builtIn: return "Built in"
         }
     }
@@ -192,7 +194,7 @@ struct SkillEditor: View {
                 IconButton("Open in editor", "square.and.pencil") { NSWorkspace.shared.open(item.url) }
                 Spacer()
                 switch item.origin {
-                case .builtIn:
+                case .builtIn, .library:
                     IconButton("Make my own copy", "doc.on.doc", prominent: true) { copy() }
                 case .learned:
                     IconButton("Forget it", "trash") { forget() }
@@ -217,6 +219,7 @@ struct SkillEditor: View {
     private var note: String {
         switch item.origin {
         case .builtIn: return "Comes with apprentice and is read-only here. Make my own copy to change it: your copy is used instead of this one."
+        case .library: return "From the shared library: what other installs learned, checked by machine and not reviewed by anyone. Agents use it as hints."
         case .learned: return "apprentice wrote this while working, from what it did and saw. Agents use it as a hint. Tidy it, or forget it if it is wrong."
         case .yours: return "Written by you. Agents follow it. Keep names, handles and anything personal out."
         case .project: return "Kept in the project's folder and used only for that project's work. Agents follow it."

@@ -127,10 +127,13 @@ enum Daemon {
                 if marked { Running.enter() }
                 defer { if marked { Running.leave() } }
                 let out = try aside ? Commands.aside(req) : Commands.run(req)
+                // `learned?`: the tool says when; the agent says what.
+                if let nudge = Struggle.after(req, code: 0, out: out) { return (Response(code: 0, out: out + "\n" + nudge), false) }
                 return (Response(code: 0, out: out), false)
             } catch let fail as Fail {
                 // Proposals are not errors; everything else is kept so `bug` can quote it.
                 if fail.code != 8 { Store.log(["error": String(fail.message.prefix(300)), "code": Int(fail.code), "failed": req.cmd]) }
+                _ = Struggle.after(req, code: fail.code, out: fail.message)
                 return (Response(code: fail.code, out: fail.message), false)
             } catch {
                 return (Response(code: 5, out: "\(error)"), false)

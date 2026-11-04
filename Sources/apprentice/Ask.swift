@@ -467,9 +467,11 @@ extension Ask {
         let caller = caller
         let timeout = windowTime(a.value("timeout").flatMap(Double.init) ?? 600)
         Daemon.serial { Approvals.extend(token, by: timeout + 60) }
-        let reply = DispatchQueue.main.sync {
+        let reply = oneAtATime(timeout: timeout) {
+            DispatchQueue.main.sync {
             show("Approve this step?\n\n\(([p.summary] + flags).joined(separator: "\n"))\(why)", choices: [approve, deny], multi: false, withText: true,
                  timeout: timeout, placeholder: "Anything to add (optional)", caller: caller, onMac: true)
+            }
         }
         // An approval in the second after the agent gave up would run a step nobody is watching.
         if reply?.chosen.contains(approve) == true, !waiting(caller) {

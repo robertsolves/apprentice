@@ -12,12 +12,17 @@ enum Grow {
         var learning: [String: Int] = [:]
         var models: [String: Int] = [:]
         var pace = Pace()
+        var places: [String: (struggles: Int, kept: Int)] = [:]
+        var envs = Set<String>()
         for folder in Sessions.folders() {
             let date = (try? folder.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
             guard date >= cutoff else { continue }
             pace.previous = nil
             for r in Sessions.rows(folder) {
                 pace.take(r)
+                if let p = r["learned?"] as? String { places[p, default: (0, 0)].struggles += 1 }
+                if let p = r["learned"] as? String, r["still"] == nil, r["wrong"] == nil { places[p, default: (0, 0)].kept += 1 }
+                if let e = r["env"] as? String { envs.insert(e) }
                 if let cmd = r["cmd"] as? String, ["learn", "bug", "commit", "pr", "do"].contains(cmd) { learning[cmd, default: 0] += 1 }
                 if r["cmd"] != nil, let m = r["model"] as? String { models[m, default: 0] += 1 }
                 if let e = r["error"] as? String {
@@ -40,6 +45,9 @@ enum Grow {
         out += asked.suffix(10).map { "  \($0)" }
         if !learning.isEmpty {
             out.append("learning: " + learning.sorted { $0.key < $1.key }.map { "\($0.value)× \($0.key)" }.joined(separator: " · "))
+        }
+        if let line = Struggle.growLine(places) {
+            out.append(line + (envs.count > 1 ? " · on \(envs.sorted().joined(separator: ", "))" : ""))
         }
         if !models.isEmpty {
             out.append("models: " + models.sorted { $0.value > $1.value }.map { "\($0.key) \($0.value) commands" }.joined(separator: " · "))

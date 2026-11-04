@@ -169,6 +169,7 @@ struct InstructionsView: View {
             .frame(width: 240)
             Divider()
             VStack(alignment: .leading, spacing: Theme.s2) {
+                Text(AppText.screen("instructions").about).font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: Theme.s2) {
                     Text(selected).font(Theme.heading)
                     if isGenerated { StatusPill(text: "Read only", tint: .secondary) }
