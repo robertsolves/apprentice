@@ -430,6 +430,7 @@ enum Remote {
         if let allow = a.value("allow") { s.allow = Config.parseAllow(allow) }
         if let url = s.url { try allowCheck(s, url) }
         s.env = SessionEnv.guest(app: s.app)
+        if let key = s.env?.key { Store.log(["env": key]) }
         s.save()
         VM.watch()
         SnapStore.clear()
@@ -499,6 +500,7 @@ enum Remote {
         if let allow = a.value("allow") { s.allow = Config.parseAllow(allow) }
         try allowCheck(s, nil)
         s.env = SessionEnv.guest(app: s.app)
+        if let key = s.env?.key { Store.log(["env": key]) }
         s.save()
         VM.watch()
         SnapStore.clear()

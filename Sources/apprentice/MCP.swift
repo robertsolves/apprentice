@@ -44,7 +44,7 @@ enum MCP {
         tool("pending", [:]),
         tool("resume", [:]),
         tool("playbooks", ["query": ["type": "string"]]),
-        tool("learn", ["task": ["type": "string"], "name": ["type": "string"]], ["task"]),
+        tool("learn", ["task": ["type": "string"], "name": ["type": "string"], "fact": ["type": "string"], "kind": ["type": "string"], "for": ["type": "string"], "still": ["type": "string"], "wrong": ["type": "string"]]),
         tool("show", ["what": ["type": "string"]], ["what"]),
         tool("away", ["state": ["type": "string"]], ["state"]),
         tool("phone", ["state": ["type": "string"]]),
@@ -116,12 +116,16 @@ enum MCP {
     }
 
     static func runLocally(_ name: String, _ args: [String: Any]) throws -> String? {
+        if Request.callerStep != nil, let refusal = Help.refusedInStep(name, []) { throw Fail(7, refusal) }
         switch name {
         case "playbooks", "notes": return Playbooks.search(args["query"] as? String ?? "")
         case "help": return Help.command(Args.parse([args["command"] as? String ?? ""].filter { !$0.isEmpty }))
         case "learn":
-            var a = [args["task"] as? String ?? ""]
-            if let n = args["name"] as? String { a += ["--name", n] }
+            // The `learned?` nudge says `learn --fact`, so every form of it is here too.
+            var a = (args["task"] as? String).map { [$0] } ?? []
+            for key in ["name", "fact", "kind", "for", "still", "wrong"] {
+                if let value = args[key] as? String { a += ["--\(key)", value] }
+            }
             return try Playbooks.learn(Args.parse(a))
         case "sessions": return Sessions.list(Args.parse((args["limit"] as? Int).map { ["--limit", "\($0)"] } ?? []))
         case "prefs": return Prefs.list(Args.parse([args["query"] as? String ?? ""]))

@@ -167,6 +167,8 @@ struct Fact: Equatable {
 
     /// What to print beside a fact never confirmed here; nil when it was, or when nothing says where it was seen.
     static func qualifier(seen: [String], here: String?, web: Bool, rule: String = Skills.envRule) -> String? {
+        // `unknown` says nothing about where it was seen, so nothing to say about here either.
+        let seen = seen.filter { $0 != "unknown" }
         guard let here, !seen.isEmpty else { return nil }
         if seen.contains(where: { SessionEnv.same($0, here, web: web, rule: rule) }) { return nil }
         let at = SessionEnv.parts(here)
@@ -192,7 +194,7 @@ extension Skills {
 
     static func order(_ facts: [Fact], here: String?, web: Bool) -> [Fact] {
         func score(_ f: Fact) -> (Int, Int, Int, String) {
-            let confirmed = here.map { h in f.seen.isEmpty || f.seen.contains { SessionEnv.same($0, h, web: web) } } ?? true
+            let confirmed = here.map { h in f.seen.allSatisfy { $0 == "unknown" } || f.seen.contains { SessionEnv.same($0, h, web: web) } } ?? true
             return (confirmed ? 1 : 0, f.kind == "trap" ? 1 : 0, f.count, f.date)
         }
         return facts.sorted { score($0) > score($1) }
@@ -254,6 +256,18 @@ extension Skills {
         return out.filter { f in !gone.contains { $0.key == f.key && $0.date >= f.date } }
     }
 
+    /// `skills "<words>" --all`: retired facts stay out of every search but this one.
+    static func retired(matching query: String) -> [String] {
+        let words = query.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init).filter { $0.count > 1 }
+        guard !words.isEmpty, let walk = FileManager.default.enumerator(at: learnedDir, includingPropertiesForKeys: nil) else { return [] }
+        var out: [String] = []
+        for case let url as URL in walk where url.pathExtension == "md" {
+            let place = url.deletingPathExtension().lastPathComponent
+            out += retired((try? String(contentsOf: url, encoding: .utf8)) ?? "").filter { line in words.contains { line.lowercased().contains($0) } }.map { "\(place) · \($0)" }
+        }
+        return out
+    }
+
     private static func retired(_ text: String) -> [String] {
         var out: [String] = [], inside = false
         for line in text.components(separatedBy: .newlines) {
@@ -266,7 +280,10 @@ extension Skills {
     /// Writes a place's facts and its retired lines, keeping whatever else the file holds. Retired lines go after 90 days.
     static func saveFacts(_ facts: [Fact], retired new: [String] = [], at url: URL, scope: String, match: String, day: String = Store.day(), today: Date = Date()) throws {
         let existing = try? String(contentsOf: url, encoding: .utf8)
+        let live = Set(facts.map(\.key))
         let keptRetired = (retired(existing ?? "") + new).filter { line in
+            // Saved again as true, so no longer retired, even on the day it was.
+            if let was = line.range(of: " · was: "), live.contains(factKey(String(line[was.upperBound...]))) { return false }
             let date = line.prefix(10)
             return dayFormat.date(from: String(date)).map { today.timeIntervalSince($0) < 90 * 86400 } ?? true
         }
@@ -336,7 +353,8 @@ extension Skills {
         } else { i = try one(list, words) }
         list[i].confirm(day)
         if let env, !list[i].seen.contains(env) { list[i].seen.append(env) }
-        list[i].not.removeAll { $0 == env }
+        // By the same rule `shown` reads it, or a fact false on Chrome 156 stays hidden after being confirmed on 157.
+        if let env { list[i].not.removeAll { SessionEnv.same($0, env, web: url.path.contains("/web/")) } }
         try saveFacts(list, at: url, scope: scope, match: match, day: day)
         Store.log(["learned": match, "still": true])
         return "still true on \(match): \(list[i].text) (×\(list[i].count))"
@@ -420,7 +438,8 @@ struct Struggle: Codable {
     }
 
     /// Pure, so `selftest` can walk it: takes one command's result and says whether to nudge.
-    mutating func take(cmd: String, code: Int32, out: String, args: [String], now: Double, place: String) -> String? {
+    /// `ran`: how long the command itself took, which is not the agent thinking.
+    mutating func take(cmd: String, code: Int32, out: String, args: [String], now: Double, place: String, ran: Double = 0) -> String? {
         defer {
             lastAt = now
             lastCommand = cmd
@@ -428,7 +447,7 @@ struct Struggle: Codable {
         }
         // A proposal or an approval on its way is not the agent's next try.
         guard code != 8 else { return nil }
-        let gap = lastAt > 0 ? now - lastAt : 0
+        let gap = lastAt > 0 ? max(now - ran - lastAt, 0) : 0
         let unchanged = out.contains("+0 -0 ~0")
         let isAction = Self.actions.contains(cmd)
         var miss = false
@@ -465,14 +484,20 @@ struct Struggle: Codable {
     private static func place(_ s: Session) -> String { Skills.normalised(hostOf(s.url) ?? s.app) }
 
     /// Called by the daemon after every command; what it returns goes at the end of the output.
-    static func after(_ req: Request, code: Int32, out: String) -> String? {
+    static func after(_ req: Request, code: Int32, out: String, began: Date = Date()) -> String? {
         guard let s = Session.stored, let id = s.id else { return nil }
         var t = Store.load(Struggle.self, "struggle.json") ?? Struggle()
         if t.session != id { t = Struggle(session: id) }
         let where_ = place(s)
         let before = t.misses
-        let line = t.take(cmd: req.cmd, code: code, out: out, args: req.args, now: Date().timeIntervalSince1970, place: where_)
-        if t.misses > before { Skills.doubt(where_, naming: req.args) }
+        let now = Date().timeIntervalSince1970
+        let line = t.take(cmd: req.cmd, code: code, out: out, args: req.args, now: now, place: where_, ran: max(now - began.timeIntervalSince1970, 0))
+        if t.misses > before {
+            // An action names an id: what a trap quotes is that element's name.
+            let elements = Store.load(Snapshot.self, "snap.json")?.elements ?? []
+            let names = req.args.compactMap(Int.init).compactMap { id in elements.first { $0.id == id }?.name }
+            Skills.doubt(where_, naming: req.args + names)
+        }
         Store.save(t, "struggle.json")
         if line != nil { Store.log(["learned?": where_]) }
         return line

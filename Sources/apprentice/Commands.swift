@@ -680,6 +680,7 @@ enum Commands {
         }
         var s = try makeSession(app: app, window: window)
         s.env = SessionEnv.mac(app: app, name: s.app)
+        if let key = s.env?.key { Store.log(["env": key]) }
         // `focus` keeps the session: its id, its allowlist and the UI-only choice made in the
         // start-up window, which would otherwise fall back to the config default (E5).
         if let keep { s.id = keep.id; s.allow = keep.allow; s.uiOnly = keep.uiOnly }

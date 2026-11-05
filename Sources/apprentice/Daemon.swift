@@ -126,12 +126,13 @@ enum Daemon {
                     try Device.check(req)
                 }
                 // Marked on disk while it runs, so an update's restart and the window see a long command (`Running`).
+                let began = Date()
                 let marked = req.cmd != "ping"
                 if marked { Running.enter() }
                 defer { if marked { Running.leave() } }
                 let out = try aside ? Commands.aside(req) : Commands.run(req)
                 // `learned?`: the tool says when; the agent says what.
-                if let nudge = Struggle.after(req, code: 0, out: out) { return (Response(code: 0, out: out + "\n" + nudge), false) }
+                if let nudge = Struggle.after(req, code: 0, out: out, began: began) { return (Response(code: 0, out: out + "\n" + nudge), false) }
                 return (Response(code: 0, out: out), false)
             } catch let fail as Fail {
                 // Proposals are not errors; everything else is kept so `bug` can quote it.

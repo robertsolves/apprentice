@@ -179,6 +179,14 @@ struct AgentForm: View {
     @State var draft: AgentsPanel.AgentDraft
     let project: Projects.Info?
     let done: ([String]?) -> Void
+    private let started: AgentsPanel.AgentDraft
+
+    init(draft: AgentsPanel.AgentDraft, project: Projects.Info?, done: @escaping ([String]?) -> Void) {
+        _draft = State(initialValue: draft)
+        started = draft
+        self.project = project
+        self.done = done
+    }
 
     private var clis: [AgentCLIs.CLI] { AgentCLIs.agents().filter { !$0.shell && !$0.run.isEmpty } }
     private var cli: AgentCLIs.CLI? { AgentCLIs.find(draft.cli) }
@@ -228,11 +236,13 @@ struct AgentForm: View {
             Spacer()
             Button("Cancel") { done(nil) }.keyboardShortcut(.cancelAction)
             Button("Save") {
-                var args = [draft.name, "--agent", draft.cli]
-                args += draft.model.isEmpty ? ["--no-model"] : ["--model", draft.model]
-                args += draft.effort.isEmpty ? ["--no-effort"] : ["--effort", draft.effort]
-                args += draft.permissions.isEmpty ? ["--no-permissions"] : ["--permissions", draft.permissions]
-                done(args)
+                // Only what changed: a project's copy of a global agent should go on following the rest of it.
+                var args = [draft.name]
+                if draft.isNew || draft.cli != started.cli { args += ["--agent", draft.cli] }
+                if draft.isNew || draft.model != started.model { args += draft.model.isEmpty ? ["--no-model"] : ["--model", draft.model] }
+                if draft.isNew || draft.effort != started.effort { args += draft.effort.isEmpty ? ["--no-effort"] : ["--effort", draft.effort] }
+                if draft.isNew || draft.permissions != started.permissions { args += draft.permissions.isEmpty ? ["--no-permissions"] : ["--permissions", draft.permissions] }
+                done(args.count > 1 ? args : nil)
             }
             .buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
             .disabled(!NamedAgents.validName(draft.name))

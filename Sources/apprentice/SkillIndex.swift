@@ -19,14 +19,15 @@ final class SkillIndex {
         var scope: String
     }
 
-    init?(at url: URL = SkillIndex.file) {
+    /// `useFTS: false` is what a Mac whose SQLite has no FTS5 gets, so `selftest` can check that path too.
+    init?(at url: URL = SkillIndex.file, useFTS: Bool = true) {
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         guard sqlite3_open(url.path, &db) == SQLITE_OK else { return nil }
         sqlite3_busy_timeout(db, 3000)
         run("PRAGMA journal_mode=WAL")
         run("PRAGMA synchronous=OFF")
         run("CREATE TABLE IF NOT EXISTS files(path TEXT PRIMARY KEY, stamp TEXT)")
-        hasFTS = run("CREATE VIRTUAL TABLE IF NOT EXISTS items USING fts5(file UNINDEXED, path UNINDEXED, origin UNINDEXED, scope UNINDEXED, count UNINDEXED, title, tags, text)")
+        hasFTS = useFTS && run("CREATE VIRTUAL TABLE IF NOT EXISTS items USING fts5(file UNINDEXED, path UNINDEXED, origin UNINDEXED, scope UNINDEXED, count UNINDEXED, title, tags, text)")
         // A Mac whose SQLite has no FTS5: a plain table, searched with LIKE.
         if !hasFTS { run("CREATE TABLE IF NOT EXISTS items_plain(file, path, origin, scope, count, title, tags, text)") }
     }

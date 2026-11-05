@@ -255,6 +255,17 @@ extension SelfTest {
         let again = Date()
         index.update(roots: [(.learned, root)])
         check(Date().timeIntervalSince(again) < 3, "index: nothing changed, so nothing is parsed (\(Date().timeIntervalSince(again)) s)")
+        // A rebuilt index says what a walk of the same files says.
+        var walked = Set<String>()
+        for case let url as URL in FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil) ?? FileManager.DirectoryEnumerator() where url.pathExtension == "md" {
+            if ((try? String(contentsOf: url, encoding: .utf8)) ?? "").contains("widget77x3") { walked.insert(url.pathComponents.suffix(2).joined(separator: "/")) }
+        }
+        check(!walked.isEmpty && walked == Set(index.search(["widget77x3"]).map(\.path)), "index: it matches a walk of the files")
+        let plainFile = Store.dir.appendingPathComponent("index-plain-\(UUID().uuidString).sqlite")
+        defer { for suffix in ["", "-wal", "-shm"] { try? FileManager.default.removeItem(atPath: plainFile.path + suffix) } }
+        let plain = SkillIndex(at: plainFile, useFTS: false)
+        plain?.update(roots: [(.learned, root)])
+        check(plain?.hasFTS == false && plain?.search(["widget77x3"]).first?.path == walked.first, "index: with no FTS5 the plain table answers the same")
         let wrongWord = index.search(["common"])
         check(wrongWord.count == 200, "index: at most the top 200 go on to the re-rank")
     }
@@ -300,6 +311,19 @@ extension SelfTest {
         check(fact.line == "2026-03-01 from:2026-01-01 ×2 · A fact that stands" && Fact.parse(fact.line)?.since == "2026-01-01" && Fact.parse(fact.line)?.text == "A fact that stands", "fact: a confirmation keeps the first day")
         check(Skills.folded([Fact.parse("2026-03-01 from:2026-01-01 ×2 · One fact")!, Fact.parse("2026-02-01 from:2025-12-01 · One fact")!]).first?.firstSeen == "2025-12-01", "fact: two Macs' copies keep the earlier first day")
         check(Skills.shown(fact, here: nil, web: true, today: Skills.dayFormat.date(from: "2026-03-02")!)?.contains("from:") == false, "fact: an agent is not shown the first day")
+
+        // What the audit found in how facts read.
+        check(Fact.qualifier(seen: ["unknown"], here: "macOS 26 Chrome 156", web: true) == nil && Fact.qualifier(seen: ["unknown", "macOS 26 Chrome 156"], here: "macOS 26 Chrome 156", web: true) == nil, "fact: seen: unknown says nothing about where it holds")
+        check(Skills.factFile(for: "draw.io", system: "macos", app: "draw.io").url.path.hasSuffix("macos/draw.io.md") && Skills.factFile(for: "draw.io", system: "macos", app: "Safari").url.path.hasSuffix("web/draw.io.md"), "fact: an app with a dot in its name goes where its session reads")
+        let factsFile = base.appendingPathComponent("facts/web/f.example.md")
+        try? Skills.saveFacts([Fact.parse("2026-11-01 · Comes back today")!], retired: ["2026-11-01 · was: Comes back today"], at: factsFile, scope: "site", match: "f.example", day: "2026-11-01", today: Skills.dayFormat.date(from: "2026-11-02")!)
+        check(Skills.facts(in: factsFile).count == 1, "fact: saved as true on the day it was retired, it is not retired")
+        try? "---\nscope: site\n---\n# x\n\n## Key facts\n- 2026-11-01 · Reads newest\n- 2026-11-03 · Reads newest · not: macOS 26 Chrome 156\n".write(to: factsFile, atomically: true, encoding: .utf8)
+        check(Skills.facts(in: factsFile).first?.not == ["macOS 26 Chrome 156"], "fact: a later not: survives an older copy of the line")
+        var struggle = Struggle(session: "s")
+        _ = struggle.take(cmd: "click", code: 2, out: "", args: ["5"], now: 1000, place: "p")
+        let quick = struggle.take(cmd: "click", code: 0, out: "~1", args: ["5"], now: 1100, place: "p", ran: 90)
+        check(quick == nil, "nudge: a slow command is not the agent thinking")
 
         // The gate.
         check(SkillLibrary.problem("2026-01-01 · The cookie banner covers the Save button") == nil, "library gate: a plain fact passes")

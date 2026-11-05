@@ -103,10 +103,11 @@ enum Skills {
     // MARK: - facts
 
     /// The one file a place's facts go in: the host without `www.`, or the app under the system it runs on.
-    static func factFile(for target: String, system: String? = nil) -> (url: URL, scope: String, match: String) {
+    static func factFile(for target: String, system: String? = nil, app: String? = Session.stored?.app) -> (url: URL, scope: String, match: String) {
         let place = normalised(target)
         let t = place.lowercased()
-        let isHost = t.contains(".") && !t.contains(" ")
+        // An app can be called draw.io: it goes where `placePaths` looks for an app, not under web/.
+        let isHost = t.contains(".") && !t.contains(" ") && app?.lowercased() != t
         let name = String(t.map { $0.isLetter || $0.isNumber || $0 == "." || $0 == "-" ? $0 : "-" })
         let folder = system ?? (Session.stored?.vm == true ? "linux" : "macos")
         return (learnedDir.appendingPathComponent(isHost ? "web/\(name).md" : "\(folder)/\(name).md"), isHost ? "site" : "app", isHost ? t : place)
@@ -138,7 +139,7 @@ enum Skills {
             entry.confirm(day)
             if let k { entry.kind = k }
             if let env, !entry.seen.contains(env) { entry.seen.removeAll { $0 == "unknown" }; entry.seen.append(env) }
-            entry.not.removeAll { $0 == env }
+            if let env { entry.not.removeAll { SessionEnv.same($0, env, web: url.path.contains("/web/")) } }
         }
         facts.append(entry)
         facts = order(facts, here: nil, web: url.path.contains("/web/"))
@@ -366,7 +367,10 @@ enum Skills {
             let hash = try Repo.commit("Share skill \(note.path)", paths: [target.resolvingSymlinksInPath().path])
             return "copied to \(target.path)" + (hash.map { " (commit \($0)); `apprentice pr` offers it upstream" } ?? "")
         default:
-            return Playbooks.search(a.pos.joined(separator: " "))
+            let found = Playbooks.search(a.pos.joined(separator: " "))
+            guard a.has("all") else { return found }
+            let gone = retired(matching: a.pos.joined(separator: " "))
+            return gone.isEmpty ? found : found + "\nretired, found false:\n" + gone.map { "  \($0)" }.joined(separator: "\n")
         }
     }
 

@@ -45,12 +45,12 @@ enum Playbooks {
 
     /// Every skill file of every kind (`Skills.roots`), one per path: yours over learned over built in, unless
     /// `includeShadowed`.
-    static func all(includeShadowed: Bool = false) -> [Playbook] {
+    static func all(includeShadowed: Bool = false, skipLearned: Bool = false) -> [Playbook] {
         cacheLock.lock()
         defer { cacheLock.unlock() }
         var out: [Playbook] = []
         var seen = Set<String>()
-        for (origin, folder) in Skills.roots {
+        for (origin, folder) in Skills.roots where !(skipLearned && origin == .learned) {
             let root = folder.resolvingSymlinksInPath()
             guard let walk = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.contentModificationDateKey]) else { continue }
             for case let url as URL in walk where url.pathExtension == "md" && url.lastPathComponent != "README.md" {
@@ -136,7 +136,7 @@ enum Playbooks {
         let h = host.map { Site.domain($0.lowercased()) }
         // Yours, the project's and built-in ones are few and may match by their front matter, so they are read as a
         // folder; learned and library ones are found by their place's path.
-        let small = all().filter { $0.origin != .learned || $0.meta["scope"] == "flow" }
+        let small = all(skipLearned: true)
         let placed = placeFiles(app: app, bundle: bundle, host: host, system: system)
         let candidates: [Playbook] = small + placed
         return candidates.filter { note in
@@ -160,7 +160,8 @@ enum Playbooks {
         func learnedLines(_ list: [Playbook], web: Bool) -> [String] {
             // One key once, the local line over the library's: a `not:` written here is what counts.
             var seen = Set<String>()
-            let facts = list.flatMap { $0.keyFacts.compactMap(Fact.parse) }.filter { seen.insert($0.key).inserted }
+            // Folded first: after sync an older copy of a line must not hide a later `not:`, nor a retired fact come back.
+            let facts = list.flatMap { Skills.facts(in: $0.url) }.filter { seen.insert($0.key).inserted }
             return Skills.order(facts, here: env, web: web).compactMap { Skills.shown($0, here: env, web: web) }.prefix(6).map { "  - \($0)" }
         }
         let hinted = Set(notes.filter { $0.origin == .learned || $0.origin == .library }.map(\.path))
@@ -349,7 +350,15 @@ enum Playbooks {
         let model = model?.lowercased()
         let host = hostOf(session?.url)?.lowercased()
         let app = session?.app.lowercased()
-        return all().filter { $0.meta["scope"] == "flow" }.compactMap { note -> Ranked? in
+        // Learned flows are all in one folder, so ranking them never walks what is known about every place.
+        let folder = Skills.learnedDir.appendingPathComponent("flows")
+        let learned = ((try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil)) ?? []).filter { $0.pathExtension == "md" }.compactMap { url -> Playbook? in
+            guard let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+            var note = parse(text, url: url, path: "flows/\(url.lastPathComponent)")
+            note.origin = .learned
+            return note
+        }
+        return (all(skipLearned: true) + learned).filter { $0.meta["scope"] == "flow" }.compactMap { note -> Ranked? in
             let flowModel = (note.meta["model"] ?? "any").lowercased()
             if flowModel != "any", flowModel != model { return nil }
             let tags = Set((note.meta["tags"] ?? "").lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map(String.init))
