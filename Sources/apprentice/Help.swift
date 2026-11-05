@@ -67,8 +67,10 @@ enum Help {
         // No list to check against is a broken install, and this guards access: it refuses rather than lets through.
         guard !read.entries.isEmpty else { return "refused: apprentice cannot read agent/commands.toml, so it cannot tell what a pipeline step may run" }
         guard let entry = read.entries.first(where: { $0.name == command || $0.aliases.contains(command) }), !entry.notInStep.isEmpty else { return nil }
-        let action = args.first { !$0.hasPrefix("--") }
-        guard entry.notInStep.contains("*") || action.map(entry.notInStep.contains) == true else { return nil }
+        // Any word, not only the first: `pipeline --project p answer …` is still an answer. A pipeline that happens to be
+        // called `stop` is refused too, which costs little beside letting one through.
+        let action = args.first { !$0.hasPrefix("--") && entry.notInStep.contains($0) }
+        guard entry.notInStep.contains("*") || action != nil else { return nil }
         return "refused: a pipeline step cannot run `\(command)\(action.map { " \($0)" } ?? "")`: that is the user's to decide, and nothing an agent runs can grant access or change a setting. Say what you need in what you print, or end with BLOCKED: what you need."
     }
 

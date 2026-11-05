@@ -65,6 +65,7 @@ enum SelfTest {
         projectFiles()
         placeFacts()
         libraryRepo()
+        projectImport()
         homeSync()
         pipelineRuns()
         pipelineSafety()

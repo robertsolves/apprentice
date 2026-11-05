@@ -119,6 +119,7 @@ struct SkillsView: View {
                     })
                 } content: {
                     Explainer.skills
+                    ShareReadyPanel(model: model)
                     Panel(title: "How apprentice learns") {
                         Text("When a task works, apprentice saves its steps; when saved steps break and the agent finishes by hand, it saves the repaired steps; and an agent can save one-line facts about a site or app. Each learned skill is small: at most \(Skills.maxFacts) facts or \(Skills.maxSteps) steps, and at most \(Skills.maxLearned) learned skills in all, the least used removed first.")
                             .font(Theme.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
@@ -151,6 +152,60 @@ struct SkillsView: View {
         items = SkillItem.load()
         if let select { selected = select }
         else if let s = selected, !items.contains(where: { $0.id == s }) { selected = nil }
+    }
+}
+
+/// Facts confirmed three times and standing over a month, offered to the shared library a place at a time. The library is
+/// public, so the lines are on screen before anything goes, and only with a library set up does this show at all.
+struct ShareReadyPanel: View {
+    @ObservedObject var model: AppModel
+    @State private var ready: [String: [Fact]] = [:]
+    @State private var note = ""
+    @State private var working: String?
+
+    var body: some View {
+        Group {
+            if !ready.isEmpty || !note.isEmpty {
+                Panel(title: "Ready to share") {
+                    ForEach(ready.keys.sorted(), id: \.self) { rel in
+                        let facts = ready[rel] ?? []
+                        let place = URL(fileURLWithPath: rel).deletingPathExtension().lastPathComponent
+                        VStack(alignment: .leading, spacing: Theme.s1) {
+                            Text("\(facts.count) fact\(facts.count == 1 ? "" : "s") about \(place) \(facts.count == 1 ? "is" : "are") ready to share").font(Theme.body)
+                            ForEach(facts, id: \.key) { Text("· \($0.text)").font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+                            HStack(spacing: Theme.s2) {
+                                Button("Share") { share(rel, place) }.controlSize(.small).disabled(working != nil)
+                                Button("Not now") { notNow(rel) }.controlSize(.small).disabled(working != nil)
+                                if working == rel { ProgressView().controlSize(.small) }
+                            }
+                        }
+                    }
+                    if !note.isEmpty { Text(note).font(Theme.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+                }
+            }
+        }
+        .onAppear(perform: load)
+    }
+
+    private func load() {
+        DispatchQueue.global(qos: .utility).async {
+            let found = SkillLibrary.ready()
+            DispatchQueue.main.async { ready = found }
+        }
+    }
+
+    private func share(_ rel: String, _ place: String) {
+        guard AppModel.confirm("Share these with everyone?", "They go to \(SkillLibrary.repo ?? "the library"), which is public, through your GitHub account. Check nothing in them is private.", "Share") else { return }
+        working = rel
+        model.runCLI(["skills", "share", "--library", "--ready", "--yes", "--place", rel]) { _, out in
+            working = nil
+            note = out
+            load()
+        }
+    }
+
+    private func notNow(_ rel: String) {
+        model.runCLI(["skills", "share", "--library", "--not-now", "--place", rel]) { _, _ in load() }
     }
 }
 

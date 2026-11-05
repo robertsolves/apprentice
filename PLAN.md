@@ -246,6 +246,18 @@ during the run.
 - Steps that run one at a time run in the project folder, as today; no worktree.
 - A worktree of a parked run is kept until the run finishes; others go as soon as they are merged.
 
+### Install, uninstall and importing a project
+
+Every project has `install.sh` and `uninstall.sh` at its top, as the place what it needs on a Mac is written down:
+`project new` and an import add empty ones, and one a repo already has stays as it is. They run only when the user
+says, with `project install` or a button on the project's Settings, in a tab so the user watches. A step cannot.
+
+`project import <source>`, and Import in the window, takes a GitHub address or `owner/repo`, a folder or a zip. A
+folder stays where it is; the other two go under the projects folder. A private repository uses the user's own git
+sign-in, then the apprentice one. Nothing from it runs: the window shows the start of a written `install.sh` and asks.
+A zip is someone else's data, with a limit on its unpacked size, nothing written outside its own folder and no link
+pointing out of it. Where it runs is this Mac's choice, whatever its `project.toml` says.
+
 ## 6. The board: how agents talk
 
 One file per run, `board.jsonl`, outside the worktrees. Agents never connect to each other; every CLI can

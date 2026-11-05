@@ -724,7 +724,7 @@ extension SelfTest {
         let said = text(Runs.root(project: inside).appendingPathComponent("1/nodes/s/output.log"))
         check(said.contains("agents=7") && said.contains("answer=7") && said.contains("settings=7") && said.contains("board=0") && NamedAgents.find("A", project: inside)?.permissions == "edit", "safety: a step is refused what is the user's, and can still use the board: \(said.suffix(200))")
         let book = Help.book
-        check(Help.refusedInStep("agents", ["list"], book: book) == nil && Help.refusedInStep("agents", ["set", "A"], book: book) != nil && Help.refusedInStep("pipeline", ["check", "x"], book: book) == nil && Help.refusedInStep("resume", [], book: book) != nil && Help.refusedInStep("read", [], book: book) == nil, "safety: only the user's actions are refused")
+        check(Help.refusedInStep("agents", ["list"], book: book) == nil && Help.refusedInStep("agents", ["set", "A"], book: book) != nil && Help.refusedInStep("pipeline", ["check", "x"], book: book) == nil && Help.refusedInStep("resume", [], book: book) != nil && Help.refusedInStep("read", [], book: book) == nil && Help.refusedInStep("pipeline", ["--project", "p", "answer", "1", "s", "x"], book: book) != nil, "safety: only the user's actions are refused, wherever the flags go")
 
         // An agent writing question.json can only ask a question, and a permission takes only its buttons.
         let forged = newProject("forged", under: base)

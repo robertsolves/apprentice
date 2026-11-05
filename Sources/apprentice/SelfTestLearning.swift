@@ -271,6 +271,102 @@ extension SelfTest {
     }
 }
 
+extension SelfTest {
+    /// A project from a repository, a folder or a zip, read as someone else's data, and its two scripts.
+    static func projectImport() {
+        let base = Store.dir.appendingPathComponent("import-test-\(UUID().uuidString)")
+        defer {
+            try? FileManager.default.removeItem(at: base)
+            try? Wire.json(Projects.entries().filter { !$0.path.contains("import-test-") }).write(to: Projects.listFile, options: .atomic)
+        }
+        let fm = FileManager.default
+        try? fm.createDirectory(at: base, withIntermediateDirectories: true)
+        func read(_ url: URL) -> String { (try? String(contentsOf: url, encoding: .utf8)) ?? "" }
+        func throwsFail(_ body: () throws -> Any) -> Bool { do { _ = try body(); return false } catch { return error is Fail } }
+
+        // What was given.
+        let dir = base.appendingPathComponent("shop")
+        try? fm.createDirectory(at: dir.appendingPathComponent("src"), withIntermediateDirectories: true)
+        try? "hello\n".write(to: dir.appendingPathComponent("src/a.txt"), atomically: true, encoding: .utf8)
+        try? "#!/bin/sh\ntouch \"\(base.path)/install-ran\"\n".write(to: dir.appendingPathComponent("install.sh"), atomically: true, encoding: .utf8)
+        try? "[project]\nname = \"shop\"\nvm = \"someone-elses\"\n".write(to: { () -> URL in try? fm.createDirectory(at: dir.appendingPathComponent(".apprentice"), withIntermediateDirectories: true); return Projects.settingsFile(dir) }(), atomically: true, encoding: .utf8)
+        if case .folder(let u)? = try? Projects.importSource(dir.path) { check(u.path == dir.standardizedFileURL.path, "import: a folder is a folder") } else { check(false, "import: a folder is a folder") }
+        check((try? Projects.importSource("owner/repo")) == .git("https://github.com/owner/repo") && (try? Projects.importSource("https://github.com/a/b.git")) == .git("https://github.com/a/b.git") && (try? Projects.importSource("git@github.com:a/b.git")) == .git("git@github.com:a/b.git"), "import: a repository address, or owner/repo")
+        check(throwsFail { try Projects.importSource("ext::sh -c touch% /tmp/x") } && throwsFail { try Projects.importSource("--upload-pack=touch /tmp/x") } && throwsFail { try Projects.importSource("file:///etc") } && throwsFail { try Projects.importSource("/no/such/file.zip") }, "import: git's other transports, and flags, are refused")
+        check(Projects.importName(.git("https://github.com/a/shop-socials.git")) == "shop-socials" && Projects.importName(.zip(URL(fileURLWithPath: "/x/Shop.zip"))) == "Shop", "import: a name from where it came from")
+        let notes = base.appendingPathComponent("notes.txt")
+        try? "x".write(to: notes, atomically: true, encoding: .utf8)
+        check(throwsFail { try Projects.importSource(notes.path) }, "import: a file that is not a zip is refused")
+
+        // A zip of one folder, as GitHub's are: it unpacks, nothing runs, and the VM is this Mac's choice.
+        let zip = base.appendingPathComponent("shop.zip")
+        _ = Repo.run("/usr/bin/ditto", ["-c", "-k", "--keepParent", dir.path, zip.path])
+        let unpacked = base.appendingPathComponent("from-zip")
+        let said = (try? Projects.importFrom(.zip(zip), name: "Shop", dir: unpacked.path, vm: nil, noVM: true)) ?? ""
+        check(read(unpacked.appendingPathComponent("src/a.txt")) == "hello\n", "import: a zip of one folder is that folder: \(said)")
+        check(!fm.fileExists(atPath: base.appendingPathComponent("install-ran").path) && said.contains("has not run"), "import: its install.sh does not run, and it says so")
+        check(Projects.info(unpacked)?.vm == nil, "import: a VM named by someone's project.toml is dropped")
+        check(Projects.all().contains { $0.folder.standardizedFileURL.path == unpacked.standardizedFileURL.path }, "import: it is on the list")
+        check(fm.fileExists(atPath: Projects.scriptFile(unpacked, "uninstall").path) && Projects.writtenScript(unpacked, "uninstall") == nil && Projects.writtenScript(unpacked, "install") != nil, "import: one missing a script gets an empty one, its own stays")
+        check(throwsFail { try Projects.importFrom(.zip(zip), name: "Shop", dir: unpacked.path, vm: nil, noVM: true) }, "import: never over a folder that exists")
+        check(!((try? fm.contentsOfDirectory(atPath: base.path)) ?? []).contains { $0.hasPrefix(".apprentice-import-") }, "import: leaves nothing behind")
+
+        // Several files at the top stay together.
+        let flat = base.appendingPathComponent("flat")
+        try? fm.createDirectory(at: flat, withIntermediateDirectories: true)
+        for name in ["one.txt", "two.txt"] { try? "x".write(to: flat.appendingPathComponent(name), atomically: true, encoding: .utf8) }
+        let flatZip = base.appendingPathComponent("flat.zip")
+        _ = Repo.run("/usr/bin/ditto", ["-c", "-k", flat.path, flatZip.path])
+        let flatTo = base.appendingPathComponent("flat-out")
+        check((try? Projects.unpack(flatZip, to: flatTo)) != nil && fm.fileExists(atPath: flatTo.appendingPathComponent("one.txt").path) && fm.fileExists(atPath: flatTo.appendingPathComponent("two.txt").path), "import: a zip of loose files is a folder of them")
+
+        // A zip built to escape: a link pointing out, and a name climbing out.
+        let evil = base.appendingPathComponent("evil")
+        try? fm.createDirectory(at: evil, withIntermediateDirectories: true)
+        try? fm.createSymbolicLink(atPath: evil.appendingPathComponent("link").path, withDestinationPath: "/etc/hosts")
+        let evilZip = base.appendingPathComponent("evil.zip")
+        _ = Repo.run("/usr/bin/ditto", ["-c", "-k", "--sequesterRsrc", evil.path, evilZip.path])
+        let evilTo = base.appendingPathComponent("evil-out")
+        check(fm.fileExists(atPath: evilZip.path) && throwsFail { try Projects.unpack(evilZip, to: evilTo) } && !fm.fileExists(atPath: evilTo.path), "import: a zip holding a link out of itself is refused")
+        let climbing = base.appendingPathComponent("climb.zip")
+        let sub = base.appendingPathComponent("climb/sub")
+        try? fm.createDirectory(at: sub, withIntermediateDirectories: true)
+        try? "escaped".write(to: base.appendingPathComponent("climb/out.txt"), atomically: true, encoding: .utf8)
+        _ = Repo.run("/usr/bin/zip", ["-q", climbing.path, "../out.txt"], in: sub)
+        let climbTo = base.appendingPathComponent("climb-out")
+        _ = try? Projects.unpack(climbing, to: climbTo)
+        check(!fm.fileExists(atPath: base.appendingPathComponent("out.txt").path) && !fm.fileExists(atPath: base.deletingLastPathComponent().appendingPathComponent("out.txt").path), "import: a name climbing out lands nowhere outside")
+        let garbage = base.appendingPathComponent("not.zip")
+        try? "not a zip".write(to: garbage, atomically: true, encoding: .utf8)
+        check(throwsFail { try Projects.unpack(garbage, to: base.appendingPathComponent("g")) }, "import: a file that does not open as a zip is an error")
+
+        // A folder stays where it is; a repository is cloned, and a local clone stands in for GitHub here.
+        let place = base.appendingPathComponent("in-place")
+        try? fm.createDirectory(at: place, withIntermediateDirectories: true)
+        check((try? Projects.importFrom(.folder(place), name: nil, dir: nil, vm: nil, noVM: true)) != nil && fm.fileExists(atPath: Projects.settingsFile(place).path) && Projects.info(place)?.name == "in-place", "import: a folder stays where it is")
+        let origin = base.appendingPathComponent("origin")
+        try? fm.createDirectory(at: origin, withIntermediateDirectories: true)
+        _ = Repo.run("git", ["init", "-q", "-b", "main"], in: origin)
+        try? "r\n".write(to: origin.appendingPathComponent("r.txt"), atomically: true, encoding: .utf8)
+        _ = Repo.run("git", ["add", "-A"], in: origin)
+        _ = Repo.run("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "r"], in: origin)
+        let cloned = base.appendingPathComponent("cloned")
+        check((try? Projects.importFrom(.git(origin.path), name: "Repo", dir: cloned.path, vm: nil, noVM: true)) != nil && read(cloned.appendingPathComponent("r.txt")) == "r\n" && fm.fileExists(atPath: Projects.scriptFile(cloned, "install").path), "import: a repository is cloned and made a project")
+
+        // A new project has both scripts, ready to run, each saying nothing has been set up.
+        let fresh = base.appendingPathComponent("fresh")
+        try? Projects.scaffold(fresh, name: "fresh", vm: nil, about: "")
+        for kind in Projects.scriptKinds {
+            let file = Projects.scriptFile(fresh, kind)
+            check(fm.isExecutableFile(atPath: file.path) && Repo.run("/bin/sh", ["-n", file.path]).code == 0 && Repo.run("/bin/sh", [file.path], in: fresh).code == 0, "project: a new one has a \(kind).sh that runs")
+        }
+        try? fm.removeItem(at: Projects.scriptFile(fresh, "uninstall"))
+        Projects.writeScripts(fresh, only: "uninstall")
+        check(fm.fileExists(atPath: Projects.scriptFile(fresh, "uninstall").path), "project: a missing script can be added back")
+        check(Help.refusedInStep("project", ["install", "x"]) != nil && Help.refusedInStep("project", ["import", "x"]) != nil && Help.refusedInStep("project", ["list"]) == nil, "project: a pipeline step cannot run or import one")
+    }
+}
+
 /// Answers a test's requests with no network, as a static site would: an ETag, and 304 when it still matches.
 final class LibraryStub: URLProtocol {
     static var pages: [String: String] = [:]

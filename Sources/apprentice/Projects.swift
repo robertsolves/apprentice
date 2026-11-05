@@ -16,6 +16,7 @@ import Foundation
 ///   AGENTS.md                  what an agent needs to know; CLAUDE.md and GEMINI.md point at it
 ///   .claude/ .agents/ .gemini/ …   each CLI's copy of the skills and commands (`ProjectFiles`)
 ///   pipelines/                 the project's pipelines (`Pipelines`)
+///   install.sh, uninstall.sh   what it needs on a Mac; they run only when the user says
 enum Projects {
     struct Entry: Codable, Equatable {
         var name: String
@@ -158,8 +159,182 @@ enum Projects {
             let file = folder.appendingPathComponent(own)
             if !fm.fileExists(atPath: file.path) { try "@AGENTS.md\n".write(to: file, atomically: true, encoding: .utf8) }
         }
+        writeScripts(folder)
         // apprentice's section of AGENTS.md, and each CLI's copy of the skills and slash commands.
         ProjectFiles.sync(folder)
+    }
+
+    // MARK: - install.sh and uninstall.sh
+
+    static let scriptKinds = ["install", "uninstall"]
+    static func scriptFile(_ folder: URL, _ kind: String) -> URL { folder.appendingPathComponent("\(kind).sh") }
+    private static func scriptTemplate(_ kind: String) -> String { (try? String(contentsOf: Repo.shipped("agent/project-\(kind).sh"), encoding: .utf8)) ?? "" }
+
+    /// Every project has both, as the place what it needs on a new Mac is written down. One it already has stays as it is.
+    static func writeScripts(_ folder: URL, only: String? = nil) {
+        for kind in scriptKinds where only == nil || only == kind {
+            let file = scriptFile(folder, kind), text = scriptTemplate(kind)
+            guard !text.isEmpty, !FileManager.default.fileExists(atPath: file.path) else { continue }
+            try? text.write(to: file, atomically: true, encoding: .utf8)
+            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: file.path)
+        }
+    }
+
+    /// The script's text, when somebody has written something in it: an untouched template has nothing to run.
+    static func writtenScript(_ folder: URL, _ kind: String) -> String? {
+        guard let text = try? String(contentsOf: scriptFile(folder, kind), encoding: .utf8), text != scriptTemplate(kind) else { return nil }
+        return text
+    }
+
+    /// Runs it here with its output on this terminal. Only ever because the user asked: it is whatever the project wrote.
+    private static func runScript(_ kind: String, _ a: Args) throws -> String {
+        guard let p = find(a.pos.dropFirst().first) else { throw Fail(5, "no such project · apprentice project list") }
+        let file = scriptFile(p.folder, kind)
+        guard FileManager.default.fileExists(atPath: file.path) else { throw Fail(5, "\(p.name) has no \(kind).sh") }
+        let run = Process()
+        run.executableURL = URL(fileURLWithPath: "/bin/sh")
+        run.arguments = [file.path]
+        run.currentDirectoryURL = p.folder
+        try run.run()
+        run.waitUntilExit()
+        guard run.terminationStatus == 0 else { throw Fail(1, "\(kind).sh exited \(run.terminationStatus)") }
+        return "\(kind).sh finished"
+    }
+
+    // MARK: - importing
+
+    enum ImportSource: Equatable {
+        case folder(URL), zip(URL), git(String)
+    }
+
+    /// What was given: a folder or zip on this Mac first, since that is what the words mean if they exist, else a git
+    /// address. Only https and ssh: git's other transports can run commands from the address itself.
+    static func importSource(_ raw: String) throws -> ImportSource {
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let local = URL(fileURLWithPath: (t as NSString).expandingTildeInPath).standardizedFileURL
+        var isDir: ObjCBool = false
+        if FileManager.default.fileExists(atPath: local.path, isDirectory: &isDir) {
+            if isDir.boolValue { return .folder(local) }
+            guard local.pathExtension.lowercased() == "zip" else { throw Fail(5, "\(local.lastPathComponent) is neither a folder nor a zip file") }
+            return .zip(local)
+        }
+        let lower = t.lowercased()
+        if lower.hasSuffix(".zip") { throw Fail(5, "no zip file at \(local.path): download it first, then import the file") }
+        if lower.hasPrefix("https://") || lower.hasPrefix("ssh://") || t.range(of: #"^[\w.-]+@[\w.-]+:[\w./-]+$"#, options: .regularExpression) != nil { return .git(t) }
+        if t.range(of: #"^[\w.-]+/[\w.-]+$"#, options: .regularExpression) != nil { return .git("https://github.com/\(t)") }
+        throw Fail(5, "no folder or zip at \(local.path), and it is no repository address: use a folder, a .zip, https://github.com/owner/repo or owner/repo")
+    }
+
+    /// What a project from this source is called unless told otherwise.
+    static func importName(_ source: ImportSource) -> String {
+        switch source {
+        case .folder(let u): return u.lastPathComponent
+        case .zip(let u): return u.deletingPathExtension().lastPathComponent
+        case .git(let s):
+            let last = s.split(whereSeparator: { $0 == "/" || $0 == ":" }).last.map(String.init) ?? s
+            return last.hasSuffix(".git") ? String(last.dropLast(4)) : last
+        }
+    }
+
+    static let maxZipBytes: Int64 = 10 * 1024 * 1024 * 1024
+
+    /// Unpacks a zip to `target`, read as someone else's data: not bigger than `maxZipBytes` unpacked, nothing written
+    /// outside the folder it goes in, and no link pointing out of it. A zip of one folder, as GitHub's are, is that folder.
+    static func unpack(_ zip: URL, to target: URL) throws {
+        let fm = FileManager.default
+        let listed = Repo.run("/usr/bin/unzip", ["-l", zip.path])
+        guard listed.code == 0 else { throw Fail(5, "\(zip.lastPathComponent) does not open as a zip file") }
+        if let total = listed.out.split(separator: "\n").last?.split(whereSeparator: \.isWhitespace).first.flatMap({ Int64($0) }), total > maxZipBytes {
+            throw Fail(5, "\(zip.lastPathComponent) unpacks to \(Tidy.human(total)), over the limit of \(Tidy.human(maxZipBytes))")
+        }
+        let parent = target.deletingLastPathComponent()
+        try fm.createDirectory(at: parent, withIntermediateDirectories: true)
+        // Inside a folder of its own, so `..` in a name lands in there at worst, and is then found below.
+        let work = parent.appendingPathComponent(".apprentice-import-\(UUID().uuidString)")
+        let box = work.appendingPathComponent("box/box")
+        try fm.createDirectory(at: box, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: work) }
+        let opened = Repo.run("/usr/bin/ditto", ["-x", "-k", zip.path, box.path])
+        guard opened.code == 0 else { throw Fail(5, "could not unpack \(zip.lastPathComponent): \(opened.out)") }
+        let real = AgentRun.real(box)
+        if let walk = fm.enumerator(at: work, includingPropertiesForKeys: [.isSymbolicLinkKey]) {
+            for case let url as URL in walk {
+                let inside = AgentRun.real(url.deletingLastPathComponent()) + "/" + url.lastPathComponent
+                guard inside == real || inside.hasPrefix(real + "/") || real.hasPrefix(inside + "/") else {
+                    throw Fail(5, "\(zip.lastPathComponent) writes outside its own folder, so it was not imported")
+                }
+                guard (try? url.resourceValues(forKeys: [.isSymbolicLinkKey]))?.isSymbolicLink == true else { continue }
+                let to = (try? fm.destinationOfSymbolicLink(atPath: url.path)) ?? "/"
+                let aim = to.hasPrefix("/") ? to : URL(fileURLWithPath: to, relativeTo: url.deletingLastPathComponent()).standardizedFileURL.path
+                let wanted = URL(fileURLWithPath: aim).standardizedFileURL.path
+                guard wanted == box.standardizedFileURL.path || wanted.hasPrefix(box.standardizedFileURL.path + "/") else {
+                    throw Fail(5, "\(zip.lastPathComponent) holds a link pointing outside itself (\(url.lastPathComponent)), so it was not imported")
+                }
+            }
+        }
+        try? fm.removeItem(at: box.appendingPathComponent("__MACOSX"))
+        let top = ((try? fm.contentsOfDirectory(at: box, includingPropertiesForKeys: [.isDirectoryKey])) ?? []).filter { $0.lastPathComponent != ".DS_Store" }
+        guard !top.isEmpty else { throw Fail(5, "\(zip.lastPathComponent) is empty") }
+        let single = top.count == 1 && (try? top[0].resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
+        try fm.moveItem(at: single ? top[0] : box, to: target)
+    }
+
+    /// Clones with what the user already has signed in, then with the apprentice sign-in, for a private repository.
+    private static func clone(_ url: String, to folder: URL) throws {
+        let parent = folder.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        let args = ["clone", "--", url, folder.path]
+        var r = Repo.run("git", args, in: parent, env: ["GIT_TERMINAL_PROMPT": "0"])
+        if r.code != 0, url.contains("github.com"), let login = Account.profile?.login {
+            let signed = try? Sync.signedIn(login) { token -> (code: Int32, out: String) in
+                let tried = Sync.git(args, in: parent, token: token)
+                if tried.code != 0 { throw Fail(5, tried.out) }
+                return tried
+            }
+            if let signed { r = signed }
+        }
+        guard r.code == 0 else { throw Fail(5, "could not clone \(url): \(r.out)") }
+    }
+
+    /// `project import`: a repository, a folder or a zip becomes a project. A folder stays where it is; the other two go in
+    /// `--dir`, else under the projects folder. Nothing in it runs: `install.sh` waits for the user to read it and say so.
+    static func importProject(_ a: Args) throws -> String {
+        guard let raw = a.pos.dropFirst().first else { throw Fail(5, usage) }
+        return try importFrom(try importSource(raw), name: a.value("name"), dir: a.value("dir"), vm: a.has("no-vm") ? nil : a.value("vm"), noVM: a.has("no-vm"))
+    }
+
+    static func importFrom(_ source: ImportSource, name given: String?, dir: String?, vm given2: String?, noVM: Bool) throws -> String {
+        let name = (given?.trimmingCharacters(in: .whitespaces)).flatMap { $0.isEmpty ? nil : $0 } ?? importName(source)
+        let vm = noVM ? nil : vmName(given2 ?? folderName(name))
+        let chosen = dir.map { URL(fileURLWithPath: ($0 as NSString).expandingTildeInPath).standardizedFileURL } ?? defaultRoot.appendingPathComponent(folderName(name))
+        let folder: URL
+        var out: [String] = []
+        switch source {
+        case .folder(let url):
+            folder = url
+            out.append("using the folder where it is")
+        case .zip(let url):
+            folder = chosen
+            guard !FileManager.default.fileExists(atPath: folder.path) else { throw Fail(5, "\(folder.path) already exists; choose another folder with --dir") }
+            try unpack(url, to: folder)
+            out.append("unpacked \(url.lastPathComponent)")
+        case .git(let url):
+            folder = chosen
+            guard !FileManager.default.fileExists(atPath: folder.path) else { throw Fail(5, "\(folder.path) already exists; choose another folder with --dir") }
+            try clone(url, to: folder)
+            out.append("cloned \(url)")
+        }
+        try scaffold(folder, name: name, vm: vm, about: "")
+        // Where it runs is this Mac's choice, never the source's: a project.toml from someone else could name a VM of
+        // the user's that is signed in to their own accounts.
+        let file = settingsFile(folder)
+        if let vm { Toml.set(file, "project", "vm", quote(vm)) } else { Toml.remove(file, "project", "vm") }
+        guard let p = info(folder) else { throw Fail(5, "could not read \(folder.path)") }
+        remember(p)
+        out.append("project \(p.name) · \(folder.path) · " + (vm.map { "VM \($0)" } ?? "this Mac"))
+        if writtenScript(folder, "install") != nil { out.append("it has an install.sh, which has not run: read it, then apprentice project install \(VM.shellQuoted(p.name))") }
+        if let vm, !VM.exists(vm) { out.append("the VM \(vm) is not set up yet: apprentice --vm \(vm) vm setup") }
+        return out.joined(separator: "\n")
     }
 
     /// The project's commands: one a line, each a button above its terminal that types the line and presses Return,
@@ -230,11 +405,13 @@ enum Projects {
 
     // MARK: - CLI
 
-    static let usage = "project new <name> [--dir <folder>] [--from <git url>] [--vm <name> | --no-vm] [--about \"…\"] · list · open [name] · set [name] [--vm <name> | --no-vm] [--name \"…\"] · save [name] [--message \"…\"] [--push] · add <folder> · forget <name> · init · status"
+    static let usage = "project new <name> [--dir <folder>] [--from <git url>] [--vm <name> | --no-vm] [--about \"…\"] · list · open [name] · set [name] [--vm <name> | --no-vm] [--name \"…\"] · save [name] [--message \"…\"] [--push] · import <github url, owner/repo, folder or .zip> [--name \"…\"] [--dir <folder>] [--vm <name> | --no-vm] · install [name] · uninstall [name] · add <folder> · forget <name> · init · status"
 
     static func command(_ a: Args) throws -> String {
         switch a.pos.first ?? "status" {
         case "new": return try new(a)
+        case "import": return try importProject(a)
+        case "install", "uninstall": return try runScript(a.pos[0], a)
         case "list": return list()
         case "open", "path":
             guard let p = find(a.pos.dropFirst().first) else { throw Fail(5, "no such project · apprentice project list") }
@@ -280,7 +457,7 @@ enum Projects {
         if let source = a.value("from") {
             guard !FileManager.default.fileExists(atPath: folder.path) else { throw Fail(5, "\(folder.path) already exists; choose another folder with --dir") }
             try FileManager.default.createDirectory(at: folder.deletingLastPathComponent(), withIntermediateDirectories: true)
-            let r = Repo.run("git", ["clone", source, folder.path], in: folder.deletingLastPathComponent())
+            let r = Repo.run("git", ["clone", "--", source, folder.path], in: folder.deletingLastPathComponent())
             guard r.code == 0 else { throw Fail(5, "could not clone \(source): \(r.out)") }
             out.append("cloned \(source)")
         } else if FileManager.default.fileExists(atPath: settingsFile(folder).path) {

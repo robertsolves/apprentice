@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// The window's Projects, Pipelines and VMs screens, and the explanation every screen opens with. Each
 /// button runs the same command a person would type (`project`, `pipeline`, `vm`), or writes the same file.
@@ -120,6 +121,50 @@ struct ListColumn<Rows: View>: View {
 // MARK: - Projects
 
 /// A project's Settings tab: how it runs, its notes for agents, and saving it.
+/// A project's install.sh and uninstall.sh: what they say is shown before either runs, and they run in a tab, so the
+/// user watches it happen and can answer anything they ask.
+struct InstallButtons: View {
+    @ObservedObject var model: AppModel
+    let project: Projects.Info
+    @State private var revision = 0
+
+    var body: some View {
+        Panel(title: "Install and uninstall") {
+            Text("What this project needs on a Mac is written in these two files. They run only when you press the button.")
+                .font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            ForEach(Projects.scriptKinds, id: \.self) { kind in
+                HStack(spacing: Theme.s2) {
+                    Text("\(kind).sh").font(Theme.mono).frame(width: 110, alignment: .leading)
+                    if FileManager.default.fileExists(atPath: Projects.scriptFile(project.folder, kind).path) {
+                        Button(kind == "install" ? "Install" : "Uninstall") { Self.run(model, project, kind) }.controlSize(.small)
+                        Button("Open") { NSWorkspace.shared.open(Projects.scriptFile(project.folder, kind)) }.controlSize(.small)
+                        if Projects.writtenScript(project.folder, kind) == nil { Text("nothing in it yet").font(Theme.caption).foregroundStyle(.tertiary) }
+                    } else {
+                        Button("Add it") { Projects.writeScripts(project.folder, only: kind); revision += 1 }.controlSize(.small)
+                    }
+                }
+            }
+            .id(revision)
+        }
+    }
+
+    /// Asks, showing the start of what would run, then types it into a new tab.
+    static func run(_ model: AppModel, _ project: Projects.Info, _ kind: String) {
+        let file = Projects.scriptFile(project.folder, kind)
+        let text = Projects.writtenScript(project.folder, kind)
+        let lines = (text ?? "").split(separator: "\n", omittingEmptySubsequences: false).prefix(25).joined(separator: "\n")
+        let more = (text ?? "").split(separator: "\n").count > 25 ? "\n… (Open shows the rest)" : ""
+        let shown = text == nil ? "It has nothing in it yet." : "It runs on this Mac, with your access to it. Run it only if you trust where this project came from.\n\n\(lines)\(more)"
+        guard AppModel.confirm("Run \(kind).sh?", shown, kind == "install" ? "Install" : "Uninstall") else { return }
+        model.newTab(title: kind.capitalized, command: "sh \(VM.shellQuoted(file.path)); echo; exec \"$SHELL\" -l", dir: project.folder, vm: project.vm, project: project)
+    }
+
+    /// Right after an import, when it came with an install.sh of its own.
+    static func offer(_ model: AppModel, _ project: Projects.Info) {
+        if Projects.writtenScript(project.folder, "install") != nil { run(model, project, "install") }
+    }
+}
+
 struct ProjectDetail: View {
     @ObservedObject var model: AppModel
     let project: Projects.Info
@@ -130,6 +175,7 @@ struct ProjectDetail: View {
         ScreenPage(title: "Settings", subtitle: (project.folder.path as NSString).abbreviatingWithTildeInPath) {
             AnyView(EmptyView())
         } content: {
+            InstallButtons(model: model, project: project)
             Panel(title: "How it runs") {
                 LabeledField("Runs on") {
                     Picker("", selection: Binding(get: { project.vm ?? "" }, set: { change($0.isEmpty ? ["--no-vm"] : ["--vm", $0]) })) {
@@ -211,11 +257,13 @@ struct ProjectDetail: View {
 /// New project: a name, where it lives, what it starts from and where it runs.
 struct NewProjectSheet: View {
     enum Start: Identifiable { case empty, github; var id: Int { self == .empty ? 0 : 1 } }
+    /// Where a project's files come from.
+    enum From: Hashable { case empty, github, folder, zip }
 
     @ObservedObject var model: AppModel
     let start: Start
     @State private var name = ""
-    @State private var fromGitHub = false
+    @State private var from = From.empty
     @State private var source = ""
     @State private var parent = (Projects.defaultRoot.path as NSString).abbreviatingWithTildeInPath
     /// Where it runs: its own new VM (the default, so each project's accounts stay apart), this Mac, or a VM
@@ -231,26 +279,56 @@ struct NewProjectSheet: View {
         return place.isEmpty ? nil : place
     }
 
-    private var folder: String { (parent as NSString).appendingPathComponent(Projects.folderName(name)) }
+    /// A folder stays where it is; everything else goes inside `parent`.
+    private var folder: String { from == .folder ? source : (parent as NSString).appendingPathComponent(Projects.folderName(name)) }
+
+    /// The name it would get anyway, offered once the user has said where it comes from.
+    private func suggestName() {
+        guard name.isEmpty, let found = try? Projects.importSource(source) else { return }
+        name = Projects.importName(found)
+    }
 
     var body: some View {
-        SheetFrame(title: fromGitHub ? "Open a project from GitHub" : "New project",
+        SheetFrame(title: from == .empty ? "New project" : "Import a project",
                    subtitle: "A folder for one piece of work. Agents opened in it read its notes and use its VM.", idealHeight: 640) {
             Panel(title: "Project") {
-                LabeledField("Name") { TextField("Shop socials", text: $name) }
                 LabeledField("Start from") {
-                    Picker("", selection: $fromGitHub) {
-                        Text("An empty folder").tag(false)
-                        Text("A GitHub repository").tag(true)
+                    Picker("", selection: $from) {
+                        Text("Empty").tag(From.empty)
+                        Text("GitHub").tag(From.github)
+                        Text("A folder").tag(From.folder)
+                        Text("A zip file").tag(From.zip)
                     }
                     .labelsHidden().pickerStyle(.segmented).fixedSize()
+                    .onChange(of: from) { _, _ in source = "" }
                 }
-                if fromGitHub {
-                    LabeledField("Repository") { TextField("https://github.com/you/shop-socials", text: $source).font(Theme.mono) }
+                switch from {
+                case .empty: EmptyView()
+                case .github:
+                    LabeledField("Repository") { TextField("https://github.com/you/shop-socials", text: $source).font(Theme.mono).onSubmit(suggestName) }
+                case .folder:
+                    LabeledField("Folder") { FolderField(path: $source) }
+                    LabeledField("") {
+                        Text("It stays where it is. Apprentice adds its own files to it.").font(Theme.caption).foregroundStyle(.secondary)
+                    }
+                case .zip:
+                    LabeledField("Zip file") {
+                        HStack(spacing: Theme.s2) {
+                            Text(source.isEmpty ? "None chosen" : (source as NSString).lastPathComponent).font(Theme.mono).lineLimit(1)
+                            Button("Choose…") { chooseZip() }.controlSize(.small)
+                        }
+                    }
                 }
-                LabeledField("Inside") { FolderField(path: $parent) }
+                LabeledField("Name") { TextField("Shop socials", text: $name) }
+                if from != .folder { LabeledField("Inside") { FolderField(path: $parent) } }
                 if !name.isEmpty {
                     LabeledField("") { Text(folder).font(Theme.monoSmall).foregroundStyle(.tertiary) }
+                }
+                if from != .empty {
+                    LabeledField("") {
+                        Text("Nothing from it runs when you import it. If it has an install.sh, you are shown it first.")
+                            .font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
                 }
             }
             Panel(title: "How it runs") {
@@ -279,22 +357,31 @@ struct NewProjectSheet: View {
             if working { ProgressView().controlSize(.small) }
             Spacer()
             Button("Cancel") { model.newProject = nil }.keyboardShortcut(.cancelAction)
-            Button(fromGitHub ? "Open" : "Create") { create() }
+            Button(from == .empty ? "Create" : "Import") { create() }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
-                .disabled(working || name.trimmingCharacters(in: .whitespaces).isEmpty || (fromGitHub && source.isEmpty) || (place == "+new" && vm == nil))
+                .disabled(working || name.trimmingCharacters(in: .whitespaces).isEmpty || (from != .empty && source.isEmpty) || (place == "+new" && vm == nil))
         }
         .onAppear {
-            fromGitHub = start == .github
+            from = start == .github ? .github : .empty
         }
+        .onChange(of: source) { _, _ in if from != .github { suggestName() } }
+    }
+
+    private func chooseZip() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowedContentTypes = [.zip]
+        if panel.runModal() == .OK, let url = panel.url { source = url.path }
     }
 
     private func create() {
         problem = ""
         working = true
         let dir = (folder as NSString).expandingTildeInPath
-        var argv = ["project", "new", name.trimmingCharacters(in: .whitespaces), "--dir", dir]
-        if fromGitHub { argv += ["--from", source.trimmingCharacters(in: .whitespaces)] }
+        var argv = from == .empty ? ["project", "new", name.trimmingCharacters(in: .whitespaces), "--dir", dir]
+            : ["project", "import", source.trimmingCharacters(in: .whitespaces), "--name", name.trimmingCharacters(in: .whitespaces), "--dir", dir]
         if let vm { argv += ["--vm", vm] } else { argv.append("--no-vm") }
         let makeVM = place == "+new" ? vm : nil
         model.runCLI(argv) { code, out in
@@ -304,6 +391,7 @@ struct NewProjectSheet: View {
             model.newProject = nil
             guard let project = Projects.info(URL(fileURLWithPath: dir)) else { return }
             model.openProject(project, setUpVM: makeVM)
+            if from != .empty { InstallButtons.offer(model, project) }
         }
     }
 }

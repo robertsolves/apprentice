@@ -1301,7 +1301,7 @@ struct NoProjectsView: View {
     var body: some View {
         ScreenPage(title: Section.projects.label, subtitle: "") {
             AnyView(HStack(spacing: Theme.s2) {
-                IconButton("Open from GitHub", "icloud.and.arrow.down") { model.newProject = .github }
+                IconButton("Import a project", "square.and.arrow.down") { model.newProject = .github }
                 IconButton("New project", "plus", prominent: true) { model.newProject = .empty }
             })
         } content: {

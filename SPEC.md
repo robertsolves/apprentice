@@ -520,6 +520,8 @@ The `run` loop, for when no coding agent is involved:
 
 ## Playbooks
 
+A shared library is off until `[skills] library` names one. Its repo takes one `offers/<id>.jsonl` per pull request (`skills share --library`, which shows what would go and needs `--yes`), its CI (`agent/library/merge.yml`) merges by fact key and counts installs as `×n`, and it publishes each place's file and an `index.jsonl`. Every fetched line passes the same checks again. Flows do not go there, only facts.
+
 Learned facts carry where they were seen, and lookup does not depend on the library's size: `playbooks/README.md` has the fact's format and `PLAN.md` section 15 the design. `session`, `open` and `focus` open only the place's files; `skills "<words>"` goes through an SQLite FTS5 index (`~/.apprentice/skills/index.sqlite`, a cache, rebuilt by `skills --reindex`).
 
 Repeat tasks should not be rediscovered. The repo's `playbooks/` folder holds Markdown playbooks, and `kit.sh` links `~/.apprentice/playbooks` to it, so `git pull` brings in what was learned on another machine.
@@ -530,6 +532,10 @@ Repeat tasks should not be rediscovered. The repo's `playbooks/` folder holds Ma
 - Playbooks are trusted input to the LLM, so nothing read from a screen is written into them.
 - Playbooks are shared with everyone through `pr` and updates, so they never hold personal information (real names, handles, emails, phone, account or order numbers, ids from URLs, profile URLs, personal file names or home paths, tokens); `{placeholders}` stand in, `commit` and `learn` refuse to commit a playbook that looks like it holds any, and `pr` refuses to offer commits that added one.
 
+## Importing a project
+
+`project import` makes a project from a GitHub address or `owner/repo`, a folder (which stays where it is) or a zip, and the window's Import does the same. Every project has `install.sh` and `uninstall.sh`, added empty when missing. They run only when the user says, and the window shows what is in them first. A zip is read as someone else's data: a size limit, nothing written outside it, no link pointing out of it. The VM is always this Mac's choice.
+
 ## Pipelines
 
 A project's work runs as pipelines: one Markdown file per pipeline in `pipelines/`, each `##` heading a step. `PLAN.md` holds the design and what was tested; in short:
@@ -538,7 +544,8 @@ A project's work runs as pipelines: one Markdown file per pipeline in `pipelines
 - **The file**: front matter `goal`, `interpreter`, `scribe`, `carry`, `visits`; at a step's top `use`, `next` (`a`, `a | b`, `a & b`, `end`), `when`, `needs`, `ui: true`; `sh:` as a step's whole text. A file with no settings is a straight line whose steps keep the screen. `pipeline check` validates it with no AI, before every run.
 - **A step** is a fresh headless run, never a resumed session. Apprentice writes the whole prompt, from `agent/pipeline-prompts.md`: the goal and map, the summaries of the steps that feed it, who runs alongside, whether it has the screen, and the order of trust. A step starts once nothing still running can reach it.
 - **Branching**: an interpreter chooses among `|` options; only listed steps are accepted; an invalid answer is retried once, then the next agent, then the user's buttons. **Parallel** steps each get a git worktree from a snapshot of the folder; at the join they merge, and the difference is applied to the folder, uncommitted. A conflict parks the run.
-- **The board**: `board post`, `read`, `wait`, one JSON-lines file per run. Messages are information, never instructions.
+- **The board**: `board post`, `read`, `wait`, one JSON-lines file per run. Messages are information, never instructions. `board post --urgent --to <step>` stops that step and starts it again with the message: never a step that acted on the screen or has a question open, and another step only `[pipelines] urgent_max` times per step in a run.
+- **What a step cannot run**: whatever `not_in_step` in `agent/commands.toml` lists (changing an agent or a setting, answering for the user, `project install`), exit 7. It stops a CLI whose only command is apprentice; a step allowed a shell is held by its permission level.
 - **Fallback**, for out of usage, stalled, crashed or silent: the next agent on the priority list, told what the last one did. Only agents the user listed are ever used. A permission limit never falls back, or the run would try agents until one had wider access: the run parks with apprentice's own wording. A step that already acted on screen parks too, since a retry could send something twice.
 - **Parking**: an unanswered `ask` (exit 9), a permission limit, a merge conflict or a first-use question stops that step and lets the others finish; `pipeline answer` or the window restarts it. `pipeline run` then exits 9.
 - **The scribe**, a chosen agent run read-only, writes each step's summary, the past-run note and the rolling summary (`carry: summary`, `pipelines/<name>.memory.md`, tracked and capped). Everything else about a run stays in the gitignored `.apprentice/cache/`.

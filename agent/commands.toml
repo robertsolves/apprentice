@@ -587,15 +587,16 @@ example = "apprentice flag x.com \"account warning\""
 example_output = "flagged x.com"
 
 [command."project"]
-not_in_step = ["set", "forget"]
+not_in_step = ["set", "forget", "install", "uninstall", "import"]
 group = "Projects and pipelines"
-usage = "project new \"name\" [--from <git url>] [--vm <name> | --no-vm] [--dir folder] [--about \"…\"] | list | open [name] | set [name] [--vm <name> | --no-vm] [--name \"…\"] | save [name] [--message \"…\"] [--push] | add <folder> | forget <name> | sync [name] [--take-new | --keep-mine] | init | status"
+usage = "project new \"name\" [--from <git url>] [--vm <name> | --no-vm] [--dir folder] [--about \"…\"] | import <github url, owner/repo, folder or .zip> [--name \"…\"] [--dir folder] [--vm <name> | --no-vm] | install [name] | uninstall [name] | list | open [name] | set [name] [--vm <name> | --no-vm] [--name \"…\"] | save [name] [--message \"…\"] [--push] | add <folder> | forget <name> | sync [name] [--take-new | --keep-mine] | init | status"
 summary = "A folder for one piece of work: instructions agents read, its pipelines, its VM. sync regenerates its AGENTS.md section and per-CLI skills and commands; save commits it, and --push puts it on GitHub."
 output = "What it did, and the folder."
 where = "Mac"
 changes = "the project folder; forget never deletes it"
 example = "apprentice project new \"Shop\" --no-vm"
 example_output = "project Shop · ~/Apprentice/shop · this Mac"
+flags = ["import: a GitHub address or owner/repo, a folder (which stays where it is), or a .zip; nothing from it runs", "install, uninstall: run the project's install.sh or uninstall.sh here, because you said so"]
 exits = ["5: no such project, or the folder already is one"]
 
 [command."pipeline"]
