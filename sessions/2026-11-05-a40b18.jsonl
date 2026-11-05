@@ -1,0 +1,36 @@
+{"client":true,"cmd":"grow","code":0,"model":"claude-opus-5-5","ms":123,"pace":"default fast","ts":"2026-11-05T05:48:25.701+10:00"}
+{"client":true,"cmd":"pipeline","code":5,"model":"claude-opus-5-5","ms":10,"pace":"default fast","ts":"2026-11-05T05:51:24.053+10:00"}
+{"model":"claude-opus-5-5","ts":"2026-11-05T05:52:25.679+10:00"}
+{"client":true,"cmd":"doctor","code":0,"model":"claude-fable-5-1","ms":16,"pace":"default fast","ts":"2026-11-05T06:15:42.348+10:00"}
+{"client":true,"cmd":"doctor","code":0,"model":"claude-fable-5-1","ms":43,"pace":"default fast","ts":"2026-11-05T06:15:42.363+10:00"}
+{"client":true,"cmd":"grow","code":0,"model":"claude-fable-5-1","ms":130,"pace":"default fast","ts":"2026-11-05T06:24:49.375+10:00"}
+{"client":true,"cmd":"skills","code":0,"model":"claude-fable-5-1","ms":65,"pace":"default fast","ts":"2026-11-05T06:31:36.821+10:00"}
+{"client":true,"cmd":"skills","code":0,"model":"claude-fable-5-1","ms":18,"pace":"default fast","ts":"2026-11-05T06:31:36.858+10:00"}
+{"client":true,"cmd":"skills","code":0,"model":"claude-fable-5-1","ms":18,"pace":"default fast","ts":"2026-11-05T06:31:36.893+10:00"}
+{"client":true,"cmd":"skills","code":0,"model":"claude-fable-5-1","ms":18,"pace":"default fast","ts":"2026-11-05T06:31:36.928+10:00"}
+{"client":true,"cmd":"skills","code":0,"model":"claude-fable-5-1","ms":18,"pace":"default fast","ts":"2026-11-05T06:31:36.962+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-fable-5-1","ms":129,"pace":"default fast","ts":"2026-11-05T06:37:03.313+10:00"}
+{"cmd":"stop","model":"claude-opus-5-5","ts":"2026-11-05T06:37:14.884+10:00"}
+{"model":"claude-fable-5-1","ts":"2026-11-05T06:37:15.397+10:00"}
+{"model":"claude-fable-5-1","ts":"2026-11-05T06:37:27.285+10:00"}
+{"cmd":"stop","model":"claude-fable-5-1","ts":"2026-11-05T06:37:27.296+10:00"}
+{"client":true,"cmd":"grow","code":0,"model":"claude-opus-5-5","ms":135,"pace":"default fast","ts":"2026-11-05T06:41:58.691+10:00"}
+{"model":"claude-opus-5-5","ts":"2026-11-05T06:45:38.590+10:00"}
+{"model":"claude-opus-5-5","ts":"2026-11-05T07:25:57.521+10:00"}
+{"model":"claude-opus-5-5","ts":"2026-11-05T08:27:53.736+10:00"}
+{"model":"claude-opus-5-5","ts":"2026-11-05T08:46:08.607+10:00"}
+{"client":true,"cmd":"doctor","code":0,"model":"claude-opus-5-5","ms":15,"pace":"default fast","ts":"2026-11-05T09:31:46.494+10:00"}
+{"client":true,"cmd":"doctor","code":0,"model":"claude-opus-5-5","ms":39,"pace":"default fast","ts":"2026-11-05T09:31:46.509+10:00"}
+{"client":true,"cmd":"doctor","code":0,"model":"claude-opus-5-5","ms":16,"pace":"default fast","ts":"2026-11-05T15:04:12.622+10:00"}
+{"client":true,"cmd":"doctor","code":0,"model":"claude-opus-5-5","ms":43,"pace":"default fast","ts":"2026-11-05T15:04:12.638+10:00"}
+{"client":true,"cmd":"pipeline","code":0,"model":"claude-opus-5-5","ms":11,"pace":"default fast","ts":"2026-11-05T15:12:49.254+10:00"}
+{"code":5,"error":"unknown command \"…\"","failed":"agents","model":"claude-opus-5-5","ts":"2026-11-05T15:12:49.291+10:00"}
+{"client":true,"cmd":"project","code":5,"model":"claude-opus-5-5","ms":8,"pace":"default fast","ts":"2026-11-05T15:33:25.223+10:00"}
+{"cmd":"stop","ts":"2026-11-05T15:55:53.676+10:00"}
+{"client":true,"cmd":"vm","code":0,"model":"claude-opus-5-5","ms":127,"pace":"default fast","ts":"2026-11-05T15:56:50.293+10:00"}
+{"client":true,"cmd":"skills","code":0,"model":"claude-opus-5-5","ms":13,"pace":"default fast","ts":"2026-11-05T16:07:47.673+10:00"}
+{"client":true,"cmd":"doctor","code":0,"model":"claude-opus-5-5","ms":20,"pace":"default fast","ts":"2026-11-05T16:30:54.468+10:00"}
+{"client":true,"cmd":"doctor","code":0,"model":"claude-opus-5-5","ms":47,"pace":"default fast","ts":"2026-11-05T16:30:54.488+10:00"}
+{"client":true,"cmd":"sessions","code":0,"model":"claude-opus-5-5","ms":31,"pace":"default fast","ts":"2026-11-05T16:30:54.538+10:00"}
+{"client":true,"cmd":"device","code":0,"model":"claude-opus-5-5","ms":8,"pace":"default fast","ts":"2026-11-05T16:30:54.564+10:00"}
+{"model":"claude-opus-5-5","ts":"2026-11-05T16:31:51.559+10:00"}
