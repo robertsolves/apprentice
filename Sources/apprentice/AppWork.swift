@@ -137,7 +137,8 @@ struct RunBar: View {
     /// The project's run that is waiting for the user, else its latest, one line, with a way to its page.
     private func runLine(_ run: (dir: URL, state: RunState)) -> some View {
         let s = run.state
-        let parked = s.steps.filter { $0.value.status == "parked" }
+        // A stopped run keeps its last question in its state; nothing is waiting for it any more.
+        let parked = ["running", "parked"].contains(s.status) ? s.steps.filter { $0.value.status == "parked" } : [:]
         let now = s.steps.filter { $0.value.status == "running" }.keys.sorted().joined(separator: ", ")
         let dead = s.status == "running" && s.pid != nil && !Runs.alive(s.pid)
         let label = dead ? "stopped unexpectedly" : !parked.isEmpty ? "waiting for an answer" : s.status == "running" ? "running" + (now.isEmpty ? "" : ": \(now)") : s.status

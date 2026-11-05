@@ -57,7 +57,9 @@ enum Device {
             return ("project:\(folder.path)", "the project \(projectName)")
         }
         let model = req.model ?? "an agent"
-        return ("model:\(model)", model == "an agent" ? "an agent" : "an agent (\(model))")
+        let label = model == "an agent" ? "an agent" : "an agent (\(model))"
+        if let session = req.agentSession, !session.isEmpty { return ("agent:\(session)", label) }
+        return ("model:\(model)", label)
     }
 
     /// Whether `owner` still holds the device at `now`.
@@ -74,7 +76,7 @@ enum Device {
         guard let owner else { return false }
         func run(_ who: String) -> String { who.hasPrefix("pipeline:") ? who.components(separatedBy: "/").dropLast().joined(separator: "/") : who }
         guard run(owner) != run(caller) else { return false }
-        return [owner, caller].contains { who in ["pipeline:", "schedule:", "tab:"].contains { who.hasPrefix($0) } }
+        return [owner, caller].contains { who in ["pipeline:", "schedule:", "tab:", "agent:"].contains { who.hasPrefix($0) } }
     }
 
     /// Run before every screen command: refuses another agent while one holds the device, and records the

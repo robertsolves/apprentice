@@ -26,6 +26,13 @@ struct Request: Codable {
     var step: String? = Request.callerStep
     /// True when that step does not have the screen.
     var noScreen: Bool? = Request.callerNoScreen
+    /// The agent's own session, where its CLI says it: two sessions of one model are two agents.
+    var agentSession: String? = Request.callerAgentSession
+
+    static var callerAgentSession: String? {
+        let raw = ProcessInfo.processInfo.environment["CLAUDE_CODE_SESSION_ID"] ?? ""
+        return raw.isEmpty ? nil : raw
+    }
 
     static var callerStep: String? {
         let raw = ProcessInfo.processInfo.environment["APPRENTICE_STEP_OWNER"] ?? ""

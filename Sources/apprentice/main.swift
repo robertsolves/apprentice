@@ -126,6 +126,12 @@ case "app":
     }
     AppBundle.launchFromCLI()
 case "stop":
+    // An agent never ends the daemon under another that is working. A person can, and so can `--force`.
+    if !rest.contains("--force"), Request.callerModel != nil, let holder = Device.owner(), Device.holds(holder),
+       holder.who != Device.caller(Request(cmd: "stop")).who {
+        print("blocked: \(holder.label) is using this screen, and stopping apprentice would end its work. Wait for it, or ask the user. `apprentice stop --force` stops it anyway.")
+        exit(4)
+    }
     // Says what happened, and fails when the daemon is still there (E3).
     let (stopped, how) = Wire.stopDaemon()
     print(how)

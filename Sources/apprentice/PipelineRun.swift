@@ -1292,7 +1292,7 @@ final class PipelineEngine {
         }
         let who = NamedAgents.defaults(project: project)
         let list = p.steps.map { s -> String in
-            let settings = [s.use ?? s.shell.map { _ in "a shell command" } ?? (p.agent.isEmpty ? who.priority.first : p.agent), s.needs.map { "needs \($0)" }, s.when.map { "chosen when: \($0)" }, s.choose.map { "its OR chooses by: \($0)" }, Pipelines.hasScreen(s, in: p) ? "has the screen" : nil].compactMap { $0 }
+            let settings = [s.use ?? s.shell.map { _ in "a shell command" } ?? (p.agent.isEmpty ? who.priority.first : p.agent), s.needs.map { "needs \($0)" }, s.when.map { "chosen when: \($0)" }, s.choose.map { "its OR chooses by: \($0)" }, s.use.flatMap { NamedAgents.find($0, project: project)?.permissions }.map { "permissions: \($0)" }, Pipelines.hasScreen(s, in: p) ? "has the screen" : nil].compactMap { $0 }
             return "### \(s.id)" + (settings.isEmpty ? "" : " (\(settings.joined(separator: ", ")))") + "\n" + String(s.prompt.prefix(2000))
         }.joined(separator: "\n\n")
         let text = PipelineText.fill("preflight", ["goal": goal, "map": graph.map(here: nil), "steps": list])
@@ -1317,7 +1317,7 @@ final class PipelineEngine {
             let said = verdict.problems.map { "- \($0)" }.joined(separator: "\n")
             say("audit: \(agent.name) found problems\n\(said)\n")
             lock.lock(); state.pending.removeAll { $0 == first }; lock.unlock()
-            park(first, RunQuestion(kind: "audit", text: "\(agent.name) read this pipeline before it started and found problems:\n\(said)", choices: ["Run it anyway", "Stop the run"], who: agent.name))
+            park(first, RunQuestion(kind: "audit", text: "\(agent.name) read this pipeline before it started and found problems:\n\(said)", choices: ["Start it anyway", "Stop the run"], who: agent.name))
             return
         }
         say("audit: no agent could do it, so this run was not audited\n")

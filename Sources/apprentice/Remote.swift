@@ -126,7 +126,8 @@ enum Remote {
         }
         guard let pong = try? query(["op": "ping"], timeout: 15) else {
             disconnect()
-            throw Fail(5, "the VM's helper did not answer: run `apprentice vm install`, or see \(log.path)")
+            let said = ((try? String(contentsOf: log, encoding: .utf8)) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            throw Fail(5, "the VM's helper did not answer" + (said.isEmpty ? ": run `apprentice vm install`" : ": \(said.components(separatedBy: .newlines).last ?? said)") + " (\(log.path))")
         }
         hears = pong["hears"] as? Bool == true
         if let c = try? query(["op": "cursor"]), let x = c["x"] as? Double, let y = c["y"] as? Double {
@@ -428,7 +429,9 @@ enum Remote {
                         id: Session.newId(), url: snap.url, vm: true)
         if focusing, let keep = Session.stored { s.id = keep.id; s.allow = keep.allow; s.uiOnly = keep.uiOnly }
         if let allow = a.value("allow") { s.allow = Config.parseAllow(allow) }
-        if let url = s.url { try allowCheck(s, url) }
+        // The page the browser happens to show is not one this session went to. Nothing can be done on it (every action
+        // checks), and `open` to an allowed site still works: refusing here would leave no way in.
+        let outside = s.url.flatMap { s.allows(url: $0) ? nil : hostOf($0) }
         s.env = SessionEnv.guest(app: s.app)
         if let key = s.env?.key { Store.log(["env": key]) }
         s.save()
@@ -443,6 +446,7 @@ enum Remote {
         var out = "\(focusing ? "focus" : "session \(s.id ?? "-")") · Chromium in the Linux VM (its own cursor and keyboard)"
         if firstThisRun { out += "\n⚠ " + Commands.riskWarning + " Tell the user this once." }
         if let url = s.url { out += " · \(url)" }
+        if let outside { out += "\nnote: it shows \(outside), which this session's allowlist leaves out: `open` an allowed site first" }
         let hints = Routes.hintLines(for: hostOf(s.url)) + Policies.lines(for: hostOf(s.url))
             + (focusing ? [] : Prefs.sessionHints(a, app: "Chromium", host: hostOf(s.url)))
         if !hints.isEmpty { out += "\n" + hints.joined(separator: "\n") }

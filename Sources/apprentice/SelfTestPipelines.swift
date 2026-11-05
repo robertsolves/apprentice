@@ -880,7 +880,7 @@ extension SelfTest {
         r = cli(["pipeline", "run", "w"], in: audited, fake: fake)
         check(r.code == 9 && state(audited, 1)?.steps["w"]?.question?.kind == "audit" && state(audited, 1)?.steps["w"]?.question?.text.contains("nothing makes") == true && !FileManager.default.fileExists(atPath: ranStep.path), "audit: a pipeline that makes no sense stops before its first step (exit \(r.code))")
         try? FileManager.default.removeItem(at: fake.appendingPathComponent("audit"))
-        r = cli(["pipeline", "answer", "1", "w", "Run it anyway"], in: audited, fake: fake)
+        r = cli(["pipeline", "answer", "1", "w", "Start it anyway"], in: audited, fake: fake)
         check(r.code == 0 || r.out.contains("carries on"), "audit: running it anyway is not a grant of access")
         check(waitFor(30) { state(audited, 1)?.status == "done" } && FileManager.default.fileExists(atPath: ranStep.path) && state(audited, 1)?.audit == "allowed", "audit: and it is not asked again in that run")
         try? "not an answer".write(to: fake.appendingPathComponent("audit"), atomically: true, encoding: .utf8)
@@ -1037,6 +1037,23 @@ extension SelfTest {
     /// Apprentice operating its own window, and what stays the user's there.
     static func ownWindow() {
         let id = AppBundle.identifier
+        var oneSession = Request(cmd: "read"), otherSession = Request(cmd: "read")
+        oneSession.model = "m"; otherSession.model = "m"
+        oneSession.tab = nil; otherSession.tab = nil
+        oneSession.step = nil; otherSession.step = nil
+        oneSession.project = nil; otherSession.project = nil
+        oneSession.agentSession = "a"; otherSession.agentSession = "b"
+        check(Device.caller(oneSession).who != Device.caller(otherSession).who, "device: two sessions of one model are two agents")
+        check(Device.sessionTaken(owner: Device.caller(oneSession).who, caller: Device.caller(otherSession).who), "device: another session of the same model has taken it")
+        var stepAsking = Request(cmd: "approve", args: ["t"])
+        stepAsking.step = "pipeline:p/x#4/friends"
+        let held = Device.caller(stepAsking).who
+        let proposed = Approvals.Pending(token: "t", cmd: "open", args: ["https://x.com"], summary: "open", at: 0, tab: "tab-of-the-run")
+        check(Device.caller(Approvals.replay(proposed, by: stepAsking, model: "m", project: nil, byUser: false)).who == held, "approve: a step's approved action is that step's, not its run's tab")
+        var noTab = proposed
+        noTab.tab = nil
+        check(Device.caller(Approvals.replay(noTab, by: oneSession, model: "m", project: nil, byUser: false)).who == Device.caller(oneSession).who, "approve: an agent's approved action is that agent's")
+        check(!VM.controlPath.contains("vms/"), "vm: the ssh socket's path does not grow with the VM's name")
         check(OwnWindow.mayBind(bundle: id, accessory: false, pid: 100, daemon: 7), "own window: the app's window may be bound")
         check(!OwnWindow.mayBind(bundle: id, accessory: true, pid: 100, daemon: 7) && !OwnWindow.mayBind(bundle: id, accessory: false, pid: 7, daemon: 7)
               && !OwnWindow.mayBind(bundle: "com.apple.finder", accessory: false, pid: 100, daemon: 7), "own window: the daemon's windows, where the user answers, may not")

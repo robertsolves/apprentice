@@ -58,6 +58,7 @@ enum VM {
         get { (try? JSONDecoder().decode(State.self, from: Data(contentsOf: dir.appendingPathComponent("state.json")))) ?? State() }
         set {
             try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try? FileManager.default.createDirectory(at: Store.dir.appendingPathComponent("vm"), withIntermediateDirectories: true)
             try? Wire.json(newValue).write(to: dir.appendingPathComponent("state.json"))
         }
     }
@@ -179,20 +180,25 @@ enum VM {
 
     // MARK: transport
 
+    /// The shared connection's socket. A unix socket's path holds 104 bytes, which a long VM name in the path would pass
+    /// (and ssh then refuses every connection), so all of them are in one folder: `%C` already differs per host.
+    static var controlPath: String { Store.dir.appendingPathComponent("vm/ssh-%C").path }
+
     /// One shared ssh connection, so each command reaches the guest without a new handshake.
     static func sshArgs(_ ip: String, shared: Bool = true) -> [String] {
         ["-i", key.path, "-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "-o", "LogLevel=ERROR",
          "-o", "StrictHostKeyChecking=accept-new", "-o", "UserKnownHostsFile=\(knownHosts)",
          "-o", "ServerAliveInterval=15", "-p", setting("port", "22")]
-            + (shared ? ["-o", "ControlMaster=auto", "-o", "ControlPath=\(dir.appendingPathComponent("ssh-%C").path)", "-o", "ControlPersist=600"]
+            + (shared ? ["-o", "ControlMaster=auto", "-o", "ControlPath=\(controlPath)", "-o", "ControlPersist=600"]
                       : ["-o", "ControlPath=none"])
             + ["\(user)@\(ip)"]
     }
 
     @discardableResult
     static func ssh(_ ip: String, _ command: String, input: Data? = nil) -> (code: Int32, out: Data, err: String) {
-        // The shared connection's socket lives in this VM's folder, which a new VM does not have yet.
+        // The shared connection's socket and this VM's files have folders that a new VM does not have yet.
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: Store.dir.appendingPathComponent("vm"), withIntermediateDirectories: true)
         return run("/usr/bin/ssh", sshArgs(ip) + [command], input: input)
     }
 
@@ -237,7 +243,7 @@ enum VM {
           UserKnownHostsFile \(knownHosts)
           ServerAliveInterval 15
           ControlMaster auto
-          ControlPath \(dir.appendingPathComponent("ssh-%C").path)
+          ControlPath \(controlPath)
           ControlPersist 600
 
         """
@@ -338,6 +344,9 @@ enum VM {
             return "\(shell) '<command>'   terminal commands in \(name); GUI apps started there show on its screen"
         case "ssh":
             // A person's own shell in the VM, for the window's "Open a shell in it" tab.
+            guard running else { throw Fail(5, "the VM \(Store.vmName ?? "default") is not running: start it first") }
+            print("Connecting to the VM \(Store.vmName ?? "default")…")
+            fflush(stdout)
             _ = try address()
             let argv = ["ssh", "-F", sshConfig.path, name]
             var cargs = argv.map { strdup($0) } + [nil]

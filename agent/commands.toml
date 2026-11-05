@@ -937,13 +937,13 @@ example_output = "apprentice daemon running"
 
 [command."stop"]
 group = "Installing, health and the tool itself"
-usage = "stop"
-summary = "Stops the daemon."
+usage = "stop [--force]"
+summary = "Stops the daemon. An agent is refused while another agent is using the screen, unless it says --force."
 output = "A line saying so."
 where = "Mac"
 example = "apprentice stop"
 example_output = "stopped"
-exits = ["5: it is still there"]
+exits = ["4: another agent is using the screen", "5: it is still there"]
 
 [command."uninstall"]
 not_in_step = ["*"]

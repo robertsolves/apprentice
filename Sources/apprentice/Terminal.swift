@@ -1261,7 +1261,9 @@ final class TerminalTextView: NSTextView {
         // A resized window gives the pty its new size, so a TUI reflows instead of wrapping at 100.
         guard let scroll = enclosingScrollView, let font = font else { return }
         let charWidth = max(("M" as NSString).size(withAttributes: [.font: font]).width, 1)
-        let cols = max(20, Int(scroll.contentSize.width / charWidth) - 1)
+        // Only the width text can use, or a long line runs off the right and is lost instead of wrapping.
+        let margins = 2 * (textContainerInset.width + (textContainer?.lineFragmentPadding ?? 0))
+        let cols = max(20, Int((scroll.contentSize.width - margins) / charWidth) - 1)
         let rows = max(4, Int(scroll.contentSize.height / (font.pointSize * 1.22)) - 1)
         term?.resize(cols: cols, rows: rows)
     }

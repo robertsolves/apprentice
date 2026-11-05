@@ -41,10 +41,19 @@ struct VMsScreen: View {
         }
     }
 
+    /// A VM that is on is a filled dot in its state's colour; one that is off is only a ring.
+    @ViewBuilder private func stateDot(_ level: VMDock.Level) -> some View {
+        if level == .stopped {
+            Circle().strokeBorder(Color(nsColor: level.color), lineWidth: 1.5).frame(width: 8, height: 8)
+        } else {
+            Circle().fill(Color(nsColor: level.color)).frame(width: 8, height: 8)
+        }
+    }
+
     private func row(_ m: VM.Machine) -> some View {
         let users = model.projects.filter { $0.vm == m.name }.map(\.name)
         return HStack(spacing: Theme.s2) {
-            Circle().fill(Color(nsColor: VMDock.level(of: m.name, on: m.state == "running" || m.host != nil).color)).frame(width: 8, height: 8)
+            stateDot(VMDock.level(of: m.name, on: m.state == "running" || m.host != nil))
             IconRow(icon: m.host == nil ? "server.rack" : "network", title: m.label,
                     detail: (m.host ?? m.state) + " · " + (users.isEmpty ? (m.name.isEmpty ? "websites outside a project" : "not in a project") : users.joined(separator: ", ")))
             if VMDock.running(m.name) != nil {
@@ -64,7 +73,8 @@ struct VMDetail: View {
 
     private var running: Bool { machine.state == "running" }
     private var made: Bool { machine.state != "not made yet" }
-    private var scope: [String] { machine.name.isEmpty ? [] : ["--vm", machine.name] }
+    /// Always said, the default VM as an empty name: a command run in a project's tab would otherwise take that project's VM.
+    private var scope: [String] { ["--vm", machine.name] }
 
     var body: some View {
         if running || machine.host != nil { live } else { stopped }
@@ -74,11 +84,12 @@ struct VMDetail: View {
     private var live: some View {
         VStack(spacing: 0) {
             HStack(spacing: Theme.s2) {
-                Text(machine.label).font(Theme.heading).lineLimit(1)
+                Text(machine.label).font(Theme.heading).lineLimit(1).layoutPriority(1)
                 Text(VMDock.status(of: machine.name) ?? subtitle).font(Theme.caption).foregroundStyle(.secondary).lineLimit(1)
                 Spacer(minLength: Theme.s2)
                 if let p = users.first {
                     IconButton("Open the project", "arrow.right.circle") { model.show(project: p, tab: .work) }
+                        .fixedSize()
                 }
                 actions.fixedSize(horizontal: true, vertical: false)
             }
@@ -173,7 +184,8 @@ struct VMDetail: View {
     }
 
     private func shell() {
-        model.newTab(title: "VM \(machine.label)", command: (["apprentice"] + scope + ["vm", "ssh"]).map(VM.shellQuoted).joined(separator: " ") + "; exec \"$SHELL\" -l", project: users.first)
+        // When ssh ends, so does the tab: a shell after it would be this Mac's, under the VM's name.
+        model.newTab(title: "VM \(machine.label)", command: (["apprentice"] + scope + ["vm", "ssh"]).map(VM.shellQuoted).joined(separator: " ") + "; code=$?; echo; echo 'That was the shell in the VM. You can close this tab.'; exit $code", project: users.first)
     }
 
     private func adopt() {

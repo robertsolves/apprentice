@@ -530,11 +530,7 @@ enum Commands {
         var p = try Approvals.take(token)
         // The step runs through `dispatch`, past the daemon's own screen check, so it is checked here: another
         // agent holding this screen refuses it, and the proposal stays pending (F13). The user's approval passes.
-        var step = Request(cmd: p.cmd, args: p.args)
-        step.model = Store.model
-        step.project = Project.dir?.path
-        step.tab = p.tab
-        step.user = Approvals.byUser == token ? true : nil
+        let step = Approvals.replay(p, by: Approvals.request, model: Store.model, project: Project.dir?.path, byUser: Approvals.byUser == token)
         do { try Device.check(step) } catch { Approvals.add(p); throw error }
         // `--text` is a bare switch (it turns on the reply field for `ask --text`), so the parser
         // leaves the replacement text in the positional list: `approve 7c2e --text "new words"`
@@ -675,6 +671,7 @@ enum Commands {
         let exe = app.executableURL?.path ?? ""
         if app.processIdentifier == getpid() || app.bundleIdentifier == AppBundle.identifier
             || name == "apprentice" || name == "apprentice app" || exe.contains("Apprentice.app/Contents/MacOS/apprentice") {
+            if AppBundle.runningInstance == nil { throw Fail(5, "apprentice's window is not open: `apprentice app` opens it") }
             throw Fail(5, "\(app.localizedName ?? "apprentice") is apprentice's own window, which is never a session target. Bind another app's window")
         }
     }

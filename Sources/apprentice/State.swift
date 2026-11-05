@@ -258,6 +258,8 @@ struct Session: Codable {
         guard !allow.isEmpty else { return true }
         let patterns = allow.map { $0.lowercased() }
         if patterns.contains("*") { return true }
+        // A browser's own blank tab is no site: without this, `--new-tab --allow x.com` could never start.
+        if let url, !url.isEmpty, isBlankTab(url) { return true }
         // The app's own name allows its windows that have no page; a page must match a domain.
         guard let host = url.flatMap(URL.init(string:))?.host?.lowercased() else {
             return patterns.contains(app.lowercased())
@@ -584,6 +586,20 @@ enum Approvals {
     static let userTTL = 3600.0
     /// The request being dispatched, and the approved one while it runs.
     static var request = Request(cmd: "")
+
+    /// The approved step as a request of its own, for the screen check: it belongs to whoever is approving it. A pipeline
+    /// step or an agent's session that holds the screen must read as itself here too, or it is refused its own approval.
+    static func replay(_ p: Pending, by approver: Request, model: String?, project: String?, byUser: Bool) -> Request {
+        var step = Request(cmd: p.cmd, args: p.args)
+        step.model = model
+        step.project = project
+        step.tab = p.tab
+        step.step = approver.step
+        step.noScreen = approver.noScreen
+        step.agentSession = approver.agentSession
+        step.user = byUser ? true : nil
+        return step
+    }
     static var granted: Pending?
     /// The token the user is approving right now, in the `confirm` window or the menu bar.
     static var byUser: String?

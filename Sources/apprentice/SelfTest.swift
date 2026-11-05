@@ -708,6 +708,7 @@ enum SelfTest {
               "subdomains and case are allowed")
         check(!s(["example.com"]).allows(url: "https://badexample.com") && !s(["example.com"]).allows(url: "https://example.com.evil.io"),
               "look-alike hosts are not")
+        check(s(["facebook.com"]).allows(url: "chrome://newtab/") && s(["facebook.com"]).allows(url: "chrome://new-tab-page/") && s(["facebook.com"]).allows(url: "about:blank"), "a browser's own blank tab is not a site")
         check(!s(["example.com"]).allows(url: nil) && s(["safari"]).allows(url: nil), "a window without a page needs the app's name")
         check(s(["*"]).allows(url: "https://x.y"), "* allows everything")
         check(Config.parseAllow(" a.com, b.org ,") == ["a.com", "b.org"], "the allow option is split and trimmed")

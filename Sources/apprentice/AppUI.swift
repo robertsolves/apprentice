@@ -20,7 +20,8 @@ enum AppBundle {
 
     /// A window already open, so a second `apprentice app` only brings it forward.
     static var runningInstance: NSRunningApplication? {
-        NSRunningApplication.runningApplications(withBundleIdentifier: identifier).first { $0.processIdentifier != getpid() }
+        // A daemon the window started runs from inside the bundle, so it has the same identifier and is not a window.
+        NSRunningApplication.runningApplications(withBundleIdentifier: identifier).first { $0.processIdentifier != getpid() && Proc.argv($0.processIdentifier).dropFirst().first != "serve" }
     }
 
     /// Builds the bundle if the binary changed, then opens it. False when it could not be built.
@@ -1041,7 +1042,6 @@ final class AppModel: ObservableObject {
 
     func closeTab(_ id: String) {
         guard let tab = tabs.first(where: { $0.id == id }) else { return }
-        if tab.busy, !AppModel.confirm("Close \(tab.title)?", "Something is still running in this tab. Closing it stops it.", "Close Tab") { return }
         tab.close()
         tabs.removeAll { $0.id == id }
         if selectedTab == id { selectedTab = tabs.last { $0.project == tab.project }?.id }
@@ -1317,6 +1317,8 @@ struct RootView: View {
                     .opacity(0.01)
             }
         }
+        // Keys only: to anything reading the window these would be buttons that do nothing when clicked.
+        .accessibilityHidden(true)
     }
 }
 
@@ -1523,6 +1525,8 @@ private struct TabChip: View {
     let close: () -> Void
     let select: () -> Void
     @State private var hovering = false
+    /// Something is running in the tab: the first press asks, here in the tab, and it stops asking after a moment.
+    @State private var confirming = false
 
     private var dot: Color {
         if tab.hasApproval { return Theme.warn }
@@ -1545,8 +1549,20 @@ private struct TabChip: View {
             if let code = tab.exited, !tab.hasApproval {
                 Text("\(code)").font(Theme.monoSmall).foregroundStyle(code == 0 ? .secondary : Theme.danger)
             }
-            if hovering || selected {
-                Button(action: close) {
+            if confirming {
+                Button("Stop and close", action: close)
+                    .buttonStyle(.plain)
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(Theme.danger)
+                    .help("Something is still running in this tab. Closing it stops it")
+                    .task {
+                        try? await Task.sleep(nanoseconds: 5_000_000_000)
+                        confirming = false
+                    }
+            } else if hovering || selected {
+                Button {
+                    if tab.busy { confirming = true } else { close() }
+                } label: {
                     Text("×").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary).frame(width: 14, height: 14)
                 }
                 .buttonStyle(.plain)

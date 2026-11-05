@@ -518,6 +518,40 @@ struct PipelineEditor: View {
         var id: String { rawValue }
     }
 
+    /// The file as this page last read or wrote it, and the page's own contents at that moment.
+    @State private var onDisk: String?
+    @State private var baseline = ""
+    /// The file changed while this page had changes of its own: the person says which to keep.
+    @State private var changedOutside = false
+
+    private var pageText: String {
+        var p = draftPipeline
+        p.name = name
+        p.agent = agent
+        p.vm = vm.isEmpty ? nil : vm
+        return Pipelines.render(p)
+    }
+    private var unsaved: Bool { pageText != baseline }
+    private var diskText: String? { original.url.flatMap { try? String(contentsOf: $0, encoding: .utf8) } }
+
+    /// The page starts again from the file. Its pipeline, for a caller that was about to use it.
+    @discardableResult
+    private func followFile() -> Pipelines.Pipeline? {
+        guard let url = original.url, let text = diskText else { return nil }
+        let p = Pipelines.parse(text, url: url, project: original.project)
+        changedOutside = false
+        problem = ""
+        model.pipelineDraft = p
+        model.pipelineEdits += 1
+        return p
+    }
+
+    /// An agent, a text editor or a sync can change the file while the page is open. Nothing unsaved here: follow it.
+    private func noticeFile() {
+        guard let now = diskText, let seen = onDisk, now != seen, !changedOutside else { return }
+        if unsaved { changedOutside = true } else { followFile() }
+    }
+
     /// The steps as they stand, for the check and the UI tick.
     private var draftPipeline: Pipelines.Pipeline {
         var p = original
@@ -576,6 +610,12 @@ struct PipelineEditor: View {
             }
         }
         .background(Theme.canvas)
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+                noticeFile()
+            }
+        }
         .onAppear {
             load()
             if waiting { tab = .runs }
@@ -596,7 +636,16 @@ struct PipelineEditor: View {
             Button { model.pipelineDraft = nil; model.pipelineEdits += 1 } label: { Label("All pipelines", systemImage: "chevron.left") }
                 .buttonStyle(.borderless)
             TextField("Name this pipeline", text: $name).textFieldStyle(.plain).font(Theme.heading).frame(minWidth: 140, maxWidth: 320)
-            if !problem.isEmpty { Text(problem).font(Theme.caption).foregroundStyle(Theme.danger).lineLimit(2) }
+            if changedOutside {
+                Text("Its file changed while you were editing here.").font(Theme.caption).foregroundStyle(Theme.warn).lineLimit(1)
+                Button("Use the file") { followFile() }.controlSize(.small)
+                Button("Keep mine") {
+                    onDisk = diskText
+                    changedOutside = false
+                    _ = save()
+                }
+                .controlSize(.small)
+            } else if !problem.isEmpty { Text(problem).font(Theme.caption).foregroundStyle(Theme.danger).lineLimit(2) }
             else if !saved.isEmpty { Text(saved).font(Theme.monoSmall).foregroundStyle(.secondary).lineLimit(1) }
             Spacer(minLength: Theme.s2)
             HStack(spacing: Theme.s2) {
@@ -1005,12 +1054,22 @@ struct PipelineEditor: View {
         let kept = Pipelines.layout(of: original.url).filter { names.contains($0.key.hasPrefix("gate:") ? String($0.key.dropFirst(5)) : $0.key) }
         positions = PipelineWires.layout(PipelineGraph(draftPipeline)).merging(kept) { $1 }
         recheck()
+        onDisk = diskText
+        baseline = pageText
     }
 
     /// Writes the file; nil (and a line saying why) when something is missing.
     @discardableResult
     private func save() -> Pipelines.Pipeline? {
         problem = ""
+        // Never over a change this page has not seen: nothing of its own to save means the file is the pipeline.
+        if let now = diskText, let seen = onDisk, now != seen {
+            if unsaved {
+                changedOutside = true
+                return nil
+            }
+            return followFile()
+        }
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { problem = "Give it a name."; return nil }
         let kept = steps
@@ -1050,6 +1109,8 @@ struct PipelineEditor: View {
         p.carry = carry
         do {
             _ = try Pipelines.write(p)
+            onDisk = p.url.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
+            baseline = pageText
             Pipelines.saveLayout(positions, of: p.url)
             // A command typed here is the user's. One that was already in the file is not made so by pressing Save or Run.
             let already = Set(original.steps.compactMap(\.shell))

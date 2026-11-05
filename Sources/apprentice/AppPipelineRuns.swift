@@ -79,6 +79,7 @@ struct PipelineRunsPanel: View {
 
     private func label(_ s: RunState) -> String {
         if s.status == "running", !Runs.alive(s.pid) { return "stopped unexpectedly" }
+        if s.status == "running", s.steps.values.contains(where: { $0.status == "parked" }) { return "waiting for you" }
         switch s.status {
         case "parked": return "waiting for you"
         case "done": return "done"
