@@ -791,6 +791,8 @@ enum Schedules {
         if asPipeline, let home {
             let own = s.vm == Projects.info(home)?.vm ? nil : s.vm
             let p = try Pipelines.oneStep(kind == .sh ? "sh: \(target)" : target, name: name, in: home, agent: s.agent, vm: own)
+            // The user just confirmed this very command.
+            if kind == .sh { NamedAgents.approveShell(target, project: home) }
             (s.kind, s.target, s.agent) = (.pipeline, p.ref, nil)
         }
 

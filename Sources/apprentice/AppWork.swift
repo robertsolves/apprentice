@@ -157,6 +157,10 @@ struct RunBar: View {
 
     private func start() {
         problem = ""
+        // A command typed into these boxes is the user's own.
+        for text in [draft.wrappedValue.first, draft.wrappedValue.last] {
+            if let command = Pipelines.Step(title: "", prompt: text).shell { NamedAgents.approveShell(command, project: project.folder) }
+        }
         starting = agent != nil
         model.startRun(draft.wrappedValue, in: project, agent: agent, type: type) { trouble in
             starting = false

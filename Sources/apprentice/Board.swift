@@ -245,7 +245,7 @@ struct PipelineStep {
 /// carries an agent's words.
 struct RunQuestion: Codable, Equatable {
     /// What gives an agent more access, or lets a step that already acted on the screen go again: only the user answers these.
-    static let userOnly: Set<String> = ["permission", "first-use", "acted"]
+    static let userOnly: Set<String> = ["permission", "first-use", "first-shell", "acted"]
 
     /// Whether this answer is the part of those that is the user's. Stepping back (skip, stop) gives nothing away.
     func grants(_ answer: String) -> Bool {

@@ -248,7 +248,7 @@ during the run.
 
 ### Install, uninstall and importing a project
 
-Every project has `install.sh` and `uninstall.sh` at its top, as the place what it needs on a Mac is written down:
+Every project has `install.sh` and `uninstall.sh` at its top, as the place what it needs is written down. In a project with a VM they run there, from a copy of the folder under `~/projects` (`--here` runs them on this Mac):
 `project new` and an import add empty ones, and one a repo already has stays as it is. They run only when the user
 says, with `project install` or a button on the project's Settings, in a tab so the user watches. A step cannot.
 

@@ -202,6 +202,21 @@ enum NamedAgents {
             + (global.map { ", more than the \($0.permissions ?? "default") you set" } ?? "") + "."
     }
 
+    private static func shellKey(_ command: String, project: URL?) -> String {
+        let text = "shell|\(project?.standardizedFileURL.path ?? "")|\(command)"
+        return SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    /// A step's shell command runs on this Mac only once the user has said so: it may have come with a clone, a pull or
+    /// an import. A changed command asks again.
+    static func shellApproved(_ command: String, project: URL?) -> Bool { approvals().contains(shellKey(command, project: project)) }
+
+    static func approveShell(_ command: String, project: URL?) {
+        var set = approvals()
+        set.insert(shellKey(command, project: project))
+        try? Wire.json(set).write(to: approvalsFile, options: .atomic)
+    }
+
     static func approve(_ n: Named, project: URL) {
         var set = approvals()
         set.insert(approvalKey(n, project: project, level: n.permissions))

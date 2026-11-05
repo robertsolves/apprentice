@@ -130,7 +130,7 @@ struct InstallButtons: View {
 
     var body: some View {
         Panel(title: "Install and uninstall") {
-            Text("What this project needs on a Mac is written in these two files. They run only when you press the button.")
+            Text("What this project needs is written in these two files. They run \(project.vm.map { "in its VM, \($0)," } ?? "on this Mac") only when you press the button.")
                 .font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             ForEach(Projects.scriptKinds, id: \.self) { kind in
                 HStack(spacing: Theme.s2) {
@@ -154,9 +154,10 @@ struct InstallButtons: View {
         let text = Projects.writtenScript(project.folder, kind)
         let lines = (text ?? "").split(separator: "\n", omittingEmptySubsequences: false).prefix(25).joined(separator: "\n")
         let more = (text ?? "").split(separator: "\n").count > 25 ? "\n… (Open shows the rest)" : ""
-        let shown = text == nil ? "It has nothing in it yet." : "It runs on this Mac, with your access to it. Run it only if you trust where this project came from.\n\n\(lines)\(more)"
+        let shown = text == nil ? "It has nothing in it yet." : (project.vm.map { "It runs in the VM \($0), from a copy of this project's folder." } ?? "It runs on this Mac, with your access to it.") + " Run it only if you trust where this project came from.\n\n\(lines)\(more)"
         guard AppModel.confirm("Run \(kind).sh?", shown, kind == "install" ? "Install" : "Uninstall") else { return }
-        model.newTab(title: kind.capitalized, command: "sh \(VM.shellQuoted(file.path)); echo; exec \"$SHELL\" -l", dir: project.folder, vm: project.vm, project: project)
+        let line = project.vm == nil ? "sh \(VM.shellQuoted(file.path))" : "apprentice project \(kind) \(VM.shellQuoted(project.folder.path))"
+        model.newTab(title: kind.capitalized, command: "\(line); echo; exec \"$SHELL\" -l", dir: project.folder, vm: project.vm, project: project)
     }
 
     /// Right after an import, when it came with an install.sh of its own.
@@ -809,6 +810,9 @@ struct PipelineEditor: View {
         p.carry = carry
         do {
             _ = try Pipelines.write(p)
+            // A command typed here is the user's. One that was already in the file is not made so by pressing Save or Run.
+            let already = Set(original.steps.compactMap(\.shell))
+            for command in p.steps.compactMap(\.shell) where !already.contains(command) { NamedAgents.approveShell(command, project: p.project) }
             saved = "saved \(Date().formatted(date: .omitted, time: .shortened))"
             model.refresh()
             // The page's title and the list follow a rename; an existing pipeline keeps its editor (same id).

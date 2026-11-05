@@ -186,11 +186,21 @@ enum Projects {
         return text
     }
 
-    /// Runs it here with its output on this terminal. Only ever because the user asked: it is whatever the project wrote.
+    /// Runs it with its output on this terminal: in the project's VM when it has one, so what it sets up stays off this
+    /// Mac, else here. Only ever because the user asked: it is whatever the project wrote.
     private static func runScript(_ kind: String, _ a: Args) throws -> String {
         guard let p = find(a.pos.dropFirst().first) else { throw Fail(5, "no such project · apprentice project list") }
         let file = scriptFile(p.folder, kind)
         guard FileManager.default.fileExists(atPath: file.path) else { throw Fail(5, "\(p.name) has no \(kind).sh") }
+        if let vm = p.vm, !a.has("here") {
+            // Which VM a process talks to is settled as it starts, so one that is not this VM's starts one that is.
+            guard Store.vmName == vm else { return try again(kind, p, vm: vm) }
+            guard VM.running else { throw Fail(4, "the VM \(vm) is not running · apprentice --vm \(vm) vm up, then run this again, or add --here to run it on this Mac") }
+            _ = try VM.address()
+            let code = inVM(p.folder, kind: kind, guest: "projects/\(folderName(p.name))", ssh: "/usr/bin/ssh -F \(VM.shellQuoted(VM.sshConfig.path)) \(VM.shellQuoted(VM.name))")
+            guard code == 0 else { throw Fail(1, "\(kind).sh exited \(code) in the VM \(vm)") }
+            return "\(kind).sh finished in the VM \(vm)"
+        }
         let run = Process()
         run.executableURL = URL(fileURLWithPath: "/bin/sh")
         run.arguments = [file.path]
@@ -199,6 +209,41 @@ enum Projects {
         run.waitUntilExit()
         guard run.terminationStatus == 0 else { throw Fail(1, "\(kind).sh exited \(run.terminationStatus)") }
         return "\(kind).sh finished"
+    }
+
+    private static func again(_ kind: String, _ p: Info, vm: String) throws -> String {
+        let run = Process()
+        run.executableURL = URL(fileURLWithPath: Wire.binaryPath())
+        run.arguments = ["project", kind, p.folder.path]
+        run.environment = ProcessInfo.processInfo.environment.merging(["APPRENTICE_VM": vm]) { $1 }
+        try run.run()
+        run.waitUntilExit()
+        exit(run.terminationStatus)
+    }
+
+    /// What is not worth sending to a VM: outputs, which can hold secrets, and what the script itself would make again.
+    static let notForVM = [".apprentice/cache", "node_modules", ".build", ".venv", "__pycache__", ".DS_Store"]
+
+    /// Sends the project's folder to `guest` under the VM's home and runs the script there, from that copy. The VM has no
+    /// view of this Mac's disk, so a script needing the project's files gets them this way. `ssh` is everything up to the
+    /// command. Returns the exit code.
+    static func inVM(_ folder: URL, kind: String, guest: String, ssh: String) -> Int32 {
+        func sh(_ line: String) -> Int32 {
+            let run = Process()
+            run.executableURL = URL(fileURLWithPath: "/bin/sh")
+            run.arguments = ["-c", line]
+            guard (try? run.run()) != nil else { return 127 }
+            run.waitUntilExit()
+            return run.terminationStatus
+        }
+        let place = VM.shellQuoted(guest)
+        let skip = notForVM.map { "--exclude \(VM.shellQuoted("./" + $0)) --exclude \(VM.shellQuoted($0))" }.joined(separator: " ")
+        let receive = VM.shellQuoted("mkdir -p \(place) && tar -xzf - -C \(place)")
+        let sent = sh("COPYFILE_DISABLE=1 /usr/bin/tar --no-xattrs --no-mac-metadata \(skip) -C \(VM.shellQuoted(folder.path)) -czf - . | \(ssh) \(receive)")
+        guard sent == 0 else { return sent }
+        // A terminal for it when there is one: a script may ask for a password.
+        let tty = isatty(0) == 1 ? "-t " : ""
+        return sh("\(ssh.replacingOccurrences(of: " -F ", with: " \(tty)-F ")) \(VM.shellQuoted("cd \(place) && sh \(kind).sh"))")
     }
 
     // MARK: - importing

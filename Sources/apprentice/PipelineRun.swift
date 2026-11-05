@@ -750,6 +750,11 @@ final class PipelineEngine {
     private func runShell(_ id: String, _ step: Pipelines.Step, in workspace: URL) {
         let command = step.shell ?? step.prompt
         if Config.current.uiOnly { fail(id, "it is a shell command, and shells are off under [agent] ui_only"); return }
+        guard NamedAgents.shellApproved(command, project: project) else {
+            park(id, RunQuestion(kind: "first-shell", text: "This step runs a command from the pipeline's file on this Mac, with your access to it, and it has not run here before:\n\n\(String(command.prefix(600)))\n\nRun it only if you trust where this pipeline came from.",
+                                 choices: ["Run it", "Skip this step", "Stop the run"]), detail: command)
+            return
+        }
         guard waitForScreen(id, step) else { fail(id, "the screen stayed in use for half an hour"); return }
         defer { releaseScreen(id, step) }
         let before = changedFiles(workspace)
@@ -1078,6 +1083,11 @@ final class PipelineEngine {
             let next = NamedAgents.levels.dropFirst(NamedAgents.rank(current) + 1).first ?? current
             set(id) { $0.raised = next; $0.answer = "The user allowed \(next ?? "more") permissions for this run." }
             again(restart: "answer")
+        case "first-shell":
+            if stop { set(id) { $0.question = nil; $0.status = "failed"; $0.reason = "the user stopped the run" }; requestStop("the user stopped the run"); return }
+            if answer.lowercased().contains("skip") { skip(); return }
+            if let step = graph.step(id) { NamedAgents.approveShell(step.shell ?? step.prompt, project: project) }
+            again(restart: nil)
         case "acted":
             if stop { set(id) { $0.question = nil; $0.status = "failed"; $0.reason = "the user stopped the run" }; requestStop("the user stopped the run"); return }
             if answer.lowercased().contains("skip") { skip(); return }

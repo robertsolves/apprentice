@@ -589,18 +589,18 @@ example_output = "flagged x.com"
 [command."project"]
 not_in_step = ["set", "forget", "install", "uninstall", "import"]
 group = "Projects and pipelines"
-usage = "project new \"name\" [--from <git url>] [--vm <name> | --no-vm] [--dir folder] [--about \"…\"] | import <github url, owner/repo, folder or .zip> [--name \"…\"] [--dir folder] [--vm <name> | --no-vm] | install [name] | uninstall [name] | list | open [name] | set [name] [--vm <name> | --no-vm] [--name \"…\"] | save [name] [--message \"…\"] [--push] | add <folder> | forget <name> | sync [name] [--take-new | --keep-mine] | init | status"
+usage = "project new \"name\" [--from <git url>] [--vm <name> | --no-vm] [--dir folder] [--about \"…\"] | import <github url, owner/repo, folder or .zip> [--name \"…\"] [--dir folder] [--vm <name> | --no-vm] | install [name] [--here] | uninstall [name] [--here] | list | open [name] | set [name] [--vm <name> | --no-vm] [--name \"…\"] | save [name] [--message \"…\"] [--push] | add <folder> | forget <name> | sync [name] [--take-new | --keep-mine] | init | status"
 summary = "A folder for one piece of work: instructions agents read, its pipelines, its VM. sync regenerates its AGENTS.md section and per-CLI skills and commands; save commits it, and --push puts it on GitHub."
 output = "What it did, and the folder."
 where = "Mac"
 changes = "the project folder; forget never deletes it"
 example = "apprentice project new \"Shop\" --no-vm"
 example_output = "project Shop · ~/Apprentice/shop · this Mac"
-flags = ["import: a GitHub address or owner/repo, a folder (which stays where it is), or a .zip; nothing from it runs", "install, uninstall: run the project's install.sh or uninstall.sh here, because you said so"]
-exits = ["5: no such project, or the folder already is one"]
+flags = ["import: a GitHub address or owner/repo, a folder (which stays where it is), or a .zip; nothing from it runs", "install, uninstall: run the project's install.sh or uninstall.sh because you said so: in the project's VM when it has one, from a copy of the folder under ~/projects there", "--here: run it on this Mac even though the project has a VM"]
+exits = ["1: the script failed", "4: install or uninstall: the project's VM is not running", "5: no such project, or the folder already is one"]
 
 [command."pipeline"]
-not_in_step = ["answer", "resume", "stop", "direct"]
+not_in_step = ["answer", "resume", "stop", "direct", "run", "task", "new", "add", "rm"]
 group = "Projects and pipelines"
 usage = "pipeline task \"what to do\" [--project p] [--agent a] [--vm v] [--background] [--directed] | list | show <name> | new \"name\" [\"step\" …] | add <name> \"step\" [--title t] | run <name> [--first \"…\"] [--last \"…\"] [--background] [--directed] [--fresh] [--from N] [--keep-going] | direct <run or name> [--first \"…\"] [--last \"…\"] | check <name> | audit <name> | status [run] [--wait] [--for 9m] | answer <run> <step> \"answer\" | resume <run> [--copy|--file] | stop <run> | notes <name> | path <name> | rm <name>"
 summary = "Runs a project's work as a graph of steps across agents. check validates a file and spends nothing; audit writes a brief for reviewing it; run spends the tokens its agents use. direct prints the brief for an agent the user opened, which then watches and steers the headless steps; given a pipeline's name it starts one first."

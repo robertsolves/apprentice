@@ -288,5 +288,5 @@ learn = true
 # stale_days_sites = 60
 # stale_days_apps = 180
 # env_match = "major"
-# library = "https://owner.github.io/apprentice-skills"   # a site, or a list of them: facts are hints, unreviewed
-# library_repo = "owner/apprentice-skills"                # where `skills share --library` sends a pull request
+# library = "https://robertsolves.github.io/apprentice-skills"   # a site, or a list of them: facts are hints, unreviewed
+# library_repo = "robertsolves/apprentice-skills"                # where `skills share --library` sends a pull request
