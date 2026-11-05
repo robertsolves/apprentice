@@ -296,6 +296,20 @@ enum Pipelines {
         return out
     }
 
+    /// Where a pipeline's cards sit on the canvas: beside its file, and only about how it looks. The file alone says how it runs.
+    static func layoutFile(_ url: URL) -> URL { url.deletingPathExtension().appendingPathExtension("layout.json") }
+
+    static func layout(of url: URL?) -> [String: CGPoint] {
+        guard let url, let data = try? Data(contentsOf: layoutFile(url)), let raw = try? JSONDecoder().decode([String: [Double]].self, from: data) else { return [:] }
+        return raw.compactMapValues { $0.count == 2 ? CGPoint(x: $0[0], y: $0[1]) : nil }
+    }
+
+    static func saveLayout(_ positions: [String: CGPoint], of url: URL?) {
+        guard let url else { return }
+        let raw = positions.mapValues { [Double($0.x.rounded()), Double($0.y.rounded())] }
+        if let data = try? JSONEncoder().encode(raw) { try? data.write(to: layoutFile(url), options: .atomic) }
+    }
+
     static func tasksDir(_ project: URL) -> URL { Runs.cache(project: project).appendingPathComponent("tasks") }
 
     /// One-off tasks, newest first. They stay out of the list of pipelines, and keep their runs' page until `tidy` clears them.
@@ -325,6 +339,7 @@ enum Pipelines {
             n += 1
         }
         try FileManager.default.moveItem(at: url, to: target)
+        try? FileManager.default.moveItem(at: layoutFile(url), to: layoutFile(target))
         return target
     }
 
@@ -405,7 +420,10 @@ enum Pipelines {
             p.project = project
             p.agent = (a.value("agent") ?? "").lowercased()
             p.vm = a.value("vm")
-            p.steps = a.pos.dropFirst(2).enumerated().map { Step(title: "Step \($0.offset + 1)", prompt: $0.element) }
+            for text in a.pos.dropFirst(2) {
+                let title = PipelineWires.name(from: text, taken: Set(p.steps.map(\.id))) ?? PipelineWires.newName(taken: Set(p.steps.map(\.id)))
+                p.steps.append(Step(title: title, prompt: text))
+            }
             let url = project.appendingPathComponent("pipelines").appendingPathComponent(slug(name) + ".md")
             guard !FileManager.default.fileExists(atPath: url.path) else { throw Fail(5, "\(url.path) already exists") }
             p.url = url
@@ -417,7 +435,7 @@ enum Pipelines {
         case "add":
             var p = try find(name ?? "")
             guard let text = a.pos.dropFirst(2).first, !text.isEmpty else { throw Fail(5, "pipeline add <name> \"what to do\" [--title \"…\"]") }
-            p.steps.append(Step(title: a.value("title") ?? "Step \(p.steps.count + 1)", prompt: text))
+            p.steps.append(Step(title: a.value("title") ?? PipelineWires.name(from: text, taken: Set(p.steps.map(\.id))) ?? PipelineWires.newName(taken: Set(p.steps.map(\.id))), prompt: text))
             _ = try write(p)
             return "\(p.ref): step \(p.steps.count) added"
         case "run":
@@ -445,6 +463,7 @@ enum Pipelines {
             guard let url = p.url else { throw Fail(5, "no file for \(p.ref)") }
             // To the Trash, not gone: a pipeline is the user's own writing.
             try FileManager.default.trashItem(at: url, resultingItemURL: nil)
+            try? FileManager.default.removeItem(at: layoutFile(url))
             let waiting = Schedules.all().filter { $0.kind == .pipeline && [p.ref, p.slug, p.name, url.path].contains($0.target) }.map(\.name)
             return "moved \(url.lastPathComponent) to the Trash" + (waiting.isEmpty ? "" : " · these schedules still name it and will fail: " + waiting.joined(separator: ", "))
         default:

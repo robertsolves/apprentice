@@ -481,6 +481,10 @@ struct PipelineEditor: View {
         var when = ""
         var needs = ""
         var ui = false
+        /// The name the wires to it use: it follows the title, but not through a moment the title is blank or taken.
+        var wireId = ""
+        /// Named by the app so far, so its words name it as they are written.
+        var autoNamed = false
     }
 
     @State private var name = ""
@@ -495,6 +499,10 @@ struct PipelineEditor: View {
     @State private var scribe = ""
     @State private var carry = false
     @State private var check = PipelineGraph.Report()
+    /// The step chosen on the canvas, whose words and settings show under it.
+    @State private var selected: String?
+    /// Where each card sits, by step name.
+    @State private var positions: [String: CGPoint] = [:]
 
     /// The steps as they stand, for the check and the UI tick.
     private var draftPipeline: Pipelines.Pipeline {
@@ -529,7 +537,7 @@ struct PipelineEditor: View {
     private var isTask: Bool { original.url?.path.contains("/.apprentice/cache/tasks/") == true }
 
     var body: some View {
-        ScreenPage(title: isNew ? "New pipeline" : original.name, subtitle: original.url.map { ($0.path as NSString).abbreviatingWithTildeInPath } ?? "Prompts that run one after another") {
+        ScreenPage(title: isNew ? "New pipeline" : original.name, subtitle: original.url.map { "\($0.deletingLastPathComponent().lastPathComponent)/\($0.lastPathComponent)" } ?? "Steps wired together, on a canvas") {
             AnyView(HStack(spacing: Theme.s2) {
                 if !isNew {
                     IconButton("Audit", "checklist") { if let p = save() { model.auditPipeline(p) } }
@@ -552,6 +560,34 @@ struct PipelineEditor: View {
             // The buttons keep their words; the title is what wraps.
             .fixedSize(horizontal: true, vertical: false))
         } content: {
+            if !check.errors.isEmpty || !check.warnings.isEmpty {
+                Panel(title: check.errors.isEmpty ? "Worth a look" : "It will not start until these are fixed") {
+                    ForEach(check.errors, id: \.self) { Text($0).font(Theme.caption).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true) }
+                    ForEach(check.warnings, id: \.self) { Text($0).font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+                }
+            }
+            if !isNew, waiting { PipelineRunsPanel(model: model, pipeline: original) }
+            Panel(title: "Steps", note: "\(steps.count)") {
+                HStack(spacing: Theme.s2) {
+                    IconButton("Add a step", "plus.circle") { addStep(gate: nil) }
+                    IconButton("OR after it", "arrow.triangle.branch") { addStep(gate: .or) }
+                        .disabled(selected == nil)
+                        .help("One of the steps after it runs, chosen for it")
+                    IconButton("AND after it", "arrow.triangle.merge") { addStep(gate: .and) }
+                        .disabled(selected == nil)
+                        .help("All of the steps after it run at once")
+                    Spacer()
+                    Text("Drag cards to place them. Drag from a card's dot to another card to wire them.")
+                        .font(Theme.caption).foregroundStyle(.secondary).lineLimit(1)
+                }
+                .controlSize(.small)
+                PipelineCanvas(cards: cards, graph: PipelineGraph(draftPipeline), positions: $positions, selected: $selected,
+                               wire: { wire($0, to: $1) }, unwire: { unwire($0, from: $1) }, rewire: { rewire($0, from: $1, to: $2) }, switchGate: { switchGate($0) },
+                               moved: { Pipelines.saveLayout(positions, of: original.url) })
+            }
+            if let index = steps.firstIndex(where: { $0.wireId == selected }) {
+                stepCard(index, steps[index])
+            }
             Panel(title: "Pipeline") {
                 LabeledField("Name") { TextField("Morning round", text: $name) }
                 LabeledField("Goal") { TextField("What the whole thing is for; every step is told", text: $goal) }
@@ -572,20 +608,6 @@ struct PipelineEditor: View {
                 LabeledField("") {
                     Toggle("Carry a short summary from run to run", isOn: $carry).toggleStyle(.checkbox).font(Theme.caption)
                 }
-            }
-            if !check.errors.isEmpty || !check.warnings.isEmpty {
-                Panel(title: check.errors.isEmpty ? "Worth a look" : "It will not start until these are fixed") {
-                    ForEach(check.errors, id: \.self) { Text($0).font(Theme.caption).foregroundStyle(Theme.danger).fixedSize(horizontal: false, vertical: true) }
-                    ForEach(check.warnings, id: \.self) { Text($0).font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
-                }
-            }
-            if !isNew, waiting { PipelineRunsPanel(model: model, pipeline: original) }
-            ForEach(Array(steps.enumerated()), id: \.element.id) { index, step in
-                stepCard(index, step)
-            }
-            HStack {
-                IconButton("Add a step", "plus.circle") { steps.append(EditStep(title: "", prompt: "")) }
-                Spacer()
             }
             if !problem.isEmpty { Text(problem).font(Theme.caption).foregroundStyle(Theme.danger) }
             if !saved.isEmpty { Text(saved).font(Theme.monoSmall).foregroundStyle(.secondary) }
@@ -625,25 +647,20 @@ struct PipelineEditor: View {
     private func stepCard(_ index: Int, _ step: EditStep) -> some View {
         VStack(alignment: .leading, spacing: Theme.s2) {
             HStack(spacing: Theme.s2) {
-                Text("\(index + 1)")
-                    .font(.system(size: 11, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                    .frame(width: 20, height: 20)
-                    .background(Circle().fill(Theme.accent))
-                TextField("What this step does, in a few words", text: binding(step.id, \.title))
+                TextField("What this step does, in a few words", text: titleBinding(step.id))
                     .textFieldStyle(.plain)
                     .font(Theme.heading)
                 Spacer()
-                Button { move(index, by: -1) } label: { Image(systemName: "arrow.up") }
-                    .buttonStyle(.borderless).disabled(index == 0).help("Move up")
-                Button { move(index, by: 1) } label: { Image(systemName: "arrow.down") }
-                    .buttonStyle(.borderless).disabled(index == steps.count - 1).help("Move down")
-                Button { steps.removeAll { $0.id == step.id } } label: { Image(systemName: "trash") }
+                if index > 0 {
+                    IconButton("Start here", "flag") { makeStart(step.id) }.controlSize(.small)
+                        .help("The run begins with this step")
+                }
+                Button { removeStep(step.id) } label: { Image(systemName: "trash") }
                     .buttonStyle(.borderless).help("Remove this step")
             }
             .foregroundStyle(Theme.accent)
             TextField(agent == "shell" ? "a command, e.g. ./export.sh" : "Tell the agent what to do, as you would in a chat.",
-                      text: binding(step.id, \.prompt), axis: .vertical)
+                      text: promptBinding(step.id), axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(4...14)
                 .font(agent == "shell" ? Theme.mono : Theme.body)
@@ -724,6 +741,136 @@ struct PipelineEditor: View {
         .labelsHidden().pickerStyle(.menu)
     }
 
+    private var cards: [CanvasCard] {
+        let draft = draftPipeline
+        return steps.enumerated().map { i, s in
+            let line = s.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+            let who = agentChoices.first { $0.id == s.use }?.label ?? (s.use.isEmpty ? (agent.isEmpty ? "The usual agent" : AgentCLIs.label(agent)) : s.use)
+            return CanvasCard(id: s.wireId, title: s.title.isEmpty ? "Untitled" : s.title, agent: who, prompt: line.isEmpty ? "Choose it to say what it does" : line,
+                              screen: draft.steps.indices.contains(i) && Pipelines.hasScreen(draft.steps[i], in: draft), first: i == 0)
+        }
+    }
+
+    /// A step's title, keeping the wires to it as it changes.
+    private func titleBinding(_ id: UUID) -> Binding<String> {
+        Binding(get: { steps.first { $0.id == id }?.title ?? "" }, set: { value in
+            guard let i = steps.firstIndex(where: { $0.id == id }) else { return }
+            steps[i].autoNamed = false
+            rename(i, to: value)
+        })
+    }
+
+    /// A step's words, which name it for as long as nobody has named it.
+    private func promptBinding(_ id: UUID) -> Binding<String> {
+        Binding(get: { steps.first { $0.id == id }?.prompt ?? "" }, set: { value in
+            guard let i = steps.firstIndex(where: { $0.id == id }) else { return }
+            steps[i].prompt = value
+            if steps[i].autoNamed, let name = PipelineWires.name(from: value, taken: Set(steps.indices.filter { $0 != i }.map { steps[$0].wireId })) { rename(i, to: name) }
+            recheck()
+        })
+    }
+
+    private func rename(_ i: Int, to value: String) {
+        steps[i].title = value
+        let old = steps[i].wireId, new = Pipelines.slug(value)
+        let free = !steps.indices.contains { $0 != i && steps[$0].wireId == new }
+        if !value.trimmingCharacters(in: .whitespaces).isEmpty, new != old, free {
+            for j in steps.indices { steps[j].next = PipelineWires.renaming(old, to: new, in: steps[j].next) }
+            steps[i].wireId = new
+            for key in [old, "gate:\(old)"] {
+                if let spot = positions.removeValue(forKey: key) { positions[key == old ? new : "gate:\(new)"] = spot }
+            }
+            if selected == old { selected = new }
+        }
+        recheck()
+    }
+
+    private func rewire(_ from: String, from old: String, to new: String) {
+        guard let i = steps.firstIndex(where: { $0.wireId == from }) else { return }
+        steps[i].next = PipelineWires.replacing(old, with: new, in: PipelineGraph(draftPipeline).next(from))
+        recheck()
+    }
+
+    /// The run begins with the first step in the file, so that step moves to the top. Every wire is said aloud first,
+    /// because a step with no `next:` follows whichever heading comes after it.
+    private func makeStart(_ id: UUID) {
+        let graph = PipelineGraph(draftPipeline)
+        for i in steps.indices where steps[i].next.isEmpty { steps[i].next = PipelineWires.explicit(graph.next(steps[i].wireId)) }
+        guard let i = steps.firstIndex(where: { $0.id == id }) else { return }
+        steps.insert(steps.remove(at: i), at: 0)
+        recheck()
+    }
+
+    private func wire(_ from: String, to: String) {
+        guard let i = steps.firstIndex(where: { $0.wireId == from }) else { return }
+        steps[i].next = PipelineWires.adding(to, to: PipelineGraph(draftPipeline).next(from))
+        recheck()
+    }
+
+    private func unwire(_ from: String, from target: String) {
+        guard let i = steps.firstIndex(where: { $0.wireId == from }) else { return }
+        steps[i].next = PipelineWires.removing(target, from: PipelineGraph(draftPipeline).next(from))
+        recheck()
+    }
+
+    private func switchGate(_ id: String) {
+        guard let i = steps.firstIndex(where: { $0.wireId == id }), let line = PipelineWires.switched(PipelineGraph(draftPipeline).next(id)) else { return }
+        steps[i].next = line
+        recheck()
+    }
+
+    /// A new step. With nothing chosen, or the last step chosen and no node asked for, it follows on. Otherwise it is wired
+    /// after the chosen step, through the node asked for, and a node with nothing after it yet gets two branches to fill in.
+    private func addStep(gate: PipelineWires.Gate?) {
+        let source = selected ?? steps.last?.wireId
+        let graph = PipelineGraph(draftPipeline)
+        let current = source.map { graph.next($0) } ?? .stop
+        let followsOn = gate == nil && (source == steps.last?.wireId || source == nil) && current == .stop
+        // A step with no `next:` follows the next heading, so the last one must say it ends before anything is added below it.
+        if !followsOn, let last = steps.indices.last, steps[last].next.isEmpty { steps[last].next = "end" }
+        let count = gate != nil && current == .stop ? 2 : 1
+        var made: [String] = []
+        for _ in 0..<count {
+            var step = EditStep(title: PipelineWires.newName(taken: Set(steps.map(\.wireId))), prompt: "")
+            step.wireId = Pipelines.slug(step.title)
+            step.autoNamed = true
+            if !followsOn { step.next = "end" }
+            steps.append(step)
+            made.append(step.wireId)
+            positions[step.wireId] = freeSpot(after: source)
+        }
+        if !followsOn, let source, let i = steps.firstIndex(where: { $0.wireId == source }) {
+            let targets = PipelineWires.targets(current) + made
+            if let gate, targets.count > 1 { steps[i].next = PipelineWires.line(targets, gate) } else {
+                var next = current
+                for id in made { steps[i].next = PipelineWires.adding(id, to: next); next = PipelineGraph(draftPipeline).next(source) }
+            }
+        }
+        selected = made.first
+        recheck()
+    }
+
+    /// To the right of a card, below whatever is already there.
+    private func freeSpot(after source: String?) -> CGPoint {
+        let origin = source.flatMap { positions[$0] } ?? CGPoint(x: 110, y: 70)
+        var spot = CGPoint(x: source == nil ? origin.x : origin.x + 290, y: origin.y)
+        while positions.values.contains(where: { abs($0.x - spot.x) < 150 && abs($0.y - spot.y) < 90 }) { spot.y += 112 }
+        return spot
+    }
+
+    /// Takes a step away and the wires to it. A step that followed it by the next heading follows the one after.
+    private func removeStep(_ id: UUID) {
+        guard let step = steps.first(where: { $0.id == id }) else { return }
+        let graph = PipelineGraph(draftPipeline)
+        for i in steps.indices where steps[i].id != id && !steps[i].next.isEmpty && PipelineWires.targets(graph.next(steps[i].wireId)).contains(step.wireId) {
+            steps[i].next = PipelineWires.removing(step.wireId, from: graph.next(steps[i].wireId))
+        }
+        positions[step.wireId] = nil
+        steps.removeAll { $0.id == id }
+        if selected == step.wireId { selected = steps.first?.wireId }
+        recheck()
+    }
+
     private func setUI(_ id: UUID, _ on: Bool) {
         if let i = steps.firstIndex(where: { $0.id == id }) { steps[i].ui = on }
         recheck()
@@ -763,22 +910,27 @@ struct PipelineEditor: View {
                 })
     }
 
-    private func move(_ index: Int, by offset: Int) {
-        let target = index + offset
-        guard steps.indices.contains(target) else { return }
-        steps.swapAt(index, target)
-    }
-
     private func load() {
         name = original.name
         agent = original.agent
         vm = original.vm ?? ""
         steps = original.steps.map { EditStep(title: $0.title, prompt: $0.prompt, use: $0.use ?? "", next: $0.next ?? "", when: $0.when ?? "", needs: $0.needs ?? "", ui: $0.ui) }
-        if steps.isEmpty { steps = [EditStep(title: "", prompt: "")] }
+        if steps.isEmpty { steps = [EditStep(title: "New step", prompt: "", autoNamed: true)] }
+        for i in steps.indices {
+            if steps[i].title.trimmingCharacters(in: .whitespaces).isEmpty {
+                steps[i].title = PipelineWires.newName(taken: Set(steps.prefix(i).map { Pipelines.slug($0.title) }))
+                steps[i].autoNamed = true
+            }
+            // A name that only ever said where it stood, from before steps could be moved around.
+            if steps[i].title.range(of: #"^(Step \d+|New step( \d+)?)$"#, options: .regularExpression) != nil { steps[i].autoNamed = true }
+            steps[i].wireId = Pipelines.slug(steps[i].title)
+        }
+        selected = steps.first?.wireId
         goal = original.goal ?? ""
         interpreter = original.interpreter ?? ""
         scribe = original.scribes.joined(separator: ", ")
         carry = original.carry
+        positions = PipelineWires.layout(PipelineGraph(draftPipeline)).merging(Pipelines.layout(of: original.url)) { $1 }
         recheck()
     }
 
@@ -788,8 +940,13 @@ struct PipelineEditor: View {
         problem = ""
         let trimmed = name.trimmingCharacters(in: .whitespaces)
         guard !trimmed.isEmpty else { problem = "Give it a name."; return nil }
-        let kept = steps.filter { !$0.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        guard !kept.isEmpty else { problem = "Write at least one step."; return nil }
+        let kept = steps
+        // A card with nothing in it would be dropped from the file, and the wires to it would point at nothing.
+        if let empty = steps.first(where: { $0.prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) {
+            selected = empty.wireId
+            problem = "Say what \(empty.title.isEmpty ? "this step" : empty.title) does, or remove it."
+            return nil
+        }
         var p = original
         p.name = trimmed
         p.agent = agent
@@ -801,7 +958,7 @@ struct PipelineEditor: View {
             p.url = url
         }
         p.steps = kept.enumerated().map { i, s in
-            var step = Pipelines.Step(title: s.title.trimmingCharacters(in: .whitespaces).isEmpty ? "Step \(i + 1)" : s.title, prompt: s.prompt)
+            var step = Pipelines.Step(title: s.title.trimmingCharacters(in: .whitespaces).isEmpty ? (s.wireId.isEmpty ? PipelineWires.newName(taken: Set(steps.prefix(i).map(\.wireId))) : s.wireId) : s.title, prompt: s.prompt)
             func clean(_ v: String) -> String? {
                 let t = v.trimmingCharacters(in: CharacterSet(charactersIn: " |&"))
                 return t.isEmpty ? nil : v.trimmingCharacters(in: .whitespaces)
@@ -819,6 +976,7 @@ struct PipelineEditor: View {
         p.carry = carry
         do {
             _ = try Pipelines.write(p)
+            Pipelines.saveLayout(positions, of: p.url)
             // A command typed here is the user's. One that was already in the file is not made so by pressing Save or Run.
             let already = Set(original.steps.compactMap(\.shell))
             for command in p.steps.compactMap(\.shell) where !already.contains(command) { NamedAgents.approveShell(command, project: p.project) }

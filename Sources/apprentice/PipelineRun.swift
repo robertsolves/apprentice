@@ -79,6 +79,9 @@ struct RunState: Codable {
     /// The steps typed for this run only, so following the edited file on a resume keeps them.
     var first: String? = nil
     var last: String? = nil
+    /// What the audit before the run said: "passed", "allowed" (it found problems and someone ran it anyway),
+    /// or why it could not run. Nil until it has.
+    var audit: String? = nil
     var memoryVersion: String? = nil
     var workspaces: [Workspace] = []
     var groups: [Group] = []
@@ -542,6 +545,7 @@ final class PipelineEngine {
         term.setEventHandler { [weak self] in self?.requestStop("stopped by `pipeline stop`") }
         term.resume()
         defer { term.cancel(); signal(SIGTERM, SIG_DFL) }
+        auditBeforeRun()
         while true {
             absorbAnswers()
             if FileManager.default.fileExists(atPath: stopFile.path) { requestStop("stopped by `pipeline stop`") }
@@ -1138,6 +1142,10 @@ final class PipelineEngine {
             let next = NamedAgents.levels.dropFirst(NamedAgents.rank(current) + 1).first ?? current
             set(id) { $0.raised = next; $0.answer = "The user allowed \(next ?? "more") permissions for this run." }
             again(restart: "answer")
+        case "audit":
+            if stop { set(id) { $0.question = nil; $0.status = "failed"; $0.reason = "stopped after the audit" }; requestStop("stopped after the audit"); return }
+            updateState { $0.audit = "allowed" }
+            again(restart: nil)
         case "first-shell":
             if stop { set(id) { $0.question = nil; $0.status = "failed"; $0.reason = "the user stopped the run" }; requestStop("the user stopped the run"); return }
             if answer.lowercased().contains("skip") { skip(); return }
@@ -1262,13 +1270,71 @@ final class PipelineEngine {
         }.joined(separator: "\n\n")
     }
 
-    private func choose(_ id: String, _ step: Pipelines.Step, options: [String], ws: String, finished: () -> Void) {
+    /// Who reads a run's structure and chooses its branches, in the order to try them.
+    private var judges: [NamedAgents.Named] {
         var names: [String] = []
         if let i = p.interpreter { names.append(i) } else if let i = defaults.interpreter { names.append(i) }
         names += defaults.priority
         if names.isEmpty { names = p.agent.isEmpty ? [lastResort] : [p.agent] }
         var seen = Set<String>()
-        let agents = names.compactMap(resolve).filter { seen.insert($0.name.lowercased()).inserted }
+        return names.compactMap(resolve).filter { seen.insert($0.name.lowercased()).inserted }
+    }
+
+    /// Part of every run, before its first step: does this pipeline make sense? `pipeline check` has already said it is
+    /// well formed; this reads what the steps say. Problems stop the run for someone to decide, since a run that cannot
+    /// work wastes everything after it. An audit that cannot run says so on the run and does not hold it up: no agent
+    /// being free is not a fault in the pipeline. `[pipelines] audit = "off"` turns it off.
+    private func auditBeforeRun() {
+        guard state.audit == nil, state.path.isEmpty, let first = state.pending.first else { return }
+        if PipelineSettings.value("audit", project: project)?.lowercased() == "off" {
+            updateState { $0.audit = "off" }
+            return
+        }
+        let who = NamedAgents.defaults(project: project)
+        let list = p.steps.map { s -> String in
+            let settings = [s.use ?? s.shell.map { _ in "a shell command" } ?? (p.agent.isEmpty ? who.priority.first : p.agent), s.needs.map { "needs \($0)" }, s.when.map { "chosen when: \($0)" }, Pipelines.hasScreen(s, in: p) ? "has the screen" : nil].compactMap { $0 }
+            return "### \(s.id)" + (settings.isEmpty ? "" : " (\(settings.joined(separator: ", ")))") + "\n" + String(s.prompt.prefix(2000))
+        }.joined(separator: "\n\n")
+        let text = PipelineText.fill("preflight", ["goal": goal, "map": graph.map(here: nil), "steps": list])
+        let log = dir.appendingPathComponent("audit.log")
+        try? text.write(to: dir.appendingPathComponent("audit-prompt.md"), atomically: true, encoding: .utf8)
+        for agent in judges {
+            if stopping { return }
+            let cli = AgentCLIs.find(agent.agent)
+            if AgentLimits.holds(cli?.id ?? agent.agent) != nil { continue }
+            if let cli, !cli.detect.isEmpty, !installed.contains(cli.id) { continue }
+            guard takesPrompt(cli) else { continue }
+            let session = cli?.session.isEmpty == false ? UUID().uuidString.lowercased() : nil
+            let argv = NamedAgents.argv(agent, prompt: text, extras: .init(session: session, dir: nil, permissions: lowest(cli)))
+            let r = AgentRun.run(argv, cli: cli, in: cwd, env: helperEnvironment("audit"), log: log, stallSeconds: 300, totalSeconds: 300, stop: { [weak self] in self?.stopping ?? true })
+            AgentRun.forget(cli: cli, session: session ?? r.session, cwd: cwd)
+            guard r.outcome == .ok, let verdict = Self.parseAudit(r.stdout.isEmpty ? r.text : r.stdout) else { continue }
+            if verdict.ok {
+                say("audit: it makes sense (\(agent.name))\n")
+                updateState { $0.audit = "passed" }
+                return
+            }
+            let said = verdict.problems.map { "- \($0)" }.joined(separator: "\n")
+            say("audit: \(agent.name) found problems\n\(said)\n")
+            lock.lock(); state.pending.removeAll { $0 == first }; lock.unlock()
+            park(first, RunQuestion(kind: "audit", text: "\(agent.name) read this pipeline before it started and found problems:\n\(said)", choices: ["Run it anyway", "Stop the run"], who: agent.name))
+            return
+        }
+        say("audit: no agent could do it, so this run was not audited\n")
+        updateState { $0.audit = "could not run: no agent answered" }
+    }
+
+    /// The audit's answer, wherever in what it printed. Nil when there is none, which says nothing about the pipeline.
+    static func parseAudit(_ text: String) -> (ok: Bool, problems: [String])? {
+        guard let open = text.range(of: "{\"ok\"", options: .backwards) ?? text.range(of: "{"), let close = text.range(of: "}", options: .backwards), open.lowerBound < close.upperBound,
+              let data = String(text[open.lowerBound..<close.upperBound]).data(using: .utf8),
+              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], let ok = json["ok"] as? Bool else { return nil }
+        let problems = (json["problems"] as? [String] ?? []).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+        return ok || problems.isEmpty ? (true, []) : (false, problems)
+    }
+
+    private func choose(_ id: String, _ step: Pipelines.Step, options: [String], ws: String, finished: () -> Void) {
+        let agents = judges
         let lines = options.map { o in "- \(o)" + (graph.step(o)?.when.map { ": \($0)" } ?? "") }.joined(separator: "\n")
         let folder = node(id)
         let answerFile = folder.appendingPathComponent("interpreter.json")

@@ -35,6 +35,8 @@ explainer_title = "What is a pipeline?"
 about = "A pipeline is how a project gets work done: steps that run one after another, each given to an agent you choose, and each told what the steps before it found. It can branch, and steps can run at the same time and talk to each other. A pipeline with one step is a simple task."
 points = [
     "For example: 1. Get the new comments on my Instagram post. 2. Answer the ones that ask about prices by email. 3. Write me a two-line summary.",
+    "Steps are cards you drag around. Drag from a card's dot to another card to wire them, and drag a wire's end away to disconnect it. Where a step splits there is a node: OR runs one of the next steps, chosen for it, and AND runs them all at once. Tap a node to switch it.",
+    "Before every run an agent reads the pipeline and stops it if it makes no sense, so a run that cannot work does not start.",
     "Run takes you to Work, where you can add a first and last step for that run only. Or put it on a schedule: every morning, every Monday.",
     "If an agent runs out of tokens or stalls, the next one on your list takes over. If it needs you, the run waits here with your choices.",
     "Audit writes a brief for reviewing the pipeline, and opens a shell where any agent can help you tweak it.",

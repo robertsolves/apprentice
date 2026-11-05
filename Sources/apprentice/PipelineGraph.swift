@@ -97,6 +97,11 @@ struct PipelineGraph {
 
     func canReach(_ from: String, _ to: String) -> Bool { reach(from).contains(to) }
 
+    /// Whether a path from this step reaches a step that ends.
+    func canEnd(from id: String) -> Bool {
+        reach(id).union([id]).contains { next($0) == .stop }
+    }
+
     var hasLoop: Bool { ids.contains { reach($0).contains($0) } }
 
     /// Steps that could be running at the same moment: on different branches of one `&`, past neither's join.
@@ -201,6 +206,14 @@ struct PipelineGraph {
             }
         }
         for id in unreached { r.errors.append("nothing reaches \(id)") }
+        // What makes no sense in the shape alone, before an agent reads the words.
+        for id in ids {
+            if successors(id).contains(id) { r.warnings.append("\(id) goes straight back to itself") }
+            if !canEnd(from: id) { r.warnings.append("\(id) has no way to an end: it can only go round") }
+            if case .choice(let options) = next(id) {
+                for o in options where step(o)?.when == nil { r.warnings.append("\(o) has no when: line, so nothing says when \(id) should choose it") }
+            }
+        }
         for (a, b) in overlaps() where step(a)?.ui == true && step(b)?.ui == true {
             r.errors.append("\(a) and \(b) can run at the same time and both have ui: true: only one step of a parallel group may use the screen")
         }
@@ -234,5 +247,123 @@ struct PipelineGraph {
         for id in ids where depth[id] == nil { depth[id] = 0 }
         let top = depth.values.max() ?? 0
         return (0...top).map { d in ids.filter { depth[$0] == d } }.filter { !$0.isEmpty }
+    }
+}
+
+/// What a canvas does to a pipeline, in terms of the file: a wire is a `next:` line, and an OR or AND node is that line
+/// with `|` or `&`. No state of its own, so what the canvas draws is always what the file says.
+enum PipelineWires {
+    enum Gate: Equatable { case or, and }
+
+    static func line(_ names: [String], _ gate: Gate) -> String { names.joined(separator: gate == .or ? " | " : " & ") }
+
+    /// The `next:` after a wire is drawn to `target`. A step already going somewhere splits: an OR unless it is an AND already.
+    static func adding(_ target: String, to current: PipelineGraph.Next) -> String {
+        switch current {
+        case .stop: return target
+        case .one(let a): return a == target ? a : line([a, target], .or)
+        case .choice(let a): return a.contains(target) ? line(a, .or) : line(a + [target], .or)
+        case .all(let a): return a.contains(target) ? line(a, .and) : line(a + [target], .and)
+        }
+    }
+
+    /// The `next:` after the wire to `target` goes. With nothing left it says `end`: said aloud, or the next heading would follow.
+    static func removing(_ target: String, from current: PipelineGraph.Next) -> String {
+        func rest(_ names: [String], _ gate: Gate) -> String {
+            let left = names.filter { $0 != target }
+            return left.isEmpty ? "end" : left.count == 1 ? left[0] : line(left, gate)
+        }
+        switch current {
+        case .stop: return "end"
+        case .one(let a): return rest([a], .or)
+        case .choice(let a): return rest(a, .or)
+        case .all(let a): return rest(a, .and)
+        }
+    }
+
+    /// An OR node becomes an AND and back. Nil for a step with no node.
+    static func switched(_ current: PipelineGraph.Next) -> String? {
+        switch current {
+        case .choice(let a): return line(a, .and)
+        case .all(let a): return line(a, .or)
+        default: return nil
+        }
+    }
+
+    /// The `next:` after this step's targets are these with this gate, for adding branches.
+    static func targets(_ current: PipelineGraph.Next) -> [String] {
+        switch current {
+        case .stop: return []
+        case .one(let a): return [a]
+        case .choice(let a), .all(let a): return a
+        }
+    }
+
+    /// The `next:` after the wire to `old` is dragged onto `new`, keeping the node it came through.
+    static func replacing(_ old: String, with new: String, in current: PipelineGraph.Next) -> String {
+        func swap(_ names: [String], _ gate: Gate) -> String {
+            var seen = Set<String>()
+            let list = names.map { $0 == old ? new : $0 }.filter { seen.insert($0).inserted }
+            return list.count == 1 ? list[0] : line(list, gate)
+        }
+        switch current {
+        case .stop: return new
+        case .one(let a): return swap([a], .or)
+        case .choice(let a): return swap(a, .or)
+        case .all(let a): return swap(a, .and)
+        }
+    }
+
+    /// The same wires said aloud, for when the order of the steps is about to change: no `next:` means the next heading.
+    static func explicit(_ current: PipelineGraph.Next) -> String {
+        switch current {
+        case .stop: return "end"
+        case .one(let a): return a
+        case .choice(let a): return line(a, .or)
+        case .all(let a): return line(a, .and)
+        }
+    }
+
+    /// A new step's name, saying nothing about order: steps get wired and moved around. Its words soon name it instead.
+    static func newName(taken: Set<String>) -> String {
+        var name = "New step", n = 2
+        while taken.contains(Pipelines.slug(name)) { name = "New step \(n)"; n += 1 }
+        return name
+    }
+
+    /// A name from a step's words, unique among the rest.
+    static func name(from prompt: String, taken: Set<String>) -> String? {
+        let base = Pipelines.taskName(prompt)
+        guard !base.isEmpty else { return nil }
+        var name = base, n = 2
+        while taken.contains(Pipelines.slug(name)) { name = "\(base) \(n)"; n += 1 }
+        return name
+    }
+
+    /// A `next:` line after a step is renamed, keeping its shape. Step names are how the file wires steps together.
+    static func renaming(_ old: String, to new: String, in next: String) -> String {
+        guard !next.isEmpty, next.lowercased() != "end" else { return next }
+        let parts = PipelineGraph.split(next)
+        let names = parts.names.map { Pipelines.slug($0) == old ? new : $0 }
+        if parts.names.count == 1 { return names[0] }
+        return line(names, parts.all ? .and : .or)
+    }
+
+    /// Where cards go when nobody has placed them: a column for each depth, each column centred on the tallest.
+    static func layout(_ graph: PipelineGraph, columnWidth: Double = 290, rowHeight: Double = 112, margin: Double = 110) -> [String: CGPoint] {
+        let layers = graph.layers()
+        let tallest = layers.map(\.count).max() ?? 1
+        var out: [String: CGPoint] = [:]
+        for (x, layer) in layers.enumerated() {
+            let top = Double(tallest - layer.count) * rowHeight / 2
+            for (y, id) in layer.enumerated() {
+                out[id] = CGPoint(x: margin + Double(x) * columnWidth, y: 70 + top + Double(y) * rowHeight)
+            }
+        }
+        // A step nothing reaches has no depth: it waits in a row of its own, under the rest.
+        for (i, id) in graph.ids.enumerated() where out[id] == nil {
+            out[id] = CGPoint(x: margin + Double(i) * columnWidth, y: 70 + Double(tallest) * rowHeight)
+        }
+        return out
     }
 }

@@ -277,6 +277,7 @@ learn = true
 # limit_hold_min = 60
 # keep_outputs_days = 30
 # keep_sessions_days = 0
+# audit = "on"        # an agent reads each pipeline before each run and stops it if it makes no sense; "off" turns that off
 # urgent_max = 2     # times another step can stop one step with an urgent message in a run
 
 # Learning a place: the `learned?` nudge, when a fact counts as unchecked, how environments match

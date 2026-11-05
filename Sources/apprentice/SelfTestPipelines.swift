@@ -295,6 +295,7 @@ extension SelfTest {
     case "$prompt" in
       *"You are the scribe"*) echo "SCRIBE $who wrote this"; exit 0;;
       *"You choose the next step"*) cat "$FAKE_DIR/choice-$who" 2>/dev/null || cat "$FAKE_DIR/choice"; exit 0;;
+      *"You audit a pipeline"*) cat "$FAKE_DIR/audit" 2>/dev/null || echo '{"ok": true}'; exit 0;;
     esac
     line=$(printf '%s\\n' "$prompt" | sed -n 's/^RUN-'"$who"': //p' | head -1)
     [ -n "$line" ] || line=$(printf '%s\\n' "$prompt" | sed -n 's/^RUN: //p' | head -1)
@@ -738,6 +739,8 @@ extension SelfTest {
         r = cli(["pipeline", "run", "b", "--background", "--directed"], in: back, fake: fake)
         check(r.code == 0 && r.out.contains("run 1 started") && Date().timeIntervalSince(began) < 10 && Runs.alive(state(back, 1)?.pid), "background: it comes back at once, with the run going (exit \(r.code))")
         check(Runs.directed(dir(back, 1)), "background: the run knows it is directed")
+        // The audit comes first, and is a change like any other.
+        _ = waitFor(20) { state(back, 1)?.steps["slow"]?.status == "running" }
         _ = cli(["pipeline", "status", "1", "--wait", "--for", "1s"], in: back, fake: fake)
         r = cli(["pipeline", "status", "1", "--wait", "--for", "1s"], in: back, fake: fake)
         check(r.code == 0 && r.out.contains("nothing has changed yet"), "wait: nothing changed, and it says so")
@@ -868,6 +871,25 @@ extension SelfTest {
         let output = (try? String(contentsOf: Runs.root(project: once).appendingPathComponent("1/nodes/w/output.log"), encoding: .utf8)) ?? ""
         check(r.code == 0 && state(once, 1)?.status == "done" && output.contains("did-it-without") && output.contains("told-what"), "refusal: one more go, told what was refused, and it finishes (exit \(r.code))")
         check(tries(once, "w") == 2 && !FileManager.default.fileExists(atPath: fake.appendingPathComponent("prompt-two-w").path), "refusal: the same agent goes again, not a wider one")
+        // The audit is part of every run: it passes, or it stops the run before anything is spent.
+        check(state(once, 1)?.audit == "passed", "audit: it ran before the first step")
+        let audited = newProject("audited", under: base)
+        let ranStep = fake.appendingPathComponent("audited-step-ran")
+        write("---\ngoal: g\n---\n## w\nuse: A\nRUN: touch '\(ranStep.path)'; echo did-it\n", "w", in: audited)
+        try? "{\"ok\": false, \"problems\": [\"the second step needs what nothing makes\"]}".write(to: fake.appendingPathComponent("audit"), atomically: true, encoding: .utf8)
+        r = cli(["pipeline", "run", "w"], in: audited, fake: fake)
+        check(r.code == 9 && state(audited, 1)?.steps["w"]?.question?.kind == "audit" && state(audited, 1)?.steps["w"]?.question?.text.contains("nothing makes") == true && !FileManager.default.fileExists(atPath: ranStep.path), "audit: a pipeline that makes no sense stops before its first step (exit \(r.code))")
+        try? FileManager.default.removeItem(at: fake.appendingPathComponent("audit"))
+        r = cli(["pipeline", "answer", "1", "w", "Run it anyway"], in: audited, fake: fake)
+        check(r.code == 0 || r.out.contains("carries on"), "audit: running it anyway is not a grant of access")
+        check(waitFor(30) { state(audited, 1)?.status == "done" } && FileManager.default.fileExists(atPath: ranStep.path) && state(audited, 1)?.audit == "allowed", "audit: and it is not asked again in that run")
+        try? "not an answer".write(to: fake.appendingPathComponent("audit"), atomically: true, encoding: .utf8)
+        let silent = newProject("silent", under: base)
+        write("---\ngoal: g\n---\n## w\nuse: A\nRUN: echo fine\n", "w", in: silent)
+        r = cli(["pipeline", "run", "w"], in: silent, fake: fake)
+        check(r.code == 0 && r.out.contains("not audited") && state(silent, 1)?.audit?.hasPrefix("could not run") == true, "audit: one that cannot run says so and does not hold the run up (exit \(r.code))")
+        try? FileManager.default.removeItem(at: fake.appendingPathComponent("audit"))
+
         // Refused again: now it is the user's.
         let twice = newProject("twice", under: base)
         write("---\ngoal: g\n---\n## w\nuse: A\nRUN: echo refused by the sandbox\n", "w", in: twice)
@@ -910,6 +932,54 @@ extension SelfTest {
         let count = Repo.run("git", ["rev-list", "--count", "copies"], in: repo).out
         _ = Repo.commitOnBranch("copies", path: "sessions/a.jsonl", text: "one again\n", message: "m", in: repo)
         check(Repo.run("git", ["rev-list", "--count", "copies"], in: repo).out == count && count == "3", "copies: the same text again makes no commit")
+    }
+
+    /// What a canvas does to the file.
+    static func canvasWires() {
+        typealias W = PipelineWires
+        check(W.adding("b", to: .stop) == "b" && W.adding("a", to: .one("a")) == "a", "wires: the first wire is the next step, and drawing it twice changes nothing")
+        check(W.adding("b", to: .one("a")) == "a | b" && W.adding("c", to: .choice(["a", "b"])) == "a | b | c" && W.adding("c", to: .all(["a", "b"])) == "a & b & c", "wires: a second wire makes an OR, and a node keeps its kind")
+        check(W.removing("a", from: .one("a")) == "end" && W.removing("a", from: .stop) == "end", "wires: with nothing left the step says end, or the next heading would follow")
+        check(W.removing("b", from: .choice(["a", "b"])) == "a" && W.removing("b", from: .all(["a", "b", "c"])) == "a & c", "wires: a node with one left is a plain wire, and with more it stays")
+        check(W.switched(.choice(["a", "b"])) == "a & b" && W.switched(.all(["a", "b"])) == "a | b" && W.switched(.one("a")) == nil, "wires: tapping a node switches OR and AND")
+        check(W.renaming("old", to: "new", in: "old | b") == "new | b" && W.renaming("old", to: "new", in: "a & old") == "a & new" && W.renaming("old", to: "new", in: "old") == "new" && W.renaming("old", to: "new", in: "end") == "end", "wires: renaming a step keeps the wires to it")
+        // What the canvas writes is what the engine reads.
+        var p = Pipelines.Pipeline(name: "W")
+        var start = Pipelines.Step(title: "Start", prompt: "x"); start.next = W.adding("b", to: .one("a"))
+        var a = Pipelines.Step(title: "A", prompt: "x"); a.next = "end"
+        var b = Pipelines.Step(title: "B", prompt: "x"); b.next = "end"
+        p.steps = [start, a, b]
+        check(PipelineGraph(p).next("start") == .choice(["a", "b"]) && PipelineGraph(p).check(agents: [], clis: []).ok, "wires: an OR from the canvas is a branch to the engine")
+        start.next = W.switched(PipelineGraph(p).next("start"))
+        p.steps[0] = start
+        check(PipelineGraph(p).next("start") == .all(["a", "b"]) && PipelineGraph(Pipelines.parse(Pipelines.render(p))).next("start") == .all(["a", "b"]), "wires: an AND is parallel to the engine, and survives the file")
+        check(W.replacing("a", with: "c", in: .choice(["a", "b"])) == "c | b" && W.replacing("a", with: "c", in: .all(["a", "b"])) == "c & b" && W.replacing("a", with: "c", in: .one("a")) == "c" && W.replacing("a", with: "b", in: .choice(["a", "b"])) == "b", "wires: dragging a wire's end moves it and keeps its node")
+        check(W.explicit(.stop) == "end" && W.explicit(.one("a")) == "a" && W.explicit(.choice(["a", "b"])) == "a | b" && W.explicit(.all(["a", "b"])) == "a & b", "wires: said aloud, so moving a step changes no wire")
+        check(W.newName(taken: []) == "New step" && W.newName(taken: ["new-step"]) == "New step 2" && !W.newName(taken: []).contains("1"), "names: a new step's name says nothing about its order")
+        check(W.name(from: "Read the report and work out what it needs", taken: []) == "Read the report and work out" && W.name(from: "Read it", taken: ["read-it"]) == "Read it 2" && W.name(from: " ", taken: []) == nil, "names: a step is named from its words, uniquely")
+        // What makes no sense in the shape alone.
+        var round = Pipelines.Pipeline(name: "R")
+        var r1 = Pipelines.Step(title: "One", prompt: "x"); r1.next = "two"
+        var r2 = Pipelines.Step(title: "Two", prompt: "x"); r2.next = "one"
+        round.steps = [r1, r2]
+        check(PipelineGraph(round).check(agents: [], clis: []).warnings.contains { $0.contains("no way to an end") }, "check: a path that can only go round is flagged")
+        var bare = Pipelines.Pipeline(name: "B")
+        var from = Pipelines.Step(title: "From", prompt: "x"); from.next = "a | b"
+        var chooseA = Pipelines.Step(title: "A", prompt: "x"); chooseA.next = "end"; chooseA.when = "it is a bug"
+        var chooseB = Pipelines.Step(title: "B", prompt: "x"); chooseB.next = "end"
+        bare.steps = [from, chooseA, chooseB]
+        check(PipelineGraph(bare).check(agents: [], clis: []).warnings.contains { $0.contains("b has no when:") } && !PipelineGraph(bare).check(agents: [], clis: []).warnings.contains { $0.contains("a has no when:") }, "check: a branch nothing says when to choose is flagged")
+        check(PipelineEngine.parseAudit("thinking...\n{\"ok\": true}")?.ok == true && PipelineEngine.parseAudit("{\"ok\": false, \"problems\": [\"x\"]}")?.problems == ["x"] && PipelineEngine.parseAudit("no idea") == nil && PipelineEngine.parseAudit("{\"ok\": false}")?.ok == true, "audit: its answer is read wherever it is, and a complaint needs a problem")
+        let spots = W.layout(PipelineGraph(p))
+        check(spots.count == 3 && spots["a"]!.x == spots["b"]!.x && spots["a"]!.y != spots["b"]!.y && spots["start"]!.x < spots["a"]!.x, "layout: a column for each depth, branches one above the other")
+        let folder = Store.dir.appendingPathComponent("layout-test-\(UUID().uuidString)")
+        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent("x.md")
+        Pipelines.saveLayout(["a": CGPoint(x: 10, y: 20)], of: file)
+        check(Pipelines.layout(of: file)["a"] == CGPoint(x: 10, y: 20) && Pipelines.layout(of: nil).isEmpty, "layout: where the cards sit is kept beside the file")
+        try? "---\nname: X\n---\n## s\ndo it\n".write(to: file, atomically: true, encoding: .utf8)
+        check(Pipelines.inFolder(nil).allSatisfy { !$0.name.isEmpty } && !FileManager.default.fileExists(atPath: folder.appendingPathComponent("x.layout.json.md").path), "layout: its file is not taken for a pipeline")
     }
 
     /// How a VM's state reads on its row and its Dock icon.
