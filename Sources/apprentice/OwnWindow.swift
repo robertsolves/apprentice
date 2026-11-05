@@ -18,8 +18,13 @@ enum OwnWindow {
     }
 
     /// Why an action in the window is refused outright, nil when it may go on to the ordinary gate. A point can land on a
-    /// button that is the user's, and a modal alert or panel takes any key, so neither is the agent's to use here.
-    static func refusal(cmd: String, args: [String], element: Element?, otherWindowFocused: Bool) -> String? {
+    /// button that is the user's, and a modal alert or panel takes any key, so neither is the agent's to use here. A sheet is
+    /// a form of the window itself, operated like the rest of it, whose controls are still checked by name: only a key
+    /// that presses whatever its default button is goes through its button's number instead.
+    static func refusal(cmd: String, args: [String], element: Element?, otherWindowFocused: Bool, sheetFocused: Bool = false) -> String? {
+        if sheetFocused, cmd == "key", ["return", "enter", "space"].contains(args.first?.lowercased() ?? "") {
+            return "in a sheet of apprentice's own window, press its button by number (`apprentice read`, then `click <id>`): this key presses whichever button is the default"
+        }
         if otherWindowFocused {
             return "a dialog or panel of apprentice's own window has the focus: only the user answers it. Say what it is waiting for in the chat, and carry on when they have"
         }

@@ -112,7 +112,7 @@ enum Handback {
         if continuing { return }
         guard let front = NSWorkspace.shared.frontmostApplication, front.processIdentifier != getpid(),
               front.bundleIdentifier != AppBundle.identifier,
-              !SiteLists.current.systemDialogs.contains(front.localizedName ?? "") else { Store.remove("origin.json"); return }
+              !Covered.isDialog(front.localizedName ?? "") else { Store.remove("origin.json"); return }
         let focused = appElement(front.processIdentifier).attr(kAXFocusedWindowAttribute) as! AXUIElement?
         Store.save(Origin(pid: front.processIdentifier, bundle: front.bundleIdentifier, name: front.localizedName ?? "your app",
                           wid: focused?.windowID, at: Date().timeIntervalSince1970), "origin.json")

@@ -1055,7 +1055,7 @@ extension SelfTest {
         check(Device.caller(Approvals.replay(noTab, by: oneSession, model: "m", project: nil, byUser: false)).who == Device.caller(oneSession).who, "approve: an agent's approved action is that agent's")
         let dialog = Covered.Row(owner: "UserNotificationCenter", pid: 50, frame: CGRect(x: 100, y: 100, width: 50, height: 50))
         let other = Covered.Row(owner: "Other", pid: 60, frame: CGRect(x: 0, y: 0, width: 400, height: 400))
-        let dialogs = ["UserNotificationCenter"]
+        let dialogs = ["usernotificationcenter"]
         check(Covered.over(CGPoint(x: 120, y: 120), app: 7, own: 8, hit: nil, rows: [dialog, other], dialogs: dialogs) == "UserNotificationCenter", "covered: a macOS dialog over the target stops a click")
         check(Covered.over(CGPoint(x: 300, y: 300), app: 7, own: 8, hit: nil, rows: [dialog, other], dialogs: dialogs) == nil, "covered: a window that lets the click through is not in the way")
         check(Covered.over(CGPoint(x: 300, y: 300), app: 7, own: 8, hit: 60, rows: [dialog, other], dialogs: dialogs) == "Other", "covered: another app that would take the click stops it")
@@ -1078,6 +1078,9 @@ extension SelfTest {
               && OwnWindow.refusal(cmd: "scroll", args: ["down", "--at", "1,1"], element: nil, otherWindowFocused: false) == nil, "own window: a click at a point is refused, by element number is not")
         check(OwnWindow.refusal(cmd: "key", args: ["return"], element: nil, otherWindowFocused: true)?.contains("only the user answers") == true
               && OwnWindow.refusal(cmd: "key", args: ["return"], element: nil, otherWindowFocused: false) == nil, "own window: nothing goes to the window while an alert or panel has the focus")
+        check(OwnWindow.refusal(cmd: "click", args: ["12"], element: button("Create"), otherWindowFocused: false, sheetFocused: true) == nil
+              && OwnWindow.refusal(cmd: "type", args: ["12", "words"], element: nil, otherWindowFocused: false, sheetFocused: true) == nil
+              && OwnWindow.refusal(cmd: "key", args: ["return"], element: nil, otherWindowFocused: false, sheetFocused: true) != nil, "own window: a sheet is operated by its controls, and Return does not press its default")
         var session = Session(app: "apprentice", bundle: id, pid: 1, wid: 1, allow: [])
         check(session.ownWindow, "own window: a session on it knows")
         session.bundle = "com.apple.finder"

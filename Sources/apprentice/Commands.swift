@@ -229,7 +229,7 @@ func prepare(checkAllow: Bool = true) throws -> (Session, Target, Snapshot?) {
         guard Commands.reads.contains(Approvals.request.cmd) else {
             throw Fail(2, "stale: the page changed to \(now) without apprentice. The user or another tool may be using this window. Nothing was done: `read` the page and decide again")
         }
-        Commands.notice = "note: the page changed to \(now) without apprentice. The user or another tool may be using this window; check before acting."
+        if !Commands.ownChange { Commands.notice = "note: the page changed to \(now) without apprentice. The user or another tool may be using this window; check before acting." }
     }
     session.track(target.url)
     // Pacing profiles follow the page the window is on now, not the page it was attached to.
@@ -260,6 +260,7 @@ func beforeAction(_ session: Session, url: String?) throws {
 /// with the diff, when the site answered with a challenge or a throttling message.
 func finish(_ command: String, _ session: Session, _ target: Target, _ old: Snapshot?,
             extra: [String] = [], log fields: [String: Any] = [:]) throws -> String {
+    Commands.lastActionAt = Date()
     // Once per command, after every step of it, so a fidget never moves the page between steps.
     if let plan = Fidget.plan(after: command, web: target.url != nil) {
         _ = try? Borrow.run(target) { Fidget.perform(plan, in: target.bounds, web: target.url != nil, refocus: target.raise) }
@@ -271,6 +272,7 @@ func finish(_ command: String, _ session: Session, _ target: Target, _ old: Snap
 /// The rest of `finish` once the screen has settled, shared with the browser VM.
 func finish(_ command: String, _ session: Session, url: String?, _ old: Snapshot?, _ new: Snapshot,
             extra: [String] = [], log fields: [String: Any] = [:]) throws -> String {
+    Commands.lastActionAt = Date()
     // The step acted, so its budget count stands.
     Commands.reserved = nil
     var session = session
@@ -321,8 +323,9 @@ func gate(_ session: Session, _ target: Target, _ e: Element?, _ summary: String
     if session.ownWindow {
         let request = Approvals.request
         let focused = target.app.attr(kAXFocusedWindowAttribute) as! AXUIElement?
+        let sheet = (focused?.attr(kAXRoleAttribute) as? String) == "AXSheet"
         let refusal = OwnWindow.refusal(cmd: request.cmd, args: request.args, element: e ?? focus,
-                                  otherWindowFocused: focused.map { !CFEqual($0, target.window) } ?? false)
+                                  otherWindowFocused: !sheet && (focused.map { !CFEqual($0, target.window) } ?? false), sheetFocused: sheet)
         if let refusal { throw Fail(8, refusal) }
         if OwnWindow.userOnly(e ?? focus) { warn.append(Gate.userOnlyStep) }
     }
@@ -403,6 +406,10 @@ enum Commands {
     static var reserved: (host: String, kind: String)?
     /// When the last command finished, so an update never restarts the daemon in the middle of a task.
     static var lastAt = Date.distantPast
+    /// When apprentice last acted on a page. A page that changes soon after is that action's own doing: a press of Return
+    /// navigates after the settle has ended, and nobody else is using the window.
+    static var lastActionAt = Date.distantPast
+    static var ownChange: Bool { Date().timeIntervalSince(lastActionAt) < 20 }
 
     static func run(_ req: Request) throws -> String {
         // A press stops the action under way and holds every later step (`KillSwitch.halted`) until the

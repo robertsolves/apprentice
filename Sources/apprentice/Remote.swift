@@ -381,7 +381,7 @@ enum Remote {
             guard Commands.reads.contains(Approvals.request.cmd) else {
                 throw Fail(2, "stale: the page changed to \(url) without apprentice. The user may be using the VM. Nothing was done: `read` the page and decide again")
             }
-            Commands.notice = "note: the page changed to \(url) without apprentice. The user may be using the VM; check before acting."
+            if !Commands.ownChange { Commands.notice = "note: the page changed to \(url) without apprentice. The user may be using the VM; check before acting." }
         }
         session.track(now.url)
         Config.activate(Config.profileKey(session: session, url: now.url))

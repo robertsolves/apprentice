@@ -819,9 +819,14 @@ enum Covered {
     /// point. It counts only with a window there: a page's content process answers for its browser and owns no window.
     static func over(_ point: CGPoint, app: pid_t, own: pid_t, hit: pid_t?, rows: [Row], dialogs: [String]) -> String? {
         let here = rows.filter { $0.frame.contains(point) }
-        if let dialog = here.first(where: { dialogs.contains($0.owner) }) { return dialog.owner }
+        if let dialog = here.first(where: { isDialog($0.owner, dialogs) }) { return dialog.owner }
         guard let hit, hit != app, hit != own else { return nil }
         return here.first { $0.pid == hit }?.owner
+    }
+
+    /// The lists are lower case once read.
+    static func isDialog(_ owner: String, _ dialogs: [String] = SiteLists.current.systemDialogs) -> Bool {
+        dialogs.contains { $0.lowercased() == owner.lowercased() }
     }
 
     static func rows() -> [Row] {
@@ -843,9 +848,9 @@ enum Covered {
         let found = AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(point.x), Float(point.y), &element) == .success
         if found, let element { AXUIElementGetPid(element, &hit) }
         if let name = over(point, app: app, own: getpid(), hit: hit > 0 ? hit : nil, rows: rows(), dialogs: SiteLists.current.systemDialogs) {
-            let isDialog = SiteLists.current.systemDialogs.contains(name)
-            throw Fail(4, "blocked: \(isDialog ? "a macOS dialog" : name) is on top of what you meant to click, so the click would land on it. Nothing was done. "
-                + (isDialog ? "Only the user can answer it: tell them it is waiting (`apprentice ask`)." : "Try again once it has gone, or ask the user."))
+            let dialog = isDialog(name)
+            throw Fail(4, "blocked: \(dialog ? "a macOS dialog" : name) is on top of what you meant to click, so the click would land on it. Nothing was done. "
+                + (dialog ? "Only the user can answer it: tell them it is waiting (`apprentice ask`)." : "Try again once it has gone, or ask the user."))
         }
     }
 }
