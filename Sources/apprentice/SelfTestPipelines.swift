@@ -845,6 +845,23 @@ extension SelfTest {
         check(!FileManager.default.fileExists(atPath: skilled.appendingPathComponent(".claude/skills/say-hi/SKILL.md").path), "skill: and goes when it goes")
     }
 
+    /// Who last touched the keyboard or mouse: apprentice's own input, and the tail macOS adds to it, is not the person.
+    static func humanActivity() {
+        let never = 1e9
+        // Apprentice posted 18 s ago and nothing since: the person is not there.
+        check(Borrow.attributedIdle(idle: 18.0, sinceOwn: 18.0, sinceHuman: never) == never, "idle: the last event was apprentice's own")
+        // Its scroll's momentum tail arrived 1.5 s after its last post: still its own (the 80 ms rule called this the person).
+        check(Borrow.attributedIdle(idle: 16.5, sinceOwn: 18.0, sinceHuman: never) == never, "idle: the momentum tail of its own scroll is not the person")
+        check(Borrow.attributedIdle(idle: 17.9, sinceOwn: 18.0, sinceHuman: never) == never, "idle: nor is lag in an event arriving")
+        // The person acted 5 s after apprentice's last post, or apprentice never posted.
+        check(Borrow.attributedIdle(idle: 13.0, sinceOwn: 18.0, sinceHuman: 13.0) == 13.0, "idle: the person acting after apprentice is the person")
+        check(Borrow.attributedIdle(idle: 4.0, sinceOwn: 1e9, sinceHuman: never) == 4.0, "idle: with no post of apprentice's, the system's count stands")
+        // Within the tail the monitor decides, and it saw the person.
+        check(Borrow.attributedIdle(idle: 17.0, sinceOwn: 18.0, sinceHuman: 17.0) == 17.0, "idle: a key the monitor saw within the tail still counts")
+        check(Borrow.countsAsPerson(tagged: false, scroll: false, momentum: false) && Borrow.countsAsPerson(tagged: false, scroll: true, momentum: false), "idle: an untagged key or scroll is the person")
+        check(!Borrow.countsAsPerson(tagged: true, scroll: false, momentum: false) && !Borrow.countsAsPerson(tagged: false, scroll: true, momentum: true), "idle: apprentice's own events and a scroll's momentum tail are not")
+    }
+
     /// Apprentice operating its own window, and what stays the user's there.
     static func ownWindow() {
         let id = AppBundle.identifier

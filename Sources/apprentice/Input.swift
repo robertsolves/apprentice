@@ -840,23 +840,35 @@ enum Borrow {
     static var lastOwnPost = Date.distantPast
     static var lastHumanEvent = Date.distantPast
 
+    /// Whether an event is the person acting. Not apprentice's own (tagged), and not the momentum tail macOS adds to a
+    /// scroll after it ends: that tail comes later, carries no tag, and is the scroll that caused it, whoever scrolled.
+    static func countsAsPerson(tagged: Bool, scroll: Bool, momentum: Bool) -> Bool { !tagged && !(scroll && momentum) }
+
     /// Installed once, on the main run loop: every untagged key, click or move is the person's.
     static func watchHuman() {
         let mask: NSEvent.EventTypeMask = [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .mouseMoved, .scrollWheel,
                                            .leftMouseDragged, .rightMouseDragged]
         NSEvent.addGlobalMonitorForEvents(matching: mask) { event in
-            if event.cgEvent?.getIntegerValueField(.eventSourceUserData) != Keys.tag { lastHumanEvent = Date() }
+            let tagged = event.cgEvent?.getIntegerValueField(.eventSourceUserData) == Keys.tag
+            if countsAsPerson(tagged: tagged, scroll: event.type == .scrollWheel, momentum: !event.momentumPhase.isEmpty) { lastHumanEvent = Date() }
         }
     }
 
-    /// Seconds since the person last did anything. The system's idle counter restarts on apprentice's
-    /// own events too, so when the last event was apprentice's, the monitor's record is used instead;
-    /// otherwise the system's count stands, which also covers keys the monitor cannot see (secure input).
+    /// How long after apprentice's last post an event still counts as that post's own: the momentum macOS adds to a scroll,
+    /// and the time an event takes to arrive. A bound of 80 ms took the tail of apprentice's own flicks for the person, and
+    /// the overlay said "You have control" to someone who had not touched anything.
+    static let ownTail = 3.0
+
+    /// The system's idle counter restarts on apprentice's own events too. When the last event was apprentice's, or its tail,
+    /// the monitor's record of the person is used instead; otherwise the system's count stands, which also covers keys the
+    /// monitor cannot see (secure input).
+    static func attributedIdle(idle: Double, sinceOwn: Double, sinceHuman: Double, tail: Double = ownTail) -> Double {
+        idle >= sinceOwn - tail ? sinceHuman : idle
+    }
+
+    /// Seconds since the person last did anything.
     static var humanIdle: Double {
-        let idle = idleSeconds
-        let sinceOwn = Date().timeIntervalSince(lastOwnPost)
-        let lastWasOurs = abs(idle - sinceOwn) < 0.08
-        return lastWasOurs ? Date().timeIntervalSince(lastHumanEvent) : idle
+        attributedIdle(idle: idleSeconds, sinceOwn: Date().timeIntervalSince(lastOwnPost), sinceHuman: Date().timeIntervalSince(lastHumanEvent))
     }
 
     /// What stops a command: the person's keys, clicks and scrolls. A scroll moves what the next click
@@ -867,7 +879,7 @@ enum Borrow {
     static func isPersons(_ event: NSEvent) -> Bool {
         let data = event.cgEvent?.getIntegerValueField(.eventSourceUserData)
         if data == Keys.tag { return false }
-        guard event.type != .scrollWheel || event.momentumPhase.isEmpty else { return false }
+        guard countsAsPerson(tagged: false, scroll: event.type == .scrollWheel, momentum: !event.momentumPhase.isEmpty) else { return false }
         // What stopped a command goes in the log, so a stop nobody caused can be traced to its source.
         if !interrupted {
             let pid = event.cgEvent?.getIntegerValueField(.eventSourceUnixProcessID) ?? 0
