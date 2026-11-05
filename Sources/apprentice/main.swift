@@ -1,6 +1,17 @@
 import Foundation
 import Darwin
 
+// `__pty <program> <args…>`: how a terminal tab starts (`Pty`). Takes the terminal on stdin as this session's own, then
+// becomes the program, the same process. Before anything else, so the program inherits nothing of apprentice's.
+if CommandLine.arguments.count > 2, CommandLine.arguments[1] == "__pty" {
+    let TIOCSCTTY: UInt = 0x2000_7461
+    _ = ioctl(0, TIOCSCTTY, CInt(0))
+    let program = Array(CommandLine.arguments.dropFirst(2))
+    var argv = program.map { strdup($0) } + [nil]
+    execv(program[0], &argv)
+    _exit(127)
+}
+
 signal(SIGPIPE, SIG_IGN)
 
 // `apprentice --vm <name> …` is APPRENTICE_VM for one command: the agent session's own browser VM.

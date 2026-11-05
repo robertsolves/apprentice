@@ -34,8 +34,10 @@ final class Pty {
         }
         var actions: posix_spawn_file_actions_t?
         posix_spawn_file_actions_init(&actions)
-        // Opened by name after `setsid`, the slave becomes the child's controlling terminal: ctrl+C reaches
-        // the foreground job, a resize sends it SIGWINCH, and closing the tab hangs up its children.
+        // macOS does not make a terminal controlling just by opening it after `setsid`, and posix_spawn has no action
+        // for the ioctl that does, so the child starts as `apprentice __pty` (top of main.swift), which takes it and
+        // becomes the shell. That is what lets ctrl+C reach the foreground job, a resize send it SIGWINCH, closing the
+        // tab hang up its children, and the tab tell what is running in it.
         posix_spawn_file_actions_addclose(&actions, master)
         posix_spawn_file_actions_addclose(&actions, slave)
         posix_spawn_file_actions_addopen(&actions, 0, name, O_RDWR, 0)
@@ -58,10 +60,11 @@ final class Pty {
         env["TERM_PROGRAM"] = "apprentice"
         for (k, v) in extra { env[k] = v }
         envp = env.map { strdup("\($0.key)=\($0.value)") } + [nil]
-        args = ([shell] + argvRaw).map { strdup($0) } + [nil]
+        let starter = Wire.binaryPath()
+        args = ([starter, "__pty", shell] + argvRaw).map { strdup($0) } + [nil]
 
         var child: pid_t = 0
-        let spawn = posix_spawn(&child, shell, &actions, &attr, args, envp)
+        let spawn = posix_spawn(&child, starter, &actions, &attr, args, envp)
         posix_spawn_file_actions_destroy(&actions)
         posix_spawnattr_destroy(&attr)
         close(slave)
