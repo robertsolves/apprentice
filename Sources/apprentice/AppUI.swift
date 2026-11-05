@@ -38,7 +38,8 @@ enum AppBundle {
         if Release.bundle == nil, !installed { sign() }
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-        p.arguments = (activate ? [] : ["-g"]) + ["-a", path.path]
+        // A new instance: a daemon started from the bundle has the same identifier, and without this macOS only brings it forward.
+        p.arguments = (activate ? [] : ["-g"]) + ["-n", "-a", path.path]
         return (try? p.run()) != nil
     }
 

@@ -708,6 +708,7 @@ enum Mouse {
             let from = lastSample.flatMap { hypot($0.x - actual.x, $0.y - actual.y) <= 10 ? $0 : nil } ?? actual
             e.setIntegerValueField(.mouseEventDeltaX, value: Int64((p.x - from.x).rounded()))
             e.setIntegerValueField(.mouseEventDeltaY, value: Int64((p.y - from.y).rounded()))
+            if type == .leftMouseDragged { e.setIntegerValueField(.mouseEventClickState, value: 1) }
             Keys.post(e)
         }
         lastSample = p
@@ -757,6 +758,8 @@ enum Mouse {
     /// and every drag settles before letting go, so neither the path nor the drop pixel repeats.
     static func drag(from start: CGPoint, to end: CGPoint) throws {
         guard let down = CGEvent(mouseEventSource: nil, mouseType: .leftMouseDown, mouseCursorPosition: start, mouseButton: .left) else { return }
+        // A real press and all that follows it say click 1. Without it some controls take no drag at all, and a page can tell.
+        down.setIntegerValueField(.mouseEventClickState, value: 1)
         Keys.post(down)
         Pace.sleep(Rand.uniform(0.1...0.22))
         let p = Config.current.pace
@@ -786,6 +789,7 @@ enum Mouse {
         }
         Pace.sleep(Rand.uniform(0.04...0.15))
         if let up = CGEvent(mouseEventSource: nil, mouseType: .leftMouseUp, mouseCursorPosition: drop, mouseButton: .left) {
+            up.setIntegerValueField(.mouseEventClickState, value: 1)
             Keys.post(up)
         }
     }
