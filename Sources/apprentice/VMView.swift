@@ -2,10 +2,10 @@ import AppKit
 import SwiftUI
 
 /// The VM lives inside the window: the VMs screen shows each running VM's screen with its pointer and what its
-/// agent is doing, so there is no separate app per VM. The daemons open the window on that VM (`AppShow.vm`), and
-/// the picture comes from a child process per VM shown (`vm frames`), which talks to the guest over its own
-/// connection, so watching never slows the agent. To click or type in the VM, `apprentice vm look` opens
-/// Screen Sharing.
+/// agent is doing, and `VMDock` detaches one into a window and Dock icon of its own. The daemons open the window on
+/// that VM (`AppShow.vm`), and the picture comes from a child process per VM shown (`vm frames`), which talks to the
+/// guest over its own connection, so watching never slows the agent. To click or type in the VM, `apprentice vm look`
+/// opens Screen Sharing.
 enum AppShow {
     static let note = Notification.Name("com.apprentice.app.show")
     /// What the window should show next: written before the window opens or is told, read and removed by it.
@@ -46,14 +46,6 @@ enum AppShow {
         guard let d = try? Data(contentsOf: file) else { return nil }
         try? FileManager.default.removeItem(at: file)
         return try? JSONDecoder().decode(Request.self, from: d)
-    }
-
-    /// Apps from the build that gave each VM its own Dock app (`~/.apprentice/Dock`): quit and removed once.
-    static func retireDockApps() {
-        for app in NSWorkspace.shared.runningApplications where app.bundleIdentifier?.hasPrefix("com.apprentice.vm.") == true {
-            app.terminate()
-        }
-        try? FileManager.default.removeItem(at: Store.dir.appendingPathComponent("Dock"))
     }
 }
 
@@ -225,32 +217,34 @@ final class VMFeed: ObservableObject {
     }
 }
 
-/// The VM's screen as a panel of the VMs screen: the picture, what its agent is doing, and the way to click in it.
+/// The VM's screen and nothing else: no heading, caption or frame. `fills` takes all the room it is given, as the VMs
+/// screen and a detached window do, with the picture as large as fits. What its agent is doing is the tooltip.
 struct VMScreen: View {
     let name: String
+    var fills = false
     @StateObject private var feed = VMFeed()
 
-    var body: some View {
-        Panel(title: "Its screen") {
-            HStack(spacing: Theme.s2) {
-                StatusPill(text: feed.state ?? "No agent working", tint: feed.tone)
-                Spacer()
-                Text("A picture that follows the VM. Click in it opens a screen you can use.")
-                    .font(Theme.caption).foregroundStyle(.secondary)
+    private var picture: some View {
+        ZStack {
+            Color.black
+            if let image = feed.image {
+                Image(nsImage: image).resizable().interpolation(.high).aspectRatio(contentMode: .fit)
+            } else {
+                Text(feed.problem ?? "Connecting to the VM…").font(Theme.caption).foregroundStyle(.white.opacity(0.7))
+                    .multilineTextAlignment(.center).padding(Theme.s4)
             }
-            ZStack {
-                RoundedRectangle(cornerRadius: Theme.radius).fill(Color.black.opacity(0.85))
-                if let image = feed.image {
-                    Image(nsImage: image).resizable().interpolation(.high).aspectRatio(contentMode: .fit)
-                        .clipShape(RoundedRectangle(cornerRadius: Theme.radius))
-                } else {
-                    Text(feed.problem ?? "Connecting to the VM…").font(Theme.caption).foregroundStyle(.white.opacity(0.7))
-                        .multilineTextAlignment(.leading).padding(Theme.s4)
-                }
-            }
-            .aspectRatio(1280.0 / 800.0, contentMode: .fit)
-            .frame(maxWidth: .infinity)
         }
+    }
+
+    var body: some View {
+        Group {
+            if fills {
+                picture.frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                picture.aspectRatio(1280.0 / 800.0, contentMode: .fit).frame(maxWidth: .infinity)
+            }
+        }
+        .help(feed.state ?? "No agent working")
         .onAppear { feed.start(name) }
         .onChange(of: name) { _, new in feed.start(new) }
         .onDisappear { feed.stop() }

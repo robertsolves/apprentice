@@ -315,6 +315,12 @@ enum VM {
         case "watch":
             AppShow.vm(sync: true)
             return "opened apprentice's window on \(name) (a live picture of its screen with the pointer; `vm look` is the one you can click in)"
+        case "detach":
+            try VMDock.open()
+            return "\(name) has a window and a Dock icon of its own now; closing that window attaches it again"
+        case "attach":
+            VMDock.running(Store.vmName ?? "")?.terminate()
+            return "\(name) is back in apprentice's window only"
         case "frames":
             // The window's live picture of this VM (`VMFeed`); not for agents.
             VMFrames.run()
@@ -337,7 +343,7 @@ enum VM {
             var cargs = argv.map { strdup($0) } + [nil]
             execv("/usr/bin/ssh", &cargs)
             throw Fail(1, "vm ssh: could not start ssh")
-        default: throw Fail(5, "vm setup | install | up | down | on | off | look | call \"what\" | shell | ssh | status | list")
+        default: throw Fail(5, "vm setup | install | up | down | on | off | watch | detach | attach | look | call \"what\" | shell | ssh | status | list")
         }
     }
 

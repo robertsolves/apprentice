@@ -875,7 +875,7 @@ example_output = "this Mac is free"
 
 [command."vm"]
 group = "Installing, health and the tool itself"
-usage = "vm setup | install | up | down | on | off | watch | look | call \"what\" | shell | ssh | status | list"
+usage = "vm setup | install | up | down | on | off | watch | detach | attach | look | call \"what\" | shell | ssh | status | list"
 summary = "A small Linux VM with its own screen, cursor and keyboard; shell prints the ssh command for its terminal."
 output = "The VM's state."
 where = "Mac"

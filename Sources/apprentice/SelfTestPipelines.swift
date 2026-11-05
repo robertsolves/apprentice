@@ -912,6 +912,17 @@ extension SelfTest {
         check(Repo.run("git", ["rev-list", "--count", "copies"], in: repo).out == count && count == "3", "copies: the same text again makes no commit")
     }
 
+    /// How a VM's state reads on its row and its Dock icon.
+    static func vmStates() {
+        check(VMDock.level(head: "Working", on: false) == .stopped && VMDock.level(head: nil, on: true) == .waiting, "vm state: off is off, and on with nothing to do is waiting")
+        check(VMDock.level(head: "Working", on: true) == .running && VMDock.level(head: "Yours", on: true) == .running, "vm state: working is green")
+        check(["Needs approval", "Waiting for you", "Stopped", "Agent stopped", "Paused"].allSatisfy { VMDock.level(head: $0, on: true) == .needsYou }, "vm state: what needs the user is orange")
+        check(VMDock.key("") == "mac" && VMDock.key("shop") == "shop" && VMDock.label("") == "apprentice VM" && VMDock.label("shop") == "apprentice VM shop", "vm state: the default VM and a named one")
+        check(Section.global.contains(.vms), "vm page: VMs has its own place in the sidebar")
+        check(VMDock.statusLine(head: "Done", sub: "www.facebook.com") == "Done · www.facebook.com" && VMDock.statusLine(head: "Ready", sub: "") == "Ready", "vm title: what the status box says, in words")
+        check(VMDock.title("shop", status: "Done · www.facebook.com") == "VM shop — Done · www.facebook.com" && VMDock.title("", status: nil) == "VM default", "vm title: which VM, then its status")
+    }
+
     /// Who last touched the keyboard or mouse: apprentice's own input, and the tail macOS adds to it, is not the person.
     static func humanActivity() {
         let never = 1e9

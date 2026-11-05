@@ -117,6 +117,14 @@ enum AppBundle {
     }
 
     /// Signs the bundle with the local identity where there is one, so its grants survive a rebuild.
+    /// Signs another bundle with the identity `sign` uses, so macOS keeps knowing it across rebuilds.
+    static func signStably(_ app: URL) {
+        let identities = Repo.run("security", ["find-identity", "-p", "codesigning"]).out
+        let identity = ProcessInfo.processInfo.environment["APPRENTICE_SIGN_IDENTITY"]
+            ?? (identities.contains("\"apprentice\"") ? "apprentice" : "-")
+        _ = Repo.run("codesign", ["--force", "--deep", "--options", "runtime", "-s", identity, app.path])
+    }
+
     static func sign() {
         let identities = Repo.run("security", ["find-identity", "-p", "codesigning"]).out
         let identity = ProcessInfo.processInfo.environment["APPRENTICE_SIGN_IDENTITY"]
@@ -203,7 +211,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard let self, let r = AppShow.take() else { return }
             self.show(r)
         }
-        DispatchQueue.global(qos: .utility).async { AppShow.retireDockApps() }
         // The Linux VMs run in this process (`VMHost`): start and stop orders from the daemons are answered here.
         VMHost.listen()
         // The window was closed while a VM ran, so the app stayed for it: once the last VM stops, nothing is left
@@ -226,9 +233,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func show(_ r: AppShow.Request) {
         guard let model else { return }
         if r.section == "vms" {
-            // A VM is shown on the screen of the project that works in it; one no project uses, in Settings.
-            if let p = model.projects.first(where: { $0.vm != nil && $0.vm == r.vm }) { model.show(project: p, tab: .work) }
-            else { model.show(section: .settings) }
+            model.show(section: .vms)
             model.selectedVM = r.vm
             model.refreshMachines()
         } else if let section = Section(rawValue: r.section) {
@@ -1079,8 +1084,8 @@ enum Section: String, CaseIterable, Identifiable {
     }
 
     /// The screens that belong to no project, listed under the projects. Terminal, Pipelines and Schedules
-    /// are tabs inside each project instead, and each project's VM is on its screen (the list is in Settings).
-    static var global: [Section] { ordered.filter { ![.projects, .terminal, .pipelines, .schedules, .vms].contains($0) } }
+    /// are tabs inside each project instead.
+    static var global: [Section] { ordered.filter { ![.projects, .terminal, .pipelines, .schedules].contains($0) } }
 }
 
 /// The tabs along the top of a project's screen.
@@ -1277,7 +1282,7 @@ struct RootView: View {
                 }
             case .skills: SkillsView(model: model)
             case .sites: SitesView(model: model)
-            case .vms: SettingsView(model: model)
+            case .vms: VMsScreen(model: model)
             case .settings: SettingsView(model: model)
             case .updates: UpdatesView(model: model)
             }
@@ -2175,7 +2180,6 @@ struct SettingsView: View {
                 AgentsPanel(model: model, project: nil)
                 PipelineSettingsPanel(model: model)
                 StoragePanel(model: model)
-                VMsPanel(model: model)
                 OutsideProjectsPanel(model: model)
             }
             ForEach(sections, id: \.self) { section in

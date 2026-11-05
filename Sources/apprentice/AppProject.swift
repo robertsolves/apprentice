@@ -141,6 +141,7 @@ struct ProjectWork: View {
                         if m.host == nil {
                             if running {
                                 IconButton("Click in it", "cursorarrow.click") { act(vm, "look") }
+                                IconButton("Detach", "macwindow.on.rectangle") { act(vm, "detach") }
                                 IconButton("Stop", "stop.fill") { act(vm, "down") }
                             } else {
                                 IconButton("Start", "play.fill", prominent: true) { act(vm, "up") }
