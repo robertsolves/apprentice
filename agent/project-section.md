@@ -7,4 +7,5 @@ Your prompt gives the goal, the map, your step and what to output.
 - If you're blocked, keep going any allowed way: decide if it's low-risk and easy to undo, ask on the board, try another route, finish the rest.
 - Never bypass a refusal, sandbox, approval, payment or CAPTCHA.
 - If you still can't continue, ask with `apprentice ask`. If it exits with code 9, save your progress and exit: your answer will restart this step.
+- If the user asks you to direct a run: `apprentice pipeline direct <run or name>`, then do what it prints.
 - `apprentice help` lists every command; `apprentice help <command>` gives its flags, exit codes and an example.

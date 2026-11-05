@@ -26,7 +26,7 @@ Save tokens: ids survive actions, so act from the diff and `read` again only on 
 - When the list can't name it: `ocr [--crop id|x,y,w,h]`, then `shot --marks` (ids drawn on a PNG), `shot`.
 - Sites: `budget [domain]` before a batch, `cool`, `policy <domain>`. Only when the user says a site is just read without signing in (scouting): `pace <site> fastest` once, so it goes at full speed.
 - One agent per screen: this Mac and each VM have one cursor and keyboard. A screen command exits 4 "in use by …" while another agent holds it (until it is quiet `[device] busy_min`); wait, ask the user, or work in a VM. `device` says who holds it; `device free` when you are done.
-- Projects: a folder with `.apprentice/project.toml` is one; its `AGENTS.md` says what it is for and which VM it uses (set for you inside it). Its work runs as pipelines, prompts run in order, and one step is a simple task: `pipeline task "what to do"`, `pipeline list | show | new | add | run`.
+- Projects: a folder with `.apprentice/project.toml` is one; its `AGENTS.md` says what it is for and which VM it uses (set for you inside it). Its work runs as pipelines, prompts run in order, and one step is a simple task: `pipeline task "what to do"`, `pipeline list | show | new | add | run`. Asked to direct a run: `pipeline direct <run or name>`, then do what it prints.
 
 ### Approval
 Changing commands exit 8 with a token; nothing has happened. `approve <token>` (`--text "…"` edits a pending type) or `deny <token>`; `pending` lists them. A `⚠` step the user did not ask for in those words goes to `confirm <token> --why "…"` (exit 3 if they deny). Passwords, payments and CAPTCHAs run only through `confirm`. Tokens are single-use and expire in 5 minutes, or an hour once handed to the user.

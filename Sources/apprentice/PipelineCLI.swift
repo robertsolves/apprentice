@@ -68,18 +68,75 @@ enum PipelineCLI {
         "Read .apprentice/cache/audit/\(p.slug).md, then review this pipeline with me."
     }
 
+    /// One run in full: its steps, what each parked one waits for, and how to answer it.
+    private static func runDetail(_ dir: URL, _ s: RunState) -> String {
+        var out = runSummary(dir, s)
+        for (id, st) in s.steps.sorted(by: { $0.key < $1.key }) where st.status == "parked" {
+            out += "\n\(id) waits: \(st.question?.text ?? st.reason ?? "")"
+            if let choices = st.question?.choices, !choices.isEmpty { out += "\n  choices: \(choices.joined(separator: " | "))" }
+            if let q = st.question, RunQuestion.userOnly.contains(q.kind) { out += "\n  the user has been asked this: only they can allow it" }
+            out += "\n  apprentice pipeline answer \(s.run) \(id) \"…\""
+        }
+        return out + "\neach step's work: \(dir.appendingPathComponent("nodes").path)/<step>/output.log and summary.md"
+    }
+
+    /// What changing means to someone watching a run.
+    private static func signature(_ s: RunState) -> String {
+        ([s.status] + s.steps.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value.status)" }).joined(separator: " ")
+    }
+
+    private static func ended(_ s: RunState) -> Bool { ["done", "failed", "stopped"].contains(s.status) }
+
+    /// `status --wait`: blocks until a step finishes or parks or the run ends, so watching a run spends nothing while it
+    /// works. It remembers what it last showed, so a step still waiting on the user does not wake the caller again.
+    private static func wait(_ ref: String?, _ a: Args) throws -> String {
+        let (dir, start) = try Runs.find(ref ?? "", project: Runs.project(a))
+        let seen = dir.appendingPathComponent("seen")
+        let last = (try? String(contentsOf: seen, encoding: .utf8)) ?? ""
+        let end = Date().addingTimeInterval(Board.seconds(a.value("for")) ?? 90)
+        var now = start
+        while signature(now) == last, !ended(now), now.status != "running" || Runs.alive(now.pid) || now.pid == nil, Date() < end {
+            Thread.sleep(forTimeInterval: 1)
+            now = Runs.load(dir) ?? now
+        }
+        let changed = signature(now) != last
+        try? signature(now).write(to: seen, atomically: true, encoding: .utf8)
+        let died = now.status == "running" && now.pid != nil && !Runs.alive(now.pid) ? "\nits process died: apprentice pipeline resume \(now.run) --copy" : ""
+        return (changed || ended(now) ? "" : "nothing has changed yet: wait again\n") + runDetail(dir, now) + died
+    }
+
+    /// What the window's Run types into an agent's tab: plain words, so it works in every CLI.
+    static func directLine(_ run: Int) -> String { "Run `apprentice pipeline direct \(run)` in the shell, then do what it prints." }
+
+    /// `direct <run>`, or `direct <pipeline>` to start one first: the brief for the agent the user opened, who watches the
+    /// headless steps and steers them. It starts nothing an agent could not start by hand and raises no one's access.
+    static func direct(_ ref: String?, _ a: Args) throws -> String {
+        var number = ref.flatMap { Int($0.split(separator: "#").last ?? "") }
+        var project = Runs.project(a)
+        var line: String? = nil
+        if number == nil, let ref, !ref.isEmpty {
+            let p = try Pipelines.find(ref)
+            line = try PipelineEngine.startInBackground(p, options: Options(fresh: a.has("fresh"), first: a.value("first"), last: a.value("last"), directed: true))
+            project = p.project
+            number = Runs.all(project: project, slug: p.slug).first?.state.run
+        }
+        let (dir, s) = try Runs.find(number.map(String.init) ?? "", project: project)
+        FileManager.default.createFile(atPath: Runs.directedFile(dir).path, contents: nil)
+        let text = (try? String(contentsOf: dir.appendingPathComponent("pipeline.md"), encoding: .utf8)) ?? ""
+        let p = Pipelines.parse(text, url: s.file.map { URL(fileURLWithPath: $0) }, project: s.project.map { URL(fileURLWithPath: $0) })
+        return ([line].compactMap { $0 } + [PipelineText.fill("director", [
+            "run": "\(s.run)", "name": s.name, "goal": p.goal ?? "(none written)", "map": PipelineGraph(p).map(here: nil), "status": runDetail(dir, s),
+            "file": s.file ?? "(a one-off task)", "copy": dir.appendingPathComponent("pipeline.md").path, "nodes": dir.appendingPathComponent("nodes").path,
+        ])]).joined(separator: "\n")
+    }
+
     static func status(_ ref: String?, _ a: Args) throws -> String {
         let project = Runs.project(a)
+        if a.has("wait") { return try wait(ref, a) }
         if let here = PipelineStep.current, ref == nil, let s = Runs.load(here.run) { return runSummary(here.run, s) }
         if let ref, Int(ref.split(separator: "#").last ?? "") != nil {
             let (dir, s) = try Runs.find(ref, project: project)
-            var out = runSummary(dir, s)
-            for (id, st) in s.steps.sorted(by: { $0.key < $1.key }) where st.status == "parked" {
-                out += "\n\(id) waits: \(st.question?.text ?? st.reason ?? "")"
-                if let choices = st.question?.choices, !choices.isEmpty { out += "\n  choices: \(choices.joined(separator: " | "))" }
-                out += "\n  apprentice pipeline answer \(s.run) \(id) \"…\""
-            }
-            return out
+            return runDetail(dir, s)
         }
         let slug = ref.flatMap { try? Pipelines.find($0) }?.slug
         let runs = Runs.all(project: project, slug: slug)
@@ -91,19 +148,55 @@ enum PipelineCLI {
         }.joined(separator: "\n")
     }
 
-    /// Records the answer. A live run picks it up; otherwise a new process carries the run on in the background.
+    /// `pipeline answer`: anyone at a terminal, and that includes an agent, so what gives access goes through the little
+    /// window and only the user's click there counts. Exit 7 when they did not say yes there.
     static func answer(_ a: Args) throws -> String {
         guard a.pos.count >= 4 else { throw Fail(5, "pipeline answer <run> <step> \"answer\"") }
         let (dir, s) = try Runs.find(a.pos[1], project: Runs.project(a))
         let step = Pipelines.slug(a.pos[2])
-        guard let st = s.steps[step], st.status == "parked" else { throw Fail(5, "\(step) is not waiting for an answer: apprentice pipeline status \(s.run)") }
         let text = a.pos.dropFirst(3).joined(separator: " ")
+        try checkAnswer(s, step, text)
+        if let q = s.steps[step]?.question, q.grants(text), !userSaysYes(q, text) {
+            throw Fail(7, "only the user can allow this, and they have not. It stays open for them on the run's page: tell them what it is waiting for, and carry on with what you can.")
+        }
+        return deliver(dir, s, step, text)
+    }
+
+    /// The window's own buttons: the user's click, so it needs no second one.
+    static func answerAsUser(run: Int, step: String, text: String, project: URL?) throws -> String {
+        let (dir, s) = try Runs.find("\(run)", project: project)
+        try checkAnswer(s, step, text)
+        return deliver(dir, s, step, text)
+    }
+
+    private static func checkAnswer(_ s: RunState, _ step: String, _ text: String) throws {
+        guard let st = s.steps[step], st.status == "parked" else { throw Fail(5, "\(step) is not waiting for an answer: apprentice pipeline status \(s.run)") }
         if let q = st.question, q.kind != "question", !q.choices.isEmpty, !q.choices.contains(where: { $0.caseInsensitiveCompare(text.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame }) {
             throw Fail(5, "that is not one of the answers: " + q.choices.joined(separator: " · "))
         }
+    }
+
+    private static func userSaysYes(_ q: RunQuestion, _ text: String) -> Bool {
+        guard ProcessInfo.processInfo.environment["APPRENTICE_PIPELINE_NO_ASK"] != "1" else { return false }
+        let args = ["Something at a terminal answered this for you: \(text). Is that your answer?\n\n\(q.text)", "--choices", "\(text)|No"]
+        guard let r = try? Wire.send(Request(cmd: "ask", args: args)), r.code == 0 else { return false }
+        return r.out.components(separatedBy: "\n").contains("user chose: \(text)")
+    }
+
+    /// Whether the file says something other than the run's copy, leaving out the steps typed for this run.
+    static func fileChanged(_ dir: URL, _ s: RunState) -> Bool {
+        let copy = (try? String(contentsOf: dir.appendingPathComponent("pipeline.md"), encoding: .utf8)) ?? ""
+        let named = s.file.map { URL(fileURLWithPath: $0) }
+        guard let named, let edited = try? String(contentsOf: named, encoding: .utf8) else { return false }
+        return Pipelines.render(Pipelines.forRun(Pipelines.parse(edited, url: named), first: s.first, last: s.last)) != Pipelines.render(Pipelines.parse(copy, url: named))
+    }
+
+    /// Records the answer. A live run picks it up; otherwise a new process carries the run on in the background.
+    private static func deliver(_ dir: URL, _ s: RunState, _ step: String, _ text: String) -> String {
+        guard let st = s.steps[step] else { return "" }
         let file = Runs.answers(dir).appendingPathComponent("\(step).txt")
-        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try text.write(to: file, atomically: true, encoding: .utf8)
+        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? text.write(to: file, atomically: true, encoding: .utf8)
         // So a parallel step does not ask the same thing.
         if st.question?.kind == "question" {
             try? Board.post(.init(at: Date().timeIntervalSince1970, from: "you", agent: nil, to: nil, text: String("\(step) asked: \(st.question?.text ?? "")\nthe user: \(text)".prefix(Board.maxLength))), run: dir)
@@ -116,8 +209,9 @@ enum PipelineCLI {
     /// `pipeline resume` as its own process, its output kept in the run's folder.
     static func spawnResume(_ s: RunState, dir: URL) {
         let p = Process()
-        p.executableURL = URL(fileURLWithPath: Wire.binaryPath())
-        p.arguments = ["pipeline", "resume", "\(s.run)", "--copy"] + (s.project.map { ["--project", $0] } ?? [])
+        // nohup: closing the tab or the window it was started from must not end a run in the background.
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/nohup")
+        p.arguments = [Wire.binaryPath(), "pipeline", "resume", "\(s.run)", "--copy"] + (s.project.map { ["--project", $0] } ?? [])
         if let folder = s.project { p.currentDirectoryURL = URL(fileURLWithPath: folder) }
         let log = dir.appendingPathComponent("engine.log")
         if !FileManager.default.fileExists(atPath: log.path) { FileManager.default.createFile(atPath: log.path, contents: nil) }
@@ -133,11 +227,7 @@ enum PipelineCLI {
     static func resume(_ ref: String?, _ a: Args) throws -> String {
         let (dir, s) = try Runs.find(ref ?? "", project: Runs.project(a))
         guard s.status != "done" else { throw Fail(5, "run \(s.run) finished: start a new one with apprentice pipeline run \(s.slug)") }
-        let copy = (try? String(contentsOf: dir.appendingPathComponent("pipeline.md"), encoding: .utf8)) ?? ""
-        let edited = s.file.flatMap { try? String(contentsOf: URL(fileURLWithPath: $0), encoding: .utf8) }
-        let named = s.file.map { URL(fileURLWithPath: $0) }
-        let same = edited.map { Pipelines.render(Pipelines.parse($0, url: named)) == Pipelines.render(Pipelines.parse(copy, url: named)) } ?? true
-        if !same, !a.has("copy"), !a.has("file") {
+        if fileChanged(dir, s), !a.has("copy"), !a.has("file") {
             throw Fail(5, "the pipeline's file changed since this run began. Say which to follow: apprentice pipeline resume \(s.run) --copy (the run's own copy) or --file (the edited file)")
         }
         return try PipelineEngine.resume(dir, s, useFile: a.has("file"))

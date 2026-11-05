@@ -97,6 +97,14 @@ enum NamedAgents {
         merge(global: read(globalFile), project: project.map { read(projectFile($0)) })
     }
 
+    /// What a step's Agent menu offers: the named agents, then each CLI on this Mac under its own name, which `find`
+    /// runs as it is, so a Mac with no named agents can still choose one for each step.
+    static func choices(project: URL?, installed: Set<String>, clis: [AgentCLIs.CLI] = AgentCLIs.agents()) -> [(id: String, label: String)] {
+        let named = all(project: project).map(\.name)
+        let plain = clis.filter { installed.contains($0.id) && !$0.run.isEmpty && $0.shell != true && !named.map { $0.lowercased() }.contains($0.id) }
+        return named.map { ($0, $0) } + plain.map { ($0.id, $0.label) }
+    }
+
     /// A name from the files, else a CLI's own id as it is, so a pipeline with no agents set up still runs.
     static func find(_ name: String, project: URL?, list: [Named]? = nil) -> Named? {
         let key = name.trimmingCharacters(in: .whitespaces).lowercased()

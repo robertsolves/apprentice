@@ -291,6 +291,7 @@ struct SkillEditor: View {
             try text.write(to: item.url, atomically: true, encoding: .utf8)
             saved = text
             status = "saved"
+            changed(item.url.path)
         } catch {
             status = "not saved: \(error.localizedDescription)"
         }

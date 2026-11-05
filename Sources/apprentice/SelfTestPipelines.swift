@@ -341,7 +341,15 @@ extension SelfTest {
         return folder
     }
 
-    private static func cli(_ args: [String], in folder: URL, fake: URL) -> (code: Int32, out: String) {
+    /// What the window's buttons do: the answer is the user's, and the run takes it when it next looks. Tests resume by
+    /// hand, so the run goes on with the fake CLIs' environment.
+    private static func answerLikeTheWindow(_ text: String, step: String, run: Int, in folder: URL) {
+        let file = Runs.answers(Runs.root(project: folder).appendingPathComponent("\(run)")).appendingPathComponent("\(step).txt")
+        try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? text.write(to: file, atomically: true, encoding: .utf8)
+    }
+
+    private static func cli(_ args: [String], in folder: URL, fake: URL, env extra: [String: String] = [:]) -> (code: Int32, out: String) {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: Wire.binaryPath())
         p.arguments = args
@@ -354,7 +362,7 @@ extension SelfTest {
         // No real agent CLI can be found from here, whatever a test gets wrong: this must never spend tokens.
         env["PATH"] = "/usr/bin:/bin"
         for key in ["APPRENTICE_RUN_DIR", "APPRENTICE_STEP", "APPRENTICE_STEP_OWNER", "APPRENTICE_STEP_SCREEN", "APPRENTICE_PROJECT", "APPRENTICE_VM"] { env[key] = nil }
-        p.environment = env
+        p.environment = env.merging(extra) { $1 }
         let out = Pipe()
         p.standardOutput = out
         p.standardError = out
@@ -559,7 +567,10 @@ extension SelfTest {
         let permQuestion = state(perm, 1)?.steps["w"]?.question
         check(r.code == 9 && permQuestion?.kind == "permission" && permQuestion?.choices.contains("Allow for this run") == true && permQuestion?.text.contains("write access") == false, "runs: a permission block parks with apprentice's own wording and no fallback (exit \(r.code))")
         check((try? JSONDecoder().decode(StepResult.self, from: Data(node(perm, 1, "w", "result.json").utf8)))?.tries.count == 1, "runs: no other agent was tried")
-        _ = cli(["pipeline", "answer", "1", "w", "Allow for this run"], in: perm, fake: fake)
+        r = cli(["pipeline", "answer", "1", "w", "Allow for this run"], in: perm, fake: fake)
+        check(r.code == 7 && r.out.contains("only the user") && state(perm, 1)?.steps["w"]?.status == "parked", "runs: a terminal cannot allow it without the user's click (exit \(r.code))")
+        answerLikeTheWindow("Allow for this run", step: "w", run: 1, in: perm)
+        _ = cli(["pipeline", "resume", "1", "--copy"], in: perm, fake: fake)
         check(waitFor { state(perm, 1)?.status == "done" } && node(perm, 1, "w", "output.log").contains("wrote"), "runs: Allow gives it the next level for this run")
 
         // A refusal the CLI prints is not an excuse to try wider agents either.
@@ -586,7 +597,10 @@ extension SelfTest {
         let before = Repo.run("git", ["status", "--porcelain", "--", ".apprentice"], in: first).out
         r = cli(["pipeline", "run", "x"], in: first, fake: fake)
         check(r.code == 9 && !r.out.contains("ran-with-full") && state(first, 1)?.steps["s"]?.question?.kind == "first-use", "runs: a project's agent asking for more asks first (exit \(r.code))")
-        _ = cli(["pipeline", "answer", "1", "s", "Allow for this project"], in: first, fake: fake)
+        r = cli(["pipeline", "answer", "1", "s", "Allow for this project"], in: first, fake: fake)
+        check(r.code == 7 && state(first, 1)?.steps["s"]?.status == "parked", "runs: nor can it approve a project's agent (exit \(r.code))")
+        answerLikeTheWindow("Allow for this project", step: "s", run: 1, in: first)
+        _ = cli(["pipeline", "resume", "1", "--copy"], in: first, fake: fake)
         check(waitFor { state(first, 1)?.status == "done" } && Repo.run("git", ["status", "--porcelain", "--", ".apprentice"], in: first).out == before && !NamedAgents.approvals().isEmpty, "runs: the answer starts it, and is kept on this Mac, not in the repo")
         r = cli(["pipeline", "run", "x"], in: first, fake: fake)
         check(r.code == 0, "runs: and is not asked again")
@@ -666,6 +680,126 @@ extension SelfTest {
 
     /// What the audit of this code found, each kept from coming back: what a repo or an agent must not be able to do,
     /// and the ways a run could lose work or end early.
+    /// The run started from Work: steps typed for one run, a run in the background, and the agent directing it.
+    static func pipelineDirecting() {
+        // First and last steps change the run's copy and leave a straight list straight.
+        var straight = Pipelines.Pipeline(name: "S")
+        straight.steps = [Pipelines.Step(title: "One", prompt: "x"), Pipelines.Step(title: "Two", prompt: "y")]
+        let both = Pipelines.forRun(straight, first: "before", last: "after")
+        check(both.steps.map(\.id) == ["first-for-this-run", "one", "two", "last-for-this-run"] && !both.steps.contains(where: \.hasSettings), "this run: a first and a last step, and it is still a straight list")
+        check(Pipelines.forRun(straight, first: "  \n", last: nil).steps.count == 2, "this run: a box with nothing in it adds nothing")
+        var forked = Pipelines.Pipeline(name: "F")
+        var a = Pipelines.Step(title: "Start", prompt: "x"); a.next = "a & b"
+        var b = Pipelines.Step(title: "A", prompt: "x"); b.next = "end"
+        var c = Pipelines.Step(title: "B", prompt: "x"); c.next = "END"
+        forked.steps = [a, b, c, Pipelines.Step(title: "Last for this run", prompt: "already one")]
+        let ends = PipelineGraph(Pipelines.forRun(forked, first: nil, last: "tidy"))
+        check(ends.next("a") == .one("last-for-this-run-2") && ends.next("b") == .one("last-for-this-run-2") && ends.ids.count == 5, "this run: every end arrives at the last step, under a name of its own")
+
+        guard let (base, fake) = runProject() else { check(false, "directing: could not set up"); return }
+        defer {
+            try? FileManager.default.removeItem(at: base)
+            try? FileManager.default.removeItem(at: Settings.dir.appendingPathComponent("agents.toml"))
+            try? FileManager.default.removeItem(at: Settings.dir.appendingPathComponent("named-agents.toml"))
+        }
+        func text(_ url: URL) -> String { (try? String(contentsOf: url, encoding: .utf8)) ?? "" }
+        func dir(_ folder: URL, _ n: Int) -> URL { Runs.root(project: folder).appendingPathComponent("\(n)") }
+        func state(_ folder: URL, _ n: Int) -> RunState? { Runs.load(dir(folder, n)) }
+        try? "[named.A]\nagent = \"one\"\npermissions = \"edit\"\n[defaults]\npriority = [\"A\"]\ninterpreter = \"A\"\n".write(to: NamedAgents.globalFile, atomically: true, encoding: .utf8)
+
+        // Typed for one run: it runs in the graph's order, the file stays as it was, and a resume does not take it for an edit.
+        let once = newProject("once", under: base)
+        write("---\ngoal: g\n---\n## split\nnext: x & y\nRUN: echo split\n\n## x\nnext: end\nRUN: sleep 1; touch x-ended\n\n## y\nnext: end\nRUN: touch y-ended\n", "f", in: once)
+        let file = once.appendingPathComponent("pipelines/f.md")
+        let before = text(file)
+        var r = cli(["pipeline", "run", "f", "--first=RUN: echo first-ran", "--last=RUN: ls -a \"$APPRENTICE_RUN_DIR\" >/dev/null; echo last-ran"], in: once, fake: fake)
+        let s = state(once, 1)
+        check(r.code == 0 && s?.path.first == "first-for-this-run" && s?.path.last == "last-for-this-run" && s?.path.count == 5, "this run: first runs first, and last runs after both branches (exit \(r.code): \(s?.path ?? []) \(s?.steps.compactMap { $0.value.reason } ?? []))")
+        check(r.out.contains("first-ran") && r.out.contains("last-ran") && text(file) == before, "this run: the pipeline's file does not change")
+        check(s.map { !PipelineCLI.fileChanged(dir(once, 1), $0) } == true, "this run: its own steps do not read as an edit to the file")
+        r = cli(["pipeline", "run", "f", "--first=x", "--from", "2"], in: once, fake: fake)
+        check(r.code == 5, "this run: --from cannot also add a first step")
+
+        // A one-off task stays out of the project's pipelines, keeps its page, and can be kept.
+        let tasks = newProject("tasks", under: base)
+        r = cli(["pipeline", "task", "RUN: echo task-ran", "--agent", "one"], in: tasks, fake: fake)
+        check(r.out.contains("task-ran") && Pipelines.inFolder(tasks).isEmpty && Pipelines.tasks(tasks).count == 1, "task: it runs, and the list of pipelines stays as it was")
+        if let task = Pipelines.tasks(tasks).first, let path = task.url?.path {
+            check((try? Pipelines.find(path))?.project?.standardizedFileURL.path == tasks.standardizedFileURL.path, "task: its file can be named, and knows its project")
+            _ = try? Pipelines.keep(task)
+            check(Pipelines.inFolder(tasks).count == 1 && Pipelines.tasks(tasks).isEmpty, "task: keeping it makes it one of the project's pipelines")
+        }
+
+        // In the background: it comes straight back, and a wait spends nothing until something changes.
+        let back = newProject("back", under: base)
+        let release = back.appendingPathComponent("go")
+        write("---\ngoal: g\n---\n## slow\nuse: A\nnext: quick\nRUN: n=0; while [ ! -e '\(release.path)' ] && [ $n -lt 300 ]; do sleep 0.1; n=$((n+1)); done; echo slow-done\n\n## quick\nuse: A\nRUN: echo quick-done\n", "b", in: back)
+        let began = Date()
+        r = cli(["pipeline", "run", "b", "--background", "--directed"], in: back, fake: fake)
+        check(r.code == 0 && r.out.contains("run 1 started") && Date().timeIntervalSince(began) < 10 && Runs.alive(state(back, 1)?.pid), "background: it comes back at once, with the run going (exit \(r.code))")
+        check(Runs.directed(dir(back, 1)), "background: the run knows it is directed")
+        _ = cli(["pipeline", "status", "1", "--wait", "--for", "1s"], in: back, fake: fake)
+        r = cli(["pipeline", "status", "1", "--wait", "--for", "1s"], in: back, fake: fake)
+        check(r.code == 0 && r.out.contains("nothing has changed yet"), "wait: nothing changed, and it says so")
+        FileManager.default.createFile(atPath: release.path, contents: nil)
+        r = cli(["pipeline", "status", "1", "--wait", "--for", "20s"], in: back, fake: fake)
+        check(!r.out.contains("nothing has changed yet") && r.out.contains("output.log"), "wait: it comes back as soon as something changes, and says where the work is")
+        check(waitFor(30) { state(back, 1)?.status == "done" }, "background: the run finishes on its own")
+
+        // The brief, and what it may and may not do.
+        r = cli(["pipeline", "direct", "1"], in: back, fake: fake)
+        check(r.code == 0 && r.out.contains("directing run 1") && r.out.contains("Goal: g") && r.out.contains("quick") && r.out.contains("Access is the user's"), "direct: the brief has the run, its goal and map, and whose access is")
+        check(Help.refusedInStep("pipeline", ["direct", "1"]) != nil, "direct: a step cannot direct a run")
+        let started = newProject("started", under: base)
+        write("---\ngoal: g\n---\n## s\nuse: A\nRUN: echo hello\n", "n", in: started)
+        r = cli(["pipeline", "direct", "n"], in: started, fake: fake)
+        check(r.code == 0 && r.out.contains("run 1 started") && r.out.contains("directing run 1") && Runs.directed(dir(started, 1)), "direct: given a pipeline's name, it starts it")
+        check(waitFor(30) { state(started, 1)?.status == "done" }, "direct: and that run goes on")
+
+        // A directed run's question goes to the agent; access still goes to the user.
+        let asked = newProject("asked", under: base)
+        write("---\ngoal: g\n---\n## q\nuse: A\nRUN: if grep -q 'Their answer: bl''ue' \"$FAKE_DIR/prompt-one-q\"; then echo got-blue; else apprentice ask 'Which colour?' --choices 'blue|red'; exit 0; fi\n", "a", in: asked)
+        r = cli(["pipeline", "run", "a", "--directed"], in: asked, fake: fake)
+        check(r.code == 9 && state(asked, 1)?.steps["q"]?.question?.text.contains("Which colour?") == true, "directed: a step's question parks it for the agent directing (exit \(r.code))")
+        r = cli(["board", "post", "--run", "1", "--to", "q", "a note"], in: asked, fake: fake, env: ["AI_AGENT": "claude_x"])
+        check(r.code == 0 && Board.messages(dir(asked, 1)).last?.from == "director", "directed: its agent posts as the director, not as the user")
+        _ = cli(["pipeline", "answer", "1", "q", "blue"], in: asked, fake: fake)
+        check(waitFor(30) { state(asked, 1)?.status == "done" }, "directed: its answer carries the run on")
+        check(RunQuestion(kind: "permission", text: "", choices: []).grants("Allow for this run") && !RunQuestion(kind: "permission", text: "", choices: []).grants("Skip this step")
+              && !RunQuestion(kind: "acted", text: "", choices: []).grants("Stop the run") && !RunQuestion(kind: "question", text: "", choices: []).grants("yes"), "directed: only what gives access is the user's alone")
+
+        // Which agent is open in a tab, and what its skill button types.
+        let shipped = AgentCLIs.all([Repo.shipped("agent/agents.toml")])
+        check(AgentCLIs.running(argv: ["claude"], in: shipped)?.id == "claude" && AgentCLIs.running(argv: ["/opt/homebrew/bin/node", "/opt/x/bin/codex.js", "--yes"], in: shipped)?.id == "codex", "tab: an agent is known by its name, or the script node runs")
+        check(AgentCLIs.running(argv: ["less", "claude.md"], in: shipped) == nil && AgentCLIs.running(argv: ["-zsh"], in: shipped) == nil && AgentCLIs.running(argv: [], in: shipped) == nil, "tab: a shell, or a file named after an agent, is not one")
+        check(shipped.first { $0.id == "claude" }?.callSkill("hi") == "/hi " && shipped.first { $0.id == "codex" }?.callSkill("hi") == "$hi " && shipped.first { $0.id == "agy" }?.callSkill("hi") == "Use the hi skill: ", "tab: a skill's button types what that CLI takes")
+        var raw = Data(withUnsafeBytes(of: Int32(2)) { Array($0) })
+        raw.append(Data("/bin/x\0\0\0x\0--flag\0ENV=secret\0".utf8))
+        check(Proc.parse(raw) == ["x", "--flag"] && !Proc.argv(getpid()).isEmpty && Proc.parent(getpid()) > 0, "tab: a process's arguments are read, without its environment")
+
+        // A tab's program has the terminal as its own, so the window can see it and ctrl+C reaches it.
+        let pty = Pty(shell: "/bin/sleep", args: ["30"], dir: FileManager.default.temporaryDirectory, onData: { _ in }, onExit: { _ in })
+        check(waitFor(5) { pty.pid > 0 && pty.foreground == pty.pid }, "tab: its program holds the terminal (front \(pty.foreground), pid \(pty.pid))")
+        check(Proc.argv(pty.pid).first == "/bin/sleep", "tab: and is the program itself, with nothing left of how it started")
+        pty.write("\u{3}")
+        check(waitFor(5) { kill(pty.pid, 0) != 0 }, "tab: ctrl+C stops it")
+
+        // The Agent menu works with no named agents, and a skill reaches each CLI as soon as it is synced.
+        try? FileManager.default.removeItem(at: NamedAgents.globalFile)
+        let menu = NamedAgents.choices(project: nil, installed: ["claude"], clis: shipped)
+        check(menu.map(\.id) == ["claude"] && menu.first?.label == "Claude Code" && NamedAgents.find("claude", project: nil)?.agent == "claude", "agent menu: with no named agents it still offers what is installed, and that runs")
+        let skilled = newProject("skilled", under: base)
+        let skill = skilled.appendingPathComponent(".apprentice/skills/general/say-hi.md")
+        try? FileManager.default.createDirectory(at: skill.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? "# Say hi\n\nSay hi.\n".write(to: skill, atomically: true, encoding: .utf8)
+        ProjectFiles.sync(skilled)
+        check(ProjectFiles.skillNames(skilled) == ["say-hi"] && text(skilled.appendingPathComponent(".claude/skills/say-hi/SKILL.md")).contains("Say hi."), "skill: a new one is in the CLI's folder once synced")
+        check(!text(skilled.appendingPathComponent(".claude/commands/pipeline-direct.md")).isEmpty, "skill: the project has the command that directs a run")
+        try? FileManager.default.removeItem(at: skill)
+        ProjectFiles.sync(skilled)
+        check(!FileManager.default.fileExists(atPath: skilled.appendingPathComponent(".claude/skills/say-hi/SKILL.md").path), "skill: and goes when it goes")
+    }
+
     static func pipelineSafety() {
         guard let (base, fake) = runProject() else { check(false, "safety: could not set up"); return }
         defer {

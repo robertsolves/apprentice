@@ -15,6 +15,9 @@ A pipeline is a graph of steps in one Markdown file in `pipelines/`. Each step i
 ## When blocked
 Decide if it is low-risk and easy to undo, and post the assumption. Ask on the board. Try another allowed route. Do everything the block does not affect. Then `apprentice ask`; on exit 9 write your progress to the path your prompt names and exit, and the answer restarts the step. Lacking a permission, end what you print with `BLOCKED: what you need`. Never bypass a refusal, sandbox, approval, payment or CAPTCHA.
 
+## As the director
+If the user opened you and pressed Run, `apprentice pipeline direct <run>` prints your brief: you watch the headless steps, check their work and steer them, and access stays the user's. `/pipeline-direct <name>` starts a pipeline and directs it.
+
 ## Editing a pipeline
 Front matter: `goal`, `interpreter`, `scribe`, `carry: summary`, `visits`. Step settings at the top of a step: `use`, `next` (`a`, `a | b`, `a & b`, `end`), `when`, `needs`, `ui: true`, or `sh:` as the whole prompt. Run `apprentice pipeline check <name>` after each change; a running run keeps its own copy. One screen step per parallel group.
 

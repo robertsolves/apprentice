@@ -31,6 +31,7 @@
 #   refusals          phrases it prints when refused a tool or a permission (no fallback: the user decides)
 #   sessions_root, clear_hint   where its sessions live, and its own way to clear them, for `tidy --report`
 #   skills_dir, commands_dir, commands_format   where it reads a project's skills and slash commands ("md" or "toml")
+#   skill_prefix      what goes before a skill's name to call it; left out, a skill's button asks for it in words
 
 [agent.claude]
 label = "Claude Code"
@@ -57,6 +58,7 @@ clear_hint = "Claude Code removes its own after cleanupPeriodDays in ~/.claude/s
 skills_dir = ".claude/skills"
 commands_dir = ".claude/commands"
 commands_format = "md"
+skill_prefix = "/"
 
 [agent.codex]
 label = "Codex"
@@ -79,6 +81,7 @@ refusals = ["blocked by policy", "rejected by user", "approval required"]
 sessions_root = "~/.codex/sessions"
 clear_hint = "codex delete <id> removes one"
 skills_dir = ".agents/skills"
+skill_prefix = "$"
 
 [agent.gemini]
 label = "Gemini CLI"

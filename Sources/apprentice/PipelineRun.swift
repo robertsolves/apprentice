@@ -74,6 +74,9 @@ struct RunState: Codable {
     var path: [String] = []
     var fresh = false
     var keepGoing = false
+    /// The steps typed for this run only, so following the edited file on a resume keeps them.
+    var first: String? = nil
+    var last: String? = nil
     var memoryVersion: String? = nil
     var workspaces: [Workspace] = []
     var groups: [Group] = []
@@ -207,6 +210,11 @@ enum Runs {
         guard let pid, pid > 0 else { return false }
         return kill(pid, 0) == 0
     }
+
+    /// An agent the user opened is directing this run, so what it can settle goes to it and not to the little window.
+    /// A file, not state: the engine holds the state in memory and would write over a change from outside.
+    static func directedFile(_ dir: URL) -> URL { dir.appendingPathComponent("directed") }
+    static func directed(_ dir: URL) -> Bool { FileManager.default.fileExists(atPath: directedFile(dir).path) }
 }
 
 /// The templates an agent's prompt is made from: `agent/pipeline-prompts.md`, with the user's file over it.
@@ -301,6 +309,9 @@ struct Options {
     var fresh = false
     var keepGoing = false
     var from = 1
+    var first: String? = nil
+    var last: String? = nil
+    var directed = false
 }
 
 extension Pipelines {
@@ -362,6 +373,24 @@ final class PipelineEngine {
     // MARK: - starting
 
     static func start(_ p: Pipelines.Pipeline, options: Options = Options()) throws -> String {
+        try prepare(p, options: options).engine.loop()
+    }
+
+    /// Starts the run as its own process and comes back: what an agent directing it, or the window, uses.
+    static func startInBackground(_ p: Pipelines.Pipeline, options: Options = Options()) throws -> String {
+        let (engine, _) = try prepare(p, options: options)
+        let (dir, state) = (engine.dir, engine.state)
+        PipelineCLI.spawnResume(state, dir: dir)
+        // Until it says who it is, the run would read as one that died.
+        let end = Date().addingTimeInterval(5)
+        while Date() < end, Runs.load(dir)?.pid == nil { Thread.sleep(forTimeInterval: 0.05) }
+        return "run \(state.run) started in the background · apprentice pipeline status \(state.run) --wait"
+    }
+
+    /// Everything up to the first step: the run's folder, its copy of the pipeline and its state.
+    private static func prepare(_ original: Pipelines.Pipeline, options: Options) throws -> (engine: PipelineEngine, dir: URL) {
+        let p = Pipelines.forRun(original, first: options.first, last: options.last)
+        if options.from > 1, p.steps.count != original.steps.count { throw Fail(5, "--from starts part way through, so it cannot also have a first or last step for this run") }
         let graph = PipelineGraph(p)
         let report = graph.check()
         for w in report.warnings { print("note: \(w)") }
@@ -377,6 +406,8 @@ final class PipelineEngine {
         var state = RunState(run: n, pipeline: p.ref, name: p.name, slug: p.slug, file: p.url?.path, project: p.project?.path, started: Date().timeIntervalSince1970)
         state.fresh = options.fresh
         state.keepGoing = options.keepGoing
+        state.first = options.first
+        state.last = options.last
         for step in p.steps { state.steps[step.id] = RunState.Step() }
         let first: Int
         if options.from > 1 {
@@ -392,8 +423,9 @@ final class PipelineEngine {
         try Pipelines.render(p).write(to: dir.appendingPathComponent("pipeline.md"), atomically: true, encoding: .utf8)
         let agents = NamedAgents.all(project: p.project)
         try? Wire.json(agents).write(to: dir.appendingPathComponent("agents.json"), options: .atomic)
-        let engine = PipelineEngine(p: p, dir: dir, state: state, agents: agents)
-        return try engine.loop()
+        if options.directed { FileManager.default.createFile(atPath: Runs.directedFile(dir).path, contents: nil) }
+        try Wire.json(state).write(to: dir.appendingPathComponent("state.json"), options: .atomic)
+        return (PipelineEngine(p: p, dir: dir, state: state, agents: agents), dir)
     }
 
     /// Carries on a parked, failed or stopped run: only the steps that failed or parked run again.
@@ -404,8 +436,8 @@ final class PipelineEngine {
         let original = state.file.map { URL(fileURLWithPath: $0) }
         var text = (try? String(contentsOf: dir.appendingPathComponent("pipeline.md"), encoding: .utf8)) ?? ""
         if useFile, let original, let edited = try? String(contentsOf: original, encoding: .utf8) {
-            text = edited
-            try? edited.write(to: dir.appendingPathComponent("pipeline.md"), atomically: true, encoding: .utf8)
+            text = Pipelines.render(Pipelines.forRun(Pipelines.parse(edited, url: original, project: folder), first: state.first, last: state.last))
+            try? text.write(to: dir.appendingPathComponent("pipeline.md"), atomically: true, encoding: .utf8)
         }
         let p = Pipelines.parse(text, url: original, project: folder)
         let report = PipelineGraph(p).check()
@@ -967,6 +999,8 @@ final class PipelineEngine {
         parkQuiet(id, q)
         if let detail { try? detail.write(to: node(id).appendingPathComponent("detail.txt"), atomically: true, encoding: .utf8) }
         guard ProcessInfo.processInfo.environment["APPRENTICE_PIPELINE_NO_ASK"] != "1" else { return }
+        // The agent directing the run settles what it can, and hears of it from `pipeline status --wait`. Access is always the user's.
+        if Runs.directed(dir), !RunQuestion.userOnly.contains(q.kind) { return }
         let args = [q.text] + (q.choices.isEmpty ? [] : ["--choices", q.choices.joined(separator: "|")])
         guard let r = try? Wire.send(Request(cmd: "ask", args: args)), r.code == 0 else { return }
         let reply = r.out.components(separatedBy: "\n").first { $0.hasPrefix("user chose: ") }.map { String($0.dropFirst("user chose: ".count)) }

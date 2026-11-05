@@ -885,6 +885,24 @@ g. **The library**: the origin, the fetch and cache, the published index, `share
 6. Where the library lives (an `apprentice-skills` repo under the project's organisation) and whether
    its `×n` counts installs or confirmations. Recommended: installs.
 
+## Running from Work: your agent directs, headless agents work
+
+Added 2026-11-05 at the user's request. The order on a project's Work tab is the order you do it:
+
+1. Open your favourite agent in the tab. The window starts no agent: it only looks at what is running there.
+2. Choose a pipeline, or "Just this task". For a pipeline, two large boxes take a first and a last step for this run only. They go in the run's copy, so the file does not change. The first runs before everything. Every `end` then arrives at the last, so parallel branches wait for each other there.
+3. Run. The steps start headless in the background, and the window types one line into the tab: `pipeline direct <run>`. It prints the brief that makes that agent the run's auditor, navigator, checker and director.
+
+Without an agent in the tab the run shows in a tab of its own, with nobody directing, as before.
+
+What the director does: `pipeline status <run> --wait` returns when a step finishes or parks or the run ends, and spends nothing until then. It reads each step's work and checks it, posts on the board or stops a step with `--urgent` (under a step's limit, and as `director`, never as the user), answers questions, resumes or stops. A directed run's questions go to it rather than the little window.
+
+What it does not do: anything that gives access. A raised permission, a project's new agent and restarting a step that acted on the screen are the user's. `pipeline answer` opens the little window for those, and only a click there counts (exit 7 otherwise); the window's own buttons are the click. This is a guard against an agent answering for the user by the front door. An agent with a shell and full access could still write the answer file, as it could edit anything else of the user's.
+
+A one-off task lives in `.apprentice/cache/tasks/`, shows under "Just once" on Pipelines, and `tidy` clears it with its output unless the user keeps it as a pipeline.
+
+Skills: a project's skills are copied to each CLI's folder when a tab opens (before the agent starts, since Claude Code only watches a skills folder that existed when it opened), when the window changes one, and in the sync round. Open terminals do not reset. Each skill has a button above the terminal that types its call and waits.
+
 ## Commands to build
 
 | command | used by | does |

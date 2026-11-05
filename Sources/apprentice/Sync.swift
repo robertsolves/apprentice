@@ -399,6 +399,8 @@ enum Sync {
         // A run's steps are working in this folder: no commit of half their work, and no stash pulling files from under
         // them. The next round after the run ends sends everything.
         if Runs.live(project: folder) { return "waiting: a pipeline is running there" }
+        // A skill added by hand or by an agent reaches each CLI's folder here; the window copies its own at once.
+        if Projects.info(folder) != nil { ProjectFiles.sync(folder) }
         // A run's output can hold secrets, whatever state the ignore file was left in.
         if FileManager.default.fileExists(atPath: Runs.cache(project: folder).path) { ProjectFiles.ensureIgnored(folder) }
         if !isRepo(folder) {

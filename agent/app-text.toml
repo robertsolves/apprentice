@@ -10,7 +10,7 @@ explainer_title = "What is a project?"
 about = "A project is one piece of work, like running a shop's Instagram or sending the weekly invoices. Everything starts in one: its terminal, its VM, its pipelines, its schedules and its skills. It is a folder on this Mac, so any agent you open in it knows what the project is and which VM to use."
 points = [
     "Choose a project on the left. Work shows its terminal, with its VM's screen beside it.",
-    "A project's work runs as pipelines. Tell it what to do on Work and that is a pipeline of one step.",
+    "A project's work runs as pipelines. On Work: open your agent in the tab, choose a pipeline or type a task, and press Run. Your agent directs the run while the steps work in the background.",
     "Projects on their own VMs work at the same time. This Mac and each VM take one agent at a time.",
     "Save keeps a version. Save to GitHub puts it online, private, so you can open it on another Mac.",
     "In a terminal: apprentice project list, new, open and save.",
@@ -35,7 +35,7 @@ explainer_title = "What is a pipeline?"
 about = "A pipeline is how a project gets work done: steps that run one after another, each given to an agent you choose, and each told what the steps before it found. It can branch, and steps can run at the same time and talk to each other. A pipeline with one step is a simple task."
 points = [
     "For example: 1. Get the new comments on my Instagram post. 2. Answer the ones that ask about prices by email. 3. Write me a two-line summary.",
-    "Run it now, or put it on a schedule: every morning, every Monday.",
+    "Run takes you to Work, where you can add a first and last step for that run only. Or put it on a schedule: every morning, every Monday.",
     "If an agent runs out of tokens or stalls, the next one on your list takes over. If it needs you, the run waits here with your choices.",
     "Audit writes a brief for reviewing the pipeline, and opens a shell where any agent can help you tweak it.",
     "Each pipeline is a file in its project's pipelines folder. In a terminal: apprentice pipeline task, list, run and new.",

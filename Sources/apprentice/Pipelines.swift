@@ -254,6 +254,7 @@ enum Pipelines {
         let key = ref.lowercased()
         // The window names a pipeline by its file, which stays exact when two projects use one name.
         let path = URL(fileURLWithPath: (ref as NSString).expandingTildeInPath).standardizedFileURL.path
+        if let task = task(at: path) { return task }
         let hits = all.filter { $0.url?.standardizedFileURL.path == path || $0.ref.lowercased() == key || slug($0.slug) == slug(ref) || $0.name.lowercased() == key }
         if hits.count == 1 { return hits[0] }
         if hits.isEmpty { throw Fail(5, "no pipeline \(ref) · apprentice pipeline list") }
@@ -275,15 +276,72 @@ enum Pipelines {
         return words.count <= 48 ? words : String(words.prefix(47)) + "…"
     }
 
+    /// A run's own first and last steps, typed for this run only: they go in the run's copy and never the file. The
+    /// first runs before everything. The last runs after everything: every `end` now arrives there, and parallel
+    /// branches that ended apart wait for each other at it. A straight list stays straight, so it keeps the screen.
+    static func forRun(_ p: Pipeline, first: String?, last: String?) -> Pipeline {
+        var out = p
+        func title(_ wanted: String) -> String {
+            var name = wanted, n = 2
+            while out.steps.contains(where: { $0.id == slug(name) }) { name = "\(wanted) \(n)"; n += 1 }
+            return name
+        }
+        func typed(_ text: String?) -> String? { text.flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : $0 } }
+        if let last = typed(last) {
+            let name = title("Last for this run")
+            for i in out.steps.indices where out.steps[i].next?.trimmingCharacters(in: .whitespaces).lowercased() == "end" { out.steps[i].next = name }
+            out.steps.append(Step(title: name, prompt: last))
+        }
+        if let first = typed(first) { out.steps.insert(Step(title: title("First for this run"), prompt: first), at: 0) }
+        return out
+    }
+
+    static func tasksDir(_ project: URL) -> URL { Runs.cache(project: project).appendingPathComponent("tasks") }
+
+    /// One-off tasks, newest first. They stay out of the list of pipelines, and keep their runs' page until `tidy` clears them.
+    static func tasks(_ project: URL) -> [Pipeline] {
+        let files = (try? FileManager.default.contentsOfDirectory(at: tasksDir(project), includingPropertiesForKeys: [.contentModificationDateKey])) ?? []
+        let dated = files.filter { $0.pathExtension == "md" }.map { ($0, (try? $0.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate ?? .distantPast) }
+        return dated.sorted { $0.1 > $1.1 }.compactMap { url, _ in (try? String(contentsOf: url, encoding: .utf8)).map { parse($0, url: url, project: project) } }
+    }
+
+    /// A one-off task's file, named by its path.
+    private static func task(at path: String) -> Pipeline? {
+        let url = URL(fileURLWithPath: path)
+        let parts = url.pathComponents
+        guard parts.count > 4, Array(parts.suffix(4).prefix(3)) == [".apprentice", "cache", "tasks"], let text = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        return parse(text, url: url, project: url.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent())
+    }
+
+    /// A one-off task becomes a pipeline of the project's, there to run again.
+    @discardableResult
+    static func keep(_ task: Pipeline) throws -> URL {
+        guard let url = task.url, let project = task.project else { throw Fail(5, "no file for \(task.ref)") }
+        let dir = project.appendingPathComponent("pipelines")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        var target = dir.appendingPathComponent(url.lastPathComponent), n = 2
+        while FileManager.default.fileExists(atPath: target.path) {
+            target = dir.appendingPathComponent("\(url.deletingPathExtension().lastPathComponent)-\(n).md")
+            n += 1
+        }
+        try FileManager.default.moveItem(at: url, to: target)
+        return target
+    }
+
+    /// A simple task, as a pipeline of one step in the project's cache, so a run's page has it and the list stays yours.
+    static func oneOff(_ text: String, in project: URL, agent: String? = nil, vm: String? = nil) throws -> Pipeline {
+        try oneStep(text, in: project, agent: agent, vm: vm, dir: tasksDir(project))
+    }
+
     /// Saves a simple task as a pipeline of one step in the project, under a file name of its own.
-    static func oneStep(_ text: String, name: String? = nil, in project: URL, agent: String? = nil, vm: String? = nil) throws -> Pipeline {
+    static func oneStep(_ text: String, name: String? = nil, in project: URL, agent: String? = nil, vm: String? = nil, dir given: URL? = nil) throws -> Pipeline {
         let title = name ?? taskName(text)
         var p = Pipeline(name: title)
         p.project = project
         if let agent { p.agent = agent.lowercased() }
         p.vm = vm
         p.steps = [Step(title: title, prompt: text)]
-        let dir = project.appendingPathComponent("pipelines")
+        let dir = given ?? project.appendingPathComponent("pipelines")
         var url = dir.appendingPathComponent(slug(title) + ".md")
         var n = 2
         while FileManager.default.fileExists(atPath: url.path) {
@@ -309,6 +367,14 @@ enum Pipelines {
             throw Fail(5, "a pipeline belongs to a project: run this inside one, or add --project <name> · apprentice project list")
         }
         return here
+    }
+
+    private static func options(_ a: Args) -> Options {
+        Options(fresh: a.has("fresh"), keepGoing: a.has("keep-going"), from: a.int("from", 1), first: a.value("first"), last: a.value("last"), directed: a.has("directed"))
+    }
+
+    private static func launch(_ p: Pipeline, _ a: Args) throws -> String {
+        a.has("background") ? try PipelineEngine.startInBackground(p, options: options(a)) : try PipelineEngine.start(p, options: options(a))
     }
 
     static func command(_ a: Args) throws -> String {
@@ -347,7 +413,7 @@ enum Pipelines {
             return "pipeline \(p.ref) · \(p.steps.count) steps · \(url.path)\nadd a step: apprentice pipeline add \(p.ref) \"what to do\""
         case "task":
             guard let name, !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw Fail(5, usage) }
-            return try PipelineEngine.start(oneStep(name, in: owningProject(a), agent: a.value("agent"), vm: a.value("vm")))
+            return try launch(oneOff(name, in: owningProject(a), agent: a.value("agent"), vm: a.value("vm")), a)
         case "add":
             var p = try find(name ?? "")
             guard let text = a.pos.dropFirst(2).first, !text.isEmpty else { throw Fail(5, "pipeline add <name> \"what to do\" [--title \"…\"]") }
@@ -355,8 +421,9 @@ enum Pipelines {
             _ = try write(p)
             return "\(p.ref): step \(p.steps.count) added"
         case "run":
-            let p = try find(name ?? "")
-            return try PipelineEngine.start(p, options: Options(fresh: a.has("fresh"), keepGoing: a.has("keep-going"), from: a.int("from", 1)))
+            return try launch(find(name ?? ""), a)
+        case "direct":
+            return try PipelineCLI.direct(name, a)
         case "check":
             let p = try find(name ?? "")
             return try PipelineCLI.check(p)
@@ -378,7 +445,8 @@ enum Pipelines {
             guard let url = p.url else { throw Fail(5, "no file for \(p.ref)") }
             // To the Trash, not gone: a pipeline is the user's own writing.
             try FileManager.default.trashItem(at: url, resultingItemURL: nil)
-            return "moved \(url.lastPathComponent) to the Trash"
+            let waiting = Schedules.all().filter { $0.kind == .pipeline && [p.ref, p.slug, p.name, url.path].contains($0.target) }.map(\.name)
+            return "moved \(url.lastPathComponent) to the Trash" + (waiting.isEmpty ? "" : " · these schedules still name it and will fail: " + waiting.joined(separator: ", "))
         default:
             throw Fail(5, usage)
         }

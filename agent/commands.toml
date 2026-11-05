@@ -600,19 +600,19 @@ flags = ["import: a GitHub address or owner/repo, a folder (which stays where it
 exits = ["5: no such project, or the folder already is one"]
 
 [command."pipeline"]
-not_in_step = ["answer", "resume", "stop"]
+not_in_step = ["answer", "resume", "stop", "direct"]
 group = "Projects and pipelines"
-usage = "pipeline task \"what to do\" [--project p] [--agent a] [--vm v] | list | show <name> | new \"name\" [\"step\" …] | add <name> \"step\" [--title t] | run <name> [--fresh] [--from N] [--keep-going] | check <name> | audit <name> | status [run] | answer <run> <step> \"answer\" | resume <run> [--copy|--file] | stop <run> | notes <name> | path <name> | rm <name>"
-summary = "Runs a project's work as a graph of steps across agents. check validates a file and spends nothing; audit writes a brief for reviewing it; run spends the tokens its agents use."
+usage = "pipeline task \"what to do\" [--project p] [--agent a] [--vm v] [--background] [--directed] | list | show <name> | new \"name\" [\"step\" …] | add <name> \"step\" [--title t] | run <name> [--first \"…\"] [--last \"…\"] [--background] [--directed] [--fresh] [--from N] [--keep-going] | direct <run or name> [--first \"…\"] [--last \"…\"] | check <name> | audit <name> | status [run] [--wait] [--for 9m] | answer <run> <step> \"answer\" | resume <run> [--copy|--file] | stop <run> | notes <name> | path <name> | rm <name>"
+summary = "Runs a project's work as a graph of steps across agents. check validates a file and spends nothing; audit writes a brief for reviewing it; run spends the tokens its agents use. direct prints the brief for an agent the user opened, which then watches and steers the headless steps; given a pipeline's name it starts one first."
 output = "Each step's output as it comes, then the result."
 where = "Mac; check and status work inside a step"
-tokens = "run and task"
+tokens = "run, task and direct"
 changes = "the project folder, as its steps do"
 example = "apprentice pipeline check fix-bug"
 example_output = "fix-bug checks: 5 steps, 2 agents"
-flags = ["--fresh: ignore the rolling summary for this run", "--from N: start a straight list at step N", "--keep-going: carry on past a failed step", "--copy, --file: on resume, follow the run's copy or the edited file"]
-exits = ["1: a step failed; pipeline resume <run> after fixing it", "4: resume only: that run is still running", "5: the file does not check, or no such pipeline or run", "6: stopped", "9: parked, waiting for the user: pipeline answer <run> <step> \"answer\""]
-slash = ["pipeline-run:run", "pipeline-status:status", "pipeline-check:check", "pipeline-audit:audit"]
+flags = ["--first, --last: a step typed for this run only, before everything or after everything; the file does not change", "--background: start the run and come back at once, with its number", "--directed: an agent the user opened is directing it, so questions go to that agent; access still goes to the user", "--wait: on status, block until a step finishes or parks or the run ends", "--for 9m: how long a wait lasts (default 90 seconds)", "--fresh: ignore the rolling summary for this run", "--from N: start a straight list at step N", "--keep-going: carry on past a failed step", "--copy, --file: on resume, follow the run's copy or the edited file"]
+exits = ["1: a step failed; pipeline resume <run> after fixing it", "4: resume only: that run is still running", "5: the file does not check, or no such pipeline or run", "6: stopped", "7: answer only: this gives access, and the user did not allow it in the little window", "9: parked, waiting for the user: pipeline answer <run> <step> \"answer\""]
+slash = ["pipeline-run:run", "pipeline-direct:direct", "pipeline-status:status", "pipeline-check:check", "pipeline-audit:audit"]
 
 [command."board"]
 group = "Projects and pipelines"

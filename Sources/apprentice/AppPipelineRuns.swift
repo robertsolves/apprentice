@@ -91,6 +91,7 @@ struct PipelineRunsPanel: View {
                 StatusPill(text: label(run.state), tint: run.state.status == "failed" ? Theme.danger : run.state.status == "parked" ? Theme.warn : Theme.accent)
                 if let v = run.state.memoryVersion { Text("used summary \(v)").font(Theme.monoSmall).foregroundStyle(.tertiary) }
                 if run.state.fresh { Text("fresh").font(Theme.monoSmall).foregroundStyle(.tertiary) }
+                if Runs.directed(run.dir) { Text("your agent is directing it").font(Theme.caption).foregroundStyle(.secondary) }
             }
             if let r = run.state.reason { Text(r).font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
             ForEach(run.state.path.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }, id: \.self) { id in
@@ -110,7 +111,9 @@ struct PipelineRunsPanel: View {
 
     /// The pipeline's shape, a column for each depth, and the path this run took picked out.
     @ViewBuilder private func graph(_ state: RunState?) -> some View {
-        let g = PipelineGraph(pipeline)
+        // A run's own copy, which holds any steps typed for it.
+        let copy = current.flatMap { try? String(contentsOf: $0.dir.appendingPathComponent("pipeline.md"), encoding: .utf8) }
+        let g = PipelineGraph(copy.map { Pipelines.parse($0, url: pipeline.url, project: pipeline.project) } ?? pipeline)
         if g.ids.count > 1 {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(alignment: .center, spacing: Theme.s2) {
@@ -227,17 +230,23 @@ struct PipelineRunsPanel: View {
 
     private func answer(_ run: (dir: URL, state: RunState), _ step: String, _ text: String) {
         reply[step] = nil
-        act(["pipeline", "answer", "\(run.state.run)", step, text] + scope)
+        // In this process, not through the CLI: this is the user's own click, and the CLI would ask them to confirm it.
+        let number = run.state.run, project = pipeline.project
+        DispatchQueue.global().async {
+            var problem = ""
+            do { _ = try PipelineCLI.answerAsUser(run: number, step: step, text: text, project: project) } catch { problem = "\(error)" }
+            DispatchQueue.main.async {
+                output = problem
+                reload()
+            }
+        }
     }
 
     /// The window asks instead of the CLI's two flags when the file changed since the run began.
     private func resume(_ run: (dir: URL, state: RunState)) {
         let args = ["pipeline", "resume", "\(run.state.run)"] + scope
-        let copy = (try? String(contentsOf: run.dir.appendingPathComponent("pipeline.md"), encoding: .utf8)) ?? ""
-        let named = run.state.file.map { URL(fileURLWithPath: $0) }
-        let edited = named.flatMap { try? String(contentsOf: $0, encoding: .utf8) }
         var flag = "--copy"
-        if let edited, Pipelines.render(Pipelines.parse(edited, url: named)) != Pipelines.render(Pipelines.parse(copy, url: named)) {
+        if PipelineCLI.fileChanged(run.dir, run.state) {
             flag = AppModel.confirm("The pipeline changed since this run began", "Carry on with the edited file? Otherwise it follows its own copy.", "Use the edited file") ? "--file" : "--copy"
         }
         let owner = pipeline.project.flatMap { p in model.projects.first { $0.id == p.standardizedFileURL.path || $0.id == p.path } }

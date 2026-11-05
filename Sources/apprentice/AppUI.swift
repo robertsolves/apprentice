@@ -215,6 +215,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         NSApp.mainMenu = MainMenu.make()
         TerminalKeys.install()
+        if let out = ProcessInfo.processInfo.environment["APPRENTICE_APP_RUNTEST"] { RunTest.run(model: model, out: out) }
         if let out = ProcessInfo.processInfo.environment["APPRENTICE_APP_KEYTEST"] { KeyTest.run(model: model, window: window, out: out) }
     }
 
@@ -661,6 +662,8 @@ final class AppModel: ObservableObject {
     /// reloads the editor when another one is chosen.
     @Published var pipelineDraft: Pipelines.Pipeline?
     @Published var pipelineEdits = 0
+    /// What each project's Run bar holds, by its id.
+    @Published var runDrafts: [String: RunDraft] = [:]
     /// Buttons one tab has beside the project's own commands, by its id: label, and the line a click types.
     @Published var tabCommands: [String: [(label: String, line: String)]] = [:]
 
@@ -825,10 +828,23 @@ final class AppModel: ObservableObject {
     }
 
     /// A simple task: saved as a pipeline of one step and run in a new tab of the project, like any other.
-    func runTask(_ text: String, in p: Projects.Info) {
-        newTab(title: Pipelines.taskName(text),
-               command: "apprentice pipeline task \(VM.shellQuoted(text)) --project \(VM.shellQuoted(p.folder.path)); echo; exec \"$SHELL\" -l",
-               project: p)
+    /// Moves a pipeline to the Trash, wherever the button is.
+    func trashPipeline(_ p: Pipelines.Pipeline) {
+        runCLI(["pipeline", "rm", p.url?.path ?? p.ref]) { _, out in
+            self.output = out
+            if self.pipelineDraft?.id == p.id { self.pipelineDraft = nil }
+            self.refresh()
+            self.pipelineEdits += 1
+        }
+    }
+
+    /// Run on a pipeline's page: to the Work tab with it chosen, where this run's first and last steps are typed.
+    func prepareRun(_ p: Pipelines.Pipeline) {
+        guard let owner = p.project.flatMap({ folder in projects.first { $0.id == folder.standardizedFileURL.path || $0.id == folder.path } }) else { runPipeline(p); return }
+        var draft = runDrafts[owner.id] ?? RunDraft()
+        draft.pipeline = p.id
+        runDrafts[owner.id] = draft
+        show(project: owner, tab: .work)
     }
 
     /// Shows a pipeline in the Pipelines screen's editor (a new one when it has no file).
@@ -1004,6 +1020,8 @@ final class AppModel: ObservableObject {
     /// With no project yet, it asks for one: all work starts in a project.
     func newTab(title: String, command: String?, dir: URL? = nil, vm: String? = nil, project p: Projects.Info? = nil) {
         guard let owner = p ?? workProject else { newProject = .empty; return }
+        // Before the tab starts: a CLI watches its skills folder only if it was there when it opened.
+        ProjectFiles.sync(owner.folder)
         let session = TermSession(title: title, dir: dir ?? owner.folder, command: command, env: [:], vm: vm ?? owner.vm, project: owner.id)
         tabs.append(session)
         show(project: owner, tab: .work)
@@ -1313,7 +1331,11 @@ struct NoProjectsView: View {
 struct TerminalWorkspace: View {
     @ObservedObject var model: AppModel
     let project: Projects.Info
-    @State private var task = ""
+    @State private var skills: [String] = []
+    /// The agent open in the tab on screen, looked at every two seconds.
+    @State private var agent: AgentCLIs.CLI?
+    @State private var clis: [AgentCLIs.CLI] = []
+    private let tick = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     private var pendingForSelected: Approvals.Pending? {
         model.pending.first { $0.tab == model.selectedTab }
@@ -1326,11 +1348,11 @@ struct TerminalWorkspace: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            taskBar
+            RunBar(model: model, project: project, agent: agent, type: inject)
             Divider().opacity(0.6)
             tabBar
             Divider().opacity(0.6)
-            if !commands.isEmpty || !tabButtons.isEmpty {
+            if !commands.isEmpty || !tabButtons.isEmpty || !skills.isEmpty {
                 commandBar
                 Divider().opacity(0.6)
             }
@@ -1355,10 +1377,11 @@ struct TerminalWorkspace: View {
             }
         }
         .background(Theme.canvas)
-        .onAppear { showShell(); loadCommands() }
-        .onChange(of: shown?.id) { _, _ in showShell() }
-        .onChange(of: project.id) { _, _ in showShell(); loadCommands() }
+        .onAppear { clis = AgentCLIs.agents(); showShell(); loadCommands(); lookForAgent() }
+        .onChange(of: shown?.id) { _, _ in showShell(); lookForAgent() }
+        .onChange(of: project.id) { _, _ in showShell(); loadCommands(); lookForAgent() }
         .onChange(of: model.revision) { _, _ in loadCommands() }
+        .onReceive(tick) { _ in lookForAgent() }
     }
 
     /// The project always shows a terminal: the tab it has, else a new shell in its folder.
@@ -1369,26 +1392,9 @@ struct TerminalWorkspace: View {
 
     private var font: NSFont { AppLook.terminalFont }
 
-    /// A simple task: one line that runs as a pipeline of one step, kept on the project's Pipelines tab.
-    private var taskBar: some View {
-        HStack(spacing: Theme.s2) {
-            TextField("Tell this project what to do", text: $task)
-                .textFieldStyle(.roundedBorder)
-                .onSubmit(startTask)
-            IconButton("Run", "play.fill", prominent: true, action: startTask)
-                .disabled(task.trimmingCharacters(in: .whitespaces).isEmpty)
-        }
-        .controlSize(.small)
-        .padding(.horizontal, Theme.s3)
-        .padding(.vertical, Theme.s2)
-        .background(.bar)
-    }
-
-    private func startTask() {
-        let text = task.trimmingCharacters(in: .whitespaces)
-        guard !text.isEmpty else { return }
-        task = ""
-        model.runTask(text, in: project)
+    private func lookForAgent() {
+        let now = shown?.agentInFront(among: clis)
+        if now?.id != agent?.id { agent = now }
     }
 
     private var tabButtons: [(label: String, line: String)] { shown.flatMap { model.tabCommands[$0.id] } ?? [] }
@@ -1409,6 +1415,15 @@ struct TerminalWorkspace: View {
                         .help(b.line)
                         .disabled(shown == nil || pendingForSelected != nil)
                 }
+                // Types the call and waits, so the rest of the line can be finished by hand.
+                ForEach(skills, id: \.self) { name in
+                    let call = agent?.callSkill(name)
+                    Button(call?.trimmingCharacters(in: .whitespaces) ?? name) { if let call { shown?.send(call) } }
+                        .font(Theme.monoSmall)
+                        .controlSize(.small)
+                        .help(call == nil ? "Open an agent in this tab to use the \(name) skill" : "Types this into the tab, for you to finish")
+                        .disabled(call == nil || shown == nil || pendingForSelected != nil)
+                }
             }
             .padding(.horizontal, Theme.s3)
             .padding(.vertical, Theme.s2)
@@ -1427,6 +1442,8 @@ struct TerminalWorkspace: View {
     private func loadCommands() {
         let found = Projects.commands(in: project.folder)
         if found != commands { commands = found }
+        let names = ProjectFiles.skillNames(project.folder)
+        if names != skills { skills = names }
     }
 
     /// Opens the project's list to edit, starting it when the project has none yet.

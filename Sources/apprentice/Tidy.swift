@@ -38,6 +38,15 @@ enum Tidy {
         for project in places {
             let keepSessions = PipelineSettings.keepSessionDays(project) * 86400
             let keepOutputs = PipelineSettings.keepOutputDays(project) * 86400
+            // One-off tasks go when their output does; one the user wants again they have kept as a pipeline.
+            if let project {
+                for task in Pipelines.tasks(project) {
+                    guard let url = task.url, !Runs.all(project: project, slug: task.slug).contains(where: { Runs.alive($0.state.pid) }),
+                          let at = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate,
+                          now.timeIntervalSince(at) >= keepOutputs else { continue }
+                    try? FileManager.default.removeItem(at: url)
+                }
+            }
             for (dir, state) in Runs.all(project: project) {
                 // Sessions left by a step that crashed before cleanup, or kept by [pipelines] keep_sessions_days.
                 let nodes = (try? FileManager.default.contentsOfDirectory(at: dir.appendingPathComponent("nodes"), includingPropertiesForKeys: nil)) ?? []

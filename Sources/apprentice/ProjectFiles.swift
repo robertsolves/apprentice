@@ -83,12 +83,28 @@ enum ProjectFiles {
             e.slash.compactMap { pair -> (name: String, description: String, body: String)? in
                 let parts = pair.split(separator: ":").map(String.init)
                 guard parts.count == 2 else { return nil }
-                let what = parts[1] == "audit"
-                    ? "Run `apprentice \(e.name) \(parts[1]) $ARGUMENTS`, read the brief it names, then review this pipeline with me."
-                    : "Run `apprentice \(e.name) \(parts[1]) $ARGUMENTS` in the shell and report what it prints."
+                let what: String
+                switch parts[1] {
+                case "audit": what = "Run `apprentice \(e.name) \(parts[1]) $ARGUMENTS`, read the brief it names, then review this pipeline with me."
+                case "direct": what = "Run `apprentice \(e.name) \(parts[1]) $ARGUMENTS` in the shell, then do what it prints."
+                default: what = "Run `apprentice \(e.name) \(parts[1]) $ARGUMENTS` in the shell and report what it prints."
+                }
                 return (parts[0], "apprentice \(e.name) \(parts[1])", what)
             }
         }
+    }
+
+    /// What a CLI calls a project's skill, from its file in `.apprentice/skills/`.
+    static func skillName(_ url: URL) -> String {
+        Playbooks.slugify(url.lastPathComponent == "SKILL.md" ? url.deletingLastPathComponent().lastPathComponent : url.deletingPathExtension().lastPathComponent)
+    }
+
+    /// The names of the project's own skills, for the buttons above its terminal.
+    static func skillNames(_ folder: URL) -> [String] {
+        guard let walk = FileManager.default.enumerator(at: folder.appendingPathComponent(".apprentice/skills"), includingPropertiesForKeys: nil) else { return [] }
+        var out = Set<String>()
+        for case let url as URL in walk where url.pathExtension == "md" && !skillName(url).isEmpty { out.insert(skillName(url)) }
+        return out.sorted()
     }
 
     /// Every generated file, by its path in the project.
@@ -102,8 +118,7 @@ enum ProjectFiles {
         let own = folder.appendingPathComponent(".apprentice/skills")
         if let walk = FileManager.default.enumerator(at: own, includingPropertiesForKeys: nil) {
             for case let url as URL in walk where url.pathExtension == "md" {
-                let isSkill = url.lastPathComponent == "SKILL.md"
-                let name = Playbooks.slugify(isSkill ? url.deletingLastPathComponent().lastPathComponent : url.deletingPathExtension().lastPathComponent)
+                let name = skillName(url)
                 guard !name.isEmpty, let text = try? String(contentsOf: url, encoding: .utf8) else { continue }
                 let rel = String(url.resolvingSymlinksInPath().path.dropFirst(folder.resolvingSymlinksInPath().path.count + 1))
                 // A project's repo may be shared, so its skills pass the same check as playbooks before they are copied around.

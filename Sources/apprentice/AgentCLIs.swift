@@ -49,6 +49,11 @@ enum AgentCLIs {
         var skillsDir: String? = nil
         var commandsDir: String? = nil
         var commandsFormat: String = "md"
+        /// What goes before a skill's name to call it in this CLI (`/`, `$`). Nil: it is asked for in words.
+        var skillPrefix: String? = nil
+
+        /// What to type into this CLI to use a skill.
+        func callSkill(_ name: String) -> String { skillPrefix.map { "\($0)\(name) " } ?? "Use the \(name) skill: " }
 
         var isEditor: Bool { !editor.isEmpty }
         /// The permission levels this CLI can enforce, loosest last.
@@ -100,7 +105,7 @@ enum AgentCLIs {
                        textFrom: text("text_from"), errorFrom: text("error_from"), transcript: text("transcript"), projectDir: text("project_dir"),
                        forget: list("forget"), limits: list("limits"), refusals: list("refusals"), sessionsRoot: text("sessions_root"),
                        clearHint: text("clear_hint"), skillsDir: text("skills_dir"), commandsDir: text("commands_dir"),
-                       commandsFormat: text("commands_format") ?? "md")
+                       commandsFormat: text("commands_format") ?? "md", skillPrefix: text("skill_prefix"))
         }
     }
 
@@ -166,6 +171,19 @@ enum AgentCLIs {
     static func runnable(_ wanted: String? = nil) -> String {
         let list = agents()
         return pick(find(wanted ?? "", in: list)?.id ?? wanted, agents: list, installed: installed(list))
+    }
+
+    /// The CLI a process is, from its arguments: its own name, or the script a runtime such as node was started with.
+    /// Only for a runtime: `less claude.md` is not Claude.
+    static func running(argv: [String], in list: [CLI] = agents()) -> CLI? {
+        func base(_ path: String) -> String { URL(fileURLWithPath: path).lastPathComponent }
+        guard let first = argv.first.map(base) else { return nil }
+        let runtime = ["node", "bun", "deno"].contains(first) || first.hasPrefix("python")
+        let name = runtime && argv.count > 1 ? URL(fileURLWithPath: argv[1]).deletingPathExtension().lastPathComponent : first
+        return list.first { cli in
+            guard !cli.run.isEmpty, cli.shell != true else { return false }
+            return name == cli.id || cli.open?.split(separator: " ").first.map(String.init) == name || cli.detect.contains(name)
+        }
     }
 
     static func find(_ name: String, in list: [CLI] = all()) -> CLI? {

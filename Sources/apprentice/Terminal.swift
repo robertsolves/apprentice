@@ -2,6 +2,32 @@ import AppKit
 import Darwin
 import SwiftUI
 
+/// What the kernel says about another process.
+enum Proc {
+    /// KERN_PROCARGS2 holds the argument count, the executable's path, padding, then the arguments.
+    static func parse(_ raw: Data) -> [String] {
+        guard raw.count > 4 else { return [] }
+        let count = raw.prefix(4).withUnsafeBytes { Int($0.loadUnaligned(as: Int32.self)) }
+        let rest = raw.dropFirst(4).split(separator: 0, omittingEmptySubsequences: true).map { String(decoding: $0, as: UTF8.self) }
+        return Array(rest.dropFirst().prefix(max(count, 0)))
+    }
+
+    static func argv(_ pid: pid_t) -> [String] {
+        var mib: [Int32] = [CTL_KERN, KERN_PROCARGS2, pid]
+        var size = 0
+        guard sysctl(&mib, 3, nil, &size, nil, 0) == 0, size > 0 else { return [] }
+        var bytes = [UInt8](repeating: 0, count: size)
+        guard sysctl(&mib, 3, &bytes, &size, nil, 0) == 0 else { return [] }
+        return parse(Data(bytes.prefix(size)))
+    }
+
+    static func parent(_ pid: pid_t) -> pid_t {
+        var info = proc_bsdinfo()
+        let got = proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdinfo>.size))
+        return got > 0 ? pid_t(info.pbi_ppid) : -1
+    }
+}
+
 /// A terminal tab's pty: the user's login shell (`$SHELL -l`) in a folder, optionally with a start command
 /// such as `claude`. It is a child of the app's process, never of the daemon, so a stuck terminal cannot
 /// take a pending approval down with it.
@@ -832,6 +858,29 @@ final class TermSession: ObservableObject, Identifiable {
 
     /// Started with a command (an agent, a pipeline) rather than as a plain shell.
     private let runsCommand: Bool
+
+    /// What holds the terminal, by its arguments, and the shell's own process: for `RunTest` to say what it saw.
+    var frontDescription: String { pty.map { "front \($0.foreground) \(Proc.argv($0.foreground)), shell \($0.pid)" } ?? "no terminal" }
+
+    /// The agent CLI working in this tab, if any: what holds the terminal, or what started it (an agent's own editor,
+    /// say). Only what is running is looked at. An agent inside tmux or ssh does not show.
+    func agentInFront(among clis: [AgentCLIs.CLI]) -> AgentCLIs.CLI? {
+        guard exited == nil, let pty, pty.pid > 0 else { return nil }
+        var at = pty.foreground
+        for _ in 0..<8 where at > 1 {
+            if let cli = AgentCLIs.running(argv: Proc.argv(at), in: clis) { return cli }
+            if at == pty.pid { break }
+            at = Proc.parent(at)
+        }
+        // A shell started with a command has no job control, so what it started is its child and it stays in front.
+        guard runsCommand else { return nil }
+        var kids = [pid_t](repeating: 0, count: 64)
+        let got = Int(proc_listchildpids(pty.pid, &kids, Int32(kids.count * MemoryLayout<pid_t>.size)))
+        for kid in kids.prefix(max(got, 0)) where kid > 0 {
+            if let cli = AgentCLIs.running(argv: Proc.argv(kid), in: clis) { return cli }
+        }
+        return nil
+    }
 
     /// A program is still working in the tab, so closing it (or quitting) would stop it. A plain shell counts as
     /// busy while something other than the shell holds the terminal; a tab started with a command, while that

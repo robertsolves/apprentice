@@ -182,6 +182,8 @@ struct ProjectSkillsView: View {
     @State private var items: [SkillItem] = []
     @State private var selected: String?
     @State private var adding = false
+    /// A skill that could not be copied to each CLI's folder, and why.
+    @State private var notes: [String] = []
 
     private var folder: URL { project.folder.appendingPathComponent(".apprentice/skills") }
 
@@ -198,6 +200,7 @@ struct ProjectSkillsView: View {
                     .listStyle(.sidebar)
                     .scrollContentBackground(.hidden)
                 }
+                ForEach(notes, id: \.self) { Text($0).font(Theme.caption).foregroundStyle(Theme.warn).padding(.horizontal, Theme.s3).fixedSize(horizontal: false, vertical: true) }
             }
         } right: {
             if let id = selected, let item = items.first(where: { $0.id == id }) {
@@ -213,7 +216,7 @@ struct ProjectSkillsView: View {
                     })
                 } content: {
                     Panel(title: "Only for this project") {
-                        Text("What agents should know for this project's work: how its sites and apps work, the steps it repeats, its rules. Agents working in this project read these first and follow them. They are files in the project's folder, so they are saved with it and come back when you open it on another Mac.")
+                        Text("What agents should know for this project's work: how its sites and apps work, the steps it repeats, its rules. Agents working in this project read these first and follow them, and a button above the terminal on Work calls each one. Open terminals carry on and pick up a new skill by themselves. They are files in the project's folder, so they are saved with it and come back when you open it on another Mac.")
                             .font(Theme.body).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -231,6 +234,8 @@ struct ProjectSkillsView: View {
 
     private func reload(select: String? = nil) {
         items = Self.load(folder)
+        // Each CLI reads its own folder, so what changed here goes there now.
+        notes = ProjectFiles.sync(project.folder).filter { $0.contains("looks personal") }
         if let select { selected = select }
         else if let s = selected, !items.contains(where: { $0.id == s }) { selected = nil }
     }

@@ -403,6 +403,8 @@ struct PipelinesView: View {
     /// Only this project's pipelines; new ones are made in its folder.
     let project: Projects.Info
 
+    @State private var tasks: [Pipelines.Pipeline] = []
+
     private var pipelines: [Pipelines.Pipeline] { model.pipelinesIn(project) }
 
     private var blank: Pipelines.Pipeline { Pipelines.Pipeline(name: "", project: project.folder) }
@@ -411,23 +413,31 @@ struct PipelinesView: View {
     private var draft: Pipelines.Pipeline? {
         guard let d = model.pipelineDraft else { return nil }
         if d.url == nil { return d.project?.standardizedFileURL.path == project.id ? d : nil }
-        return pipelines.contains { $0.id == d.id } ? d : nil
+        return (pipelines + tasks).contains { $0.id == d.id } ? d : nil
+    }
+
+    private func row(_ p: Pipelines.Pipeline, icon: String) -> some View {
+        IconRow(icon: icon, title: p.name, detail: "\(p.steps.count) step\(p.steps.count == 1 ? "" : "s")")
+            .tag(p.id)
+            .contextMenu { Button("Move to Trash") { model.trashPipeline(p) } }
     }
 
     var body: some View {
         SplitPane(id: "pipelines", help: .pipelines) {
             ListColumn(count: "\(pipelines.count) pipeline\(pipelines.count == 1 ? "" : "s")", newTitle: "New",
                        new: { model.editPipeline(blank) }) {
-                if pipelines.isEmpty {
+                if pipelines.isEmpty && tasks.isEmpty {
                     Text("No pipelines yet").font(Theme.caption).foregroundStyle(.secondary)
                         .padding(Theme.s4).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 } else {
                     List(selection: Binding(get: { draft?.id }, set: { id in
-                        if let p = pipelines.first(where: { $0.id == id }) { model.editPipeline(p) }
+                        if let p = (pipelines + tasks).first(where: { $0.id == id }) { model.editPipeline(p) }
                     })) {
-                        ForEach(pipelines) { p in
-                            IconRow(icon: "list.number", title: p.name, detail: "\(p.steps.count) step\(p.steps.count == 1 ? "" : "s")")
-                                .tag(p.id)
+                        ForEach(pipelines) { row($0, icon: "list.number") }
+                        if !tasks.isEmpty {
+                            SwiftUI.Section("Just once") {
+                                ForEach(tasks.prefix(15)) { row($0, icon: "text.bubble") }
+                            }
                         }
                     }
                     .listStyle(.sidebar)
@@ -448,6 +458,8 @@ struct PipelinesView: View {
             }
         }
         .background(Theme.canvas)
+        .onAppear { tasks = Pipelines.tasks(project.folder) }
+        .onChange(of: model.pipelineEdits) { _, _ in tasks = Pipelines.tasks(project.folder) }
     }
 }
 
@@ -499,9 +511,15 @@ struct PipelineEditor: View {
         return p
     }
 
-    private var agentNames: [String] { NamedAgents.all(project: original.project).map(\.name) }
+    /// The CLIs on this Mac, looked up once: it asks the login shell, so not on the main thread.
+    @State private var installed: Set<String> = []
+
+    private var agentChoices: [(id: String, label: String)] { NamedAgents.choices(project: original.project, installed: installed) }
 
     private var isNew: Bool { original.url == nil }
+
+    /// A one-off task from the Work tab, not yet one of the project's pipelines.
+    private var isTask: Bool { original.url?.path.contains("/.apprentice/cache/tasks/") == true }
 
     var body: some View {
         ScreenPage(title: isNew ? "New pipeline" : original.name, subtitle: original.url.map { ($0.path as NSString).abbreviatingWithTildeInPath } ?? "Prompts that run one after another") {
@@ -514,7 +532,12 @@ struct PipelineEditor: View {
                         IconButton("Run fresh", "arrow.clockwise") { if let p = save() { model.runPipeline(p, fresh: true) } }
                             .help("Runs it without the summary carried from earlier runs")
                     }
-                    IconButton("Run now", "play.fill") { if let p = save() { model.runPipeline(p) } }
+                    IconButton("Run", "play.fill") { if let p = save() { model.prepareRun(p) } }
+                        .help("Goes to Work with this chosen, to type anything different for this run and press Run")
+                    if isTask {
+                        IconButton("Keep as a pipeline", "tray.and.arrow.down") { keep() }
+                    }
+                    IconButton("Move to Trash", "trash") { model.trashPipeline(original) }
                 }
                 IconButton("Save", "checkmark", prominent: true) { _ = save() }
                     .keyboardShortcut("s", modifiers: .command)
@@ -553,24 +576,31 @@ struct PipelineEditor: View {
             HStack {
                 IconButton("Add a step", "plus.circle") { steps.append(EditStep(title: "", prompt: "")) }
                 Spacer()
-                if !isNew {
-                    Button("Move to Trash") {
-                        model.runCLI(["pipeline", "rm", original.url?.path ?? original.ref]) { _, out in
-                            model.output = out
-                            model.pipelineDraft = nil
-                            model.refresh()
-                        }
-                    }
-                    .controlSize(.small)
-                }
             }
             if !problem.isEmpty { Text(problem).font(Theme.caption).foregroundStyle(Theme.danger) }
             if !saved.isEmpty { Text(saved).font(Theme.monoSmall).foregroundStyle(.secondary) }
             if !isNew { PipelineRunsPanel(model: model, pipeline: original) }
         }
-        .onAppear(perform: load)
+        .onAppear {
+            load()
+            DispatchQueue.global().async {
+                let found = AgentCLIs.installed()
+                DispatchQueue.main.async { installed = found }
+            }
+        }
         .sheet(isPresented: $scheduling) {
             ScheduleEditor(model: model, existing: nil, presetKind: "pipeline", presetTarget: currentRef, presetName: name) { scheduling = false }
+        }
+    }
+
+    private func keep() {
+        guard let p = save() else { return }
+        do {
+            let target = try Pipelines.keep(p)
+            model.refresh()
+            model.editPipeline(Pipelines.parse((try? String(contentsOf: target, encoding: .utf8)) ?? "", url: target, project: p.project))
+        } catch {
+            problem = error.localizedDescription
         }
     }
 
@@ -623,7 +653,7 @@ struct PipelineEditor: View {
         HStack(spacing: Theme.s3) {
             HStack(spacing: Theme.s1) {
                 Text("Agent").font(Theme.caption).foregroundStyle(.secondary)
-                agentPicker(binding(step.id, \.use), blank: "First on the list").frame(maxWidth: 170)
+                agentPicker(binding(step.id, \.use), blank: agent.isEmpty ? "First on the list" : "\(AgentCLIs.label(agent)), as this pipeline says").frame(maxWidth: 200)
             }
             HStack(spacing: Theme.s1) {
                 Text("Needs").font(Theme.caption).foregroundStyle(.secondary)
@@ -678,8 +708,8 @@ struct PipelineEditor: View {
     private func agentPicker(_ value: Binding<String>, blank: String) -> some View {
         Picker("", selection: value) {
             Text(blank).tag("")
-            ForEach(agentNames, id: \.self) { Text($0).tag($0) }
-            if !value.wrappedValue.isEmpty, !agentNames.contains(value.wrappedValue) { Text(value.wrappedValue).tag(value.wrappedValue) }
+            ForEach(agentChoices, id: \.id) { Text($0.label).tag($0.id) }
+            if !value.wrappedValue.isEmpty, !agentChoices.contains(where: { $0.id == value.wrappedValue }) { Text(value.wrappedValue).tag(value.wrappedValue) }
         }
         .labelsHidden().pickerStyle(.menu)
     }

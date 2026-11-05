@@ -118,7 +118,8 @@ enum Board {
                 (run, from, agent) = (here.run, here.step, here.agent)
             } else {
                 run = try Runs.find(a.value("run") ?? "", project: Runs.project(a)).dir
-                (from, agent) = ("you", nil)
+                // An agent directing the run speaks as itself, under a step's limits; the user speaks as you.
+                (from, agent) = Runs.directed(run) && Agent.name(ProcessInfo.processInfo.environment) != nil ? ("director", nil) : ("you", nil)
             }
             let to = a.value("to").map(Pipelines.slug)
             if let to, let state = Runs.load(run), state.steps[to] == nil {
@@ -217,6 +218,12 @@ struct PipelineStep {
             i += 1
         }
         let who = (agent ?? "An agent") + ", on the `\(step)` step"
+        // A directed run's questions go to the agent directing it: the step parks now and that agent answers.
+        if Runs.directed(run) {
+            let q = RunQuestion(kind: "question", text: question, choices: (choices ?? "").split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces) }, multi: multi, who: who)
+            if let data = try? JSONEncoder().encode(q) { try? data.write(to: node.appendingPathComponent("question.json"), options: .atomic) }
+            return (9, "the agent directing this run will answer. Write your progress to \(node.appendingPathComponent("progress.md").path) and exit now. The answer restarts this step as a fresh run, given your progress and the answer.")
+        }
         let asking = node.appendingPathComponent("asking")
         try? "\(getpid())".write(to: asking, atomically: true, encoding: .utf8)
         defer { try? FileManager.default.removeItem(at: asking) }
@@ -237,6 +244,15 @@ struct PipelineStep {
 /// A question a parked step waits on. Apprentice words `permission` and the other kinds itself; only `question`
 /// carries an agent's words.
 struct RunQuestion: Codable, Equatable {
+    /// What gives an agent more access, or lets a step that already acted on the screen go again: only the user answers these.
+    static let userOnly: Set<String> = ["permission", "first-use", "acted"]
+
+    /// Whether this answer is the part of those that is the user's. Stepping back (skip, stop) gives nothing away.
+    func grants(_ answer: String) -> Bool {
+        let said = answer.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return Self.userOnly.contains(kind) && said != "stop the run" && !said.contains("skip")
+    }
+
     var kind: String
     var text: String
     var choices: [String] = []
