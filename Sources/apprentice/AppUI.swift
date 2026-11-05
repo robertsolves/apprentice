@@ -1338,7 +1338,6 @@ struct TerminalWorkspace: View {
     /// The agent open in the tab on screen, looked at every two seconds.
     @State private var agent: AgentCLIs.CLI?
     @State private var clis: [AgentCLIs.CLI] = []
-    private let tick = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     private var pendingForSelected: Approvals.Pending? {
         model.pending.first { $0.tab == model.selectedTab }
@@ -1380,11 +1379,18 @@ struct TerminalWorkspace: View {
             }
         }
         .background(Theme.canvas)
-        .onAppear { clis = AgentCLIs.agents(); showShell(); loadCommands(); lookForAgent() }
+        .onAppear { showShell(); loadCommands() }
         .onChange(of: shown?.id) { _, _ in showShell(); lookForAgent() }
         .onChange(of: project.id) { _, _ in showShell(); loadCommands(); lookForAgent() }
         .onChange(of: model.revision) { _, _ in loadCommands() }
-        .onReceive(tick) { _ in lookForAgent() }
+        // A loop that lives as long as the view: a timer held by the view starts again whenever the model changes and
+        // the view is made anew, which here is more often than every two seconds.
+        .task(id: project.id) {
+            while !Task.isCancelled {
+                lookForAgent()
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+        }
     }
 
     /// The project always shows a terminal: the tab it has, else a new shell in its folder.
@@ -1396,6 +1402,7 @@ struct TerminalWorkspace: View {
     private var font: NSFont { AppLook.terminalFont }
 
     private func lookForAgent() {
+        if clis.isEmpty { clis = AgentCLIs.agents() }
         let now = shown?.agentInFront(among: clis)
         if now?.id != agent?.id { agent = now }
     }

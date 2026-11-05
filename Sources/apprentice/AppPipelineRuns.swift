@@ -15,7 +15,6 @@ struct PipelineRunsPanel: View {
     @State private var output = ""
     @State private var messageStep = ""
     @State private var message = ""
-    private let tick = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     private var current: (dir: URL, state: RunState)? {
         runs.first { $0.state.run == selected } ?? runs.first
@@ -66,8 +65,12 @@ struct PipelineRunsPanel: View {
             }
             if !output.isEmpty { Output(text: output) }
         }
-        .onAppear(perform: reload)
-        .onReceive(tick) { _ in reload() }
+        .task {
+            while !Task.isCancelled {
+                reload()
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+        }
     }
 
     private var scope: [String] { pipeline.project.map { ["--project", $0.path] } ?? [] }

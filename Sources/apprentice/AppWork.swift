@@ -23,7 +23,6 @@ struct RunBar: View {
     @State private var problem = ""
     @State private var starting = false
     @State private var latest: (dir: URL, state: RunState)?
-    private let tick = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     private var draft: Binding<RunDraft> {
         Binding(get: { model.runDrafts[project.id] ?? RunDraft() }, set: { model.runDrafts[project.id] = $0 })
@@ -75,8 +74,12 @@ struct RunBar: View {
         .padding(.horizontal, Theme.s3)
         .padding(.vertical, Theme.s2)
         .background(.bar)
-        .onAppear(perform: reload)
-        .onReceive(tick) { _ in reload() }
+        .task {
+            while !Task.isCancelled {
+                reload()
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+        }
     }
 
     private func number(_ n: Int) -> some View {
