@@ -17,8 +17,10 @@ struct RunState: Codable {
         var reason: String? = nil
         var question: RunQuestion? = nil
         var answer: String? = nil
-        /// Why it is starting again: "answer", "takeover" or "merge".
+        /// Why it is starting again: "answer", "takeover", "merge", "home" or "urgent".
         var restart: String? = nil
+        /// How many times another step has stopped it with an urgent message.
+        var interrupts: Int? = nil
         var feeders: [String] = []
         /// The workspaces it was reached from; "root" is the project folder.
         var arrivals: [String] = []
@@ -340,6 +342,8 @@ final class PipelineEngine {
     /// Git in one repo, one thing at a time: two branches ending together share the merge worktree and the folder they apply to.
     let gitLock = NSRecursiveLock()
     private var homeFailed = Set<String>()
+    /// Steps stopped by an urgent message, to go back on the list once their thread has ended.
+    private var again = Set<String>()
     private let printLock = NSLock()
 
     var project: URL? { p.project }
@@ -550,6 +554,8 @@ final class PipelineEngine {
         runStep(id)
         lock.lock()
         running.remove(id)
+        // Only now: on the list any sooner, the loop could start it while this thread is still counted as it.
+        if again.remove(id) != nil, !state.pending.contains(id) { state.pending.append(id) }
         lock.unlock()
         save()
     }
@@ -792,6 +798,8 @@ final class PipelineEngine {
             let session = cli?.session.isEmpty == false ? UUID().uuidString.lowercased() : nil
             // A worktree's run folder is outside its working folder.
             let addDir = workspace.path.hasPrefix(project?.path ?? cwd.path) && !workspace.path.contains("/worktrees/") ? nil : dir
+            // After an urgent stop what waited is in this prompt; otherwise it is an ordinary message by now, read at the next check.
+            try? FileManager.default.removeItem(at: nodeDir.appendingPathComponent("interrupt"))
             let prompt = prompt(id, step, named: named, cli: cli, level: level, workspace: workspace, previous: previous)
             try? prompt.write(to: nodeDir.appendingPathComponent("prompt.md"), atomically: true, encoding: .utf8)
             let argv = NamedAgents.argv(named, prompt: prompt, extras: .init(session: session, dir: addDir, permissions: level))
@@ -801,11 +809,16 @@ final class PipelineEngine {
             result.tries.append(.init(agent: named.name, cli: cli?.id ?? named.agent, model: named.model, outcome: "running", code: -1, seconds: 0, limit: nil, session: stored, sessionRemoved: false, cwd: workspace.path))
             record(id, result)
             let asking = nodeDir.appendingPathComponent("asking"), waiting = nodeDir.appendingPathComponent("waiting")
+            let interruptMark = nodeDir.appendingPathComponent("interrupt")
             let r = AgentRun.run(argv, cli: cli, in: workspace, env: environment(id, step: step, agent: named.name), log: log,
                                  stallSeconds: PipelineSettings.stallSeconds(project), totalSeconds: PipelineSettings.totalSeconds(project),
                                  activity: [nodeDir.appendingPathComponent("alive")],
                                  paused: { Self.holding(asking) || Self.holding(waiting) },
-                                 stop: { [weak self] in self?.stopping ?? true }, echo: echo(id))
+                                 stop: { [weak self] in self?.stopping ?? true },
+                                 // Not while it has a question open in front of the user. The step's own `acted` is checked again here,
+                                 // since it may have acted after the message was posted.
+                                 interrupt: { FileManager.default.fileExists(atPath: interruptMark.path) && !Self.holding(asking) && !FileManager.default.fileExists(atPath: nodeDir.appendingPathComponent("acted").path) },
+                                 echo: echo(id))
             let limit = r.outcome == .ok && r.text.count > 800 ? nil : AgentRun.limitPhrase(cli: cli, text: r.text)
             let id2 = session ?? r.session
             sessions.append((cli, id2, workspace))
@@ -814,6 +827,12 @@ final class PipelineEngine {
             record(id, result)
             used = named
 
+            if r.outcome == .interrupted {
+                cleanSessions(&sessions, &result, id)
+                record(id, result)
+                hearUrgent(id, from: (try? String(contentsOf: interruptMark, encoding: .utf8)) ?? "")
+                return
+            }
             if var q = (try? Data(contentsOf: question)).flatMap({ try? JSONDecoder().decode(RunQuestion.self, from: $0) }) {
                 // An agent can write this file, so it can only ever ask a question: the kinds that grant anything are apprentice's.
                 q.kind = "question"
@@ -882,6 +901,24 @@ final class PipelineEngine {
         cleanSessions(&sessions, &result, id)
         record(id, result)
         advance(id, step: step, output: success.text, result: result)
+    }
+
+    /// It stopped for an urgent message: everything new goes in the prompt of its next start, on this same agent.
+    private func hearUrgent(_ id: String, from: String) {
+        let all = Board.messages(dir)
+        let new = Array(all.dropFirst(Board.seen(run: dir, step: id))).filter { Board.isFor($0, step: id) }
+        Board.markSeen(run: dir, step: id, count: all.count)
+        say("\n\(id) was stopped to hear an urgent message; starting it again\n")
+        set(id) { s in
+            s.status = "waiting"
+            s.restart = "urgent"
+            s.answer = new.map(Board.render).joined(separator: "\n")
+            s.visits = max(s.visits - 1, 0)
+            if from != "you" { s.interrupts = (s.interrupts ?? 0) + 1 }
+        }
+        lock.lock()
+        again.insert(id)
+        lock.unlock()
     }
 
     /// A command is waiting for the user or the board: the file holds its pid, so one that died cannot stop the clock.
@@ -1222,8 +1259,13 @@ final class PipelineEngine {
         if s?.restart != nil, let why = s?.restart {
             var saved = ""
             if let text = try? String(contentsOf: progressFile, encoding: .utf8) { saved = "Your saved progress:\n" + tail(text, 6000) }
-            let reason = why == "answer" ? "The user has answered. Their answer: \(s?.answer ?? "")" : "It stopped partway, and the user chose to run it again. Check what is already done before you act."
-            restart = PipelineText.fill("restart", ["why": reason, "progress": saved]) + "\n\n"
+            if why == "urgent" {
+                let printed = (try? String(contentsOf: node(id).appendingPathComponent("output.log"), encoding: .utf8)) ?? ""
+                restart = PipelineText.fill("urgent", ["messages": s?.answer ?? "", "progress": saved, "tail": printed.isEmpty ? "(nothing)" : tail(printed, 2000), "changed": changedFiles(workspace).joined(separator: "\n")]) + "\n\n"
+            } else {
+                let reason = why == "answer" ? "The user has answered. Their answer: \(s?.answer ?? "")" : "It stopped partway, and the user chose to run it again. Check what is already done before you act."
+                restart = PipelineText.fill("restart", ["why": reason, "progress": saved]) + "\n\n"
+            }
         }
         if let previous {
             let changed = changedFiles(workspace).joined(separator: "\n")

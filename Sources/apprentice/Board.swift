@@ -12,6 +12,8 @@ enum Board {
         var text: String
         /// The sender holds the screen, so its words may have come from it.
         var fromScreen: Bool?
+        /// It stops the step it is for, which then starts again with this message (`interruptNote`).
+        var urgent: Bool? = nil
     }
 
     static let maxLength = 2000
@@ -52,7 +54,7 @@ enum Board {
         ((try? String(contentsOf: cursor(run, step), encoding: .utf8)).flatMap { Int($0.trimmingCharacters(in: .whitespacesAndNewlines)) }) ?? 0
     }
 
-    private static func markSeen(run: URL, step: String, count: Int) {
+    static func markSeen(run: URL, step: String, count: Int) {
         let url = cursor(run, step)
         try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try? "\(count)".write(to: url, atomically: true, encoding: .utf8)
@@ -64,7 +66,7 @@ enum Board {
 
     static func render(_ m: Message) -> String {
         let clock = Date(timeIntervalSince1970: m.at).formatted(date: .omitted, time: .shortened)
-        return "\(clock) \(m.from)\(m.agent.map { " (\($0))" } ?? "")\(m.to.map { " to \($0)" } ?? "")\(m.fromScreen == true ? " [may quote the screen]" : ""): \(m.text)"
+        return "\(clock) \(m.from)\(m.agent.map { " (\($0))" } ?? "")\(m.to.map { " to \($0)" } ?? "")\(m.fromScreen == true ? " [may quote the screen]" : "")\(m.urgent == true ? " [urgent]" : ""): \(m.text)"
     }
 
     /// `2 unread`, for the end of every apprentice command a step runs.
@@ -75,7 +77,23 @@ enum Board {
 
     // MARK: - CLI
 
-    static let usage = "board post [--to step] \"message\" · read [--all] · wait --from step [--for 10m] · show <run> · summarise <run>"
+    /// Asks the engine to stop a step so it can start again with this message, which wastes what it has done so far.
+    /// Nil when it is on its way; otherwise why the message goes as an ordinary one, seen at the step's next check.
+    /// The user can always interrupt. Another step can only `[pipelines] urgent_max` times per step in a run, so two
+    /// agents cannot keep stopping each other and spending tokens.
+    static func interruptNote(run: URL, to: String, from: String) -> String? {
+        guard let state = Runs.load(run), let target = state.steps[to], target.status == "running" else { return "\(to) is not running: it reads this when it does" }
+        guard target.agent != nil else { return "\(to) is a shell step, so it has nobody to tell" }
+        let node = run.appendingPathComponent("nodes/\(to)")
+        // Starting it again could do something twice on the screen.
+        if FileManager.default.fileExists(atPath: node.appendingPathComponent("acted").path) { return "\(to) has already acted on the screen, so it is not stopped: it sees this at its next check" }
+        let limit = Int(PipelineSettings.number("urgent_max", 2, project: state.project.map { URL(fileURLWithPath: $0) }))
+        if from != "you", (target.interrupts ?? 0) >= limit { return "\(to) was already stopped \(limit) times by other steps, so it is not stopped again: it sees this at its next check" }
+        try? from.write(to: node.appendingPathComponent("interrupt"), atomically: true, encoding: .utf8)
+        return nil
+    }
+
+    static let usage = "board post [--to step] [--urgent] \"message\" · read [--all] · wait --from step [--for 10m] · show <run> · summarise <run>"
 
     /// `10m`, `90s`, `2h`, or a number of seconds.
     static func seconds(_ raw: String?) -> Double? {
@@ -106,8 +124,13 @@ enum Board {
             if let to, let state = Runs.load(run), state.steps[to] == nil {
                 throw Fail(5, "no step \(to) in this run: \(state.steps.keys.sorted().joined(separator: ", "))")
             }
-            try post(Message(at: Date().timeIntervalSince1970, from: from, agent: agent, to: to, text: text, fromScreen: here?.hasScreen == true ? true : nil), run: run)
-            return "posted" + (to.map { " to \($0)" } ?? "")
+            let urgent = a.has("urgent")
+            if urgent, to == nil { throw Fail(5, "an urgent message stops the step it is for, so it goes to one: --to <step>") }
+            if urgent, to == from { throw Fail(5, "a step cannot interrupt itself") }
+            try post(Message(at: Date().timeIntervalSince1970, from: from, agent: agent, to: to, text: text, fromScreen: here?.hasScreen == true ? true : nil, urgent: urgent ? true : nil), run: run)
+            let said = "posted" + (to.map { " to \($0)" } ?? "")
+            guard urgent, let to else { return said }
+            return said + (interruptNote(run: run, to: to, from: from).map { ". Not urgent after all: \($0)" } ?? ": it stops now and starts again with this")
         case "read":
             guard let here else { throw Fail(5, "board read works inside a pipeline step; for a past run: apprentice board show <run>") }
             if a.has("all") { return messages(here.run).map(render).joined(separator: "\n") }

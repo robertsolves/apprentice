@@ -853,6 +853,51 @@ extension SelfTest {
         _ = cli(["pipeline", "stop", "1"], in: crash, fake: fake)
         running.waitUntilExit()
 
+        // An urgent message: the step stops, starts again with it, and the run carries on.
+        let urgent = newProject("urgent", under: base)
+        let started = base.appendingPathComponent("urgent-started")
+        write("---\ngoal: g\n---\n## s\nuse: A\nnext: a & b\nRUN: echo s\n\n## a\nuse: A\nnext: end\nRUN: if grep -q 'port mov''ed' \"$FAKE_DIR/prompt-one-a\"; then echo heard-it; else echo first-try; touch \(started.path); sleep 30; echo slept-on; fi\n\n## b\nuse: B\nnext: end\nRUN: for i in $(seq 100); do [ -f \(started.path) ] && break; sleep 0.1; done; sleep 0.3; apprentice board post --urgent --to a 'The port moved'; echo posted=$?\n", "x", in: urgent)
+        let began = Date()
+        r = cli(["pipeline", "run", "x"], in: urgent, fake: fake)
+        let heard = text(Runs.root(project: urgent).appendingPathComponent("1/nodes/a/output.log"))
+        let urgentPrompt = text(fake.appendingPathComponent("prompt-one-a"))
+        let tries = (try? JSONDecoder().decode(StepResult.self, from: Data(contentsOf: Runs.root(project: urgent).appendingPathComponent("1/nodes/a/result.json"))))?.tries.map(\.outcome) ?? []
+        check(r.code == 0 && heard.contains("heard-it") && !heard.contains("slept-on") && Date().timeIntervalSince(began) < 25, "urgent: the step stops and starts again, and the run finishes (exit \(r.code)): \(heard)")
+        check(urgentPrompt.contains("The port moved") && urgentPrompt.contains("first-try"), "urgent: the new start has the message and the end of what it printed")
+        check(tries == ["interrupted", "ok"], "urgent: both tries are on file: \(tries)")
+        check(state(urgent, 1)?.steps["a"]?.visits == 1 && state(urgent, 1)?.steps["a"]?.interrupts == 1, "urgent: it is one visit, and counts against the limit")
+        check(Board.unread(run: Runs.root(project: urgent).appendingPathComponent("1"), step: "a").isEmpty, "urgent: what it heard is not unread as well")
+        check(!Board.render(Board.Message(at: 0, from: "b", to: "a", text: "x", urgent: true)).isEmpty && Board.render(Board.Message(at: 0, from: "b", to: "a", text: "x", urgent: true)).contains("[urgent]"), "urgent: the board shows it")
+
+        // When it must not stop: already acted on the screen, at the limit, not running, or no one to tell.
+        let held = base.appendingPathComponent("held")
+        let heldNode = held.appendingPathComponent("nodes/a")
+        try? FileManager.default.createDirectory(at: heldNode, withIntermediateDirectories: true)
+        var heldState = RunState(run: 1, pipeline: "p", name: "p", slug: "p", file: nil, project: nil, started: 0)
+        heldState.steps["a"] = RunState.Step(status: "running", agent: "A")
+        heldState.steps["w"] = RunState.Step(status: "waiting", agent: "A")
+        heldState.steps["sh"] = RunState.Step(status: "running")
+        try? Wire.json(heldState).write(to: held.appendingPathComponent("state.json"))
+        let mark = heldNode.appendingPathComponent("interrupt")
+        check(Board.interruptNote(run: held, to: "w", from: "b")?.contains("not running") == true && !FileManager.default.fileExists(atPath: mark.path), "urgent: a step not running gets it as an ordinary message")
+        check(Board.interruptNote(run: held, to: "sh", from: "you")?.contains("shell") == true, "urgent: a shell step has nobody to tell")
+        check(Board.interruptNote(run: held, to: "a", from: "b") == nil && text(mark) == "b", "urgent: a running step is asked to stop, and it is on file who asked")
+        try? FileManager.default.removeItem(at: mark)
+        heldState.steps["a"]?.interrupts = 2
+        try? Wire.json(heldState).write(to: held.appendingPathComponent("state.json"))
+        check(Board.interruptNote(run: held, to: "a", from: "b")?.contains("already stopped") == true && !FileManager.default.fileExists(atPath: mark.path), "urgent: another step cannot keep stopping it")
+        check(Board.interruptNote(run: held, to: "a", from: "you") == nil, "urgent: the user always can")
+        try? FileManager.default.removeItem(at: mark)
+        FileManager.default.createFile(atPath: heldNode.appendingPathComponent("acted").path, contents: nil)
+        check(Board.interruptNote(run: held, to: "a", from: "you")?.contains("acted") == true && !FileManager.default.fileExists(atPath: mark.path), "urgent: a step that acted on the screen is never restarted")
+        // End to end: one that acts after the message is posted runs on to its end.
+        let acted = newProject("acted", under: base)
+        write("---\ngoal: g\n---\n## s\nuse: A\nnext: a & b\nRUN: echo s\n\n## a\nuse: A\nnext: end\nRUN: touch \"$APPRENTICE_RUN_DIR/nodes/a/acted\"; sleep 1; echo ran-on\n\n## b\nuse: B\nnext: end\nRUN: sleep 0.3; apprentice board post --urgent --to a 'Stop now'\n", "x", in: acted)
+        r = cli(["pipeline", "run", "x"], in: acted, fake: fake)
+        check(r.code == 0 && text(Runs.root(project: acted).appendingPathComponent("1/nodes/a/output.log")).contains("ran-on") && text(Runs.root(project: acted).appendingPathComponent("1/nodes/b/output.log")).contains("Not urgent after all"), "urgent: and the sender is told why (exit \(r.code))")
+        r = cli(["board", "post", "--run", "1", "--urgent", "no one in particular"], in: acted, fake: fake)
+        check(r.code == 5, "urgent: it goes to one step")
+
         // A rename keeps the lists that name it.
         try? "[named.Old]\nagent = \"one\"\n[defaults]\npriority = [\"Old\", \"A\"]\n".write(to: NamedAgents.projectFile(parkedStop), atomically: true, encoding: .utf8)
         _ = try? NamedAgents.rename("Old", to: "Fresh", project: parkedStop)

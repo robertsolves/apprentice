@@ -5,7 +5,7 @@ import Foundation
 /// CLIs decoded to their text, and the time limits watched. Waiting for the user does not count as a stall.
 enum AgentRun {
     enum Outcome: String, Codable {
-        case ok, failed, stalled, timedOut = "timed out", noOutput = "no output", stopped
+        case ok, failed, stalled, timedOut = "timed out", noOutput = "no output", stopped, interrupted
     }
 
     struct Result {
@@ -62,10 +62,10 @@ enum AgentRun {
     }
 
     /// `activity`: files whose change counts as the step being alive. `paused`: the clock stops while true.
-    /// `echo`: called with each piece of decoded output.
+    /// `interrupt`: stop this one CLI, the run going on. `echo`: called with each piece of decoded output.
     static func run(_ argv: [String], cli: AgentCLIs.CLI?, in dir: URL, env extra: [String: String], log: URL?,
                     stallSeconds: Double, totalSeconds: Double, activity: [URL] = [], paused: @escaping () -> Bool = { false },
-                    stop: @escaping () -> Bool = { false }, echo: ((String) -> Void)? = nil) -> Result {
+                    stop: @escaping () -> Bool = { false }, interrupt: @escaping () -> Bool = { false }, echo: ((String) -> Void)? = nil) -> Result {
         let started = Date()
         guard !argv.isEmpty else { return Result(outcome: .failed, code: 127, text: "no CLI to run", stdout: "", session: nil, seconds: 0) }
         let proc = Process()
@@ -152,6 +152,7 @@ enum AgentRun {
             lastTick = now
             if ending == nil {
                 if stop() { ending = .stopped }
+                else if interrupt() { ending = .interrupted }
                 else {
                     cap.lock.lock(); let heard = cap.last; cap.lock.unlock()
                     if heard > lastActive { lastActive = heard }

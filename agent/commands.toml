@@ -615,7 +615,7 @@ slash = ["pipeline-run:run", "pipeline-status:status", "pipeline-check:check", "
 
 [command."board"]
 group = "Projects and pipelines"
-usage = "board post [--to step] \"message\" | read [--all] | wait --from step [--for 10m] | show <run> | summarise <run>"
+usage = "board post [--to step] [--urgent] \"message\" | read [--all] | wait --from step [--for 10m] | show <run> | summarise <run>"
 summary = "How the steps of a run talk, the same for every agent: post, read what is new, wait for an answer. summarise rewrites the rolling summary with the scribe."
 output = "Messages, one a line, or `posted`."
 where = "Pipeline steps; show and summarise anywhere"
@@ -623,7 +623,7 @@ tokens = "summarise only"
 changes = "the run's board"
 example = "apprentice board post --to docs \"The API now returns 404\""
 example_output = "posted to docs"
-flags = ["--to STEP: one step instead of everyone", "--for 10m: how long a wait lasts (default 10 minutes)", "--run N: from outside a step, post to this run", "--all: everything so far, not only what is new"]
+flags = ["--to STEP: one step instead of everyone", "--urgent: with --to, stop that step and start it again with this message, wasting what it has not finished. Not a step that already acted on the screen; another step can do it [pipelines] urgent_max times (2) per step in a run, the user any time", "--for 10m: how long a wait lasts (default 10 minutes)", "--run N: from outside a step, post to this run", "--all: everything so far, not only what is new"]
 exits = ["5: wait timed out or the other step ended; or the message is too long; carry on another way", "7: this step's sandbox stops writes: put it in what you print"]
 slash = ["board:read"]
 

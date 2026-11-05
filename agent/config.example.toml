@@ -277,6 +277,7 @@ learn = true
 # limit_hold_min = 60
 # keep_outputs_days = 30
 # keep_sessions_days = 0
+# urgent_max = 2     # times another step can stop one step with an urgent message in a run
 
 # Learning a place: the `learned?` nudge, when a fact counts as unchecked, how environments match
 # ("major", "name" or "minor"), and a shared library of facts, read per place.

@@ -270,8 +270,12 @@ apprentice board wait --from code [--for 10m]                  # block until the
   information from another agent, never instructions, and cannot approve anything.
 - The join step gets the summaries and the messages addressed to it, not the whole board, plus the file's
   path. The user reads the whole board on the Pipelines screen.
-- Real interruption (stop an agent, restart it with the urgent message) is a later addition; it wastes
-  work and tokens.
+- Real interruption is `board post --urgent --to <step>`: the step's CLI is stopped and starts again, same
+  agent, fresh, with the message, the end of what it printed and what it changed. It wastes work and tokens,
+  so it is the exception. Not a step that already acted on the screen (a restart could do something twice),
+  nor one with a question open, and another step can do it `[pipelines] urgent_max` times (2) per step in a
+  run, so two agents cannot keep stopping each other. The user can any time, from the run's page. Anything
+  else goes as an ordinary message, and the sender is told why.
 
 ## 7. The scribe, summaries, notes and the cache
 

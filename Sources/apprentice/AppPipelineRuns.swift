@@ -13,6 +13,8 @@ struct PipelineRunsPanel: View {
     @State private var showBoard = false
     @State private var showNotes = false
     @State private var output = ""
+    @State private var messageStep = ""
+    @State private var message = ""
     private let tick = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     private var current: (dir: URL, state: RunState)? {
@@ -51,6 +53,7 @@ struct PipelineRunsPanel: View {
             if showBoard, let run = current {
                 let messages = Board.messages(run.dir)
                 Output(text: messages.isEmpty ? "Nothing on the board." : messages.map(Board.render).joined(separator: "\n"))
+                if live(run.state) { tell(run) }
             }
             if showNotes {
                 if notes.isEmpty { Text("No notes yet.").font(Theme.caption).foregroundStyle(.secondary) }
@@ -184,6 +187,32 @@ struct PipelineRunsPanel: View {
                 .background(Theme.warn.opacity(0.08), in: RoundedRectangle(cornerRadius: Theme.radius))
             }
         }
+    }
+
+    /// Say something to a running step: it reads it at its next check, or is stopped and started again to hear it now.
+    @ViewBuilder private func tell(_ run: (dir: URL, state: RunState)) -> some View {
+        let steps = run.state.steps.filter { $0.value.status == "running" && $0.value.agent != nil }.map(\.key).sorted()
+        if !steps.isEmpty {
+            VStack(alignment: .leading, spacing: Theme.s1) {
+                HStack(spacing: Theme.s2) {
+                    Picker("", selection: Binding(get: { steps.contains(messageStep) ? messageStep : steps[0] }, set: { messageStep = $0 })) {
+                        ForEach(steps, id: \.self) { Text($0).tag($0) }
+                    }
+                    .labelsHidden().pickerStyle(.menu).frame(maxWidth: 160)
+                    TextField("Tell this step", text: $message).textFieldStyle(.roundedBorder).controlSize(.small)
+                    Button("Send") { send(run, steps, urgent: false) }.controlSize(.small).disabled(message.isEmpty)
+                    Button("Stop it and tell it now") { send(run, steps, urgent: true) }.controlSize(.small).disabled(message.isEmpty)
+                }
+                Text("Stopping it starts that step again, so what it has not finished is lost and it uses more of your plan.").font(Theme.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func send(_ run: (dir: URL, state: RunState), _ steps: [String], urgent: Bool) {
+        let to = steps.contains(messageStep) ? messageStep : steps[0]
+        let text = message
+        message = ""
+        act(["board", "post", "--run", "\(run.state.run)", "--to", to] + (urgent ? ["--urgent"] : []) + [text] + scope)
     }
 
     private func detailFolder(_ run: (dir: URL, state: RunState), _ id: String) -> URL? {
