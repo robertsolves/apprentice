@@ -142,9 +142,8 @@ enum SkillLibrary {
 
     /// With its keys in order, so publishing the same facts gives the same bytes and the same ETag.
     static func jsonLine<T: Encodable>(_ value: T) -> String? {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        return (try? encoder.encode(value)).map { String(decoding: $0, as: UTF8.self) }
+        let data = Wire.json(value)
+        return data.isEmpty ? nil : String(decoding: data, as: UTF8.self)
     }
 
     static let maxIndex = 64 * 1024 * 1024

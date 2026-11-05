@@ -48,6 +48,11 @@ struct RunState: Codable {
         var parent: String
         var mergePath: String? = nil
         var mergeBranch: String? = nil
+        /// The merged commit that did not all apply to the parent folder, left for the user to resolve there.
+        var conflictAt: String? = nil
+        var conflictResolved: Bool? = nil
+        /// The `.rej` files that left, which go once it is resolved.
+        var rejects: [String]? = nil
         var done = false
     }
 
@@ -95,6 +100,9 @@ struct StepResult: Codable {
 
 enum Runs {
     /// A project's cache; a pipeline outside any project keeps its own in apprentice's folder.
+    /// Where a run's answers wait: outside the project, so an agent working in the folder cannot write one for itself.
+    static func answers(_ dir: URL) -> URL { Store.dir.appendingPathComponent("pipeline-answers/\(Tidy.short(AgentRun.real(dir)))") }
+
     static func cache(project: URL?) -> URL {
         project.map { $0.appendingPathComponent(".apprentice/cache") } ?? Store.dir.appendingPathComponent("cache")
     }
@@ -130,9 +138,14 @@ enum Runs {
         return Projects.here()?.folder
     }
 
-    /// A run by its number, in the given project; the newest when no number is given.
+    /// A run by its number, in the given project; the newest when no number is given, or of that pipeline when one is
+    /// named. A word that names neither is an error: `pipeline stop` must not stop whichever ran last.
     static func find(_ ref: String, project: URL?) throws -> (dir: URL, state: RunState) {
-        let n = Int(ref.split(separator: "#").last.map(String.init) ?? "") ?? numbers(project: project).last
+        var n = ref.isEmpty ? numbers(project: project).last : Int(ref.split(separator: "#").last.map(String.init) ?? "")
+        if n == nil, !ref.isEmpty {
+            n = all(project: project, slug: Pipelines.slug(ref)).first?.state.run
+            guard n != nil else { throw Fail(5, "no run or pipeline \(ref) here · apprentice pipeline status") }
+        }
         guard let n else { throw Fail(5, "no runs here yet") }
         let dir = root(project: project).appendingPathComponent("\(n)")
         guard let state = load(dir) else { throw Fail(5, "no run \(n) here · apprentice pipeline status") }
@@ -147,9 +160,9 @@ enum Runs {
         }
     }
 
-    /// Whether a run is working in this project now. Looks only at the newest few: sync asks every round.
+    /// Whether a run is working in this project now: any of them, since a long run can have newer ones finished after it.
     static func live(project: URL?) -> Bool {
-        numbers(project: project).suffix(5).contains { n in
+        numbers(project: project).contains { n in
             guard let s = load(root(project: project).appendingPathComponent("\(n)")) else { return false }
             return s.status == "running" && alive(s.pid)
         }
@@ -314,7 +327,19 @@ final class PipelineEngine {
     private var stopReason: String?
     private let frozen: [NamedAgents.Named]
     private let defaults: NamedAgents.Defaults
-    private lazy var installed: Set<String> = AgentCLIs.installed()
+    private var installedCache: Set<String>?
+    /// Step threads ask at once on the first look, so it goes behind the lock.
+    private var installed: Set<String> {
+        lock.lock()
+        defer { lock.unlock() }
+        if let installedCache { return installedCache }
+        let found = AgentCLIs.installed()
+        installedCache = found
+        return found
+    }
+    /// Git in one repo, one thing at a time: two branches ending together share the merge worktree and the folder they apply to.
+    let gitLock = NSRecursiveLock()
+    private var homeFailed = Set<String>()
     private let printLock = NSLock()
 
     var project: URL? { p.project }
@@ -391,8 +416,36 @@ final class PipelineEngine {
         state.reason = nil
         state.finished = nil
         try? FileManager.default.removeItem(at: dir.appendingPathComponent("stop"))
-        let agents = (try? Data(contentsOf: dir.appendingPathComponent("agents.json"))).flatMap { try? JSONDecoder().decode([NamedAgents.Named].self, from: $0) } ?? NamedAgents.all(project: folder)
+        let agents = frozen(dir, project: folder)
         return try PipelineEngine(p: p, dir: dir, state: state, agents: agents).loop()
+    }
+
+    /// The agents as this run froze them, read back. That file sits where an agent can write, so it never decides which
+    /// CLI runs or raises a level: both come from the agents as they are now, and a frozen level can only be lower.
+    static func frozen(_ dir: URL, project: URL?) -> [NamedAgents.Named] {
+        let now = NamedAgents.all(project: project)
+        guard let saved = (try? Data(contentsOf: dir.appendingPathComponent("agents.json"))).flatMap({ try? JSONDecoder().decode([NamedAgents.Named].self, from: $0) }) else { return now }
+        return saved.compactMap { old in
+            guard var live = now.first(where: { $0.name.lowercased() == old.name.lowercased() }) else { return nil }
+            live.model = old.model
+            live.effort = old.effort
+            if NamedAgents.rank(old.permissions) < NamedAgents.rank(live.permissions) { live.permissions = old.permissions }
+            return live
+        }
+    }
+
+    /// `pipeline stop` on a run with no process left: it ends as any stopped run does, with its note.
+    static func stopWithoutProcess(_ dir: URL, _ old: RunState) throws {
+        var state = old
+        state.status = "stopped"
+        state.reason = "stopped by `pipeline stop`"
+        state.finished = Date().timeIntervalSince1970
+        state.pid = nil
+        try Wire.json(state).write(to: dir.appendingPathComponent("state.json"), options: .atomic)
+        let folder = state.project.map { URL(fileURLWithPath: $0) }
+        let text = (try? String(contentsOf: dir.appendingPathComponent("pipeline.md"), encoding: .utf8)) ?? ""
+        let p = Pipelines.parse(text, url: state.file.map { URL(fileURLWithPath: $0) }, project: folder)
+        PipelineEngine(p: p, dir: dir, state: state, agents: frozen(dir, project: folder)).writeNote()
     }
 
     // MARK: - the loop
@@ -412,7 +465,7 @@ final class PipelineEngine {
     private func blocked(_ id: String) -> Bool {
         let others = running.union(state.pending.filter { $0 != id })
             .union(state.steps.filter { $0.value.status == "parked" || (!state.keepGoing && $0.value.status == "failed") }.map(\.key))
-        return others.contains { $0 != id && graph.canReach($0, id) }
+        return others.contains { $0 != id && graph.ahead($0).contains(id) }
     }
 
     private func loop() throws -> String {
@@ -447,10 +500,38 @@ final class PipelineEngine {
             lock.unlock()
             if !ready.isEmpty { save() }
             for id in ready { Thread.detachNewThread { [self] in worker(id) } }
-            if idle { break }
+            if idle {
+                if bringHome() { continue }
+                break
+            }
             Thread.sleep(forTimeInterval: 0.1)
         }
         return try finish(began: began)
+    }
+
+    /// A branch that forked again and ended on its children has nobody left to bring it back, so at the end of the run
+    /// every such branch comes home, newest first, or its work would stay in a worktree. True when one parked on a conflict
+    /// or failed, so the loop looks again.
+    private func bringHome() -> Bool {
+        lock.lock()
+        let waiting = stopFlag || !state.pending.isEmpty || state.steps.values.contains { $0.status == "parked" || (!state.keepGoing && $0.status == "failed") }
+        let left = waiting ? [] : Array(state.workspaces.filter { !$0.merged && !homeFailed.contains($0.id) }.reversed())
+        lock.unlock()
+        for w in left {
+            let owner = state.steps.first { $0.value.workspace == w.id }?.key ?? state.groups.first { $0.id == w.group }?.targets.first ?? ""
+            do {
+                try mergeUp(w.id)
+            } catch let conflict as MergeConflict {
+                set(owner) { $0.restart = "home" }
+                parkConflict(owner, conflict)
+                return true
+            } catch {
+                lock.lock(); homeFailed.insert(w.id); lock.unlock()
+                fail(owner, "could not bring its work back: \(error)", carryOn: false)
+                return true
+            }
+        }
+        return false
     }
 
     private func requestStop(_ why: String) {
@@ -534,7 +615,12 @@ final class PipelineEngine {
         guard let step = graph.step(id), let current = state.steps[id] else { return }
         set(id) { $0.started = Date().timeIntervalSince1970; $0.visits += 1 }
         if p.visits > 0, (state.steps[id]?.visits ?? 0) > p.visits {
-            fail(id, "came back to this step more than \(p.visits) times (visits:)")
+            fail(id, "came back to this step more than \(p.visits) times (visits:)", carryOn: false)
+            return
+        }
+        // Its work is already in; the conflict it parked on was bringing a branch home at the end of the run.
+        if current.restart == "home" {
+            set(id) { $0.restart = nil; $0.status = "done"; $0.question = nil; $0.ended = Date().timeIntervalSince1970 }
             return
         }
         // A step that came round again keeps its earlier visit's files beside the new ones.
@@ -562,7 +648,8 @@ final class PipelineEngine {
             return
         }
 
-        if step.shell != nil || AgentCLIs.find(p.agent)?.shell == true {
+        // `use:` naming a shell agent is a shell step: never a composed prompt, with its summaries and board messages, run as a command.
+        if step.shell != nil || AgentCLIs.find(p.agent)?.shell == true || step.use.flatMap(resolve).flatMap({ AgentCLIs.find($0.agent) })?.shell == true {
             runShell(id, step, in: workspace)
         } else {
             runAgent(id, step, in: workspace)
@@ -581,6 +668,16 @@ final class PipelineEngine {
         if let project { env["APPRENTICE_PROJECT"] = project.appendingPathComponent(".apprentice").path }
         return env
     }
+
+    /// A scribe or an interpreter: read-only work with its own owner, refused the screen and the user's commands like any step.
+    private func helperEnvironment(_ role: String) -> [String: String] {
+        ["APPRENTICE_PROJECT": project.map { $0.appendingPathComponent(".apprentice").path } ?? "off",
+         "APPRENTICE_STEP_OWNER": "pipeline:\(p.ref)#\(state.run)/\(role)",
+         "APPRENTICE_STEP_SCREEN": "0"]
+    }
+
+    /// Only a real prompt-taking CLI: an unknown name or a shell must not get a prompt as its command line.
+    private func takesPrompt(_ cli: AgentCLIs.CLI?) -> Bool { cli?.run.isEmpty == false && cli?.shell != true }
 
     private func echo(_ id: String) -> (String) -> Void {
         let parallel = !graph.overlaps().isEmpty
@@ -662,7 +759,8 @@ final class PipelineEngine {
         let before = changedFiles(workspace)
         let list = candidates(step)
         guard !list.isEmpty else { fail(id, "no agent to run it: set one with use:, or a priority list in Settings ▸ Agents"); return }
-        var result = StepResult()
+        // A restart adds to the tries before it, so `tidy` can still find their sessions.
+        var result = state.steps[id]?.restart != nil ? loadResult(id) ?? StepResult() : StepResult()
         var skipped: [String] = []
         var previous: (name: String, reason: String, tail: String)?
         var sessions: [(AgentCLIs.CLI?, String?, URL)] = []
@@ -681,7 +779,7 @@ final class PipelineEngine {
                 continue
             }
             if let cli, !cli.detect.isEmpty, !installed.contains(cli.id) { skipped.append("\(named.name) (\(cli.label) is not installed)"); continue }
-            guard cli?.run.isEmpty == false else { skipped.append("\(named.name) (\(AgentCLIs.label(named.agent)) cannot run a prompt)"); continue }
+            guard takesPrompt(cli) else { skipped.append("\(named.name) (\(AgentCLIs.label(named.agent)) cannot run a prompt)"); continue }
             if let project, let wants = NamedAgents.wants(named, project: project) {
                 park(id, RunQuestion(kind: "first-use", text: wants, choices: ["Allow for this project", "Stop the run"], who: named.name), detail: named.name)
                 return
@@ -698,6 +796,10 @@ final class PipelineEngine {
             try? prompt.write(to: nodeDir.appendingPathComponent("prompt.md"), atomically: true, encoding: .utf8)
             let argv = NamedAgents.argv(named, prompt: prompt, extras: .init(session: session, dir: addDir, permissions: level))
             set(id) { $0.agent = named.name }
+            // On file before it starts, so a crash mid-step still leaves `tidy` the session to remove.
+            let stored = cli?.ephemeral.isEmpty == false ? nil : session
+            result.tries.append(.init(agent: named.name, cli: cli?.id ?? named.agent, model: named.model, outcome: "running", code: -1, seconds: 0, limit: nil, session: stored, sessionRemoved: false, cwd: workspace.path))
+            record(id, result)
             let asking = nodeDir.appendingPathComponent("asking"), waiting = nodeDir.appendingPathComponent("waiting")
             let r = AgentRun.run(argv, cli: cli, in: workspace, env: environment(id, step: step, agent: named.name), log: log,
                                  stallSeconds: PipelineSettings.stallSeconds(project), totalSeconds: PipelineSettings.totalSeconds(project),
@@ -707,12 +809,14 @@ final class PipelineEngine {
             let limit = r.outcome == .ok && r.text.count > 800 ? nil : AgentRun.limitPhrase(cli: cli, text: r.text)
             let id2 = session ?? r.session
             sessions.append((cli, id2, workspace))
-            result.tries.append(.init(agent: named.name, cli: cli?.id ?? named.agent, model: named.model, outcome: r.outcome.rawValue, code: r.code, seconds: r.seconds,
-                                      limit: limit, session: cli?.ephemeral.isEmpty == false ? nil : id2, sessionRemoved: false, cwd: workspace.path))
+            result.tries[result.tries.count - 1] = .init(agent: named.name, cli: cli?.id ?? named.agent, model: named.model, outcome: r.outcome.rawValue, code: r.code, seconds: r.seconds,
+                                                         limit: limit, session: cli?.ephemeral.isEmpty == false ? nil : id2, sessionRemoved: false, cwd: workspace.path)
             record(id, result)
             used = named
 
-            if let q = (try? Data(contentsOf: question)).flatMap({ try? JSONDecoder().decode(RunQuestion.self, from: $0) }) {
+            if var q = (try? Data(contentsOf: question)).flatMap({ try? JSONDecoder().decode(RunQuestion.self, from: $0) }) {
+                // An agent can write this file, so it can only ever ask a question: the kinds that grant anything are apprentice's.
+                q.kind = "question"
                 try? FileManager.default.removeItem(at: question)
                 cleanSessions(&sessions, &result, id)
                 record(id, result)
@@ -727,14 +831,16 @@ final class PipelineEngine {
                 return
             }
             // A CLI may refuse a tool, say so and still exit 0: that is a limit, not a finished step.
-            if r.outcome == .ok, AgentRun.refusalPhrase(cli: cli, text: String(r.text.suffix(1500))) != nil {
+            // Only at the very end of what it printed: the same words earlier are likely about the work.
+            if r.outcome == .ok, AgentRun.refusalPhrase(cli: cli, text: r.text.split(whereSeparator: \.isNewline).suffix(3).joined(separator: "\n")) != nil {
                 cleanSessions(&sessions, &result, id)
                 record(id, result)
                 parkPermission(id, named: named, level: level, need: nil, tail: r.text)
                 return
             }
             // Silent, but it changed files: that is its output.
-            if r.outcome == .ok || (r.outcome == .noOutput && changedFiles(workspace).contains(where: { !before.contains($0) })) { success = r; break }
+            // A short exit 0 carrying a limit phrase is an out-of-usage CLI, not a finished step.
+            if limit == nil, r.outcome == .ok || (r.outcome == .noOutput && changedFiles(workspace).contains(where: { !before.contains($0) })) { success = r; break }
             // Out of usage, stalled, crashed or silent: the next on the list takes over, unless what happened is
             // a refusal (trying agents until one had wider access is what a refusal must not become) or the step
             // already acted on the screen, where a retry could send something twice.
@@ -787,20 +893,28 @@ final class PipelineEngine {
     /// A step's CLI session goes as soon as the step ends and the scribe has its summary, unless the user keeps them.
     private func cleanSessions(_ sessions: inout [(AgentCLIs.CLI?, String?, URL)], _ result: inout StepResult, _ id: String) {
         guard PipelineSettings.keepSessionDays(project) <= 0 else { return }
-        for (cli, session, cwd) in sessions { AgentRun.forget(cli: cli, session: session, cwd: cwd) }
-        for i in result.tries.indices { result.tries[i].sessionRemoved = true }
+        for (cli, session, cwd) in sessions {
+            // Marked only when something really went, so `tidy` tries again otherwise.
+            guard !AgentRun.forget(cli: cli, session: session, cwd: cwd).isEmpty else { continue }
+            for i in result.tries.indices where result.tries[i].session == session { result.tries[i].sessionRemoved = true }
+        }
         sessions.removeAll()
+    }
+
+    private func loadResult(_ id: String) -> StepResult? {
+        (try? Data(contentsOf: node(id).appendingPathComponent("result.json"))).flatMap { try? JSONDecoder().decode(StepResult.self, from: $0) }
     }
 
     private func record(_ id: String, _ result: StepResult) {
         try? Wire.json(result).write(to: node(id).appendingPathComponent("result.json"), options: .atomic)
     }
 
-    private func fail(_ id: String, _ reason: String) {
+    /// `carryOn: false` when advancing is what failed, or when the step must not be left in a loop that spends tokens.
+    private func fail(_ id: String, _ reason: String, carryOn: Bool = true) {
         say("\n\(id) failed: \(reason)\n")
         set(id) { $0.status = "failed"; $0.reason = reason; $0.ended = Date().timeIntervalSince1970 }
         // --keep-going: the next steps run all the same, as a straight list always did.
-        if state.keepGoing, let step = graph.step(id) { advance(id, step: step, output: "", result: StepResult(), ended: "failed") }
+        if carryOn, state.keepGoing, let step = graph.step(id) { advance(id, step: step, output: "", result: StepResult(), ended: "failed") }
     }
 
     // MARK: - parking
@@ -838,7 +952,7 @@ final class PipelineEngine {
                              choices: ["I resolved it", "Stop the run"]), detail: c.folder.path + "\n" + c.detail)
     }
 
-    private func answerFile(_ id: String) -> URL { dir.appendingPathComponent("answers/\(id).txt") }
+    private func answerFile(_ id: String) -> URL { Runs.answers(dir).appendingPathComponent("\(id).txt") }
 
     private func writeAnswer(_ id: String, _ text: String) {
         let file = answerFile(id)
@@ -847,7 +961,7 @@ final class PipelineEngine {
     }
 
     private func absorbAnswers() {
-        let folder = dir.appendingPathComponent("answers")
+        let folder = Runs.answers(dir)
         guard let files = try? FileManager.default.contentsOfDirectory(at: folder, includingPropertiesForKeys: nil), !files.isEmpty else { return }
         for file in files {
             let id = file.lastPathComponent.replacingOccurrences(of: ".txt", with: "")
@@ -861,6 +975,12 @@ final class PipelineEngine {
         lock.lock()
         guard let q = state.steps[id]?.question, state.steps[id]?.status == "parked" else { lock.unlock(); return }
         lock.unlock()
+        let said = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Apprentice worded these and their buttons, so only a button counts: "no" must never read as "allow".
+        if q.kind != "question", !q.choices.isEmpty, !q.choices.contains(where: { $0.caseInsensitiveCompare(said) == .orderedSame }) {
+            say("\n\(id) is still waiting: that is none of \(q.choices.joined(separator: ", "))\n")
+            return
+        }
         func again(restart: String?) {
             set(id) { $0.status = "waiting"; $0.question = nil; $0.restart = restart; $0.visits = max($0.visits - 1, 0) }
             lock.lock()
@@ -870,9 +990,11 @@ final class PipelineEngine {
         }
         func skip() {
             set(id) { $0.status = "skipped"; $0.question = nil }
+            // Marked running here, not on the new thread: the loop must not see nothing left to do and end the run first.
+            lock.lock(); if graph.step(id) != nil { running.insert(id) }; lock.unlock()
             if let step = graph.step(id) { Thread.detachNewThread { [self] in advanceTracked(id, step) } }
         }
-        let stop = answer.lowercased().contains("stop the run")
+        let stop = said.lowercased() == "stop the run"
         switch q.kind {
         case "question":
             set(id) { $0.answer = answer }
@@ -892,6 +1014,7 @@ final class PipelineEngine {
             again(restart: "takeover")
         case "conflict":
             if stop { set(id) { $0.question = nil; $0.status = "failed"; $0.reason = "the user stopped the run" }; requestStop("the user stopped the run"); return }
+            updateState { s in for i in s.groups.indices where s.groups[i].conflictAt != nil { s.groups[i].conflictResolved = true } }
             again(restart: state.steps[id]?.restart)
         case "first-use":
             if stop { set(id) { $0.question = nil; $0.status = "failed"; $0.reason = "the user stopped the run" }; requestStop("the user stopped the run"); return }
@@ -899,7 +1022,8 @@ final class PipelineEngine {
             again(restart: nil)
         case "choice":
             if stop { set(id) { $0.question = nil; $0.status = "failed"; $0.reason = "the user stopped the run" }; requestStop("the user stopped the run"); return }
-            let target = Pipelines.slug(answer)
+            let target = Pipelines.slug(said)
+            guard graph.step(target) != nil else { return }
             set(id) { $0.status = "done"; $0.question = nil }
             activate(target, from: id, workspace: state.steps[id]?.workspace ?? "root", why: "you chose it")
         default:
@@ -908,7 +1032,6 @@ final class PipelineEngine {
     }
 
     private func advanceTracked(_ id: String, _ step: Pipelines.Step) {
-        lock.lock(); running.insert(id); lock.unlock()
         advance(id, step: step, output: "", result: StepResult(), ended: "skipped")
         lock.lock(); running.remove(id); lock.unlock()
         save()
@@ -938,6 +1061,8 @@ final class PipelineEngine {
                 s.status = ended
                 s.ended = Date().timeIntervalSince1970
                 s.restart = nil
+                // Its next visit, in a loop, arrives afresh rather than looking like a join of this visit and that one.
+                s.arrivals = []
             }
         }
         switch graph.next(id) {
@@ -950,7 +1075,7 @@ final class PipelineEngine {
                 set(id) { $0.restart = "merge" }
                 parkConflict(id, conflict)
             } catch {
-                fail(id, "could not bring its work back: \(error)")
+                fail(id, "could not bring its work back: \(error)", carryOn: ended != "failed")
             }
         case .one(let t):
             finished()
@@ -961,12 +1086,12 @@ final class PipelineEngine {
                 finished()
                 for (t, child) in children { activate(t, from: id, workspace: child) }
             } catch {
-                fail(id, "could not start the parallel steps: \(error)")
+                fail(id, "could not start the parallel steps: \(error)", carryOn: ended != "failed")
             }
         case .choice(let options):
             if let line = step.shell.flatMap({ _ in output.split(whereSeparator: \.isNewline).last.map(String.init) }) {
                 let wanted = Pipelines.slug(line)
-                guard options.contains(wanted) else { fail(id, "its last printed line, \(line), is none of: \(options.joined(separator: ", "))"); return }
+                guard options.contains(wanted) else { fail(id, "its last printed line, \(line), is none of: \(options.joined(separator: ", "))", carryOn: ended != "failed"); return }
                 finished()
                 activate(wanted, from: id, workspace: ws, why: "the command printed it")
                 return
@@ -1018,12 +1143,13 @@ final class PipelineEngine {
             let cli = AgentCLIs.find(agent.agent)
             if AgentLimits.holds(cli?.id ?? agent.agent) != nil { continue }
             if let cli, !cli.detect.isEmpty, !installed.contains(cli.id) { continue }
+            guard takesPrompt(cli) else { continue }
             for attempt in 0..<2 {
                 try? FileManager.default.removeItem(at: answerFile)
                 let session = cli?.session.isEmpty == false ? UUID().uuidString.lowercased() : nil
                 let prompt = attempt == 0 ? text : text + "\n\nYour last answer was not one of the steps listed. Answer with exactly one of them."
                 let argv = NamedAgents.argv(agent, prompt: prompt, extras: .init(session: session, dir: nil, permissions: lowest(cli)))
-                let r = AgentRun.run(argv, cli: cli, in: cwd, env: ["APPRENTICE_PROJECT": project.map { $0.appendingPathComponent(".apprentice").path } ?? "off"], log: folder.appendingPathComponent("interpreter.log"),
+                let r = AgentRun.run(argv, cli: cli, in: cwd, env: helperEnvironment("interpreter"), log: folder.appendingPathComponent("interpreter.log"),
                                      stallSeconds: 300, totalSeconds: 300, stop: { [weak self] in self?.stopping ?? true })
                 AgentRun.forget(cli: cli, session: session ?? r.session, cwd: cwd)
                 let written = (try? String(contentsOf: answerFile, encoding: .utf8)) ?? ""
@@ -1136,9 +1262,10 @@ final class PipelineEngine {
             let cli = AgentCLIs.find(agent.agent)
             if AgentLimits.holds(cli?.id ?? agent.agent) != nil { continue }
             if let cli, !cli.detect.isEmpty, !installed.contains(cli.id) { continue }
+            guard takesPrompt(cli) else { continue }
             let session = cli?.session.isEmpty == false ? UUID().uuidString.lowercased() : nil
             let argv = NamedAgents.argv(agent, prompt: prompt, extras: .init(session: session, dir: nil, permissions: lowest(cli)))
-            let r = AgentRun.run(argv, cli: cli, in: cwd, env: ["APPRENTICE_PROJECT": project.map { $0.appendingPathComponent(".apprentice").path } ?? "off"], log: nil,
+            let r = AgentRun.run(argv, cli: cli, in: cwd, env: helperEnvironment("scribe"), log: nil,
                                  stallSeconds: 300, totalSeconds: 300, stop: { [weak self] in self?.stopping ?? true })
             AgentRun.forget(cli: cli, session: session ?? r.session, cwd: cwd)
             let text = (r.stdout.isEmpty ? r.text : r.stdout).trimmingCharacters(in: .whitespacesAndNewlines)

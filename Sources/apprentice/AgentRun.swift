@@ -67,6 +67,7 @@ enum AgentRun {
                     stallSeconds: Double, totalSeconds: Double, activity: [URL] = [], paused: @escaping () -> Bool = { false },
                     stop: @escaping () -> Bool = { false }, echo: ((String) -> Void)? = nil) -> Result {
         let started = Date()
+        guard !argv.isEmpty else { return Result(outcome: .failed, code: 127, text: "no CLI to run", stdout: "", session: nil, seconds: 0) }
         let proc = Process()
         let line = wrapped(argv)
         proc.executableURL = URL(fileURLWithPath: line[0])
@@ -143,6 +144,7 @@ enum AgentRun {
         var lastActive = Date(), lastScan = Date(), pausedFor = 0.0, lastTick = Date()
         var ending: Outcome?
         var killedAt: Date?
+        var victims: [pid_t] = []
         while proc.isRunning {
             usleep(100_000)
             let now = Date()
@@ -167,14 +169,21 @@ enum AgentRun {
                     else if now.timeIntervalSince(lastActive) > stallSeconds { ending = .stalled }
                 }
                 if ending != nil {
-                    terminate(proc.processIdentifier, signal: SIGTERM)
+                    victims = tree(proc.processIdentifier)
+                    for pid in victims { kill(pid, SIGTERM) }
                     killedAt = now
                 }
             } else if let killedAt, now.timeIntervalSince(killedAt) > 5 {
-                terminate(proc.processIdentifier, signal: SIGKILL)
+                victims = Array(Set(victims + tree(proc.processIdentifier)))
+                for pid in victims { kill(pid, SIGKILL) }
             }
         }
         proc.waitUntilExit()
+        // The CLI went on SIGTERM, but whatever it started may not have, and must not keep working in the folder.
+        if ending != nil {
+            usleep(200_000)
+            for pid in victims where kill(pid, 0) == 0 { kill(pid, SIGKILL) }
+        }
         // A grandchild can hold the pipes open past the CLI's end: give the rest a moment, then stop reading.
         let drain = Date().addingTimeInterval(1)
         while Date() < drain {
@@ -198,16 +207,12 @@ enum AgentRun {
         return Result(outcome: outcome, code: code, text: cap.all, stdout: cap.out, session: cap.session, seconds: Int(Date().timeIntervalSince(started)))
     }
 
-    /// The process and everything it started directly.
-    static func terminate(_ pid: pid_t, signal: Int32) {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/pkill")
-        p.arguments = ["-\(signal)", "-P", "\(pid)"]
-        p.standardOutput = FileHandle.nullDevice
-        p.standardError = FileHandle.nullDevice
-        try? p.run()
-        p.waitUntilExit()
-        kill(pid, signal)
+    /// The process and everything under it, however deep: a CLI's bash, its npm and its node would otherwise carry on
+    /// editing the folder while the next agent works there. Children first.
+    static func tree(_ pid: pid_t) -> [pid_t] {
+        let r = Repo.run("/usr/bin/pgrep", ["-P", "\(pid)"])
+        let children = r.out.split(separator: "\n").compactMap { pid_t($0) }
+        return children.flatMap(tree) + [pid]
     }
 
     private static func filesChanged(in dir: URL, since marker: URL) -> Bool {

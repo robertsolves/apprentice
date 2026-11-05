@@ -395,6 +395,7 @@ mcp = "Ask the user to point at something on screen; returns the element there"
 exits = ["9: they are away: ask them to describe it"]
 
 [command."resume"]
+not_in_step = ["*"]
 group = "Approvals and the user"
 usage = "resume"
 summary = "Lifts the kill switch's stop; only when the user has said to carry on."
@@ -406,6 +407,7 @@ example_output = "resumed"
 mcp = "Lift the kill switch's stop, only when the user has said to carry on"
 
 [command."away"]
+not_in_step = ["on", "off"]
 group = "Approvals and the user"
 usage = "away on|off|status|wait|add|list|cancel"
 summary = "Says the user is away or back, and runs queued work only while they are away; questions go to the chat while away."
@@ -418,6 +420,7 @@ mcp = "The user is away (on), back (off), wait: run only when they are away; que
 exits = ["10: the user came back, nothing was done: wait with away wait"]
 
 [command."phone"]
+not_in_step = ["on", "off"]
 group = "Approvals and the user"
 usage = "phone [on|off|test]"
 summary = "One-tap phone setup: questions that go to the chat buzz the phone."
@@ -484,6 +487,7 @@ example = "apprentice forget gym"
 example_output = "forgot gym"
 
 [command."skills"]
+not_in_step = ["share"]
 group = "What the user likes, and what agents know"
 usage = "skills [\"words\"] | <name> | list | --paths | forget <path> | share <path> | share --library [--place path] [--yes] | library [fetch | init | merge | publish] | --check | --reindex"
 summary = "What agents know: built in, learned, yours and the project's. Words search them through an index; a name prints that skill."
@@ -542,6 +546,7 @@ example_output = "x.com posts: 3 left today"
 mcp = "What is left of today's and this hour's action caps per site and kind"
 
 [command."pace"]
+not_in_step = ["*"]
 group = "What the user likes, and what agents know"
 usage = "pace [site [fastest|fast|steady|careful|default]]"
 summary = "How fast a site or app goes; only change it when the user said so."
@@ -582,6 +587,7 @@ example = "apprentice flag x.com \"account warning\""
 example_output = "flagged x.com"
 
 [command."project"]
+not_in_step = ["set", "forget"]
 group = "Projects and pipelines"
 usage = "project new \"name\" [--from <git url>] [--vm <name> | --no-vm] [--dir folder] [--about \"…\"] | list | open [name] | set [name] [--vm <name> | --no-vm] [--name \"…\"] | save [name] [--message \"…\"] [--push] | add <folder> | forget <name> | sync [name] [--take-new | --keep-mine] | init | status"
 summary = "A folder for one piece of work: instructions agents read, its pipelines, its VM. sync regenerates its AGENTS.md section and per-CLI skills and commands; save commits it, and --push puts it on GitHub."
@@ -593,6 +599,7 @@ example_output = "project Shop · ~/Apprentice/shop · this Mac"
 exits = ["5: no such project, or the folder already is one"]
 
 [command."pipeline"]
+not_in_step = ["answer", "resume", "stop"]
 group = "Projects and pipelines"
 usage = "pipeline task \"what to do\" [--project p] [--agent a] [--vm v] | list | show <name> | new \"name\" [\"step\" …] | add <name> \"step\" [--title t] | run <name> [--fresh] [--from N] [--keep-going] | check <name> | audit <name> | status [run] | answer <run> <step> \"answer\" | resume <run> [--copy|--file] | stop <run> | notes <name> | path <name> | rm <name>"
 summary = "Runs a project's work as a graph of steps across agents. check validates a file and spends nothing; audit writes a brief for reviewing it; run spends the tokens its agents use."
@@ -621,6 +628,7 @@ exits = ["5: wait timed out or the other step ended; or the message is too long;
 slash = ["board:read"]
 
 [command."agents"]
+not_in_step = ["set", "rm", "rename", "defaults"]
 group = "Projects and pipelines"
 usage = "agents list [--project p] | clis | test <name> | set <name> [--agent cli] [--model m] [--effort e] [--permissions read-only|edit|full] [--project p] | rm <name> [--project p] | rename <old> <new> | defaults [--interpreter a] [--scribe a,b] [--priority a,b,c] [--project p] | install <cli>"
 summary = "Named agents: a CLI plus a model, effort and permission level, under a name pipelines use. A project inherits the global ones and may change them. test sends one tiny real prompt."
@@ -643,6 +651,7 @@ example = "apprentice tidy --report"
 example_output = "Claude Code · 4.5 GB · removes its own after cleanupPeriodDays …"
 
 [command."schedule"]
+not_in_step = ["add", "pause", "resume", "rm", "agent"]
 group = "Projects and pipelines"
 usage = "schedule add|list|show|pause|resume|rm|now|agent"
 summary = "Prompts and tasks that run later or again, in a project's folder and VM; only the user approves adding or changing one."
@@ -656,6 +665,7 @@ mcp = "Prompts and tasks that run later or again. action: list, show, add, pause
 flags = ["--project NAME: run in its folder and VM", "--pipeline NAME: run a pipeline", "--daily 09:00, --every 2h, --at …, --weekly …, --cron …: when"]
 
 [command."tour"]
+not_in_step = ["*"]
 group = "Installing, health and the tool itself"
 usage = "tour [name] | list | use <name> | show [name] | rm <name>"
 summary = "Sets everything up one choice at a time, saved as a named setup; for the user."
@@ -746,6 +756,7 @@ example_output = "committed a1b2c3d"
 exits = ["5: it refuses a skill that looks personal"]
 
 [command."update"]
+not_in_step = ["*"]
 group = "Installing, health and the tool itself"
 usage = "update [--check] [--build]"
 summary = "Rebases onto upstream and rebuilds; it also does this on its own unless [update] auto = false."
@@ -767,6 +778,7 @@ example_output = "selftest ok · 812 checks"
 exits = ["1: a check failed"]
 
 [command."pr"]
+not_in_step = ["*"]
 group = "Installing, health and the tool itself"
 usage = "pr [--title t] [--draft] [--fork remote] [--local]"
 summary = "Offers the clone's local commits upstream as a pull request, never to upstream itself and never forced."
@@ -778,6 +790,7 @@ example_output = "~/.apprentice/PR.md and a compare link"
 exits = ["5: unclean tree, a failing self-test, or commits it refuses"]
 
 [command."settings"]
+not_in_step = ["*"]
 group = "Installing, health and the tool itself"
 usage = "settings [local]"
 summary = "Where the settings are; local moves an old synced copy back."
@@ -827,6 +840,7 @@ example = "apprentice login status example.com"
 example_output = "example.com: saved"
 
 [command."account"]
+not_in_step = ["login", "logout"]
 group = "Installing, health and the tool itself"
 usage = "account login [--start | --wait | --cancel] [--no-browser] | status [--offline] | logout"
 summary = "The user's GitHub account, through a code at github.com/login/device."
@@ -837,6 +851,7 @@ example = "apprentice account status --offline"
 example_output = "signed in as {login}"
 
 [command."sync"]
+not_in_step = ["on", "off"]
 group = "Installing, health and the tool itself"
 usage = "sync [status] | on | off | now"
 summary = "Sends settings, prefs, voice, skills and logs to the user's own private GitHub repo."
@@ -847,6 +862,7 @@ example = "apprentice sync status"
 example_output = "sync: on · last 12:01"
 
 [command."device"]
+not_in_step = ["free"]
 group = "Installing, health and the tool itself"
 usage = "device [free]"
 summary = "Who is using this Mac's or VM's screen now; free lets another agent use it."
@@ -929,6 +945,7 @@ example_output = "stopped"
 exits = ["5: it is still there"]
 
 [command."uninstall"]
+not_in_step = ["*"]
 group = "Installing, health and the tool itself"
 usage = "uninstall [--all] [--keep-vms] [--yes]"
 summary = "Lists, then removes, everything apprentice installed."

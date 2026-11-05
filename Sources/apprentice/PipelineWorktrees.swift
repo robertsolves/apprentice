@@ -23,6 +23,8 @@ extension PipelineEngine {
     private func repoRoot() throws -> URL {
         var r = git(["rev-parse", "--show-toplevel"], in: cwd)
         if r.code != 0 {
+            // Only a project's own folder: outside one this could be the home folder, and the next step adds all of it.
+            guard project != nil else { throw Fail(5, "parallel steps need a project, or a folder that is already a git repo") }
             guard git(["init", "-q"], in: cwd).code == 0 else { throw Fail(5, "this folder is not a git repo and git init failed") }
             r = git(["rev-parse", "--show-toplevel"], in: cwd)
         }
@@ -79,6 +81,8 @@ extension PipelineEngine {
 
     /// Starts one worktree per target, returning each target's workspace id.
     func fork(_ targets: [String], from parent: String, at id: String) throws -> [(String, String)] {
+        gitLock.lock()
+        defer { gitLock.unlock() }
         let root = try repoRoot()
         let base = try snapshot(folder(of: parent))
         let groupID = "\(id)-\(state.steps[id]?.visits ?? 1)"
@@ -144,12 +148,14 @@ extension PipelineEngine {
     /// Two or more branches of its fork can reach this step, so here they come back together.
     private func isJoin(_ id: String, _ ws: String) -> Bool {
         guard let w = state.workspaces.first(where: { $0.id == ws }), let g = state.groups.first(where: { $0.id == w.group }) else { return false }
-        return g.targets.filter { $0 == id || graph.canReach($0, id) }.count >= 2
+        return g.targets.filter { $0 == id || graph.ahead($0).contains(id) }.count >= 2
     }
 
     /// Commits a branch, merges it into its group's merge worktree, applies what is new to the parent folder, and
     /// removes the branch's worktree. Throws `MergeConflict`, leaving the conflict in place for a person.
     func mergeUp(_ ws: String) throws {
+        gitLock.lock()
+        defer { gitLock.unlock() }
         guard ws != "root", let w = state.workspaces.first(where: { $0.id == ws }) else { return }
         guard let g = state.groups.first(where: { $0.id == w.group }) else { return }
         let root = try repoRoot()
@@ -167,6 +173,7 @@ extension PipelineEngine {
         guard let merge = mergePath else { return }
         // A conflict left for the user: once it is resolved the merge is finished here.
         if FileManager.default.fileExists(atPath: gitDir(merge).appendingPathComponent("MERGE_HEAD").path) {
+            stageResolved(in: merge)
             let left = git(["diff", "--name-only", "--diff-filter=U"], in: merge)
             guard left.out.isEmpty else { throw MergeConflict(folder: merge, detail: "still conflicted:\n\(left.out)") }
             _ = git(["add", "-A"], in: merge)
@@ -180,12 +187,21 @@ extension PipelineEngine {
                 let conflicted = git(["diff", "--name-only", "--diff-filter=U"], in: merge)
                 throw MergeConflict(folder: merge, detail: conflicted.out.isEmpty ? merged.out : "conflicted:\n\(conflicted.out)")
             }
+            // The folder's name must still resolve to find what a CLI keeps for it, so that goes first.
+            if PipelineSettings.keepSessionDays(project) <= 0 { forgetFolderForAllCLIs(URL(fileURLWithPath: w.path)) }
             _ = git(["worktree", "remove", "--force", w.path], in: root)
             _ = git(["branch", "-q", "-D", w.branch], in: root)
-            forgetFolderForAllCLIs(URL(fileURLWithPath: w.path))
             updateState { s in if let i = s.workspaces.firstIndex(where: { $0.id == ws }) { s.workspaces[i].merged = true } }
         }
         try applyMerged(g.id)
+    }
+
+    /// A person who fixed a conflict in an editor and did not `git add` it has still resolved it: no markers left is enough.
+    private func stageResolved(in folder: URL) {
+        for name in git(["diff", "--name-only", "--diff-filter=U"], in: folder).out.split(separator: "\n").map(String.init) {
+            let text = (try? String(contentsOf: folder.appendingPathComponent(name), encoding: .utf8)) ?? "<<<<<<<"
+            if !text.contains("<<<<<<<") { _ = git(["add", "--", name], in: folder) }
+        }
     }
 
     private func gitDir(_ folder: URL) -> URL {
@@ -198,33 +214,59 @@ extension PipelineEngine {
     }
 
     /// Applies what the merge worktree has that the parent folder has not had yet, then cleans up once every branch
-    /// of the group is home.
+    /// of the group is home. What does not apply is left where a person can resolve it and is counted as applied, so
+    /// the next branch brings only its own work and nothing is applied twice: conflict markers where git can merge,
+    /// else a `.rej` beside the file, with everything else landed.
     private func applyMerged(_ groupID: String) throws {
         guard let g = state.groups.first(where: { $0.id == groupID }), let path = g.mergePath, !g.done else { return }
         let merge = URL(fileURLWithPath: path)
+        let parent = folder(of: g.parent)
+        let top = git(["rev-parse", "--show-toplevel"], in: parent).out
+        let at = top.isEmpty ? parent : URL(fileURLWithPath: top)
+        func change(_ edit: (inout RunState.Group) -> Void) {
+            updateState { s in if let i = s.groups.firstIndex(where: { $0.id == groupID }) { edit(&s.groups[i]) } }
+        }
+        if g.conflictAt != nil, g.conflictResolved == true {
+            // The user said it is resolved, and their folder is now the result.
+            stageResolved(in: at)
+            let left = git(["diff", "--name-only", "--diff-filter=U"], in: at)
+            guard left.out.isEmpty else {
+                change { $0.conflictResolved = false }
+                throw MergeConflict(folder: at, detail: "still conflicted:\n\(left.out)")
+            }
+            for name in g.rejects ?? [] { try? FileManager.default.removeItem(at: at.appendingPathComponent(name)) }
+            change { $0.conflictAt = nil; $0.conflictResolved = nil; $0.rejects = nil }
+        }
         let head = git(["rev-parse", "HEAD"], in: merge).out
         if head != g.applied {
             let patch = dir.appendingPathComponent("worktrees/\(groupID)-\(String(head.prefix(8))).patch")
             let diff = Repo.run("git", ["diff", "--binary", g.applied, head, "--output=\(patch.path)"], in: merge)
             guard diff.code == 0 else { throw Fail(5, "git diff failed: \(diff.out)") }
-            let parent = folder(of: g.parent)
-            let top = git(["rev-parse", "--show-toplevel"], in: parent).out
-            let at = top.isEmpty ? parent : URL(fileURLWithPath: top)
             if ((try? Data(contentsOf: patch))?.isEmpty ?? true) == false {
                 var r = git(["apply", "--whitespace=nowarn", patch.path], in: at)
                 if r.code != 0 { r = git(["apply", "--3way", "--whitespace=nowarn", patch.path], in: at) }
-                guard r.code == 0 else {
-                    throw MergeConflict(folder: at, detail: "the merged work does not apply to this folder, which has changed since the fork. The patch is \(patch.path).\n\(r.out)")
+                if r.code != 0 {
+                    // `--3way` refuses outright over a file with unstaged changes: then each hunk that fits goes in.
+                    var rejects: [String] = []
+                    if git(["diff", "--name-only", "--diff-filter=U"], in: at).out.isEmpty {
+                        let names = git(["apply", "--numstat", patch.path], in: at).out.split(separator: "\n").compactMap { $0.split(separator: "\t").last.map(String.init) }
+                        r = git(["apply", "--reject", "--whitespace=nowarn", patch.path], in: at)
+                        rejects = names.map { $0 + ".rej" }.filter { FileManager.default.fileExists(atPath: at.appendingPathComponent($0).path) }
+                    }
+                    change { $0.applied = head; $0.conflictAt = head; $0.conflictResolved = nil; $0.rejects = (($0.rejects ?? []) + rejects) }
+                    let how = rejects.isEmpty ? "The conflicts are marked in the files." : "What did not fit is in \(rejects.joined(separator: ", ")), beside the files."
+                    throw MergeConflict(folder: at, detail: "some of the merged work does not fit this folder, which changed since the fork. \(how)\n\(r.out)")
                 }
             }
-            updateState { s in if let i = s.groups.firstIndex(where: { $0.id == groupID }) { s.groups[i].applied = head } }
+            change { $0.applied = head }
         }
+        // While a conflict waits, the folder it is in is still needed.
+        guard state.groups.first(where: { $0.id == groupID })?.conflictAt == nil else { return }
         let home = state.workspaces.filter { $0.group == groupID }.allSatisfy(\.merged)
         guard home else { return }
         let root = try repoRoot()
         _ = git(["worktree", "remove", "--force", path], in: root)
         if let branch = g.mergeBranch { _ = git(["branch", "-q", "-D", branch], in: root) }
-        forgetFolderForAllCLIs(merge)
-        updateState { s in if let i = s.groups.firstIndex(where: { $0.id == groupID }) { s.groups[i].done = true } }
+        change { $0.done = true }
     }
 }

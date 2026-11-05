@@ -538,8 +538,8 @@ extension SelfTest {
         check(r.code == 9 && question?.kind == "conflict" && question?.text.contains("worktrees") == true, "runs: a conflict parks the run with where to resolve it (exit \(r.code))")
         let mergeDir = Runs.root(project: con).appendingPathComponent("1/worktrees/merge-fork-1")
         check(text(mergeDir.appendingPathComponent("same.txt")).contains("<<<<<<<"), "runs: the conflict is left in place")
+        // Fixed in an editor, with no `git add`, as a person would.
         try? "resolved\n".write(to: mergeDir.appendingPathComponent("same.txt"), atomically: true, encoding: .utf8)
-        _ = Repo.run("git", ["add", "-A"], in: mergeDir)
         _ = cli(["pipeline", "answer", "1", "end2", "I resolved it"], in: con, fake: fake)
         check(waitFor { state(con, 1)?.status == "done" } && text(con.appendingPathComponent("same.txt")) == "resolved\n", "runs: after resolving, the run carries on: \(state(con, 1)?.status ?? "?") \(state(con, 1)?.reason ?? "") \(text(Runs.root(project: con).appendingPathComponent("1/engine.log")).suffix(300))")
 
@@ -583,10 +583,11 @@ extension SelfTest {
         let first = newProject("first", under: base)
         try? "[named.Mine]\nagent = \"one\"\npermissions = \"full\"\n".write(to: NamedAgents.projectFile(first), atomically: true, encoding: .utf8)
         write("---\ngoal: g\n---\n## s\nuse: Mine\nRUN: echo ran-with-full\n", "x", in: first)
+        let before = Repo.run("git", ["status", "--porcelain", "--", ".apprentice"], in: first).out
         r = cli(["pipeline", "run", "x"], in: first, fake: fake)
         check(r.code == 9 && !r.out.contains("ran-with-full") && state(first, 1)?.steps["s"]?.question?.kind == "first-use", "runs: a project's agent asking for more asks first (exit \(r.code))")
         _ = cli(["pipeline", "answer", "1", "s", "Allow for this project"], in: first, fake: fake)
-        check(waitFor { state(first, 1)?.status == "done" } && !text(NamedAgents.projectFile(first)).contains("allow"), "runs: the answer starts it, and is not kept in the repo")
+        check(waitFor { state(first, 1)?.status == "done" } && Repo.run("git", ["status", "--porcelain", "--", ".apprentice"], in: first).out == before && !NamedAgents.approvals().isEmpty, "runs: the answer starts it, and is kept on this Mac, not in the repo")
         r = cli(["pipeline", "run", "x"], in: first, fake: fake)
         check(r.code == 0, "runs: and is not asked again")
 
@@ -657,9 +658,207 @@ extension SelfTest {
         check(sessions() == ["the-users-own.jsonl"] && swept.contains("1 leftover"), "tidy: apprentice's own leftover goes, the user's stays: \(swept)")
         let future = Date().addingTimeInterval(31 * 86400)
         _ = Tidy.run(now: future)
-        check(Runs.numbers(project: tidy).isEmpty && !CommandLine.arguments.isEmpty && FileManager.default.fileExists(atPath: Runs.past(project: tidy, slug: "o").appendingPathComponent("\(Store.day())-run-1.md").path), "tidy: expired runs go, notes stay")
+        check(Runs.numbers(project: tidy).isEmpty && FileManager.default.fileExists(atPath: Runs.past(project: tidy, slug: "o").appendingPathComponent("\(Store.day())-run-1.md").path), "tidy: expired runs go, notes stay")
         check(Tidy.report().contains("kept:"), "tidy: the report")
         let entries = Projects.entries().filter { $0.path != tidy.path }
         try? Wire.json(entries).write(to: Projects.listFile, options: .atomic)
+    }
+
+    /// What the audit of this code found, each kept from coming back: what a repo or an agent must not be able to do,
+    /// and the ways a run could lose work or end early.
+    static func pipelineSafety() {
+        guard let (base, fake) = runProject() else { check(false, "safety: could not set up"); return }
+        defer {
+            try? FileManager.default.removeItem(at: base)
+            try? FileManager.default.removeItem(at: Settings.dir.appendingPathComponent("agents.toml"))
+            try? FileManager.default.removeItem(at: Settings.dir.appendingPathComponent("named-agents.toml"))
+            try? FileManager.default.removeItem(at: Store.dir.appendingPathComponent("agent-limits.json"))
+        }
+        func text(_ url: URL) -> String { (try? String(contentsOf: url, encoding: .utf8)) ?? "" }
+        func state(_ folder: URL, _ n: Int) -> RunState? { Runs.load(Runs.root(project: folder).appendingPathComponent("\(n)")) }
+        try? """
+        [named.A]
+        agent = "one"
+        permissions = "edit"
+        [named.B]
+        agent = "two"
+        permissions = "edit"
+        [named.C]
+        agent = "three"
+        permissions = "read-only"
+        [named.Sh]
+        agent = "shell"
+        [defaults]
+        priority = ["A", "B"]
+        scribe = ["C"]
+        interpreter = "C"
+        """.write(to: NamedAgents.globalFile, atomically: true, encoding: .utf8)
+
+        // A repo cannot make this Mac run its own command: a name no CLI answers to, as the scribe or a step.
+        let repo = newProject("repo", under: base)
+        let evil = repo.appendingPathComponent("evil.sh")
+        let ran = base.appendingPathComponent("evil-ran")
+        try? "#!/bin/sh\ntouch \"\(ran.path)\"\n".write(to: evil, atomically: true, encoding: .utf8)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: evil.path)
+        try? "[named.Evil]\nagent = \"\(evil.path)\"\npermissions = \"read-only\"\n[defaults]\nscribe = [\"Evil\"]\ninterpreter = \"Evil\"\n".write(to: NamedAgents.projectFile(repo), atomically: true, encoding: .utf8)
+        write("---\ngoal: g\n---\n## s\nuse: A\nRUN: echo fine\n\n## t\nuse: A\nRUN: echo fine\n", "x", in: repo)
+        _ = cli(["pipeline", "run", "x"], in: repo, fake: fake)
+        check(!FileManager.default.fileExists(atPath: ran.path), "safety: a project's unknown CLI never runs, even as the scribe")
+        check(NamedAgents.argv(NamedAgents.Named(name: "E", agent: evil.path), prompt: "hi").isEmpty, "safety: a name no CLI answers to has no command line")
+
+        // A project's new name with no level runs at the CLI's default, which is more than read-only.
+        let quiet = newProject("quiet", under: base)
+        try? "[named.Mine]\nagent = \"one\"\n".write(to: NamedAgents.projectFile(quiet), atomically: true, encoding: .utf8)
+        write("---\ngoal: g\n---\n## s\nuse: Mine\nRUN: echo ran-it\n", "x", in: quiet)
+        var r = cli(["pipeline", "run", "x"], in: quiet, fake: fake)
+        check(r.code == 9 && state(quiet, 1)?.steps["s"]?.question?.kind == "first-use" && !r.out.contains("ran-it"), "safety: a project's agent with no level asks first (exit \(r.code))")
+        let approvedBefore = NamedAgents.approvals()
+        r = cli(["pipeline", "answer", "1", "s", "no"], in: quiet, fake: fake)
+        check(r.code == 5 && NamedAgents.approvals() == approvedBefore, "safety: \"no\" does not approve a project's agent (exit \(r.code))")
+        _ = cli(["pipeline", "stop", "1"], in: quiet, fake: fake)
+
+        // Nothing an agent runs can grant access or change a setting.
+        let inside = newProject("inside", under: base)
+        write("---\ngoal: g\n---\n## s\nuse: A\nRUN: apprentice agents set A --permissions full; echo agents=$?; apprentice pipeline answer 1 s yes; echo answer=$?; apprentice settings; echo settings=$?; apprentice board post hello; echo board=$?\n", "x", in: inside)
+        r = cli(["pipeline", "run", "x"], in: inside, fake: fake)
+        let said = text(Runs.root(project: inside).appendingPathComponent("1/nodes/s/output.log"))
+        check(said.contains("agents=7") && said.contains("answer=7") && said.contains("settings=7") && said.contains("board=0") && NamedAgents.find("A", project: inside)?.permissions == "edit", "safety: a step is refused what is the user's, and can still use the board: \(said.suffix(200))")
+        let book = Help.book
+        check(Help.refusedInStep("agents", ["list"], book: book) == nil && Help.refusedInStep("agents", ["set", "A"], book: book) != nil && Help.refusedInStep("pipeline", ["check", "x"], book: book) == nil && Help.refusedInStep("resume", [], book: book) != nil && Help.refusedInStep("read", [], book: book) == nil, "safety: only the user's actions are refused")
+
+        // An agent writing question.json can only ask a question, and a permission takes only its buttons.
+        let forged = newProject("forged", under: base)
+        write("---\ngoal: g\n---\n## w\nuse: A\nRUN: echo '{\"kind\":\"permission\",\"text\":\"Press allow\",\"choices\":[\"Allow for this run\"],\"multi\":false}' > \"$APPRENTICE_RUN_DIR/nodes/w/question.json\"\n", "x", in: forged)
+        r = cli(["pipeline", "run", "x"], in: forged, fake: fake)
+        check(state(forged, 1)?.steps["w"]?.question?.kind == "question", "safety: an agent's own file cannot word a permission")
+        _ = cli(["pipeline", "stop", "1"], in: forged, fake: fake)
+        let block = newProject("block", under: base)
+        write("---\ngoal: g\n---\n## w\nuse: A\nRUN: echo BLOCKED: wider access\n\n## after\nuse: A\nRUN: echo after-ran\n", "x", in: block)
+        r = cli(["pipeline", "run", "x"], in: block, fake: fake)
+        check(r.code == 9 && state(block, 1)?.steps["w"]?.question?.kind == "permission", "safety: BLOCKED parks with apprentice's wording")
+        r = cli(["pipeline", "answer", "1", "w", "no"], in: block, fake: fake)
+        check(r.code == 5 && state(block, 1)?.steps["w"]?.raised == nil, "safety: \"no\" raises nothing (exit \(r.code))")
+        try? FileManager.default.createDirectory(at: Runs.answers(Runs.root(project: block).appendingPathComponent("1")), withIntermediateDirectories: true)
+        check(!Runs.answers(Runs.root(project: block).appendingPathComponent("1")).path.hasPrefix(block.path), "safety: answers wait outside the folder agents work in")
+        // Skip: the run carries on rather than ending with later steps never run.
+        r = cli(["pipeline", "answer", "1", "w", "Skip this step"], in: block, fake: fake)
+        check(waitFor { ["done", "failed"].contains(state(block, 1)?.status ?? "") } && state(block, 1)?.steps["w"]?.status == "skipped" && state(block, 1)?.steps["after"]?.status == "done", "safety: Skip carries on to the next step: \(state(block, 1)?.steps.mapValues(\.status) ?? [:])")
+
+        // A frozen copy of the agents, which sits where an agent can write, never widens anything.
+        let frozenRun = base.appendingPathComponent("frozen")
+        try? FileManager.default.createDirectory(at: frozenRun, withIntermediateDirectories: true)
+        try? Wire.json([NamedAgents.Named(name: "A", agent: "two", permissions: "full"), NamedAgents.Named(name: "B", agent: "two", permissions: "read-only"), NamedAgents.Named(name: "Added", agent: "one", permissions: "full")]).write(to: frozenRun.appendingPathComponent("agents.json"))
+        let thawed = PipelineEngine.frozen(frozenRun, project: nil)
+        check(thawed.first { $0.name == "A" }?.permissions == "edit" && thawed.first { $0.name == "A" }?.agent == "one" && thawed.first { $0.name == "B" }?.permissions == "read-only" && !thawed.contains { $0.name == "Added" }, "safety: a run's saved agents can only be lower than they are now: \(thawed.map { "\($0.name) \($0.agent) \($0.permissions ?? "-")" })")
+
+        // `use: shell` runs the step's words as a command, never the composed prompt with its summaries in it.
+        let shell = newProject("shell", under: base)
+        write("---\ngoal: g\n---\n## s\nuse: Sh\necho only-this > out.txt\n", "x", in: shell)
+        r = cli(["pipeline", "run", "x"], in: shell, fake: fake)
+        check(r.code == 0 && text(shell.appendingPathComponent("out.txt")) == "only-this\n" && !text(Runs.root(project: shell).appendingPathComponent("1/nodes/s/prompt.md")).contains("# The goal"), "safety: use: shell runs only the step's own line (exit \(r.code))")
+
+        // A short exit 0 that says it is out of usage is not a finished step; the same words mid-output are nothing.
+        let limit = newProject("limit", under: base)
+        write("---\ngoal: g\n---\n## s\nuse: A\nRUN-one: echo You have hit your usage limit\nRUN-two: echo took-over\n", "x", in: limit)
+        r = cli(["pipeline", "run", "x"], in: limit, fake: fake)
+        check(r.code == 0 && state(limit, 1)?.steps["s"]?.agent == "B" && text(Runs.root(project: limit).appendingPathComponent("1/nodes/s/output.log")).contains("took-over"), "safety: an out-of-usage exit 0 falls to the next agent (exit \(r.code))")
+        try? FileManager.default.removeItem(at: Store.dir.appendingPathComponent("agent-limits.json"))
+        let words = newProject("words", under: base)
+        write("---\ngoal: g\n---\n## s\nuse: A\nRUN: echo The log said refused by the sandbox; for i in 1 2 3 4; do echo line $i; done\n", "x", in: words)
+        r = cli(["pipeline", "run", "x"], in: words, fake: fake)
+        check(r.code == 0, "safety: a refusal's words in the middle of the work do not park the step (exit \(r.code))")
+
+        // A branch that forked again and ended on its children still reaches the project.
+        let nested = newProject("nested", under: base)
+        write("---\ngoal: g\n---\n## s\nuse: A\nnext: a & b\nRUN: echo s\n\n## a\nuse: A\nnext: c & d\nRUN: echo a > a.txt\n\n## b\nuse: B\nnext: end\nRUN: echo b > b.txt\n\n## c\nuse: A\nnext: end\nRUN: echo c > c.txt\n\n## d\nuse: B\nnext: end\nRUN: echo d > d.txt\n", "x", in: nested)
+        r = cli(["pipeline", "run", "x"], in: nested, fake: fake)
+        let names = ["a.txt", "b.txt", "c.txt", "d.txt"].filter { FileManager.default.fileExists(atPath: nested.appendingPathComponent($0).path) }
+        check(r.code == 0 && names.count == 4, "safety: nested branches with no join all come home (exit \(r.code)): \(names) \(r.out.suffix(300))")
+        check(!Repo.run("git", ["worktree", "list"], in: nested).out.contains("merge-"), "safety: and leave no worktree behind")
+
+        // Branches ending together, many times over: no second merge worktree, no fake conflict.
+        let together = newProject("together", under: base)
+        write("---\ngoal: g\n---\n## s\nuse: A\nnext: a & b & c & d\nRUN: echo s\n\n## a\nuse: A\nnext: end\nRUN: echo a > a.txt\n\n## b\nuse: A\nnext: end\nRUN: echo b > b.txt\n\n## c\nuse: A\nnext: end\nRUN: echo c > c.txt\n\n## d\nuse: A\nnext: end\nRUN: echo d > d.txt\n", "x", in: together)
+        r = cli(["pipeline", "run", "x"], in: together, fake: fake)
+        check(r.code == 0 && ["a.txt", "b.txt", "c.txt", "d.txt"].allSatisfy { FileManager.default.fileExists(atPath: together.appendingPathComponent($0).path) }, "safety: four branches ending together all land (exit \(r.code)): \(r.out.suffix(300))")
+
+        // A fan-out inside a loop: the second visit is not taken for a join of its two forks.
+        let looped = newProject("looped", under: base)
+        let count = base.appendingPathComponent("visits")
+        let choice = fake.appendingPathComponent("choice-three")
+        write("---\ngoal: g\nvisits: 3\n---\n## start\nuse: A\nnext: left & right\nRUN: echo go\n\n## left\nuse: A\nnext: join\nRUN: echo l >> \(count.path); pwd >> \(base.path)/left-folders.txt; echo l > l.txt; echo left-done\n\n## right\nuse: B\nnext: join\nRUN: echo r > r.txt; echo right-done\n\n## join\nuse: A\nnext: start | end2\nRUN: if [ $(wc -l < \(count.path)) -lt 2 ]; then echo '{\"next\":\"start\"}' > \(choice.path); else echo '{\"next\":\"end2\"}' > \(choice.path); fi; echo joined\n\n## end2\nuse: A\nRUN: echo finished\n", "x", in: looped)
+        r = cli(["pipeline", "run", "x"], in: looped, fake: fake)
+        let folders = text(base.appendingPathComponent("left-folders.txt")).split(separator: "\n")
+        check(r.code == 0 && folders.count == 2 && folders.allSatisfy { $0.contains("/worktrees/") } && state(looped, 1)?.steps["left"]?.visits == 2, "safety: a parallel step in a loop has its own worktree on every visit (exit \(r.code)): \(folders) \(r.out.suffix(300))")
+        try? FileManager.default.removeItem(at: choice)
+
+        // The folder changed under a parallel step: it parks once, and "I resolved it" does not re-apply and fail again.
+        let moved = newProject("moved", under: base)
+        try? "start\n".write(to: moved.appendingPathComponent("f.txt"), atomically: true, encoding: .utf8)
+        _ = Repo.run("git", ["add", "-A"], in: moved)
+        _ = Repo.run("git", ["-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "f"], in: moved)
+        write("---\ngoal: g\n---\n## s\nuse: A\nnext: a & b\nRUN: echo s\n\n## a\nuse: A\nnext: end\nRUN: echo from-a > f.txt; echo mine > \(moved.path)/f.txt\n\n## b\nuse: A\nnext: end\nRUN: echo b > b.txt\n", "x", in: moved)
+        r = cli(["pipeline", "run", "x"], in: moved, fake: fake)
+        let parked = state(moved, 1)?.steps.first { $0.value.status == "parked" }
+        check(r.code == 9 && parked?.value.question?.kind == "conflict", "safety: work that no longer applies parks (exit \(r.code)): \(text(moved.appendingPathComponent("f.txt"))) \(Repo.run("git", ["status", "--short"], in: moved).out) \(text(Runs.root(project: moved).appendingPathComponent("1/nodes/a/output.log")))")
+        if let parked {
+            check(FileManager.default.fileExists(atPath: moved.appendingPathComponent("f.txt.rej").path) && text(moved.appendingPathComponent("f.txt")) == "mine\n", "safety: what does not fit is set beside the file, and the user's copy is untouched")
+            check(waitFor { state(moved, 1)?.steps.values.contains { $0.status == "running" } == false } , "safety: the other branch has finished")
+            try? "settled\n".write(to: moved.appendingPathComponent("f.txt"), atomically: true, encoding: .utf8)
+            _ = cli(["pipeline", "answer", "1", parked.key, "I resolved it"], in: moved, fake: fake)
+            check(waitFor { state(moved, 1)?.status == "done" } && text(moved.appendingPathComponent("f.txt")) == "settled\n" && FileManager.default.fileExists(atPath: moved.appendingPathComponent("b.txt").path) && !FileManager.default.fileExists(atPath: moved.appendingPathComponent("f.txt.rej").path), "safety: after resolving, the run ends with the user's result and the other branch's work: \(state(moved, 1)?.status ?? "?") \(state(moved, 1)?.steps.first { $0.value.status == "parked" }?.value.question?.text ?? "")")
+        }
+
+        // --keep-going around a git failure ends, rather than failing and advancing into the same failure for ever.
+        let hook = newProject("hook", under: base)
+        try? "#!/bin/sh\nexit 1\n".write(to: hook.appendingPathComponent(".git/hooks/pre-commit"), atomically: true, encoding: .utf8)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hook.appendingPathComponent(".git/hooks/pre-commit").path)
+        write("---\ngoal: g\n---\n## s\nuse: A\nnext: a & b\nRUN: echo s\n\n## a\nuse: A\nnext: end\nRUN: echo a > a.txt\n\n## b\nuse: A\nnext: end\nRUN: echo b > b.txt\n", "x", in: hook)
+        r = cli(["pipeline", "run", "x", "--keep-going"], in: hook, fake: fake)
+        check(r.code >= 0 && r.code < 128, "safety: a commit hook refusing under --keep-going ends the run (exit \(r.code))")
+
+        // A stop reaches everything under the CLI, however deep, and a wrong run name stops nothing.
+        let pidFile = base.appendingPathComponent("deep.pid")
+        var stopNow = false
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.5) { stopNow = true }
+        let deep = AgentRun.run(["/bin/sh", "-c", "/bin/sh -c 'echo $$ > \(pidFile.path); sleep 60; true'; true"], cli: nil, in: base, env: [:], log: nil, stallSeconds: 60, totalSeconds: 60, stop: { stopNow })
+        let pid = Int32(text(pidFile).trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0
+        check(deep.outcome == .stopped && pid > 0 && kill(pid, 0) != 0, "safety: a stop ends the CLI's grandchildren too (pid \(pid))")
+        r = cli(["pipeline", "stop", "no-such-pipeline"], in: moved, fake: fake)
+        check(r.code == 5, "safety: stopping a name that is no run stops nothing (exit \(r.code))")
+        check(Runs.live(project: moved) == false, "safety: a run is looked for among all of them")
+
+        // A parked run stopped with no process left still writes its note.
+        let parkedStop = newProject("parkedstop", under: base)
+        write("---\ngoal: g\n---\n## w\nuse: A\nRUN: echo BLOCKED: wider access\n", "x", in: parkedStop)
+        _ = cli(["pipeline", "run", "x"], in: parkedStop, fake: fake)
+        _ = cli(["pipeline", "stop", "1"], in: parkedStop, fake: fake)
+        check(state(parkedStop, 1)?.status == "stopped" && FileManager.default.fileExists(atPath: Runs.past(project: parkedStop, slug: "x").appendingPathComponent("\(Store.day())-run-1.md").path), "safety: stopping a parked run writes its note")
+
+        // A crash mid-step leaves the session on file for `tidy`.
+        let crash = newProject("crash", under: base)
+        write("---\ngoal: g\n---\n## s\nuse: A\nRUN: sleep 30\n", "x", in: crash)
+        let running = Process()
+        running.executableURL = URL(fileURLWithPath: Wire.binaryPath())
+        running.arguments = ["pipeline", "run", "x"]
+        running.currentDirectoryURL = crash
+        var env = ProcessInfo.processInfo.environment
+        env["APPRENTICE_HOME"] = Store.dir.path; env["APPRENTICE_PIPELINE_SHELL"] = "plain"; env["FAKE_DIR"] = fake.path; env["PATH"] = "/usr/bin:/bin"
+        running.environment = env
+        running.standardOutput = FileHandle.nullDevice
+        running.standardError = FileHandle.nullDevice
+        try? running.run()
+        let resultFile = Runs.root(project: crash).appendingPathComponent("1/nodes/s/result.json")
+        check(waitFor { (try? JSONDecoder().decode(StepResult.self, from: Data(contentsOf: resultFile)))?.tries.first?.session != nil }, "safety: a step's session is on file before the CLI ends")
+        _ = cli(["pipeline", "stop", "1"], in: crash, fake: fake)
+        running.waitUntilExit()
+
+        // A rename keeps the lists that name it.
+        try? "[named.Old]\nagent = \"one\"\n[defaults]\npriority = [\"Old\", \"A\"]\n".write(to: NamedAgents.projectFile(parkedStop), atomically: true, encoding: .utf8)
+        _ = try? NamedAgents.rename("Old", to: "Fresh", project: parkedStop)
+        check(NamedAgents.defaults(project: parkedStop).priority == ["Fresh", "A"], "agents: a rename keeps the priority list: \(NamedAgents.defaults(project: parkedStop).priority)")
+        write("---\ngoal: g\n---\n## w\nuse: A\nRUN: echo x\n", "y", in: parkedStop)
+        try? "[named.Fresh]\nagent = \"one\"\n[defaults]\npriority = [\"Gone\", \"A\"]\n".write(to: NamedAgents.projectFile(parkedStop), atomically: true, encoding: .utf8)
+        check(PipelineGraph(Pipelines.parse(text(parkedStop.appendingPathComponent("pipelines/y.md")), project: parkedStop)).check().warnings.contains { $0.contains("Gone") }, "agents: a default naming no agent is reported by check")
     }
 }

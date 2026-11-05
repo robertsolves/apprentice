@@ -135,7 +135,8 @@ enum NamedAgents {
     /// A setting the CLI has no flag for is left out; the Agents form says so when it is chosen.
     static func argv(_ n: Named, prompt: String, extras: Extras = Extras(), clis: [AgentCLIs.CLI]? = nil) -> [String] {
         let list = clis ?? AgentCLIs.all()
-        guard let cli = AgentCLIs.find(n.agent, in: list), !cli.run.isEmpty else { return [n.agent, prompt] }
+        // Empty for a name no CLI answers to: a project's file must not be able to make this Mac run its own command.
+        guard let cli = AgentCLIs.find(n.agent, in: list), !cli.run.isEmpty else { return [] }
         var out = cli.run.map { $0.replacingOccurrences(of: "{prompt}", with: prompt) }
         func fill(_ flags: [String], _ key: String, _ value: String) -> [String] { flags.map { $0.replacingOccurrences(of: "{\(key)}", with: value) } }
         if let model = n.model { out += fill(cli.modelFlags, "model", model) }
@@ -175,7 +176,7 @@ enum NamedAgents {
         return SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
     }
 
-    private static func approvals() -> Set<String> {
+    static func approvals() -> Set<String> {
         (try? Data(contentsOf: approvalsFile)).flatMap { try? JSONDecoder().decode(Set<String>.self, from: $0) } ?? []
     }
 
@@ -185,9 +186,11 @@ enum NamedAgents {
         guard n.origin == .project || n.origin == .changedHere else { return nil }
         let global = (globals ?? merge(global: read(globalFile), project: nil)).first { $0.name.lowercased() == n.name.lowercased() }
         let limit = global.map { rank($0.permissions) } ?? 0
-        guard rank(n.permissions) > limit else { return nil }
+        // A new name with no level runs at the CLI's own default, which for some can edit: that is more than read-only.
+        let asks = n.permissions == nil && global == nil ? limit + 1 : rank(n.permissions)
+        guard asks > limit else { return nil }
         guard !approvals().contains(approvalKey(n, project: project, level: n.permissions)) else { return nil }
-        return "This project's files ask for \(n.name) to run \(AgentCLIs.label(n.agent)) with \(n.permissions ?? "?") permissions"
+        return "This project's files ask for \(n.name) to run \(AgentCLIs.label(n.agent)) with \(n.permissions ?? "the CLI's default") permissions"
             + (global.map { ", more than the \($0.permissions ?? "default") you set" } ?? "") + "."
     }
 
@@ -261,9 +264,14 @@ enum NamedAgents {
         guard all(project: project).contains(where: { $0.name.lowercased() == old.lowercased() }) else { throw Fail(5, "no agent called \(old)") }
         guard !all(project: project).contains(where: { $0.name.lowercased() == new.lowercased() }) else { throw Fail(5, "there is already an agent called \(new)") }
         func renameIn(_ url: URL) -> Bool {
-            guard let text = try? String(contentsOf: url, encoding: .utf8), order(text).contains(where: { $0.lowercased() == old.lowercased() }) else { return false }
+            guard let text = try? String(contentsOf: url, encoding: .utf8), text.lowercased().contains(old.lowercased()) else { return false }
             let lines = text.components(separatedBy: "\n").map { line -> String in
-                Toml.header(line).map(Toml.canonical)?.lowercased() == "named.\(old.lowercased())" ? "[named.\(new)]" : line
+                if Toml.header(line).map(Toml.canonical)?.lowercased() == "named.\(old.lowercased())" { return "[named.\(new)]" }
+                // The defaults name it too, or a rename would quietly empty a priority list.
+                guard let eq = line.firstIndex(of: "="), ["priority", "scribe", "interpreter"].contains(line[..<eq].trimmingCharacters(in: .whitespaces)) else { return line }
+                let value = String(line[line.index(after: eq)...])
+                let renamed = value.replacingOccurrences(of: "(?i)\"\(NSRegularExpression.escapedPattern(for: old))\"", with: "\"\(new)\"", options: .regularExpression)
+                return String(line[...eq]) + renamed
             }
             try? lines.joined(separator: "\n").write(to: url, atomically: true, encoding: .utf8)
             return true

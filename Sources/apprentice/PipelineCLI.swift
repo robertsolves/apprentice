@@ -98,7 +98,10 @@ enum PipelineCLI {
         let step = Pipelines.slug(a.pos[2])
         guard let st = s.steps[step], st.status == "parked" else { throw Fail(5, "\(step) is not waiting for an answer: apprentice pipeline status \(s.run)") }
         let text = a.pos.dropFirst(3).joined(separator: " ")
-        let file = dir.appendingPathComponent("answers/\(step).txt")
+        if let q = st.question, q.kind != "question", !q.choices.isEmpty, !q.choices.contains(where: { $0.caseInsensitiveCompare(text.trimmingCharacters(in: .whitespacesAndNewlines)) == .orderedSame }) {
+            throw Fail(5, "that is not one of the answers: " + q.choices.joined(separator: " · "))
+        }
+        let file = Runs.answers(dir).appendingPathComponent("\(step).txt")
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try text.write(to: file, atomically: true, encoding: .utf8)
         // So a parallel step does not ask the same thing.
@@ -148,11 +151,7 @@ enum PipelineCLI {
             FileManager.default.createFile(atPath: dir.appendingPathComponent("stop").path, contents: nil)
             return "stopping run \(s.run): its steps are told to stop now"
         }
-        var state = s
-        state.status = "stopped"
-        state.reason = "stopped by `pipeline stop`"
-        state.finished = Date().timeIntervalSince1970
-        try Wire.json(state).write(to: dir.appendingPathComponent("state.json"), options: .atomic)
+        try PipelineEngine.stopWithoutProcess(dir, s)
         return "stopped run \(s.run)"
     }
 

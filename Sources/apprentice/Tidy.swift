@@ -49,7 +49,9 @@ enum Tidy {
                     for i in result.tries.indices where !result.tries[i].sessionRemoved {
                         if let id = result.tries[i].session {
                             let cwd = URL(fileURLWithPath: result.tries[i].cwd)
-                            if !AgentRun.forget(cli: AgentCLIs.find(result.tries[i].cli), session: id, cwd: cwd).isEmpty { sessions += 1 }
+                            // Nothing went: it stays on file, so the next look tries again.
+                            guard !AgentRun.forget(cli: AgentCLIs.find(result.tries[i].cli), session: id, cwd: cwd).isEmpty else { continue }
+                            sessions += 1
                         }
                         result.tries[i].sessionRemoved = true
                         changed = true
@@ -71,9 +73,9 @@ enum Tidy {
     private static func removeWorktrees(of state: RunState, dir: URL) {
         let folder = state.project.map { URL(fileURLWithPath: $0) } ?? Store.dir
         for w in state.workspaces where !w.merged {
+            for cli in AgentCLIs.agents() where cli.projectDir != nil { AgentRun.forgetFolder(cli: cli, cwd: URL(fileURLWithPath: w.path)) }
             _ = Repo.run("git", ["worktree", "remove", "--force", w.path], in: folder)
             _ = Repo.run("git", ["branch", "-q", "-D", w.branch], in: folder)
-            for cli in AgentCLIs.agents() where cli.projectDir != nil { AgentRun.forgetFolder(cli: cli, cwd: URL(fileURLWithPath: w.path)) }
         }
         for g in state.groups where !g.done {
             if let path = g.mergePath { _ = Repo.run("git", ["worktree", "remove", "--force", path], in: folder) }

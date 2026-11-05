@@ -22,6 +22,8 @@ enum Help {
         var slash: [String] = []
         var aliases: [String] = []
         var hidden = false
+        /// What a pipeline step may not run, being the user's to decide: actions by name, or `*` for all of the command.
+        var notInStep: [String] = []
     }
 
     struct Book {
@@ -54,9 +56,20 @@ enum Help {
             func flag(_ key: String) -> Bool { v[key].map(Toml.unquote) == "true" }
             return Entry(name: name, group: text("group"), usage: text("usage"), summary: text("summary"), flags: list("flags"), output: text("output"),
                          exits: list("exits"), place: text("where"), tokens: opt("tokens"), changes: opt("changes"), screen: flag("screen"), approval: flag("approval"),
-                         example: text("example"), exampleOutput: text("example_output"), mcp: opt("mcp"), slash: list("slash"), aliases: list("aliases"), hidden: flag("hidden"))
+                         example: text("example"), exampleOutput: text("example_output"), mcp: opt("mcp"), slash: list("slash"), aliases: list("aliases"), hidden: flag("hidden"), notInStep: list("not_in_step"))
         }
         return book
+    }
+
+    /// Why this command is refused inside a pipeline step, or nil when it is not.
+    static func refusedInStep(_ command: String, _ args: [String], book given: Book? = nil) -> String? {
+        let read = given ?? book
+        // No list to check against is a broken install, and this guards access: it refuses rather than lets through.
+        guard !read.entries.isEmpty else { return "refused: apprentice cannot read agent/commands.toml, so it cannot tell what a pipeline step may run" }
+        guard let entry = read.entries.first(where: { $0.name == command || $0.aliases.contains(command) }), !entry.notInStep.isEmpty else { return nil }
+        let action = args.first { !$0.hasPrefix("--") }
+        guard entry.notInStep.contains("*") || action.map(entry.notInStep.contains) == true else { return nil }
+        return "refused: a pipeline step cannot run `\(command)\(action.map { " \($0)" } ?? "")`: that is the user's to decide, and nothing an agent runs can grant access or change a setting. Say what you need in what you print, or end with BLOCKED: what you need."
     }
 
     private static let bookLock = NSLock()

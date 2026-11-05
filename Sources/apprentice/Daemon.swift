@@ -113,6 +113,8 @@ enum Daemon {
                 // The app is a user channel, like the menu bar: its click is the user's own approval.
                 if req.user == true, req.cmd == "approve" { Approvals.byUser = req.args.first }
                 defer { Away.recording = nil; if req.user == true { Approvals.byUser = nil } }
+                // An MCP tool call comes straight here, past the check the CLI makes.
+                if req.step != nil, req.user != true, let refusal = Help.refusedInStep(req.cmd, req.args) { throw Fail(7, refusal) }
                 let aside = Commands.asides.contains(req.cmd) && Daemon.queue(for: req) !== Daemon.queue
                 if !aside {
                     Store.model = req.model

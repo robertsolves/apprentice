@@ -26,7 +26,8 @@ enum Repo {
     static func shipped(_ path: String) -> URL {
         let file = resources.appendingPathComponent(path)
         if FileManager.default.fileExists(atPath: file.path) { return file }
-        var dir = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath().deletingLastPathComponent()
+        // The binary's real place, not argv[0], which is only `apprentice` when it was found on the PATH.
+        var dir = URL(fileURLWithPath: Wire.binaryPath()).resolvingSymlinksInPath().deletingLastPathComponent()
         while dir.path != "/" {
             let here = dir.appendingPathComponent(path)
             if FileManager.default.fileExists(atPath: dir.appendingPathComponent("Package.swift").path),

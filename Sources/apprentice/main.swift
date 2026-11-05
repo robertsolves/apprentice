@@ -53,6 +53,11 @@ if loggedHere.contains(command) { Timing.begin() }
 /// is not retried over it, and the command's output ends with the board's unread count.
 let thisStep = PipelineStep.current
 thisStep?.alive()
+// Nothing an agent runs may grant access or change a setting: whatever the prompt said, these are the user's.
+if Request.callerStep != nil, let refusal = Help.refusedInStep(command, rest) {
+    print(refusal)
+    exit(7)
+}
 
 func endOfCommand(_ code: Int32) {
     guard let step = thisStep else { return }

@@ -16,6 +16,8 @@ struct PipelineGraph {
     let pipeline: Pipelines.Pipeline
     let ids: [String]
     private let index: [String: Int]
+    /// `from>to` for each edge that goes back to a step still open on the walk from the first step: what makes a loop.
+    private var backEdges = Set<String>()
 
     init(_ p: Pipelines.Pipeline) {
         pipeline = p
@@ -23,6 +25,33 @@ struct PipelineGraph {
         var at: [String: Int] = [:]
         for (i, id) in ids.enumerated() where at[id] == nil { at[id] = i }
         index = at
+        backEdges = findBackEdges()
+    }
+
+    private func findBackEdges() -> Set<String> {
+        var out = Set<String>(), open = Set<String>(), closed = Set<String>()
+        func walk(_ id: String) {
+            open.insert(id)
+            for s in successors(id) {
+                if open.contains(s) { out.insert("\(id)>\(s)") } else if !closed.contains(s) { walk(s) }
+            }
+            open.remove(id)
+            closed.insert(id)
+        }
+        for id in ids where !closed.contains(id) { walk(id) }
+        return out
+    }
+
+    /// `reach` within one pass, not going round a loop. Two branches of a fork in a loop reach each other by the way back,
+    /// and that must not make them look like one waiting on the other, or like a join.
+    func ahead(_ id: String) -> Set<String> {
+        var seen = Set<String>(), stack = [id]
+        while let at = stack.popLast() {
+            for s in successors(at) where !backEdges.contains("\(at)>\(s)") {
+                if seen.insert(s).inserted { stack.append(s) }
+            }
+        }
+        return seen
     }
 
     func step(_ id: String) -> Pipelines.Step? { index[id].map { pipeline.steps[$0] } }
@@ -75,7 +104,7 @@ struct PipelineGraph {
         var out: [(String, String)] = []
         for id in ids {
             guard case .all(let targets) = next(id) else { continue }
-            let branches = targets.map { t -> Set<String> in reach(t).union([t]) }
+            let branches = targets.map { t -> Set<String> in ahead(t).union([t]) }
             for i in branches.indices {
                 for j in branches.indices where j > i {
                     for a in branches[i].subtracting(branches[j]).sorted() {
@@ -134,6 +163,11 @@ struct PipelineGraph {
         }
         for s in p.scribes { known(s, "scribe:") }
         if let i = p.interpreter { known(i, "interpreter:") }
+        // A name left over in the defaults is dropped when it runs, so say so here.
+        let defaults = NamedAgents.defaults(project: p.project)
+        for name in defaults.priority + defaults.scribe + [defaults.interpreter].compactMap({ $0 }) where agent(name) == nil {
+            r.warnings.append("the agent defaults name \(name), which is no agent · apprentice agents list")
+        }
         for step in p.steps {
             let id = step.id
             if let use = step.use {
