@@ -215,7 +215,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         NSApp.mainMenu = MainMenu.make()
         TerminalKeys.install()
+        #if DEBUG
         if let out = ProcessInfo.processInfo.environment["APPRENTICE_APP_RUNTEST"] { RunTest.run(model: model, out: out) }
+        if let folder = ProcessInfo.processInfo.environment["APPRENTICE_APP_UIDRIVE"] { UIDrive.run(model: model, folder: folder) }
+        #endif
         if let out = ProcessInfo.processInfo.environment["APPRENTICE_APP_KEYTEST"] { KeyTest.run(model: model, window: window, out: out) }
     }
 

@@ -150,6 +150,12 @@ challenge_paths = [
 # replaces this list.
 
 [gate]
+# Controls in apprentice's own window that give something away (the buttons on a pending approval, a run's questions
+# about access, a script that is about to run). The window can be driven like any app, and these stay the user's.
+# Matched as whole words in a control's name, as user_only is. [gate] own_window_user_only in your sites.toml adds to it.
+own_window_user_only = [
+    "allow", "deny", "run it", "install", "uninstall", "use the edited file", "sign in with github", "sign out",
+]
 user_only = [
     "pay", "pay now", "buy", "buy now", "purchase", "checkout", "check out", "place order", "order now", "donate",
     "transfer", "upgrade", "captcha", "not a robot", "verify you are human", "delete account", "close account",

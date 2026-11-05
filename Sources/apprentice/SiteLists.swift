@@ -14,6 +14,7 @@ enum SiteLists {
         var challenge: [String] = []
         var challengePaths: [String] = []
         var userOnly: [String] = []
+        var ownWindowUserOnly: [String] = []
 
         /// A kind with no cap of its own counts against this one: an upvote is a like.
         var countsAs: [String: String] {
@@ -69,6 +70,7 @@ enum SiteLists {
             add(&out.challenge, more.challenge)
             add(&out.challengePaths, more.challengePaths)
             add(&out.userOnly, more.userOnly)
+            add(&out.ownWindowUserOnly, more.ownWindowUserOnly)
         }
         return out
     }
@@ -93,6 +95,7 @@ enum SiteLists {
         out.challenge = list("phrases", "challenge")
         out.challengePaths = list("phrases", "challenge_paths")
         out.userOnly = list("gate", "user_only")
+        out.ownWindowUserOnly = list("gate", "own_window_user_only")
         return out
     }
 
@@ -105,6 +108,7 @@ enum SiteLists {
         if lists.softBlock.isEmpty { out.append("no throttle phrases") }
         if lists.challenge.isEmpty { out.append("no check phrases") }
         if lists.userOnly.isEmpty { out.append("no user-only steps") }
+        if lists.ownWindowUserOnly.isEmpty { out.append("no user-only controls for apprentice's own window") }
         let ids = Set(lists.kinds.map(\.id))
         for k in lists.kinds { if let to = k.countsAs, !ids.contains(to) { out.append("kind.\(k.id) counts as unknown kind \(to)") } }
         return out

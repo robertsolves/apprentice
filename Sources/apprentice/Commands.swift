@@ -304,6 +304,15 @@ func saveGateShot(_ session: Session, _ action: String) {
 func gate(_ session: Session, _ target: Target, _ e: Element?, _ summary: String,
           details: [String] = [], warn: [String] = [], force: Bool = false,
           submits: Bool = false, focus: Element? = nil) throws {
+    var warn = warn
+    if session.ownWindow {
+        let request = Approvals.request
+        let focused = target.app.attr(kAXFocusedWindowAttribute) as! AXUIElement?
+        let refusal = OwnWindow.refusal(cmd: request.cmd, args: request.args, element: e ?? focus,
+                                  otherWindowFocused: focused.map { !CFEqual($0, target.window) } ?? false)
+        if let refusal { throw Fail(8, refusal) }
+        if OwnWindow.userOnly(e ?? focus) { warn.append(Gate.userOnlyStep) }
+    }
     let kind = try approveStep(session, target.page, e, summary, details: details, warn: warn, force: force,
                                submits: submits, focus: focus)
     try Watch.begin()
@@ -644,9 +653,11 @@ enum Commands {
     }
 
     /// Picks the app's main window and saves it as the session. `keep` carries over its id and allowlist.
-    /// apprentice's own windows are never a session target. Otherwise an agent in a terminal tab could
-    /// bind to the app, read it and click its own Allow button; the walker skips them for the same reason.
+    /// The daemon's own windows (the question, the confirm window, the menu bar) are never a session target: an agent
+    /// could bind to one and answer for the user. The app's window is one, since the user wants apprentice to operate
+    /// it like any app, and `OwnWindow` keeps what is the user's out of its reach.
     static func refuseOwnWindow(_ app: NSRunningApplication) throws {
+        if OwnWindow.mayBind(bundle: app.bundleIdentifier, accessory: app.activationPolicy != .regular, pid: app.processIdentifier, daemon: getpid()) { return }
         let name = (app.localizedName ?? "").lowercased()
         let exe = app.executableURL?.path ?? ""
         if app.processIdentifier == getpid() || app.bundleIdentifier == AppBundle.identifier

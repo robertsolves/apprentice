@@ -210,6 +210,7 @@ extension AppModel {
     }
 }
 
+#if DEBUG
 /// `APPRENTICE_APP_RUNTEST=<file>` with `APPRENTICE_APP_RUNTEST_AGENT=<path>`: an agent opened in a tab and a press of
 /// Run, end to end. The agent is a stand-in named like a CLI and given by its full path, because a name would be looked
 /// up in the login shell and could start the real one. Writes what it saw to the file and quits.
@@ -257,3 +258,117 @@ enum RunTest {
         }
     }
 }
+
+/// `APPRENTICE_APP_UIDRIVE=<folder>`, debug builds only: testing the window from inside it, one command at a time,
+/// without the person's cursor. A line written to `<folder>/in` runs, and its answer lands in `<folder>/out`. Never in a
+/// release build: it would let anything on this Mac press the window's Allow, which is why apprentice's own commands
+/// refuse this window as a target.
+///
+///     tree [filter]   the window's controls, numbered, with their frames
+///     press <n>       the control's own press
+///     click <x> <y>   a click, in the window's points from its top-left
+///     text <words>    types into whatever has the keyboard
+///     key <name>      return | cmd+return | escape | tab
+///     focus <n>       gives the control the keyboard
+///     term <words>    types into the terminal on screen, then Return
+///     screen          the terminal's lines
+enum UIDrive {
+    private static var nodes: [NSAccessibilityProtocol] = []
+    private static var keep: Timer?
+
+    private static var target: NSWindow? {
+        NSApp.modalWindow ?? NSApp.keyWindow?.attachedSheet ?? NSApp.mainWindow?.attachedSheet ?? NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first { $0.isVisible }
+    }
+
+    static func run(model: AppModel, folder: String) {
+        let input = URL(fileURLWithPath: folder).appendingPathComponent("in")
+        let output = URL(fileURLWithPath: folder).appendingPathComponent("out")
+        let timer = Timer(timeInterval: 0.2, repeats: true) { _ in
+            guard let line = try? String(contentsOf: input, encoding: .utf8) else { return }
+            try? FileManager.default.removeItem(at: input)
+            let answer = handle(line.trimmingCharacters(in: .whitespacesAndNewlines), model: model)
+            try? answer.write(to: output, atomically: true, encoding: .utf8)
+        }
+        // Common modes: the timer has to go on firing while an alert or a menu is open.
+        RunLoop.main.add(timer, forMode: .common)
+        keep = timer
+    }
+
+    private static func walk(_ node: Any, depth: Int, into out: inout [String], filter: String?) {
+        guard let e = node as? NSAccessibilityProtocol, depth < 40 else { return }
+        let role = e.accessibilityRole()?.rawValue.replacingOccurrences(of: "AX", with: "") ?? "?"
+        let label = [e.accessibilityLabel(), e.accessibilityTitle(), e.accessibilityValue().flatMap { $0 as? String }, e.accessibilityHelp()]
+            .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " | ")
+        let plain = ["Group", "ScrollArea", "SplitGroup", "Unknown", "Window", "?", "Layout Area"].contains(role) && label.isEmpty
+        if !plain {
+            nodes.append(e)
+            let f = e.accessibilityFrame()
+            let w = target?.frame ?? .zero
+            let line = "\(nodes.count - 1) \(role) \"\(String(label.prefix(90)))\" @\(Int(f.minX - w.minX)),\(Int(w.maxY - f.maxY)) \(Int(f.width))x\(Int(f.height))" + (e.isAccessibilityEnabled() ? "" : " disabled")
+            if filter == nil || line.lowercased().contains(filter!) { out.append(line) }
+        }
+        for child in e.accessibilityChildren() ?? [] { walk(child, depth: depth + 1, into: &out, filter: filter) }
+    }
+
+    private static func keyEvent(_ code: UInt16, _ chars: String, _ flags: NSEvent.ModifierFlags = []) {
+        guard let w = target else { return }
+        for type in [NSEvent.EventType.keyDown, .keyUp] {
+            if let e = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: flags, timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: w.windowNumber, context: nil,
+                                        characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code) { NSApp.sendEvent(e) }
+        }
+    }
+
+    private static func handle(_ line: String, model: AppModel) -> String {
+        let parts = line.split(separator: " ", maxSplits: 1).map(String.init)
+        let rest = parts.count > 1 ? parts[1] : ""
+        guard let w = target else { return "no window" }
+        switch parts.first ?? "" {
+        case "tree":
+            nodes = []
+            var out = ["window \"\(w.title)\" \(Int(w.frame.width))x\(Int(w.frame.height))" + (NSApp.modalWindow != nil ? " modal" : "") + (w.isSheet ? " sheet" : "")]
+            walk(w, depth: 0, into: &out, filter: rest.isEmpty ? nil : rest.lowercased())
+            return out.joined(separator: "\n")
+        case "press":
+            guard let n = Int(rest), nodes.indices.contains(n) else { return "no such control" }
+            DispatchQueue.main.async { _ = nodes[n].accessibilityPerformPress() }
+            return "pressed \(n)"
+        case "focus":
+            guard let n = Int(rest), nodes.indices.contains(n) else { return "no such control" }
+            nodes[n].setAccessibilityFocused(true)
+            return "focused \(n), responder \(w.firstResponder.map { String(describing: type(of: $0)) } ?? "nil")"
+        case "click":
+            let xy = rest.split(separator: " ").compactMap { Double($0) }
+            guard xy.count == 2 else { return "click x y" }
+            let p = NSPoint(x: xy[0], y: w.frame.height - xy[1])
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                if let e = NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: w.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) { NSApp.sendEvent(e) }
+            }
+            return "clicked \(xy), hit \(w.contentView?.hitTest(p).map { String(describing: type(of: $0)) } ?? "nil"), responder \(w.firstResponder.map { String(describing: type(of: $0)) } ?? "nil")"
+        case "text":
+            if let view = w.firstResponder as? NSTextView { view.insertText(rest, replacementRange: view.selectedRange()); return "typed into \(type(of: view))" }
+            for ch in rest { keyEvent(0, String(ch)) }
+            return "sent keys to \(w.firstResponder.map { String(describing: type(of: $0)) } ?? "nil")"
+        case "key":
+            switch rest {
+            case "return": keyEvent(36, "\r")
+            case "cmd+return": keyEvent(36, "\r", .command)
+            case "escape": keyEvent(53, "\u{1b}")
+            case "tab": keyEvent(48, "\t")
+            default: return "unknown key"
+            }
+            return "key \(rest)"
+        case "term":
+            guard let tab = model.selectedSession else { return "no tab" }
+            tab.send(rest)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { tab.send("\r") }
+            return "sent to \(tab.title)"
+        case "screen":
+            guard let tab = model.selectedSession else { return "no tab" }
+            let rows = (0..<tab.screen.rows).map { tab.screen.rowText($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            return "tab \(tab.title) · \(tab.frontDescription)\n" + rows.joined(separator: "\n")
+        default:
+            return "unknown command"
+        }
+    }
+}
+#endif

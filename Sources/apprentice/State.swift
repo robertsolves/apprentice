@@ -196,6 +196,9 @@ struct Session: Codable {
     /// for true in Safari.
     var env: SessionEnv?
 
+    /// The session is apprentice's own window, which an agent may operate except for what is the user's (`OwnWindow`).
+    var ownWindow: Bool { bundle == AppBundle.identifier && vm != true }
+
     var isBrowser: Bool {
         if vm == true { return app == "Chromium" }
         guard let bundle else { return false }

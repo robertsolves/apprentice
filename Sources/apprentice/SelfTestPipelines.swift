@@ -845,6 +845,32 @@ extension SelfTest {
         check(!FileManager.default.fileExists(atPath: skilled.appendingPathComponent(".claude/skills/say-hi/SKILL.md").path), "skill: and goes when it goes")
     }
 
+    /// Apprentice operating its own window, and what stays the user's there.
+    static func ownWindow() {
+        let id = AppBundle.identifier
+        check(OwnWindow.mayBind(bundle: id, accessory: false, pid: 100, daemon: 7), "own window: the app's window may be bound")
+        check(!OwnWindow.mayBind(bundle: id, accessory: true, pid: 100, daemon: 7) && !OwnWindow.mayBind(bundle: id, accessory: false, pid: 7, daemon: 7)
+              && !OwnWindow.mayBind(bundle: "com.apple.finder", accessory: false, pid: 100, daemon: 7), "own window: the daemon's windows, where the user answers, may not")
+        func button(_ name: String, _ label: String = "button") -> Element { Element(id: 1, path: [0], label: label, name: name, value: nil, frame: [0, 0, 10, 10], offscreen: false, gated: false) }
+        let words = ["allow", "deny", "run it", "install", "uninstall"]
+        for name in ["Allow", "Deny", "Allow for this run", "Allow for this project", "Run it", "Install", "Uninstall"] {
+            check(OwnWindow.userOnly(button(name), words: words), "own window: \(name) is the user's")
+        }
+        check(!OwnWindow.userOnly(button("Pipelines"), words: words) && !OwnWindow.userOnly(button("Run"), words: words) && !OwnWindow.userOnly(button("Skip this step"), words: words)
+              && !OwnWindow.userOnly(button("install.sh is nothing"), words: ["uninstall"]) && !OwnWindow.userOnly(nil, words: words), "own window: the ordinary controls are not")
+        check(OwnWindow.userOnly(button("Allow"), words: SiteLists.current.ownWindowUserOnly) && SiteLists.current.ownWindowUserOnly.contains("run it"), "own window: the shipped list names them")
+        check(OwnWindow.refusal(cmd: "click", args: ["--at", "10,20"], element: nil, otherWindowFocused: false) != nil
+              && OwnWindow.refusal(cmd: "drag", args: ["--by", "5,5"], element: nil, otherWindowFocused: false) != nil
+              && OwnWindow.refusal(cmd: "click", args: ["12"], element: button("Save"), otherWindowFocused: false) == nil
+              && OwnWindow.refusal(cmd: "scroll", args: ["down", "--at", "1,1"], element: nil, otherWindowFocused: false) == nil, "own window: a click at a point is refused, by element number is not")
+        check(OwnWindow.refusal(cmd: "key", args: ["return"], element: nil, otherWindowFocused: true)?.contains("only the user answers") == true
+              && OwnWindow.refusal(cmd: "key", args: ["return"], element: nil, otherWindowFocused: false) == nil, "own window: nothing goes to the window while an alert or panel has the focus")
+        var session = Session(app: "apprentice", bundle: id, pid: 1, wid: 1, allow: [])
+        check(session.ownWindow, "own window: a session on it knows")
+        session.bundle = "com.apple.finder"
+        check(!session.ownWindow, "own window: and another app's does not")
+    }
+
     static func pipelineSafety() {
         guard let (base, fake) = runProject() else { check(false, "safety: could not set up"); return }
         defer {
