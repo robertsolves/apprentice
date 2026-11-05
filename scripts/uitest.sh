@@ -26,6 +26,8 @@ build() {
     exit 1
   fi
   (cd "$root" && swift build 2>&1 | tail -1)
+  # The debug binary starts the copy's daemon, so it is signed as the app is: same identity, same grants, no new dialogs.
+  codesign --force --options runtime --identifier com.apprentice.app --sign "$id" "$bin"
   mkdir -p "$home/.apprentice" "$home/bin"
   printf '{"clone":"%s","commit":"uitest","built":"x","bin":"%s"}' "$root" "$bin" >"$home/.apprentice/install.json"
   ln -sf "$bin" "$home/bin/apprentice"

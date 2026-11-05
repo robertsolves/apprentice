@@ -58,10 +58,23 @@ struct Args {
 
 // MARK: - Permissions and app lookup
 
+/// macOS's dialog queues: each ask is one more the user has to close, and a daemon asks every time it starts. So it asks
+/// at most once an hour, and never for a throwaway state folder (tests, a test copy), whose unsigned daemons come and go
+/// and could never be granted anyway. The window and `doctor` ask when the user chooses to.
+func mayAskForAccessibility(lastAsked: Date?, now: Date = Date(), throwaway: Bool) -> Bool {
+    guard !throwaway else { return false }
+    return lastAsked.map { now.timeIntervalSince($0) >= 3600 } ?? true
+}
+
 func requireAccessibility() throws {
     guard AXIsProcessTrusted() else {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-        _ = AXIsProcessTrustedWithOptions(options)
+        let stamp = Store.url("accessibility-asked")
+        let last = (try? stamp.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        if mayAskForAccessibility(lastAsked: last, throwaway: ProcessInfo.processInfo.environment["APPRENTICE_HOME"] != nil) {
+            try? Data().write(to: stamp, options: .atomic)
+            let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+            _ = AXIsProcessTrustedWithOptions(options)
+        }
         throw Fail(7, "Accessibility is not granted: System Settings → Privacy & Security → Accessibility → enable apprentice")
     }
 }

@@ -997,6 +997,15 @@ extension SelfTest {
         check(Pipelines.inFolder(nil).allSatisfy { !$0.name.isEmpty } && !FileManager.default.fileExists(atPath: folder.appendingPathComponent("x.layout.json.md").path), "layout: its file is not taken for a pipeline")
     }
 
+    /// macOS's Accessibility dialog queues up, so apprentice asks rarely.
+    static func accessibilityAsking() {
+        let now = Date()
+        check(mayAskForAccessibility(lastAsked: nil, now: now, throwaway: false), "asking: the first time it may")
+        check(!mayAskForAccessibility(lastAsked: now.addingTimeInterval(-60), now: now, throwaway: false), "asking: not again within the hour")
+        check(mayAskForAccessibility(lastAsked: now.addingTimeInterval(-3700), now: now, throwaway: false), "asking: and again after it")
+        check(!mayAskForAccessibility(lastAsked: nil, now: now, throwaway: true), "asking: never for a test's throwaway daemons")
+    }
+
     /// How a VM's state reads on its row and its Dock icon.
     static func vmStates() {
         check(VMDock.level(head: "Working", on: false) == .stopped && VMDock.level(head: nil, on: true) == .waiting, "vm state: off is off, and on with nothing to do is waiting")
