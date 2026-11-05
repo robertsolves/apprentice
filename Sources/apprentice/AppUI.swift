@@ -149,7 +149,9 @@ enum AppBundle {
 
     /// `apprentice app` from a terminal: the CLI builds the bundle and opens it, so the window is its own process.
     static func launchFromCLI() -> Never {
-        if inBundle { AppMain.run() }
+        // Only the copy started with no arguments is the window to `Peer`: `apprentice app` through the link on PATH is this
+        // same binary with one, whose clicks would not count as the person's. So that one asks macOS to open the app.
+        if inBundle, CommandLine.arguments.count <= 1 { AppMain.run() }
         if open() { exit(0) }
         FileHandle.standardError.write(Data("apprentice app: could not build \(path.path)\n".utf8))
         exit(5)
@@ -1941,7 +1943,8 @@ struct ScheduleEditor: View {
         } buttons: {
             Spacer()
             Button("Cancel") { done() }.keyboardShortcut(.cancelAction)
-            Button("Save") { save() }
+            // Named so `[gate] own_window_user_only` can keep it the person's: it acts again and again without them.
+            Button("Save schedule") { save() }
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut(.defaultAction)
                 .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || target.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -2050,7 +2053,7 @@ struct NewPlaybookSheet: View {
     private var path: String { kind.folder + "/" + slug + ".md" }
 
     var body: some View {
-        SheetFrame(title: "New skill", subtitle: "What an agent should know. It stays on this Mac. No names, handles or anything personal.", idealHeight: 600) {
+        SheetFrame(title: "New skill", subtitle: "What an agent should know. " + (into == nil ? "It stays on this Mac." : "It is kept in the project's folder, and saved with it.") + " No names, handles or anything personal.", idealHeight: 600) {
             Panel(title: "It is for") {
                 LabeledField("Kind") {
                     Picker("", selection: $scope) {
@@ -2077,7 +2080,7 @@ struct NewPlaybookSheet: View {
             }
             if !problem.isEmpty { Text(problem).font(Theme.caption).foregroundStyle(Theme.danger) }
             if !slug.isEmpty {
-                Text("saved as \((Skills.yoursDir.appendingPathComponent(path).path as NSString).abbreviatingWithTildeInPath)").font(Theme.monoSmall).foregroundStyle(.tertiary)
+                Text("saved as \(((into ?? Skills.yoursDir).appendingPathComponent(path).path as NSString).abbreviatingWithTildeInPath)").font(Theme.monoSmall).foregroundStyle(.tertiary)
             }
         } buttons: {
             Spacer()

@@ -822,7 +822,8 @@ final class PipelineEngine {
     /// pipeline still runs on the first CLI installed, as it always did.
     private func candidates(_ step: Pipelines.Step) -> [NamedAgents.Named] {
         var names = (step.use.map { [$0] } ?? (p.agent.isEmpty ? [] : [p.agent])) + defaults.priority
-        if names.isEmpty { names = [lastResort] }
+        // A CLI nobody chose has no level, and most CLIs then write nothing, so a task typed for this project could not do it.
+        if names.isEmpty { return [resolve(lastResort)].compactMap { $0 }.map { n in var n = n; n.permissions = n.permissions ?? "edit"; return n } }
         var seen = Set<String>()
         return names.compactMap(resolve).filter { seen.insert($0.name.lowercased()).inserted }
     }

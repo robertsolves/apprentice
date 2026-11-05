@@ -155,6 +155,7 @@ challenge_paths = [
 # Matched as whole words in a control's name, as user_only is. [gate] own_window_user_only in your sites.toml adds to it.
 own_window_user_only = [
     "allow", "deny", "run it", "install", "uninstall", "use the edited file", "sign in with github", "sign out",
+    "save schedule", "run now", "start at login", "stop starting at login",
 ]
 # The processes macOS shows its own dialogs from: a password, a permission, a warning about an app. Only the user answers
 # them, so nothing is clicked while one covers the target, and none is ever the app to give the screen back to.

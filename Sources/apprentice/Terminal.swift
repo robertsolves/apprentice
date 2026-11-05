@@ -1234,7 +1234,12 @@ final class TerminalTextView: NSTextView {
             pressed = term.screen.mouseTracking
             return
         }
+        let down = event.locationInWindow
+        // Runs until the button comes up. Text arriving meanwhile stretches the selection, so a click that did not drag leaves none.
         super.mouseDown(with: event)
+        if let up = window?.mouseLocationOutsideOfEventStream, hypot(up.x - down.x, up.y - down.y) < 4 {
+            setSelectedRange(NSRange(location: (string as NSString).length, length: 0))
+        }
     }
 
     override func mouseUp(with event: NSEvent) {
