@@ -39,6 +39,8 @@ enum Pipelines {
         var next: String? = nil
         /// One line the interpreter reads when choosing this step.
         var when: String? = nil
+        /// On a step with an OR after it: what decides which branch runs. The interpreter reads it with the `when:` lines.
+        var choose: String? = nil
         /// `read-only`, `edit` or `full`: the run does not start if the agent has less.
         var needs: String? = nil
         /// This step may use the screen.
@@ -46,7 +48,7 @@ enum Pipelines {
 
         /// The step's name, as `next:` and the board address it.
         var id: String { Pipelines.slug(title) }
-        var hasSettings: Bool { use != nil || next != nil || when != nil || needs != nil || ui }
+        var hasSettings: Bool { use != nil || next != nil || when != nil || choose != nil || needs != nil || ui }
 
         /// `sh: <command>` as the step's whole text.
         var shell: String? {
@@ -164,6 +166,7 @@ enum Pipelines {
             case "use": step.use = value
             case "next": step.next = value
             case "when": step.when = value
+            case "choose": step.choose = value
             case "needs": step.needs = value.lowercased()
             case "ui": step.ui = value.lowercased() == "true" || value.lowercased() == "yes"
             default:
@@ -219,6 +222,7 @@ enum Pipelines {
             if let v = step.use, !v.isEmpty { out.append("use: \(metaQuoted(v))") }
             if let v = step.next, !v.isEmpty { out.append("next: \(metaQuoted(v))") }
             if let v = step.when, !v.isEmpty { out.append("when: \(metaQuoted(v))") }
+            if let v = step.choose, !v.isEmpty { out.append("choose: \(metaQuoted(v))") }
             if let v = step.needs, !v.isEmpty { out.append("needs: \(metaQuoted(v))") }
             if step.ui { out.append("ui: true") }
             out.append(step.prompt.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -407,7 +411,7 @@ enum Pipelines {
             var out = ["\(p.ref) · \(p.name) · \(p.agent)" + (p.effectiveVM.map { " · VM \($0)" } ?? "") + " · \(p.url?.path ?? "")"]
             if !p.about.isEmpty { out.append(p.about) }
             for (i, s) in p.steps.enumerated() {
-                let settings = [s.use.map { "use: \($0)" }, s.next.map { "next: \($0)" }, s.when.map { "when: \($0)" }, s.needs.map { "needs: \($0)" }, s.ui ? "ui: true" : nil].compactMap { $0 }
+                let settings = [s.use.map { "use: \($0)" }, s.next.map { "next: \($0)" }, s.when.map { "when: \($0)" }, s.choose.map { "choose: \($0)" }, s.needs.map { "needs: \($0)" }, s.ui ? "ui: true" : nil].compactMap { $0 }
                 out.append("\(i + 1). \(s.title)" + (settings.isEmpty ? "" : " · " + settings.joined(separator: " · ")) + "\n   " + s.prompt.replacingOccurrences(of: "\n", with: "\n   "))
             }
             return out.joined(separator: "\n")

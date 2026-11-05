@@ -280,6 +280,7 @@ enum RunTest {
 ///     focus <n>       gives the control the keyboard
 ///     term <words>    types into the terminal on screen, then Return
 ///     screen          the terminal's lines
+///     resize <w> <h>  the window, to see that what is inside follows
 enum UIDrive {
     private static var nodes: [NSAccessibilityProtocol] = []
     private static var keep: Timer?
@@ -373,6 +374,11 @@ enum UIDrive {
             tab.send(rest)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { tab.send("\r") }
             return "sent to \(tab.title)"
+        case "resize":
+            let size = rest.split(separator: " ").compactMap { Double($0) }
+            guard size.count == 2 else { return "resize w h" }
+            w.setContentSize(NSSize(width: size[0], height: size[1]))
+            return "resized to \(size)"
         case "screen":
             guard let tab = model.selectedSession else { return "no tab" }
             let rows = (0..<tab.screen.rows).map { tab.screen.rowText($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }

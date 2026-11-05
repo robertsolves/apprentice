@@ -165,6 +165,7 @@ The goal: {goal}
 The step that just finished: {step}
 The steps you may choose from, choose exactly one:
 {options}
+{criteria}
 
 What has happened so far:
 {summaries}

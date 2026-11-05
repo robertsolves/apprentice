@@ -97,6 +97,13 @@ struct PipelineGraph {
 
     func canReach(_ from: String, _ to: String) -> Bool { reach(from).contains(to) }
 
+    /// An OR is a decision, so something has to say how to make it: a `choose:` on the step, or a `when:` on every branch.
+    func orHasNoCriteria(_ id: String) -> Bool {
+        guard case .choice(let options) = next(id) else { return false }
+        if step(id)?.choose?.trimmingCharacters(in: .whitespaces).isEmpty == false { return false }
+        return options.contains { step($0)?.when?.trimmingCharacters(in: .whitespaces).isEmpty != false }
+    }
+
     /// Whether a path from this step reaches a step that ends.
     func canEnd(from id: String) -> Bool {
         reach(id).union([id]).contains { next($0) == .stop }
@@ -210,9 +217,7 @@ struct PipelineGraph {
         for id in ids {
             if successors(id).contains(id) { r.warnings.append("\(id) goes straight back to itself") }
             if !canEnd(from: id) { r.warnings.append("\(id) has no way to an end: it can only go round") }
-            if case .choice(let options) = next(id) {
-                for o in options where step(o)?.when == nil { r.warnings.append("\(o) has no when: line, so nothing says when \(id) should choose it") }
-            }
+            if orHasNoCriteria(id) { r.errors.append("the OR after \(id) has nothing to choose by: say what decides it with choose:, or give each branch a when: line") }
         }
         for (a, b) in overlaps() where step(a)?.ui == true && step(b)?.ui == true {
             r.errors.append("\(a) and \(b) can run at the same time and both have ui: true: only one step of a parallel group may use the screen")

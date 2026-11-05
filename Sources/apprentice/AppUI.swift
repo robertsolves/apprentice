@@ -407,7 +407,6 @@ enum Theme {
     static let radius: CGFloat = 8
     static let page = EdgeInsets(top: 24, leading: 28, bottom: 24, trailing: 28)
     /// Text reads best under about 70 characters a line; forms and panels stop here on a wide window.
-    static let column: CGFloat = 760
 
     static var canvas: Color { Color(nsColor: .windowBackgroundColor) }
     static var surface: Color { Color(nsColor: .controlBackgroundColor) }
@@ -542,7 +541,6 @@ struct ScreenPage<Content: View>: View {
                 ScreenHeader(title: title, subtitle: subtitle, actions: actions)
                 content()
             }
-            .frame(maxWidth: Theme.column, alignment: .leading)
             .padding(Theme.page)
             .frame(maxWidth: .infinity, alignment: .leading)
         }

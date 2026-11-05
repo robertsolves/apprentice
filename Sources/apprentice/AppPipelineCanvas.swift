@@ -12,18 +12,23 @@ struct CanvasCard: Identifiable {
 
 /// A pipeline as cards on a canvas. Drag a card or a node to place it, and drag from a card's right-hand dot to another
 /// card to wire them. Drag a wire's end to another card to move it, or off into space to disconnect it. A step with
-/// several wires goes through a node: OR runs one of them, chosen for it, and AND runs them all at once; tap a node to
-/// switch it. Everything here reads and writes the pipeline's `next:` lines (`PipelineWires`), so this
+/// several wires goes through a node: OR runs one of them, chosen by its criteria, and AND runs them all at once; choose
+/// a node to set which it is and how it decides. Everything here reads and writes the pipeline's `next:` lines (`PipelineWires`), so this
 /// is always what the file says.
 struct PipelineCanvas: View {
     let cards: [CanvasCard]
     let graph: PipelineGraph
     @Binding var positions: [String: CGPoint]
     @Binding var selected: String?
+    /// The node chosen, by the step it follows.
+    @Binding var selectedGate: String?
+    /// What is typed for the next run only, shown at the corner of the canvas with a way to it.
+    let firstThisRun: String
+    let lastThisRun: String
+    let openThisRun: () -> Void
     let wire: (String, String) -> Void
     let unwire: (String, String) -> Void
     let rewire: (String, String, String) -> Void
-    let switchGate: (String) -> Void
     let moved: () -> Void
 
     @State private var wiring: (from: String, at: CGPoint)?
@@ -77,33 +82,45 @@ struct PipelineCanvas: View {
     }
 
     var body: some View {
-        ScrollView([.horizontal, .vertical]) {
-            ZStack(alignment: .topLeading) {
-                wires
-                ForEach(cards) { c in cardView(c).position(at(c.id)) }
-                ForEach(cards) { c in gateNode(c.id) }
-                ForEach(cards) { c in port(c) }
-                ForEach(cards) { c in ForEach(PipelineWires.targets(graph.next(c.id)), id: \.self) { target in wireEnd(c, target) } }
-                if let selected {
-                    ForEach(PipelineWires.targets(graph.next(selected)), id: \.self) { target in
-                        Button { unwire(selected, target) } label: {
-                            Image(systemName: "xmark.circle.fill").font(.system(size: 13)).foregroundStyle(.secondary).background(Circle().fill(Theme.surface))
-                        }
-                        .buttonStyle(.plain)
-                        .help("Remove this wire")
-                        .accessibilityLabel("Remove the wire to \(target)")
-                        .position(middle(wireStart(selected), inPort(target)))
-                    }
+        GeometryReader { room in
+            ScrollView([.horizontal, .vertical]) {
+                ZStack(alignment: .topLeading) {
+                    wires
+                    ForEach(cards) { c in cardView(c).position(at(c.id)) }
+                    ForEach(cards) { c in gateNode(c.id) }
+                    ForEach(cards) { c in port(c) }
+                    ForEach(cards) { c in ForEach(PipelineWires.targets(graph.next(c.id)), id: \.self) { target in wireEnd(c, target) } }
                 }
+                .frame(width: max(contentSize.width, room.size.width), height: max(contentSize.height, room.size.height), alignment: .topLeading)
+                .coordinateSpace(name: space)
+                .contentShape(Rectangle())
+                .onTapGesture { selected = nil; selectedGate = nil }
             }
-            .frame(width: contentSize.width, height: contentSize.height, alignment: .topLeading)
-            .coordinateSpace(name: space)
-            .contentShape(Rectangle())
-            .onTapGesture { selected = nil }
         }
-        .frame(height: 360)
-        .background(Theme.canvas, in: RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).strokeBorder(Theme.hairline))
+        .background(Theme.canvas)
+        .overlay(alignment: .bottomLeading) {
+            HStack(spacing: Theme.s2) {
+                thisRun("First, this run only", firstThisRun)
+                thisRun("Last, this run only", lastThisRun)
+            }
+            .padding(Theme.s3)
+        }
+    }
+
+    /// A reminder that the next run can have its own first and last step, and what they say.
+    private func thisRun(_ title: String, _ text: String) -> some View {
+        let empty = text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        return Button(action: openThisRun) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(Theme.caption).foregroundStyle(.secondary)
+                Text(empty ? "Nothing yet" : text).font(Theme.caption).foregroundStyle(empty ? .tertiary : .primary).lineLimit(1)
+            }
+            .padding(.horizontal, Theme.s2).padding(.vertical, Theme.s1)
+            .frame(width: 190, alignment: .leading)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.radius, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous).strokeBorder(Theme.hairline, style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+        }
+        .buttonStyle(.plain)
     }
 
     private var wires: some View {
@@ -146,10 +163,10 @@ struct PipelineCanvas: View {
         .overlay(RoundedRectangle(cornerRadius: Theme.radius, style: .continuous)
             .strokeBorder(selected == c.id ? Theme.accent : Theme.hairline, lineWidth: selected == c.id ? 2 : 1))
         .contentShape(Rectangle())
-        .onTapGesture { selected = c.id }
+        .onTapGesture { selected = c.id; selectedGate = nil }
         .gesture(DragGesture(minimumDistance: 3, coordinateSpace: .named(space))
             .onChanged { drag in
-                if dragStart == nil { dragStart = at(c.id); selected = c.id }
+                if dragStart == nil { dragStart = at(c.id); selected = c.id; selectedGate = nil }
                 let start = dragStart ?? at(c.id)
                 positions[c.id] = CGPoint(x: max(start.x + drag.translation.width, Self.cardSize.width / 2 + 8),
                                           y: max(start.y + drag.translation.height, Self.cardSize.height / 2 + 8))
@@ -210,15 +227,16 @@ struct PipelineCanvas: View {
                 .foregroundStyle(.white)
                 .frame(width: 36, height: 36)
                 .background(Circle().fill(isAnd ? Theme.accent : Theme.warn))
+                .overlay(Circle().strokeBorder(graph.orHasNoCriteria(id) ? Theme.danger : (selectedGate == id ? Color.primary : Color.clear), lineWidth: 2))
                 .contentShape(Circle())
-                .onTapGesture { switchGate(id) }
+                .onTapGesture { selectedGate = id; selected = nil }
                 .gesture(DragGesture(minimumDistance: 3, coordinateSpace: .named(space))
                     .onChanged { drag in positions["gate:\(id)"] = drag.location }
                     .onEnded { _ in moved() })
-                .help(isAnd ? "AND: all of these run at once. Tap for OR, or drag to move it." : "OR: one of these runs, chosen for it. Tap for AND, or drag to move it.")
+                .help(graph.orHasNoCriteria(id) ? "This OR has nothing to choose by yet. Choose it to say what decides it." : isAnd ? "AND: all of these run at once." : "OR: one of these runs, chosen by its criteria.")
                 .accessibilityLabel(isAnd ? "AND after \(id)" : "OR after \(id)")
                 .accessibilityAddTraits(.isButton)
-                .accessibilityAction { switchGate(id) }
+                .accessibilityAction { selectedGate = id; selected = nil }
             .position(gate(id))
         default:
             EmptyView()

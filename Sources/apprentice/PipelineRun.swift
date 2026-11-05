@@ -1292,7 +1292,7 @@ final class PipelineEngine {
         }
         let who = NamedAgents.defaults(project: project)
         let list = p.steps.map { s -> String in
-            let settings = [s.use ?? s.shell.map { _ in "a shell command" } ?? (p.agent.isEmpty ? who.priority.first : p.agent), s.needs.map { "needs \($0)" }, s.when.map { "chosen when: \($0)" }, Pipelines.hasScreen(s, in: p) ? "has the screen" : nil].compactMap { $0 }
+            let settings = [s.use ?? s.shell.map { _ in "a shell command" } ?? (p.agent.isEmpty ? who.priority.first : p.agent), s.needs.map { "needs \($0)" }, s.when.map { "chosen when: \($0)" }, s.choose.map { "its OR chooses by: \($0)" }, Pipelines.hasScreen(s, in: p) ? "has the screen" : nil].compactMap { $0 }
             return "### \(s.id)" + (settings.isEmpty ? "" : " (\(settings.joined(separator: ", ")))") + "\n" + String(s.prompt.prefix(2000))
         }.joined(separator: "\n\n")
         let text = PipelineText.fill("preflight", ["goal": goal, "map": graph.map(here: nil), "steps": list])
@@ -1338,7 +1338,7 @@ final class PipelineEngine {
         let lines = options.map { o in "- \(o)" + (graph.step(o)?.when.map { ": \($0)" } ?? "") }.joined(separator: "\n")
         let folder = node(id)
         let answerFile = folder.appendingPathComponent("interpreter.json")
-        let text = PipelineText.fill("interpreter", ["goal": goal, "step": id, "options": lines, "summaries": summaries(), "file": answerFile.path])
+        let text = PipelineText.fill("interpreter", ["goal": goal, "step": id, "options": lines, "criteria": step.choose.map { "What decides it: \($0)" } ?? "", "summaries": summaries(), "file": answerFile.path])
         try? text.write(to: folder.appendingPathComponent("interpreter-prompt.md"), atomically: true, encoding: .utf8)
         for agent in agents {
             if stopping { return }

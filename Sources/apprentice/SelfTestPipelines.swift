@@ -201,7 +201,7 @@ extension SelfTest {
         check(errors("## a\nuse: Joseph\nneeds: edit\nhi\n").isEmpty, "check: needs within them")
         check(errors("## f\nnext: a & b\nhi\n## a\nui: true\nnext: j\nhi\n## b\nui: true\nnext: j\nhi\n## j\nhi\n").first?.contains("both have ui") == true, "check: two UI steps in one group")
         check(errors("## a\nui: true\nnext: b & c\nhi\n## b\nnext: d\nhi\n## c\nui: true\nnext: d\nhi\n## d\nui: true\nhi\n").isEmpty, "check: UI steps that never overlap are fine")
-        check(errors("---\nvisits: 0\n---\n## a\nnext: b\nhi\n## b\nnext: a | c\nhi\n## c\nnext: end\nhi\n").contains { $0.contains("loop") }, "check: a loop with no limit")
+        check(errors("---\nvisits: 0\n---\n## a\nnext: b\nhi\n## b\nnext: a | c\nchoose: pick one\nhi\n## c\nnext: end\nhi\n").contains { $0.contains("loop") }, "check: a loop with no limit")
         check(errors("## a\nnext: b | c & d\nhi\n## b\nhi\n## c\nhi\n## d\nhi\n").first?.contains("mixes") == true, "check: | and & mixed")
         check(errors("## a\nhi\n## A\nhi\n").first?.contains("two steps") == true, "check: two steps of one name")
         check(PipelineEngine.parseChoice("thinking…\n{\"next\": [\"fix\"], \"why\": \"a bug\"}\n")?.next == ["fix"], "interpreter: the answer is found at the end of what it printed")
@@ -476,7 +476,7 @@ extension SelfTest {
 
         // Routing: the interpreter chooses; a wrong answer is asked again, then the user decides.
         let route = newProject("route", under: base)
-        write("---\ngoal: g\ninterpreter: C\n---\n## triage\nuse: A\nnext: fix | reply\nRUN: echo looked\n\n## fix\nuse: A\nwhen: a bug\nnext: end\nRUN: echo fixing\n\n## reply\nuse: A\nwhen: a question\nnext: end\nRUN: echo replying\n", "r", in: route)
+        write("---\ngoal: g\ninterpreter: C\n---\n## triage\nuse: A\nnext: fix | reply\nchoose: pick one\nRUN: echo looked\n\n## fix\nuse: A\nwhen: a bug\nnext: end\nRUN: echo fixing\n\n## reply\nuse: A\nwhen: a question\nnext: end\nRUN: echo replying\n", "r", in: route)
         try? "here is my answer: {\"next\": [\"reply\"], \"why\": \"it asks\"}\n".write(to: fake.appendingPathComponent("choice"), atomically: true, encoding: .utf8)
         r = cli(["pipeline", "run", "r"], in: route, fake: fake)
         check(r.code == 0 && r.out.contains("replying") && !r.out.contains("fixing") && state(route, 1)?.path == ["triage", "reply"], "runs: the interpreter chooses a branch (exit \(r.code)): \(r.out.suffix(300))")
@@ -488,7 +488,7 @@ extension SelfTest {
 
         // A loop is limited.
         let loop = newProject("loop", under: base)
-        write("---\ngoal: g\nvisits: 2\ninterpreter: C\n---\n## a\nuse: A\nnext: b\nRUN: echo a\n\n## b\nuse: A\nnext: a | c\nRUN: echo b\n\n## c\nuse: A\nnext: end\nRUN: echo c\n", "l", in: loop)
+        write("---\ngoal: g\nvisits: 2\ninterpreter: C\n---\n## a\nuse: A\nnext: b\nRUN: echo a\n\n## b\nuse: A\nnext: a | c\nchoose: pick one\nRUN: echo b\n\n## c\nuse: A\nnext: end\nRUN: echo c\n", "l", in: loop)
         try? "{\"next\": [\"a\"]}\n".write(to: fake.appendingPathComponent("choice"), atomically: true, encoding: .utf8)
         r = cli(["pipeline", "run", "l"], in: loop, fake: fake)
         check(r.code == 1 && r.out.contains("more than 2 times"), "runs: a loop stops at its limit (exit \(r.code))")
@@ -945,7 +945,7 @@ extension SelfTest {
         check(W.renaming("old", to: "new", in: "old | b") == "new | b" && W.renaming("old", to: "new", in: "a & old") == "a & new" && W.renaming("old", to: "new", in: "old") == "new" && W.renaming("old", to: "new", in: "end") == "end", "wires: renaming a step keeps the wires to it")
         // What the canvas writes is what the engine reads.
         var p = Pipelines.Pipeline(name: "W")
-        var start = Pipelines.Step(title: "Start", prompt: "x"); start.next = W.adding("b", to: .one("a"))
+        var start = Pipelines.Step(title: "Start", prompt: "x"); start.next = W.adding("b", to: .one("a")); start.choose = "which one"
         var a = Pipelines.Step(title: "A", prompt: "x"); a.next = "end"
         var b = Pipelines.Step(title: "B", prompt: "x"); b.next = "end"
         p.steps = [start, a, b]
@@ -968,7 +968,22 @@ extension SelfTest {
         var chooseA = Pipelines.Step(title: "A", prompt: "x"); chooseA.next = "end"; chooseA.when = "it is a bug"
         var chooseB = Pipelines.Step(title: "B", prompt: "x"); chooseB.next = "end"
         bare.steps = [from, chooseA, chooseB]
-        check(PipelineGraph(bare).check(agents: [], clis: []).warnings.contains { $0.contains("b has no when:") } && !PipelineGraph(bare).check(agents: [], clis: []).warnings.contains { $0.contains("a has no when:") }, "check: a branch nothing says when to choose is flagged")
+        check(PipelineGraph(bare).check(agents: [], clis: []).errors.contains { $0.contains("nothing to choose by") }, "check: an OR with no criteria does not start")
+        bare.steps[0].choose = "did the report describe a real bug?"
+        check(!PipelineGraph(bare).check(agents: [], clis: []).errors.contains { $0.contains("nothing to choose by") }, "check: saying what decides it is enough")
+        check(PipelineGraph(Pipelines.parse(Pipelines.render(bare))).step("from")?.choose == "did the report describe a real bug?", "check: what decides an OR survives the file")
+        bare.steps[0].choose = nil
+        bare.steps[2].when = "it is a question"
+        check(!PipelineGraph(bare).check(agents: [], clis: []).errors.contains { $0.contains("nothing to choose by") }, "check: so is a when: on every branch")
+        var many = Pipelines.Pipeline(name: "M")
+        var m1 = Pipelines.Step(title: "M1", prompt: "x"); m1.next = "m2 | m3 | m4"; m1.choose = "pick"
+        var m2 = Pipelines.Step(title: "M2", prompt: "x"); m2.next = "m5 | m6"; m2.choose = "pick again"
+        var m3 = Pipelines.Step(title: "M3", prompt: "x"); m3.next = "end"
+        var m4 = Pipelines.Step(title: "M4", prompt: "x"); m4.next = "end"
+        var m5 = Pipelines.Step(title: "M5", prompt: "x"); m5.next = "end"
+        var m6 = Pipelines.Step(title: "M6", prompt: "x"); m6.next = "end"
+        many.steps = [m1, m2, m3, m4, m5, m6]
+        check(PipelineGraph(many).next("m1") == .choice(["m2", "m3", "m4"]) && PipelineGraph(many).next("m2") == .choice(["m5", "m6"]) && PipelineGraph(many).check(agents: [], clis: []).ok, "check: an OR can have many branches, and there can be many ORs")
         check(PipelineEngine.parseAudit("thinking...\n{\"ok\": true}")?.ok == true && PipelineEngine.parseAudit("{\"ok\": false, \"problems\": [\"x\"]}")?.problems == ["x"] && PipelineEngine.parseAudit("no idea") == nil && PipelineEngine.parseAudit("{\"ok\": false}")?.ok == true, "audit: its answer is read wherever it is, and a complaint needs a problem")
         let spots = W.layout(PipelineGraph(p))
         check(spots.count == 3 && spots["a"]!.x == spots["b"]!.x && spots["a"]!.y != spots["b"]!.y && spots["start"]!.x < spots["a"]!.x, "layout: a column for each depth, branches one above the other")
@@ -1157,7 +1172,7 @@ extension SelfTest {
         let looped = newProject("looped", under: base)
         let count = base.appendingPathComponent("visits")
         let choice = fake.appendingPathComponent("choice-three")
-        write("---\ngoal: g\nvisits: 3\n---\n## start\nuse: A\nnext: left & right\nRUN: echo go\n\n## left\nuse: A\nnext: join\nRUN: echo l >> \(count.path); pwd >> \(base.path)/left-folders.txt; echo l > l.txt; echo left-done\n\n## right\nuse: B\nnext: join\nRUN: echo r > r.txt; echo right-done\n\n## join\nuse: A\nnext: start | end2\nRUN: if [ $(wc -l < \(count.path)) -lt 2 ]; then echo '{\"next\":\"start\"}' > \(choice.path); else echo '{\"next\":\"end2\"}' > \(choice.path); fi; echo joined\n\n## end2\nuse: A\nRUN: echo finished\n", "x", in: looped)
+        write("---\ngoal: g\nvisits: 3\n---\n## start\nuse: A\nnext: left & right\nRUN: echo go\n\n## left\nuse: A\nnext: join\nRUN: echo l >> \(count.path); pwd >> \(base.path)/left-folders.txt; echo l > l.txt; echo left-done\n\n## right\nuse: B\nnext: join\nRUN: echo r > r.txt; echo right-done\n\n## join\nuse: A\nnext: start | end2\nchoose: pick one\nRUN: if [ $(wc -l < \(count.path)) -lt 2 ]; then echo '{\"next\":\"start\"}' > \(choice.path); else echo '{\"next\":\"end2\"}' > \(choice.path); fi; echo joined\n\n## end2\nuse: A\nRUN: echo finished\n", "x", in: looped)
         r = cli(["pipeline", "run", "x"], in: looped, fake: fake)
         let folders = text(base.appendingPathComponent("left-folders.txt")).split(separator: "\n")
         check(r.code == 0 && folders.count == 2 && folders.allSatisfy { $0.contains("/worktrees/") } && state(looped, 1)?.steps["left"]?.visits == 2, "safety: a parallel step in a loop has its own worktree on every visit (exit \(r.code)): \(folders) \(r.out.suffix(300))")

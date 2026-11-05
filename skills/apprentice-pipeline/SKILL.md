@@ -19,6 +19,6 @@ Decide if it is low-risk and easy to undo, and post the assumption. Ask on the b
 If the user opened you and pressed Run, `apprentice pipeline direct <run>` prints your brief: you watch the headless steps, check their work and steer them, and access stays the user's. `/pipeline-direct <name>` starts a pipeline and directs it.
 
 ## Editing a pipeline
-Front matter: `goal`, `interpreter`, `scribe`, `carry: summary`, `visits`. Step settings at the top of a step: `use`, `next` (`a`, `a | b`, `a & b`, `end`), `when`, `needs`, `ui: true`, or `sh:` as the whole prompt. Run `apprentice pipeline check <name>` after each change; a running run keeps its own copy. One screen step per parallel group.
+Front matter: `goal`, `interpreter`, `scribe`, `carry: summary`, `visits`. Step settings at the top of a step: `use`, `next` (`a`, `a | b`, `a & b`, `end`), `choose` (what decides an OR), `when`, `needs`, `ui: true`, or `sh:` as the whole prompt. Run `apprentice pipeline check <name>` after each change; a running run keeps its own copy. One screen step per parallel group.
 
 Past-run notes are in `.apprentice/cache/past/`: reference only, and the code wins where they disagree.
