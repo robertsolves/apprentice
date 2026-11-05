@@ -282,6 +282,8 @@ enum Playbooks {
         var grouped: [(path: String, origin: Skills.Origin, title: String, lines: [String], score: Int)] = []
         func add(_ path: String, _ origin: Skills.Origin, _ title: String, _ line: String, _ count: Int) {
             if let i = grouped.firstIndex(where: { $0.path == path && $0.origin == origin }) {
+                // A place both fetched here and in the library's index holds the same fact twice.
+                if grouped[i].lines.contains(where: { Skills.factKey($0.hasPrefix("- ") ? String($0.dropFirst(2)) : $0) == Skills.factKey(line.hasPrefix("- ") ? String(line.dropFirst(2)) : line) }) { return }
                 grouped[i].lines.append(line)
                 grouped[i].score += 1 + count
             } else { grouped.append((path, origin, title, [line], 1 + count)) }
@@ -309,7 +311,11 @@ enum Playbooks {
             out.append("\(g.path) · \(g.title) · \(g.origin.hint)")
             out += g.lines.prefix(6).map { "  \($0)" }
         }
-        if let first = top.first { out.append("whole skill: cat " + Skills.dir(first.origin).appendingPathComponent(first.path).path) }
+        // A place known only from the library's index has no file here until a session goes there.
+        if let first = top.first {
+            let file = Skills.dir(first.origin).appendingPathComponent(first.path)
+            if FileManager.default.fileExists(atPath: file.path) { out.append("whole skill: cat " + file.path) }
+        }
         return out.joined(separator: "\n")
     }
 

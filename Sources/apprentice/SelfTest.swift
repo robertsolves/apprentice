@@ -64,6 +64,7 @@ enum SelfTest {
         markdownStyle()
         projectFiles()
         placeFacts()
+        libraryRepo()
         homeSync()
         pipelineRuns()
         try? FileManager.default.removeItem(at: Store.dir)

@@ -135,9 +135,7 @@ enum Skills {
         var entry = Fact(date: day, count: 1, kind: k, text: text, seen: env.map { [$0] } ?? ["unknown"])
         if let i = facts.firstIndex(where: { $0.key == factKey(text) }) {
             entry = facts.remove(at: i)
-            entry.date = day
-            entry.count += 1
-            entry.doubted = false
+            entry.confirm(day)
             if let k { entry.kind = k }
             if let env, !entry.seen.contains(env) { entry.seen.removeAll { $0 == "unknown" }; entry.seen.append(env) }
             entry.not.removeAll { $0 == env }
@@ -319,7 +317,7 @@ enum Skills {
 
     // MARK: - CLI
 
-    static let usage = "skills [\"words\"] · skills <skill name> · skills list · skills --paths · skills forget <learned, yours or project path> · skills share <path> · skills --check"
+    static let usage = "skills [\"words\"] · skills <skill name> · skills list · skills --paths · skills forget <learned, yours or project path> · skills share <path> · skills share --library [--place <path>] [--yes] · skills library · skills --check"
 
     /// `skills …`; the old name `playbooks` runs the same.
     static func command(_ a: Args) throws -> String {
@@ -345,8 +343,15 @@ enum Skills {
             }
             try FileManager.default.trashItem(at: note.url, resultingItemURL: nil)
             return "moved \(note.origin.label) \(note.path) to the Trash"
+        case "library":
+            return try SkillLibrary.command(a)
         case "share" where a.has("library"):
-            return try SkillLibrary.share()
+            if a.has("not-now") {
+                let offers = SkillLibrary.offer(minCount: 3, minDays: 30).filter { a.value("place") == nil || $0.key == a.value("place") }
+                SkillLibrary.mark(offers, state: "later")
+                return "not now: asked again in 30 days"
+            }
+            return try SkillLibrary.share(place: a.value("place"), yes: a.has("yes"), ready: a.has("ready"))
         case "share":
             guard let path = a.pos.dropFirst().first, let note = find(path), note.origin != .builtIn else {
                 throw Fail(5, "skills share <path>: copies a learned skill or one of yours into the repo's playbooks, for `apprentice pr`")

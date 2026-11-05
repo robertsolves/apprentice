@@ -81,6 +81,8 @@ struct Fact: Equatable {
     static let kinds = ["trap", "hidden", "works", "layout"]
 
     var date = ""
+    /// The day it was first saved, once a later confirmation has moved `date`.
+    var since: String? = nil
     var count = 1
     /// Its own miss pattern happened again in a session that had been told about it.
     var doubted = false
@@ -90,9 +92,19 @@ struct Fact: Equatable {
     var not: [String] = []
 
     var key: String { Skills.factKey(text) }
+    var firstSeen: String { since ?? date }
+
+    /// It was true again today.
+    mutating func confirm(_ day: String) {
+        if since == nil, date != day { since = date }
+        date = day
+        count += 1
+        doubted = false
+    }
 
     var line: String {
         var head = date
+        if let since, since != date { head += " from:\(since)" }
         if count > 1 { head += " ×\(count)" }
         if doubted { head += " ?" }
         var parts = [head]
@@ -113,6 +125,7 @@ struct Fact: Equatable {
         var f = Fact(date: date)
         for word in head.dropFirst() {
             if word.hasPrefix("×"), let n = Int(word.dropFirst()) { f.count = n }
+            if word.hasPrefix("from:") { f.since = String(word.dropFirst(5)) }
             if word == "?" { f.doubted = true }
         }
         func list(_ prefix: String) -> [String]? {
@@ -225,7 +238,9 @@ extension Skills {
         for f in facts {
             if let i = out.firstIndex(where: { $0.key == f.key }) {
                 let newer = f.date > out[i].date
+                let first = min(out[i].firstSeen, f.firstSeen)
                 out[i].date = max(out[i].date, f.date)
+                out[i].since = first == out[i].date ? nil : first
                 out[i].count = max(out[i].count, f.count)
                 if newer { out[i].doubted = f.doubted; out[i].kind = f.kind ?? out[i].kind }
                 out[i].seen += f.seen.filter { !out[i].seen.contains($0) }
@@ -319,9 +334,7 @@ extension Skills {
             list.append(found)
             i = list.count - 1
         } else { i = try one(list, words) }
-        list[i].date = day
-        list[i].count += 1
-        list[i].doubted = false
+        list[i].confirm(day)
         if let env, !list[i].seen.contains(env) { list[i].seen.append(env) }
         list[i].not.removeAll { $0 == env }
         try saveFacts(list, at: url, scope: scope, match: match, day: day)

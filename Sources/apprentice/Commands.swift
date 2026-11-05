@@ -13,6 +13,7 @@ struct Args {
         "right", "double", "enter", "new-window", "new-tab", "goto", "json", "gate", "approve", "screen-anyway", "no-options",
         "multi", "text", "force", "background", "all", "push", "keep-going", "no-vm", "fresh", "copy", "file", "report", "take-new", "keep-mine", "global",
         "look", "no-agent", "no-model", "no-effort", "no-permissions", "no-interpreter", "no-scribe", "no-priority", "reindex", "library",
+        "urgent", "not-now", "ready", "yes",
     ]
 
     /// `switches` are the flags that never take a value; `do` passes none, so a flow's `{text}` or

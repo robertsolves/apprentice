@@ -158,6 +158,7 @@ Add `--json` for the raw reply on the commands that go through the daemon, and o
 | Code | Meaning |
 | --- | --- |
 | 0 | ok |
+| 1 | a pipeline step failed, or a self-test check |
 | 2 | stale: the screen changed, or the page changed without apprentice; read it again (actions are refused until then) |
 | 3 | The user denied the step |
 | 4 | blocked: allowlist, rate limit, budget, a site cooling down after it throttled the account, or a check only the user may complete |
@@ -165,7 +166,8 @@ Add `--json` for the raw reply on the commands that go through the daemon, and o
 | 6 | interrupted by the user during borrow mode, or by the kill switch (later steps are held until the user answers) |
 | 7 | a permission is missing |
 | 8 | approval needed: proposed, nothing done yet |
-| 9 | ask the user in the chat: they are away or did not answer the window |
+| 9 | ask the user in the chat: they are away or did not answer the window; or a pipeline run is parked, waiting for the user |
+| 10 | yielded: in away mode the user is back at the Mac, so nothing was done; wait with `apprentice away wait` |
 
 ## Configuration
 

@@ -50,7 +50,7 @@ final class SkillIndex {
     private var table: String { hasFTS ? "items" : "items_plain" }
 
     /// Replaces the rows of files that changed, adds new ones, removes missing ones. Stats every file, parses only those.
-    func update(roots: [(Skills.Origin, URL)]) {
+    func update(roots: [(Skills.Origin, URL)], indexFiles: [URL] = SkillLibrary.indexFiles) {
         var seen = Set<String>()
         var known: [String: String] = [:]
         if let s = statement("SELECT path, stamp FROM files") {
@@ -66,7 +66,8 @@ final class SkillIndex {
         defer { [delete, insert, stamp, forget].forEach { sqlite3_finalize($0) } }
         for (origin, folder) in roots {
             let root = folder.resolvingSymlinksInPath()
-            guard let walk = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey]) else { continue }
+            // Hidden: the library's own per-base copies, which the file agents read already folds together.
+            guard let walk = FileManager.default.enumerator(at: root, includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey], options: .skipsHiddenFiles) else { continue }
             for case let url as URL in walk where url.pathExtension == "md" && url.lastPathComponent != "README.md" {
                 let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
                 let mark = "\(values?.contentModificationDate?.timeIntervalSince1970 ?? 0)-\(values?.fileSize ?? 0)"
@@ -88,6 +89,25 @@ final class SkillIndex {
                 let facts = note.keyFacts
                 if facts.isEmpty { row(0, note.body) } else { for f in facts { row(Fact.parse(f)?.count ?? 1, f) } }
                 bind(stamp, 1, url.path); bind(stamp, 2, mark); sqlite3_step(stamp); sqlite3_reset(stamp)
+            }
+        }
+        // The library's published index: what it knows about places never fetched here, so a search can find them.
+        if roots.contains(where: { $0.0 == .library }) {
+            for file in indexFiles {
+                let values = try? file.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+                let mark = "\(values?.contentModificationDate?.timeIntervalSince1970 ?? 0)-\(values?.fileSize ?? 0)"
+                seen.insert(file.path)
+                if known[file.path] == mark { continue }
+                begin()
+                bind(delete, 1, file.path); sqlite3_step(delete); sqlite3_reset(delete)
+                for r in SkillLibrary.rows(in: file) {
+                    bind(insert, 1, file.path); bind(insert, 2, r.place); bind(insert, 3, Skills.Origin.library.rawValue); bind(insert, 4, r.place.hasPrefix("web/") ? "site" : "app")
+                    sqlite3_bind_int(insert, 5, Int32(r.count))
+                    bind(insert, 6, r.title); bind(insert, 7, ""); bind(insert, 8, r.line)
+                    sqlite3_step(insert)
+                    sqlite3_reset(insert)
+                }
+                bind(stamp, 1, file.path); bind(stamp, 2, mark); sqlite3_step(stamp); sqlite3_reset(stamp)
             }
         }
         for path in known.keys where !seen.contains(path) {
@@ -137,104 +157,4 @@ final class SkillIndex {
 
     /// The global roots: a project's own skills are few, so they are read directly.
     static var roots: [(Skills.Origin, URL)] { [(.yours, Skills.yoursDir), (.learned, Skills.learnedDir), (.library, SkillLibrary.folder), (.builtIn, Playbooks.dir)] }
-}
-
-/// A shared library of learned facts, read per place over https, labelled as unreviewed hints. Off until
-/// `[skills] library` names a base URL. It never holds anything of the user's: `share --library` offers only facts
-/// confirmed twice here that pass the same checks as everything shared.
-enum SkillLibrary {
-    static var folder: URL { Skills.root.appendingPathComponent("library") }
-    static var bases: [String] {
-        guard let raw = Skills.settings["library"] else { return [] }
-        return Toml.array(raw) ?? [Toml.unquote(raw)].filter { !$0.isEmpty }
-    }
-
-    /// The library's layout: sharded by first letter, since a folder of a hundred thousand files is slow.
-    static func remotePath(_ rel: String) -> String {
-        let parts = rel.split(separator: "/", maxSplits: 1).map(String.init)
-        guard parts.count == 2, let first = parts[1].first else { return rel }
-        return "\(parts[0])/\(first)/\(parts[1])"
-    }
-
-    /// One fetched file: read only if it passes the personal-details and step checks, so a bad upload never reaches an agent.
-    static func acceptable(_ text: String) -> Bool {
-        guard Playbooks.leaks(text, identity: []).isEmpty else { return false }
-        let note = Playbooks.parse(text, url: URL(fileURLWithPath: "/x.md"), path: "x.md")
-        return !note.keyFacts.contains { Fact.parse($0).map { Fact.refusal($0.text) != nil } ?? (Fact.refusal($0) != nil) }
-    }
-
-    /// The first `session` at a place fetches it in the background, with an ETag: the session never waits on it, and
-    /// late facts show on the next command.
-    static func fetchInBackground(_ rels: [String], session: URLSession = .shared) {
-        guard !bases.isEmpty else { return }
-        for rel in rels {
-            for base in bases {
-                guard let url = URL(string: base.hasSuffix("/") ? base + remotePath(rel) : base + "/" + remotePath(rel)) else { continue }
-                let local = folder.appendingPathComponent(rel)
-                let tag = local.appendingPathExtension("etag")
-                var request = URLRequest(url: url, timeoutInterval: 3)
-                if let etag = try? String(contentsOf: tag, encoding: .utf8) { request.setValue(etag, forHTTPHeaderField: "If-None-Match") }
-                session.dataTask(with: request) { data, response, _ in
-                    guard let http = response as? HTTPURLResponse, http.statusCode == 200, let data, let text = String(data: data, encoding: .utf8), acceptable(text) else { return }
-                    try? FileManager.default.createDirectory(at: local.deletingLastPathComponent(), withIntermediateDirectories: true)
-                    try? text.write(to: local, atomically: true, encoding: .utf8)
-                    if let etag = http.value(forHTTPHeaderField: "ETag") { try? etag.write(to: tag, atomically: true, encoding: .utf8) }
-                }.resume()
-            }
-        }
-    }
-
-    static func facts(for target: String) -> [Fact] {
-        let (url, _, _) = Skills.factFile(for: target)
-        guard url.path.hasPrefix(Skills.learnedDir.path) else { return [] }
-        let rel = String(url.path.dropFirst(Skills.learnedDir.path.count + 1))
-        return Skills.facts(in: folder.appendingPathComponent(rel))
-    }
-
-    /// Every learned fact worth offering: confirmed at least twice, and past every check.
-    static func offer(from root: URL = Skills.learnedDir) -> [String: [Fact]] {
-        var out: [String: [Fact]] = [:]
-        guard let walk = FileManager.default.enumerator(at: root, includingPropertiesForKeys: nil) else { return out }
-        for case let url as URL in walk where url.pathExtension == "md" && !url.path.contains("/flows/") {
-            let rel = String(url.resolvingSymlinksInPath().path.dropFirst(root.resolvingSymlinksInPath().path.count + 1))
-            let good = Skills.facts(in: url).filter { f in
-                f.count >= 2 && Playbooks.leaks(f.text).isEmpty && Fact.refusal(f.text) == nil && !f.text.contains("(job?)")
-            }
-            if !good.isEmpty { out[rel] = good }
-        }
-        return out
-    }
-
-    /// `skills share --library`: a pull request against the library's repo, through the user's GitHub CLI and a fork.
-    static func share() throws -> String {
-        guard let repo = Skills.settings["library_repo"].map(Toml.unquote), !repo.isEmpty else {
-            throw Fail(5, "no library to share with: set [skills] library_repo = \"owner/repo\" once one exists")
-        }
-        let offers = offer()
-        guard !offers.isEmpty else { return "nothing to offer: only facts confirmed at least twice here are shared" }
-        guard Repo.run("gh", ["auth", "status"]).code == 0 else { throw Fail(5, "the GitHub CLI is not signed in: gh auth login") }
-        let work = FileManager.default.temporaryDirectory.appendingPathComponent("apprentice-library-\(UUID().uuidString)")
-        defer { try? FileManager.default.removeItem(at: work) }
-        try FileManager.default.createDirectory(at: work, withIntermediateDirectories: true)
-        let fork = Repo.run("gh", ["repo", "fork", repo, "--clone", "--default-branch-only", "--", "--depth=1", "lib"], in: work)
-        guard fork.code == 0 else { throw Fail(5, "could not fork \(repo): \(fork.out)") }
-        let lib = work.appendingPathComponent("lib")
-        let branch = "facts-\(Store.day())-\(UUID().uuidString.prefix(6).lowercased())"
-        _ = Repo.run("git", ["checkout", "-q", "-b", branch], in: lib)
-        for (rel, facts) in offers {
-            let target = lib.appendingPathComponent(remotePath(rel))
-            var known = Skills.facts(in: target)
-            for f in facts where !known.contains(where: { $0.key == f.key }) { known.append(f) }
-            let match = URL(fileURLWithPath: rel).deletingPathExtension().lastPathComponent
-            try Skills.saveFacts(known, at: target, scope: rel.hasPrefix("web/") ? "site" : "app", match: match)
-        }
-        _ = Repo.run("git", ["add", "-A"], in: lib)
-        let done = Repo.run("git", ["commit", "-q", "-m", "Facts confirmed on one install"], in: lib)
-        guard done.code == 0 else { return "nothing new to offer" }
-        let push = Repo.run("git", ["push", "-q", "-u", "origin", branch], in: lib)
-        guard push.code == 0 else { throw Fail(5, "could not push: \(push.out)") }
-        let pr = Repo.run("gh", ["pr", "create", "--repo", repo, "--fill", "--head", branch], in: lib)
-        guard pr.code == 0 else { throw Fail(5, "could not open the pull request: \(pr.out)") }
-        return "offered \(offers.values.map(\.count).reduce(0, +)) facts: \(pr.out)"
-    }
 }

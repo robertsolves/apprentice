@@ -485,16 +485,16 @@ example_output = "forgot gym"
 
 [command."skills"]
 group = "What the user likes, and what agents know"
-usage = "skills [\"words\"] | <name> | list | --paths | forget <path> | share <path> [--library] | --check | --reindex"
+usage = "skills [\"words\"] | <name> | list | --paths | forget <path> | share <path> | share --library [--place path] [--yes] | library [fetch | init | merge | publish] | --check | --reindex"
 summary = "What agents know: built in, learned, yours and the project's. Words search them through an index; a name prints that skill."
 output = "Matching skills and their lines."
 where = "Mac, VM, pipeline steps"
-changes = "only forget and share"
+changes = "only forget, share and library"
 example = "apprentice skills \"new folder\""
 example_output = "macos/finder.md · Finder · built in
   - …"
 mcp = "Search the learned app, site and flow playbooks"
-flags = ["--paths: where each kind lives", "--check: look for anything personal", "--reindex: rebuild the word index from a walk", "share --library: offer confirmed facts to the shared library as a pull request"]
+flags = ["--paths: where each kind lives", "--check: look for anything personal", "--reindex: rebuild the word index from a walk", "share --library: show the confirmed facts that would go to the public library; --yes opens the pull request; --place path, one place only; --not-now, ask again in 30 days", "library: whether a library is set, and what is ready to share. fetch, its index now. init <folder>, a new library's repo. merge <folder> --from <offers> --by <login> and publish <folder> --out <folder> are what its CI runs"]
 exits = ["5: nothing to forget or share under that path"]
 aliases = ["playbooks", "notes"]
 
@@ -603,7 +603,7 @@ changes = "the project folder, as its steps do"
 example = "apprentice pipeline check fix-bug"
 example_output = "fix-bug checks: 5 steps, 2 agents"
 flags = ["--fresh: ignore the rolling summary for this run", "--from N: start a straight list at step N", "--keep-going: carry on past a failed step", "--copy, --file: on resume, follow the run's copy or the edited file"]
-exits = ["1: a step failed; pipeline resume <run> after fixing it", "4: the screen stayed in use", "5: the file does not check, or no such pipeline or run", "6: stopped", "9: parked, waiting for the user: pipeline answer <run> <step> \"answer\""]
+exits = ["1: a step failed; pipeline resume <run> after fixing it", "4: resume only: that run is still running", "5: the file does not check, or no such pipeline or run", "6: stopped", "9: parked, waiting for the user: pipeline answer <run> <step> \"answer\""]
 slash = ["pipeline-run:run", "pipeline-status:status", "pipeline-check:check", "pipeline-audit:audit"]
 
 [command."board"]

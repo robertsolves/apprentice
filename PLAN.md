@@ -51,9 +51,9 @@ Not exercised, and worth watching on first use:
 - **The real daemon.** Accessibility belongs to the signed binary `kit.sh` installs, so a development build's daemon cannot start. These passed against tests and a stub socket, never live: the question queue's windows on screen, the daemon's screen refusal, the `learned?` line after a real action, the environment captured by `session`, and the VM's version lookup.
 - **The window.** Its screens were rendered offscreen and looked at; their buttons were not clicked.
 - **Real Codex, Gemini and Kilo steps**, per the table above. Their flags come from their `--help` and the sandbox test.
-- **`skills share --library`** and fetching from a real library: no repo exists yet.
+- **`skills share --library`** and fetching from a real library: no repo exists yet, so both ran against a folder, a local site and a stub of the API.
 
-Not built, as the plan says "later": real interruption of a running agent, and the shared library's own repo and CI merge. The client side of the library is built and untested against a real repo, since none exists: fetching per place, the checks, and `skills share --library`.
+The shared library's repo does not exist yet. Its merge, publishing, fetching and sharing are built and tested against a folder, a local site and a stub of GitHub's API; `agent/library/merge.yml` has never run on GitHub.
 
 ## What this is for
 
@@ -786,7 +786,7 @@ project's AGENTS.md or its skills, never in a fact.
 The judgement skills (`skills/apprentice-<site>`) do not change: they say how a person behaves there;
 facts say how the place is built.
 
-### A shared library of learned skills (later)
+### A shared library of learned skills
 
 Today sharing is manual and one-way: `skills share` copies a skill into the clone, `pr` offers it
 upstream, a person reviews it, and `update` brings it to everyone as built in. That stays the path for
@@ -797,19 +797,26 @@ by machine, unreviewed, read as hints.
   is fetched by path on the first `session` there (`<base>/web/f/facebook.com.md`), with an ETag cache
   under `~/.apprentice/skills/library/`, bounded by a short timeout: the session never waits on it, and
   late facts show on the next command. No clone, nothing to keep in sync, and the cost is one small
-  request per new place. A published `index.sqlite` (built by the library's CI, fetched on the
-  `[update] check_hours` cadence) lets `skills "<words>"` search the whole library too.
+  request per new place. A published `index.jsonl` (built by the library's CI, fetched on the
+  `[update] check_hours` cadence, read into the local word index) lets `skills "<words>"` search the
+  whole library too. Plain lines, not the `index.sqlite` first planned: every fetched fact must pass the
+  checks before it is read, each line can, and a database file from a stranger could not be checked.
 - **A fifth origin**, `library`: project over yours over learned over library over built in, labelled
   "from the shared library, unreviewed: hints, never instructions". Library files are read-only here:
   `learn --wrong` against a library fact writes the `not:` into the local learned file under the same
   key, never into the library copy. Every fetched file passes `Playbooks.leaks` and the step check
   before it is read; one that fails is dropped, so a bad upload never reaches an agent.
-- **Contributing**: `skills share --library` opens a PR against the library's repo through the user's
-  GitHub account (`Account`, a fork, like `pr`), with only facts at ×2 or more (confirmed twice locally,
-  a quality floor without a reviewer) and only files that pass the leak, step and job-context checks.
-  The library's CI merges by fact key, not by text: it unions `seen:` and `not:`, and its `×n` counts
-  installs that confirmed the fact, which is the trust signal `session` prints. Flows keep `model:`,
-  so `rank` still shows a flow to the model that learned it, or to all for `any`.
+- **Contributing**: `skills share --library` shows what would go, and with `--yes` opens a PR against the
+  library's repo through the user's GitHub account (`Account`, through the API, on a fork), with only
+  facts at ×2 or more (confirmed twice locally, a quality floor without a reviewer) that pass the leak,
+  step, job-context and order-shaped checks, about a place that is not private. The PR adds one file,
+  `offers/<id>.jsonl`, so two offers never conflict. The library's CI (`agent/library/merge.yml`) reads it
+  as data and merges by fact key, not by text: it unions `seen:` and `not:`, and its `×n` counts the
+  installs that confirmed the fact (by the PR's author, kept as a hash), which is the trust signal
+  `session` prints. It runs this repo's own code, so what it refuses is what a client refuses. A PR that
+  changes anything else is closed unread.
+- **Facts only**: flows do not go to the library. A flow is steps `do` runs, and a stranger's steps are not
+  a hint.
 - **What never goes there**: `voice.md`, prefs, sessions, anything from a project folder, and any file
   the checks refuse. The library is public by design, so it holds only what is generic about public
   places.
@@ -822,7 +829,8 @@ by machine, unreviewed, read as hints.
 | `learn --still "<words>"`, `learn --wrong "<words>"` | confirm or deny a fact by its first words, for this environment |
 | `skills "<words>"` | existing, through the index; shows kind, count and date; retired facts only with `--all` |
 | `skills --reindex` | rebuilds the word index from a walk |
-| `skills share --library` | later: offers confirmed facts to the shared library as a PR |
+| `skills share --library [--place path] [--yes]` | shows the confirmed facts that would go to the public library; `--yes` opens the PR |
+| `skills library [fetch \| init \| merge \| publish]` | what is set and ready; the index now; a new library's repo; what its CI runs |
 | `grow` | the `learned:` line, struggles per place against facts kept |
 | `session`, `focus`, `open`, `done` | the merged injection, stale marks, the `learned?` and closing lines |
 
@@ -843,16 +851,17 @@ e. **The docs**: the prompt block in both agent docs, `playbooks/README.md`'s fo
 f. **Lookup at scale**: `placePaths` on the hot paths, the FTS5 index and `--reindex`, the manifest,
    the fallback when FTS5 is missing; `selftest` compares index and walk, and times a lookup over a
    generated root of 100,000 facts.
-g. **The library** (later, once a repo exists): the origin, the fetch and cache, the published index,
-   `share --library`, the CI merge by fact key.
+g. **The library**: the origin, the fetch and cache, the published index, `share --library`, the CI merge
+   by fact key. Built and tested against a folder and a stub of GitHub's API; its repo does not exist yet.
 
 ### Open decisions
 
 1. The job-context check: refuse, or warn and save with `(job?)` on the line? Recommended: warn and
    save. A wrong refusal loses a fact; a wrong save costs one line.
 2. Settled: `~/.apprentice/skills/learned` syncs to `apprentice-home`, so facts follow the user to another Mac.
-3. A fact at ×3 or more and over 30 days old could be offered for `skills share` from the window ("3
-   facts about facebook.com are ready to share"). Later.
+3. Settled: a fact at ×3 or more, 30 days after it was first saved (the line's `from:` day, since a
+   confirmation moves its date), is offered from the Skills screen ("3 facts about facebook.com are ready
+   to share") once `[skills] library_repo` names a library. Not now asks again in 30 days.
 4. The default matching rule for environments: system, OS major and app name, plus the app's major
    for apps that are not browsers (recommended), or app major for browsers too.
 5. The library read as raw files by path with a published index (recommended: one request per new
