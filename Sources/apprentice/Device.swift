@@ -66,6 +66,17 @@ enum Device {
         return now - owner.at < busySeconds
     }
 
+    /// Whether the session belongs to someone other than this caller. There is one session per daemon, and the screen can
+    /// pass to another agent once the holder is quiet, so a caller can come back to a session that is no longer its own.
+    /// A project or a model can change as one agent moves between folders, so only a step, tab or schedule is clearly
+    /// someone else. The steps of one run share a session: they take the screen in turn.
+    static func sessionTaken(owner: String?, caller: String) -> Bool {
+        guard let owner else { return false }
+        func run(_ who: String) -> String { who.hasPrefix("pipeline:") ? who.components(separatedBy: "/").dropLast().joined(separator: "/") : who }
+        guard run(owner) != run(caller) else { return false }
+        return [owner, caller].contains { who in ["pipeline:", "schedule:", "tab:"].contains { who.hasPrefix($0) } }
+    }
+
     /// Run before every screen command: refuses another agent while one holds the device, and records the
     /// caller as the holder otherwise. The user's own clicks in the window are never refused.
     static func check(_ req: Request, now: Double = Date().timeIntervalSince1970) throws {
@@ -80,6 +91,9 @@ enum Device {
             let quiet = Int((now - current.at) / 60)
             throw Fail(4, "blocked: \(place) is in use by \(current.label) (last action \(quiet) min ago). One screen, one cursor and one keyboard: one agent at a time. "
                 + "Wait and try again, ask the user, or work in a VM (`apprentice --vm <name> …`). The user can free it with `apprentice device free`.")
+        }
+        if !["session", "focus"].contains(req.cmd), let session = Session.stored, sessionTaken(owner: session.owner, caller: who) {
+            throw Fail(4, "your session is gone: \(session.ownerLabel ?? "another agent") bound \(session.app) after you, so nothing was done. Run `apprentice session` to bind your own")
         }
         let since = (current?.who == who && holds(current, now: now)) ? current!.since : now
         let next = Owner(who: who, label: label, since: since, at: now)

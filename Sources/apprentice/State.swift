@@ -195,6 +195,9 @@ struct Session: Codable {
     /// Where this session is, captured by apprentice: learned facts keep it, so a fact seen in Chrome is not taken
     /// for true in Safari.
     var env: SessionEnv?
+    /// Who bound it, as `Device` names them, so another agent's next command is told rather than acting on it.
+    var owner: String?
+    var ownerLabel: String?
 
     /// The session is apprentice's own window, which an agent may operate except for what is the user's (`OwnWindow`).
     var ownWindow: Bool { bundle == AppBundle.identifier && vm != true }
@@ -222,8 +225,12 @@ struct Session: Codable {
     }
 
     func save() {
-        Store.save(self, "session.json")
-        Session.cached = self
+        var s = self
+        // Bound by whoever is asking now; the window's own requests are the user's, and any agent may use what they bound.
+        let request = Approvals.request
+        if s.owner == nil, !request.cmd.isEmpty, request.user != true { (s.owner, s.ownerLabel) = Device.caller(request) }
+        Store.save(s, "session.json")
+        Session.cached = s
     }
 
     /// Records the page the window is on now, so privacy checks and logs follow navigation.

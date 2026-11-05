@@ -21,6 +21,8 @@ struct RunState: Codable {
         var restart: String? = nil
         /// How many times another step has stopped it with an urgent message.
         var interrupts: Int? = nil
+        /// The CLI refused it a tool once and it has had its one more go.
+        var refusalRetried: Bool? = nil
         var feeders: [String] = []
         /// The workspaces it was reached from; "root" is the project folder.
         var arrivals: [String] = []
@@ -203,6 +205,31 @@ enum Runs {
             guard !FileManager.default.fileExists(atPath: target.path) else { continue }
             try? FileManager.default.createDirectory(at: local, withIntermediateDirectories: true)
             try? FileManager.default.copyItem(at: home.appendingPathComponent(name), to: target)
+        }
+    }
+
+    /// A run parked on something only a person can settle.
+    struct Waiting: Equatable {
+        var project: URL
+        var name: String
+        var run: Int
+        var step: String
+        var text: String
+        var file: String?
+    }
+
+    /// Everything waiting for the user, newest first, across their projects. A question an agent directing the run will
+    /// answer is not one of them, and neither is a run that has ended. Only each project's latest runs are read.
+    static func waiting(in folders: [URL]) -> [Waiting] {
+        folders.flatMap { folder -> [Waiting] in
+            numbers(project: folder).suffix(10).reversed().flatMap { n -> [Waiting] in
+                let dir = root(project: folder).appendingPathComponent("\(n)")
+                guard let s = load(dir), ["running", "parked"].contains(s.status) else { return [] }
+                return s.steps.sorted { $0.key < $1.key }.compactMap { id, st in
+                    guard st.status == "parked", let q = st.question, !directed(dir) || RunQuestion.userOnly.contains(q.kind) else { return nil }
+                    return Waiting(project: folder, name: s.name, run: s.run, step: id, text: q.text, file: s.file)
+                }
+            }
         }
     }
 
@@ -891,7 +918,7 @@ final class PipelineEngine {
             if r.outcome == .ok, AgentRun.refusalPhrase(cli: cli, text: r.text.split(whereSeparator: \.isNewline).suffix(3).joined(separator: "\n")) != nil {
                 cleanSessions(&sessions, &result, id)
                 record(id, result)
-                parkPermission(id, named: named, level: level, need: nil, tail: r.text)
+                if !tryAgainAfterRefusal(id, cli: cli, text: r.text) { parkPermission(id, named: named, level: level, need: nil, tail: r.text) }
                 return
             }
             // Silent, but it changed files: that is its output.
@@ -908,7 +935,7 @@ final class PipelineEngine {
             } else if AgentRun.refusalPhrase(cli: cli, text: r.text) != nil {
                 cleanSessions(&sessions, &result, id)
                 record(id, result)
-                parkPermission(id, named: named, level: level, need: nil, tail: r.text)
+                if !tryAgainAfterRefusal(id, cli: cli, text: r.text) { parkPermission(id, named: named, level: level, need: nil, tail: r.text) }
                 return
             }
             if acted {
@@ -958,6 +985,27 @@ final class PipelineEngine {
         lock.unlock()
     }
 
+    /// The CLI refused a tool. An agent wandering outside its folder often did not need what it reached for, and a run
+    /// nobody is watching should not stop for that, so the same agent gets one more go at the same level, told what was
+    /// refused. A second refusal goes to the user. Not after it acted on the screen: going again could do something twice.
+    private func tryAgainAfterRefusal(_ id: String, cli: AgentCLIs.CLI?, text: String) -> Bool {
+        guard state.steps[id]?.refusalRetried != true, !FileManager.default.fileExists(atPath: node(id).appendingPathComponent("acted").path) else { return false }
+        let phrases = (cli?.refusals ?? []).map { $0.lowercased() }
+        let line = text.components(separatedBy: .newlines).last { l in phrases.contains { l.lowercased().contains($0) } } ?? ""
+        say("\n\(id) was refused something; it gets one more go without it\n")
+        set(id) { s in
+            s.status = "waiting"
+            s.restart = "refused"
+            s.answer = String(line.prefix(500))
+            s.refusalRetried = true
+            s.visits = max(s.visits - 1, 0)
+        }
+        lock.lock()
+        again.insert(id)
+        lock.unlock()
+        return true
+    }
+
     /// A command is waiting for the user or the board: the file holds its pid, so one that died cannot stop the clock.
     private static func holding(_ file: URL) -> Bool {
         guard let text = try? String(contentsOf: file, encoding: .utf8), let pid = Int32(text.trimmingCharacters(in: .whitespacesAndNewlines)) else { return false }
@@ -997,6 +1045,8 @@ final class PipelineEngine {
     private func parkQuiet(_ id: String, _ q: RunQuestion) {
         say("\n\(id) is waiting for you: \(q.text)\n")
         set(id) { $0.status = "parked"; $0.question = q; $0.reason = nil; $0.ended = Date().timeIntervalSince1970 }
+        // It can wait for hours, so it says so where it will be seen. What an agent directing the run settles is not the user's.
+        if !Runs.directed(dir) || RunQuestion.userOnly.contains(q.kind) { Notify.local(q.text, title: "\(p.name) is waiting for you") }
     }
 
     /// Parks and asks now. An answer in time goes back through the same path as a late one.
@@ -1007,7 +1057,12 @@ final class PipelineEngine {
         // The agent directing the run settles what it can, and hears of it from `pipeline status --wait`. Access is always the user's.
         if Runs.directed(dir), !RunQuestion.userOnly.contains(q.kind) { return }
         let args = [q.text] + (q.choices.isEmpty ? [] : ["--choices", q.choices.joined(separator: "|")])
-        guard let r = try? Wire.send(Request(cmd: "ask", args: args)), r.code == 0 else { return }
+        guard let r = try? Wire.send(Request(cmd: "ask", args: args)) else {
+            // No daemon to put the question up or push it, so the phone hears from here.
+            Notify.send(q.text)
+            return
+        }
+        guard r.code == 0 else { return }
         let reply = r.out.components(separatedBy: "\n").first { $0.hasPrefix("user chose: ") }.map { String($0.dropFirst("user chose: ".count)) }
             ?? r.out.replacingOccurrences(of: "user: ", with: "")
         writeAnswer(id, reply)
@@ -1306,6 +1361,8 @@ final class PipelineEngine {
             if why == "urgent" {
                 let printed = (try? String(contentsOf: node(id).appendingPathComponent("output.log"), encoding: .utf8)) ?? ""
                 restart = PipelineText.fill("urgent", ["messages": s?.answer ?? "", "progress": saved, "tail": printed.isEmpty ? "(nothing)" : tail(printed, 2000), "changed": changedFiles(workspace).joined(separator: "\n")]) + "\n\n"
+            } else if why == "refused" {
+                restart = PipelineText.fill("refused", ["line": s?.answer ?? "", "progress": saved]) + "\n\n"
             } else {
                 let reason = why == "answer" ? "The user has answered. Their answer: \(s?.answer ?? "")" : "It stopped partway, and the user chose to run it again. Check what is already done before you act."
                 restart = PipelineText.fill("restart", ["why": reason, "progress": saved]) + "\n\n"

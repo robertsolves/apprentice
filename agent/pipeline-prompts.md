@@ -68,6 +68,13 @@ End what you print with one line, `BLOCKED: what you need`, and exit: apprentice
 {why}
 {progress}
 
+## refused
+# This step is being restarted
+Your last try stopped because this was refused, and that will not change:
+{line}
+Do the work without it. Stay in this folder and use the commands your prompt names. Do not try to reach what was refused another way. If the work truly cannot be done without it, end what you print with `BLOCKED: what you need`, and the user will decide.
+{progress}
+
 ## urgent
 # You were stopped to hear this
 This step was stopped partway because of what follows, and this is a fresh start with nothing remembered. Work may already be done in this folder, so check before you repeat it.

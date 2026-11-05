@@ -848,6 +848,70 @@ extension SelfTest {
         check(!FileManager.default.fileExists(atPath: skilled.appendingPathComponent(".claude/skills/say-hi/SKILL.md").path), "skill: and goes when it goes")
     }
 
+    /// A step the CLI refuses a tool gets one more go; a run nobody is watching should not stop for what it did not need.
+    static func refusalRetry() {
+        guard let (base, fake) = runProject() else { check(false, "refusal: could not set up"); return }
+        defer {
+            try? FileManager.default.removeItem(at: base)
+            try? FileManager.default.removeItem(at: Settings.dir.appendingPathComponent("agents.toml"))
+            try? FileManager.default.removeItem(at: Settings.dir.appendingPathComponent("named-agents.toml"))
+        }
+        func state(_ folder: URL, _ n: Int) -> RunState? { Runs.load(Runs.root(project: folder).appendingPathComponent("\(n)")) }
+        func tries(_ folder: URL, _ step: String) -> Int {
+            (try? Data(contentsOf: Runs.root(project: folder).appendingPathComponent("1/nodes/\(step)/result.json"))).flatMap { try? JSONDecoder().decode(StepResult.self, from: $0) }?.tries.count ?? -1
+        }
+        try? "[named.A]\nagent = \"one\"\npermissions = \"edit\"\n[named.B]\nagent = \"two\"\npermissions = \"edit\"\n[defaults]\npriority = [\"A\", \"B\"]\n".write(to: NamedAgents.globalFile, atomically: true, encoding: .utf8)
+        // Refused once: it goes again, told what was refused, and finishes without the user.
+        let once = newProject("once", under: base)
+        write("---\ngoal: g\n---\n## w\nuse: A\nRUN: if grep -q 'that will not ''change' \"$FAKE_DIR/prompt-one-w\"; then grep -q 'refused by the ''sandbox: /etc' \"$FAKE_DIR/prompt-one-w\" && echo told-what; echo did-it-without; else echo refused by the sandbox: /etc; fi\n", "w", in: once)
+        var r = cli(["pipeline", "run", "w"], in: once, fake: fake)
+        let output = (try? String(contentsOf: Runs.root(project: once).appendingPathComponent("1/nodes/w/output.log"), encoding: .utf8)) ?? ""
+        check(r.code == 0 && state(once, 1)?.status == "done" && output.contains("did-it-without") && output.contains("told-what"), "refusal: one more go, told what was refused, and it finishes (exit \(r.code))")
+        check(tries(once, "w") == 2 && !FileManager.default.fileExists(atPath: fake.appendingPathComponent("prompt-two-w").path), "refusal: the same agent goes again, not a wider one")
+        // Refused again: now it is the user's.
+        let twice = newProject("twice", under: base)
+        write("---\ngoal: g\n---\n## w\nuse: A\nRUN: echo refused by the sandbox\n", "w", in: twice)
+        r = cli(["pipeline", "run", "w"], in: twice, fake: fake)
+        check(r.code == 9 && state(twice, 1)?.steps["w"]?.question?.kind == "permission" && tries(twice, "w") == 2, "refusal: a second one goes to the user (exit \(r.code), \(tries(twice, "w")) tries)")
+        // The run says so to whoever is looking.
+        let waiting = Runs.waiting(in: [twice, once])
+        check(waiting.count == 1 && waiting.first?.step == "w" && waiting.first?.run == 1 && waiting.first?.project.path == twice.path, "waiting: a parked run is listed, a finished one is not")
+        FileManager.default.createFile(atPath: Runs.directedFile(Runs.root(project: twice).appendingPathComponent("1")).path, contents: nil)
+        check(Runs.waiting(in: [twice]).count == 1, "waiting: access stays the user's in a directed run")
+        // After acting on the screen, going again could do something twice.
+        let acted = newProject("acted", under: base)
+        write("---\ngoal: g\n---\n## w\nuse: A\nRUN: touch \"$APPRENTICE_RUN_DIR/nodes/w/acted\"; echo refused by the sandbox\n", "w", in: acted)
+        r = cli(["pipeline", "run", "w"], in: acted, fake: fake)
+        check(r.code == 9 && state(acted, 1)?.steps["w"]?.question?.kind == "permission" && tries(acted, "w") == 1, "refusal: not again once it has acted on the screen (exit \(r.code))")
+        // A question a directed run's agent will answer is not waiting for the user.
+        let asked = newProject("asked", under: base)
+        write("---\ngoal: g\n---\n## q\nuse: A\nRUN: apprentice ask 'Which?' --choices 'a|b'\n", "q", in: asked)
+        r = cli(["pipeline", "run", "q", "--directed"], in: asked, fake: fake)
+        check(r.code == 9 && Runs.waiting(in: [asked]).isEmpty, "waiting: a directed run's own question is its agent's (exit \(r.code))")
+
+        // A session someone else has bound.
+        check(!Device.sessionTaken(owner: nil, caller: "tab:a") && !Device.sessionTaken(owner: "tab:a", caller: "tab:a"), "session: nobody's, or the caller's own")
+        check(Device.sessionTaken(owner: "pipeline:p/x#1/friends", caller: "model:opus") && Device.sessionTaken(owner: "tab:a", caller: "tab:b") && Device.sessionTaken(owner: "model:opus", caller: "schedule:s"), "session: a step, tab or schedule is clearly someone else")
+        check(!Device.sessionTaken(owner: "pipeline:p/x#1/friends", caller: "pipeline:p/x#1/search") && Device.sessionTaken(owner: "pipeline:p/x#1/friends", caller: "pipeline:p/x#2/friends"), "session: the steps of one run share it, another run does not")
+        check(!Device.sessionTaken(owner: "model:opus", caller: "project:/a"), "session: one agent moving between folders is not someone else")
+
+        // Session copies go on a branch of their own and leave the work alone.
+        let repo = newProject("copies", under: base)
+        let headBefore = Repo.run("git", ["rev-parse", "HEAD"], in: repo).out
+        try? "mine\n".write(to: repo.appendingPathComponent("unsaved.txt"), atomically: true, encoding: .utf8)
+        _ = Repo.run("git", ["add", "unsaved.txt"], in: repo)
+        let statusBefore = Repo.run("git", ["status", "--porcelain"], in: repo).out
+        for (name, text) in [("sessions/a.jsonl", "one\n"), ("sessions/b.jsonl", "two\n"), ("sessions/a.jsonl", "one again\n")] {
+            _ = Repo.run("git", ["config", "user.name", "t"], in: repo); _ = Repo.run("git", ["config", "user.email", "t@example.com"], in: repo)
+            check(Repo.commitOnBranch("copies", path: name, text: text, message: "m", in: repo), "copies: \(name) goes on the branch")
+        }
+        check(Repo.run("git", ["rev-parse", "HEAD"], in: repo).out == headBefore && Repo.run("git", ["status", "--porcelain"], in: repo).out == statusBefore, "copies: the branch in use, the index and the folder do not change")
+        check(Repo.run("git", ["show", "copies:sessions/a.jsonl"], in: repo).out == "one again" && Repo.run("git", ["show", "copies:sessions/b.jsonl"], in: repo).out == "two", "copies: each file is there, latest text, none lost")
+        let count = Repo.run("git", ["rev-list", "--count", "copies"], in: repo).out
+        _ = Repo.commitOnBranch("copies", path: "sessions/a.jsonl", text: "one again\n", message: "m", in: repo)
+        check(Repo.run("git", ["rev-list", "--count", "copies"], in: repo).out == count && count == "3", "copies: the same text again makes no commit")
+    }
+
     /// Who last touched the keyboard or mouse: apprentice's own input, and the tail macOS adds to it, is not the person.
     static func humanActivity() {
         let never = 1e9

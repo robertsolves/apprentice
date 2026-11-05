@@ -665,6 +665,8 @@ final class AppModel: ObservableObject {
     /// reloads the editor when another one is chosen.
     @Published var pipelineDraft: Pipelines.Pipeline?
     @Published var pipelineEdits = 0
+    /// Pipeline runs parked on something only the user can settle.
+    @Published var waitingRuns: [Runs.Waiting] = []
     /// What each project's Run bar holds, by its id.
     @Published var runDrafts: [String: RunDraft] = [:]
     /// Buttons one tab has beside the project's own commands, by its id: label, and the line a click types.
@@ -709,6 +711,8 @@ final class AppModel: ObservableObject {
         let listed = Projects.ordered(Projects.all())
         if listed.map(\.id) != projects.map(\.id) || listed.map(\.name) != projects.map(\.name) || listed.map(\.vm) != projects.map(\.vm) { projects = listed }
         pipelines = Pipelines.all()
+        let waiting = Runs.waiting(in: projects.map(\.folder))
+        if waiting != waitingRuns { waitingRuns = waiting }
         // The window's process has no state of its own: the daemons say whether they are working (`Overlay.liveRows`,
         // which only daemons showing the on-screen box write, and `Running`, which every daemon writes).
         busy = pending.count > 0 || Overlay.liveRows().contains { $0.head == "Working" } || Running.anyDaemon
@@ -722,13 +726,13 @@ final class AppModel: ObservableObject {
     }
 
     var status: String {
-        if !pending.isEmpty { return "needs you" }
+        if !pending.isEmpty || !waitingRuns.isEmpty { return "needs you" }
         if !daemonUp { return "stopped" }
         return busy ? "working" : "idle"
     }
 
     var statusIcon: String {
-        if !pending.isEmpty { return "exclamationmark.circle.fill" }
+        if !pending.isEmpty || !waitingRuns.isEmpty { return "exclamationmark.circle.fill" }
         if !daemonUp { return "stop.circle" }
         return busy ? "bolt.circle.fill" : "checkmark.circle.fill"
     }
@@ -777,6 +781,7 @@ final class AppModel: ObservableObject {
     func state(of p: Projects.Info) -> ProjectState {
         let own = tabsIn(p)
         if pending.contains(where: { pending in own.contains { $0.id == pending.tab } }) { return .needsYou }
+        if waitingRuns.contains(where: { $0.project.standardizedFileURL.path == p.id }) { return .needsYou }
         if own.contains(where: \.busy) { return .working }
         if let vm = p.vm, machines.contains(where: { $0.name == vm && $0.state == "running" }) { return .vmRunning }
         return .idle
@@ -1337,7 +1342,6 @@ struct TerminalWorkspace: View {
     @State private var skills: [String] = []
     /// The agent open in the tab on screen, looked at every two seconds.
     @State private var agent: AgentCLIs.CLI?
-    @State private var clis: [AgentCLIs.CLI] = []
 
     private var pendingForSelected: Approvals.Pending? {
         model.pending.first { $0.tab == model.selectedTab }
@@ -1402,8 +1406,7 @@ struct TerminalWorkspace: View {
     private var font: NSFont { AppLook.terminalFont }
 
     private func lookForAgent() {
-        if clis.isEmpty { clis = AgentCLIs.agents() }
-        let now = shown?.agentInFront(among: clis)
+        let now = shown?.agentInFront(among: AgentCLIs.agents())
         if now?.id != agent?.id { agent = now }
     }
 
@@ -2471,7 +2474,6 @@ struct GrantsPanel: View {
     @ObservedObject var model: AppModel
     @State private var accessibility: Bool?
     @State private var screen: Bool?
-    private let tick = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
     /// A switch left on for an older copy of apprentice does not count for this one.
     static let staleHint = "Already on in System Settings? That switch is for an older copy: select apprentice there, remove it with −, then click Open System Settings and switch the new one on."
 
@@ -2483,7 +2485,12 @@ struct GrantsPanel: View {
                 on: screen, ask: "screen")
         }
         .onAppear(perform: check)
-        .onReceive(tick) { _ in if accessibility != true || screen != true { check() } }
+        .task {
+            while !Task.isCancelled {
+                if accessibility != true || screen != true { check() }
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+        }
     }
 
     @ViewBuilder private func row(_ title: String, _ why: String, on: Bool?, ask: String) -> some View {
@@ -2534,7 +2541,6 @@ struct WelcomeView: View {
     @State private var accessibility = false
     @State private var screen = false
     @State private var granted: String?
-    private let tick = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.s5) {
@@ -2567,7 +2573,12 @@ struct WelcomeView: View {
         .padding(Theme.s5)
         .frame(width: 560)
         .onAppear(perform: check)
-        .onReceive(tick) { _ in check() }
+        .task {
+            while !Task.isCancelled {
+                check()
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+        }
     }
 
     private func step<Content: View>(_ n: Int, _ title: String, done: Bool, @ViewBuilder content: () -> Content) -> some View {

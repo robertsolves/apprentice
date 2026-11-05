@@ -109,6 +109,36 @@ enum Repo {
     @discardableResult
     static func git(_ args: String...) -> (code: Int32, out: String) { run("git", args) }
 
+    /// Puts one file on a branch without touching the branch in use, the index or the working tree. Quiet when the branch
+    /// already holds that text. False when git would not do it. Two daemons can race: the ref only moves from what was read.
+    @discardableResult
+    static func commitOnBranch(_ branch: String, path: String, text: String, message: String, in dir: URL? = nil) -> Bool {
+        let id = UUID().uuidString
+        let temp = FileManager.default.temporaryDirectory
+        let index = temp.appendingPathComponent("apprentice-index-\(id)"), body = temp.appendingPathComponent("apprentice-file-\(id)")
+        defer { try? FileManager.default.removeItem(at: index); try? FileManager.default.removeItem(at: body) }
+        guard (try? text.write(to: body, atomically: true, encoding: .utf8)) != nil else { return false }
+        let ref = "refs/heads/\(branch)", env = ["GIT_INDEX_FILE": index.path]
+        for _ in 0..<3 {
+            try? FileManager.default.removeItem(at: index)
+            let head = run("git", ["rev-parse", "--verify", "-q", ref], in: dir)
+            let parent = head.code == 0 ? head.out : nil
+            if let parent {
+                if run("git", ["show", "\(parent):\(path)"], in: dir).out == text.trimmingCharacters(in: .whitespacesAndNewlines) { return true }
+                guard run("git", ["read-tree", parent], in: dir, env: env).code == 0 else { return false }
+            }
+            let blob = run("git", ["hash-object", "-w", "--no-filters", body.path], in: dir)
+            guard blob.code == 0, run("git", ["update-index", "--add", "--cacheinfo", "100644,\(blob.out),\(path)"], in: dir, env: env).code == 0 else { return false }
+            let tree = run("git", ["write-tree"], in: dir, env: env)
+            guard tree.code == 0 else { return false }
+            let commit = run("git", ["commit-tree", tree.out, "-m", message] + (parent.map { ["-p", $0] } ?? []), in: dir)
+            guard commit.code == 0 else { return false }
+            // All zeros: only if the branch still does not exist.
+            if run("git", ["update-ref", ref, commit.out, parent ?? String(repeating: "0", count: 40)], in: dir).code == 0 { return true }
+        }
+        return false
+    }
+
     /// Commits `paths` (everything when empty) as one small commit. Quiet when there is nothing
     /// to commit or the playbooks are not in a git clone; returns the short hash otherwise. Throws, and
     /// commits nothing, when the playbook lines it would add look personal (`Playbooks.leaks`).

@@ -134,7 +134,7 @@ struct RunBar: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    /// The project's latest run, one line, with a way to its page: waiting questions and each step's work are there.
+    /// The project's run that is waiting for the user, else its latest, one line, with a way to its page.
     private func runLine(_ run: (dir: URL, state: RunState)) -> some View {
         let s = run.state
         let parked = s.steps.filter { $0.value.status == "parked" }
@@ -145,14 +145,19 @@ struct RunBar: View {
             StatusPill(text: label, tint: s.status == "failed" || dead ? Theme.danger : parked.isEmpty ? Theme.accent : Theme.warn)
             Text("Run \(s.run) · \(s.name)" + (Runs.directed(run.dir) ? " · your agent is directing it" : ""))
                 .font(Theme.caption).foregroundStyle(.secondary).lineLimit(1)
+            if let q = parked.first?.value.question, !Runs.directed(run.dir) || RunQuestion.userOnly.contains(q.kind) {
+                Text(q.text.components(separatedBy: .newlines).first ?? "").font(Theme.caption).foregroundStyle(.primary).lineLimit(1).help(q.text)
+            }
             Spacer(minLength: Theme.s2)
-            Button("See it") { if let p = s.file.flatMap({ try? Pipelines.find($0) }) { model.editPipeline(p) } }
+            Button(parked.isEmpty ? "See it" : "Answer") { if let p = s.file.flatMap({ try? Pipelines.find($0) }) { model.editPipeline(p) } }
                 .buttonStyle(.borderless)
         }
     }
 
     private func reload() {
-        latest = Runs.numbers(project: project.folder).last.flatMap { n in
+        // What is waiting for the user comes before whatever ran last.
+        let waiting = model.waitingRuns.first { $0.project.standardizedFileURL.path == project.id }?.run
+        latest = (waiting ?? Runs.numbers(project: project.folder).last).flatMap { n in
             let dir = Runs.root(project: project.folder).appendingPathComponent("\(n)")
             return Runs.load(dir).map { (dir, $0) }
         }
@@ -343,9 +348,12 @@ enum UIDrive {
             let xy = rest.split(separator: " ").compactMap { Double($0) }
             guard xy.count == 2 else { return "click x y" }
             let p = NSPoint(x: xy[0], y: w.frame.height - xy[1])
-            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-                if let e = NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: w.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1) { NSApp.sendEvent(e) }
+            func mouse(_ type: NSEvent.EventType) -> NSEvent? {
+                NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: w.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
             }
+            // The release is queued first: a button's press waits for it, and sending it afterwards would never be reached.
+            if let up = mouse(.leftMouseUp) { NSApp.postEvent(up, atStart: false) }
+            if let down = mouse(.leftMouseDown) { NSApp.sendEvent(down) }
             return "clicked \(xy), hit \(w.contentView?.hitTest(p).map { String(describing: type(of: $0)) } ?? "nil"), responder \(w.firstResponder.map { String(describing: type(of: $0)) } ?? "nil")"
         case "text":
             if let view = w.firstResponder as? NSTextView { view.insertText(rest, replacementRange: view.selectedRange()); return "typed into \(type(of: view))" }

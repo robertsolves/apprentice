@@ -44,8 +44,20 @@ enum StatusItem {
         render()
     }
 
+    private static var parkedAt = Date.distantPast
+    private static var parked = false
+
+    /// A pipeline run waiting for the user, looked at every few seconds: this runs every second.
+    private static var runWaiting: Bool {
+        if Date().timeIntervalSince(parkedAt) > 5 {
+            parkedAt = Date()
+            parked = !Runs.waiting(in: Projects.all().map(\.folder)).isEmpty
+        }
+        return parked
+    }
+
     static var state: State {
-        if questions > 0 { return .waiting }
+        if questions > 0 || runWaiting { return .waiting }
         if Approvals.pending != nil { return .approval }
         return working ? .working : .idle
     }

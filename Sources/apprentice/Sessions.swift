@@ -1,7 +1,7 @@
 import Foundation
 
 /// What a session did, read back from `runs/<date>-<session>/steps.jsonl`: `sessions` lists recent ones,
-/// `log --session` tells one in a screen. `archive` keeps a scrubbed copy in the clone's `sessions/`, so
+/// `log --session` tells one in a screen. `archive` keeps a scrubbed copy on the clone's own `apprentice-sessions` branch, so
 /// what was learned survives the 30-day pruning and can travel in a PR (`[storage] sessions`).
 enum Sessions {
     static var runs: URL { Store.dir.appendingPathComponent("runs") }
@@ -120,7 +120,9 @@ enum Sessions {
         return ["scrubbed", "full", "off"].contains(raw) ? raw : "scrubbed"
     }
 
-    static var dir: URL { Repo.root.appendingPathComponent("sessions") }
+    /// Session copies live on a local branch of their own, so they never ride along with the work on the branch in use,
+    /// or leave the Mac in a push of it.
+    static let branch = "apprentice-sessions"
 
     /// Keys never written to the clone, in any mode.
     static let secret = ["api_key", "apikey", "token", "password", "secret", "path"]
@@ -163,14 +165,10 @@ enum Sessions {
                   let data = try? JSONSerialization.data(withJSONObject: r, options: [.sortedKeys]) else { continue }
             text += String(decoding: data, as: UTF8.self) + "\n"
         }
-        let file = dir.appendingPathComponent(folder.lastPathComponent + ".jsonl")
-        if (try? String(contentsOf: file, encoding: .utf8)) == text { return nil }
-        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        guard (try? text.write(to: file, atomically: true, encoding: .utf8)) != nil else { return nil }
+        let path = "sessions/\(folder.lastPathComponent).jsonl"
         let s = summarize(folder.lastPathComponent, rows)
         let on = s.hosts.isEmpty ? s.app : s.hosts.prefix(3).joined(separator: ", ")
-        try? Repo.commit("Session \(s.name): \(s.steps) steps\(on.isEmpty ? "" : " on \(on)")", paths: [file.path])
-        return file.path
+        return Repo.commitOnBranch(branch, path: path, text: text, message: "Session \(s.name): \(s.steps) steps\(on.isEmpty ? "" : " on \(on)")") ? "\(branch):\(path)" : nil
     }
 
     /// The session that just ended, when a new one starts.

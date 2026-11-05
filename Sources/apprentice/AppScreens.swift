@@ -460,7 +460,10 @@ struct PipelinesView: View {
         }
         .background(Theme.canvas)
         .onAppear { tasks = Pipelines.tasks(project.folder) }
-        .onChange(of: model.pipelineEdits) { _, _ in tasks = Pipelines.tasks(project.folder) }
+        .onChange(of: model.revision) { _, _ in
+            let now = Pipelines.tasks(project.folder)
+            if now.map(\.id) != tasks.map(\.id) { tasks = now }
+        }
     }
 }
 
@@ -519,6 +522,9 @@ struct PipelineEditor: View {
 
     private var isNew: Bool { original.url == nil }
 
+    /// A run of this pipeline is waiting for the user, so its page opens on the question and not below the steps.
+    private var waiting: Bool { model.waitingRuns.contains { $0.file == original.url?.path } }
+
     /// A one-off task from the Work tab, not yet one of the project's pipelines.
     private var isTask: Bool { original.url?.path.contains("/.apprentice/cache/tasks/") == true }
 
@@ -542,7 +548,9 @@ struct PipelineEditor: View {
                 }
                 IconButton("Save", "checkmark", prominent: true) { _ = save() }
                     .keyboardShortcut("s", modifiers: .command)
-            })
+            }
+            // The buttons keep their words; the title is what wraps.
+            .fixedSize(horizontal: true, vertical: false))
         } content: {
             Panel(title: "Pipeline") {
                 LabeledField("Name") { TextField("Morning round", text: $name) }
@@ -571,6 +579,7 @@ struct PipelineEditor: View {
                     ForEach(check.warnings, id: \.self) { Text($0).font(Theme.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
                 }
             }
+            if !isNew, waiting { PipelineRunsPanel(model: model, pipeline: original) }
             ForEach(Array(steps.enumerated()), id: \.element.id) { index, step in
                 stepCard(index, step)
             }
@@ -580,7 +589,7 @@ struct PipelineEditor: View {
             }
             if !problem.isEmpty { Text(problem).font(Theme.caption).foregroundStyle(Theme.danger) }
             if !saved.isEmpty { Text(saved).font(Theme.monoSmall).foregroundStyle(.secondary) }
-            if !isNew { PipelineRunsPanel(model: model, pipeline: original) }
+            if !isNew, !waiting { PipelineRunsPanel(model: model, pipeline: original) }
         }
         .onAppear {
             load()

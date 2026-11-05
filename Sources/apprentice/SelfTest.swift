@@ -72,6 +72,7 @@ enum SelfTest {
         pipelineDirecting()
         ownWindow()
         humanActivity()
+        refusalRetry()
         try? FileManager.default.removeItem(at: Store.dir)
         if failures.isEmpty {
             print("selftest: \(count) checks passed")
