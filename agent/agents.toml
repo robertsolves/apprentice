@@ -133,7 +133,8 @@ commands_format = "md"
 [agent.kilo]
 label = "Kilo"
 open = "kilo"
-run = ["kilo", "run", "--format", "json", "{prompt}"]
+# At the edit level Kilo refuses every shell command it does not know, and a step must be able to run apprentice, which has its own gates.
+run = ["env", 'KILO_PERMISSION={"bash":{"apprentice *":"allow"}}', "kilo", "run", "--format", "json", "{prompt}"]
 install = "https://kilo.ai"
 install_command = "npm install -g @kilocode/cli"
 model = ["-m", "{model}"]

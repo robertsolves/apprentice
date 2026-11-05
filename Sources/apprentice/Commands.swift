@@ -835,6 +835,7 @@ enum Commands {
         // A person's hand comes to rest over the target before pressing.
         let rest = Mouse.settle(at: point)
         try Borrow.checkpoint()
+        try Covered.check(rest)
         Mouse.click(at: rest, right: right, double: double)
     }
 
@@ -956,6 +957,7 @@ enum Commands {
             Mouse.move(to: point)
             try Borrow.checkpoint()
             Pace.sleep(Rand.uniform(0.04...0.12))
+            try Covered.check(point)
             Mouse.click(at: point, right: right, double: double)
         }
         return try finish("click", session, target, old, extra: ["→ at \(raw)"], log: ["at": raw])

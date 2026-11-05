@@ -156,6 +156,9 @@ challenge_paths = [
 own_window_user_only = [
     "allow", "deny", "run it", "install", "uninstall", "use the edited file", "sign in with github", "sign out",
 ]
+# The processes macOS shows its own dialogs from: a password, a permission, a warning about an app. Only the user answers
+# them, so nothing is clicked while one covers the target, and none is ever the app to give the screen back to.
+system_dialogs = ["SecurityAgent", "UserNotificationCenter", "CoreServicesUIAgent", "universalAccessAuthWarn", "coreautha"]
 user_only = [
     "pay", "pay now", "buy", "buy now", "purchase", "checkout", "check out", "place order", "order now", "donate",
     "transfer", "upgrade", "captcha", "not a robot", "verify you are human", "delete account", "close account",

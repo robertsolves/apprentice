@@ -368,11 +368,9 @@ final class TermScreen {
             if cursorX > 0 { grid[cursorY].cells[cursorX - 1].text += text }
             return
         }
-        if wrapPending, cursorX + width > cols { cursorX = 0; lineFeed() }
+        // The next character after the last column goes on a new line; so does a wide one that no longer fits.
+        if wrapPending || cursorX + width > cols { cursorX = 0; lineFeed() }
         wrapPending = false
-        if cursorX + width > cols {
-            cursorX = max(0, cols - width)
-        }
         var cell = attr
         cell.text = text
         cell.wide = width == 2
@@ -971,7 +969,12 @@ struct TerminalPane: NSViewRepresentable {
             lastRevision = term.revision
             let text = Renderer.attributed(term.screen, font: font)
             view.scrollingItself = true
+            // Replacing the text turns a plain click's caret into a highlight over whatever lands there.
+            let chosen = view.selectedRange()
             view.textStorage?.setAttributedString(text)
+            let length = text.length
+            let start = min(chosen.location, length)
+            view.setSelectedRange(chosen.length > 0 ? NSRange(location: start, length: min(chosen.length, length - start)) : NSRange(location: length, length: 0))
             if view.follow { view.toBottom() }
             view.scrollingItself = false
         }

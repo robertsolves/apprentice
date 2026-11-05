@@ -806,6 +806,50 @@ enum Mouse {
     }
 }
 
+/// What would really take a click at a point. The screen is read through the session's window, so a window on top of it
+/// is otherwise invisible: the click lands there, reports success, and may press a macOS dialog's button.
+enum Covered {
+    struct Row: Equatable {
+        var owner: String
+        var pid: pid_t
+        var frame: CGRect
+    }
+
+    /// The name of what covers `point`, for an app whose windows are `app`'s. `hit` is the process macOS says is under the
+    /// point. It counts only with a window there: a page's content process answers for its browser and owns no window.
+    static func over(_ point: CGPoint, app: pid_t, own: pid_t, hit: pid_t?, rows: [Row], dialogs: [String]) -> String? {
+        let here = rows.filter { $0.frame.contains(point) }
+        if let dialog = here.first(where: { dialogs.contains($0.owner) }) { return dialog.owner }
+        guard let hit, hit != app, hit != own else { return nil }
+        return here.first { $0.pid == hit }?.owner
+    }
+
+    static func rows() -> [Row] {
+        let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        return list.compactMap { w in
+            guard let pid = w[kCGWindowOwnerPID as String] as? Int32, let bounds = w[kCGWindowBounds as String] as? NSDictionary,
+                  let frame = CGRect(dictionaryRepresentation: bounds) else { return nil }
+            return Row(owner: w[kCGWindowOwnerName as String] as? String ?? "another app", pid: pid, frame: frame)
+        }
+    }
+
+    /// Nothing is done when something else would take the click.
+    static func check(_ point: CGPoint) throws {
+        guard let window = Borrow.target?.window else { return }
+        var app: pid_t = 0
+        guard AXUIElementGetPid(window, &app) == .success else { return }
+        var element: AXUIElement?
+        var hit: pid_t = 0
+        let found = AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(point.x), Float(point.y), &element) == .success
+        if found, let element { AXUIElementGetPid(element, &hit) }
+        if let name = over(point, app: app, own: getpid(), hit: hit > 0 ? hit : nil, rows: rows(), dialogs: SiteLists.current.systemDialogs) {
+            let isDialog = SiteLists.current.systemDialogs.contains(name)
+            throw Fail(4, "blocked: \(isDialog ? "a macOS dialog" : name) is on top of what you meant to click, so the click would land on it. Nothing was done. "
+                + (isDialog ? "Only the user can answer it: tell them it is waiting (`apprentice ask`)." : "Try again once it has gone, or ask the user."))
+        }
+    }
+}
+
 enum Borrow {
     static var active = false
     static var interrupted = false

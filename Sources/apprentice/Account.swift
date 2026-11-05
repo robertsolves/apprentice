@@ -342,33 +342,64 @@ enum Account {
         return board.setString(text, forType: .string)
     }
 
-    /// The tokens, as generic passwords in the login Keychain that stay on this device.
+    /// The tokens, as generic passwords in the login Keychain, through Apple's own `security` tool. An item this binary makes
+    /// itself is tied to this exact build by macOS, so each rebuild or update asks for the login password again, and
+    /// Always Allow does not outlast it. The tool's signature never changes, so nothing asks. As with the GitHub CLI,
+    /// which keeps its token the same way, any program of this user could ask the tool for them.
     enum Keychain {
-        private static func query(_ account: String) -> [String: Any] {
+        private static let tool = "/usr/bin/security"
+        private static let service = keychainService + ".2"
+
+        private static func run(_ args: [String], input: String? = nil) -> (code: Int32, out: String) {
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: tool)
+            p.arguments = args
+            let out = Pipe(), inp = Pipe()
+            p.standardOutput = out
+            p.standardError = FileHandle.nullDevice
+            p.standardInput = inp
+            guard (try? p.run()) != nil else { return (127, "") }
+            if let input { inp.fileHandleForWriting.write(Data(input.utf8)) }
+            try? inp.fileHandleForWriting.close()
+            let data = out.fileHandleForReading.readDataToEndOfFile()
+            p.waitUntilExit()
+            return (p.terminationStatus, String(data: data, encoding: .utf8) ?? "")
+        }
+
+        static func get(_ account: String) -> String? {
+            let r = run(["find-generic-password", "-s", service, "-a", account, "-w"])
+            if r.code == 0 { return r.out.trimmingCharacters(in: .whitespacesAndNewlines) }
+            // Made by an older build: moved over once, which is the last time macOS asks.
+            guard let old = legacy(account), set(account, old) else { return nil }
+            SecItemDelete(legacyQuery(account) as CFDictionary)
+            return old
+        }
+
+        static func set(_ account: String, _ value: String) -> Bool {
+            func quoted(_ s: String) -> String { "\"" + s.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\"" }
+            // Over its standard input, so a token is never on a command line that `ps` can show.
+            let line = "add-generic-password -U -s \(quoted(service)) -a \(quoted(account)) -l \(quoted("apprentice GitHub sign-in")) -T \(quoted(tool)) -w \(quoted(value))\n"
+            _ = run(["-i"], input: line)
+            return run(["find-generic-password", "-s", service, "-a", account, "-w"]).out.trimmingCharacters(in: .whitespacesAndNewlines) == value
+        }
+
+        static func delete(_ account: String) {
+            _ = run(["delete-generic-password", "-s", service, "-a", account])
+            SecItemDelete(legacyQuery(account) as CFDictionary)
+        }
+
+        private static func legacyQuery(_ account: String) -> [String: Any] {
             [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: keychainService,
              kSecAttrAccount as String: account]
         }
 
-        static func get(_ account: String) -> String? {
-            var q = query(account)
+        private static func legacy(_ account: String) -> String? {
+            var q = legacyQuery(account)
             q[kSecReturnData as String] = true
             q[kSecMatchLimit as String] = kSecMatchLimitOne
             var out: CFTypeRef?
             guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let data = out as? Data else { return nil }
             return String(data: data, encoding: .utf8)
-        }
-
-        static func set(_ account: String, _ value: String) -> Bool {
-            delete(account)
-            var item = query(account)
-            item[kSecValueData as String] = Data(value.utf8)
-            item[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-            item[kSecAttrLabel as String] = "apprentice GitHub sign-in"
-            return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
-        }
-
-        static func delete(_ account: String) {
-            SecItemDelete(query(account) as CFDictionary)
         }
     }
 }

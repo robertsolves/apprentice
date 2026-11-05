@@ -15,6 +15,7 @@ enum SiteLists {
         var challengePaths: [String] = []
         var userOnly: [String] = []
         var ownWindowUserOnly: [String] = []
+        var systemDialogs: [String] = []
 
         /// A kind with no cap of its own counts against this one: an upvote is a like.
         var countsAs: [String: String] {
@@ -71,6 +72,7 @@ enum SiteLists {
             add(&out.challengePaths, more.challengePaths)
             add(&out.userOnly, more.userOnly)
             add(&out.ownWindowUserOnly, more.ownWindowUserOnly)
+            add(&out.systemDialogs, more.systemDialogs)
         }
         return out
     }
@@ -96,6 +98,7 @@ enum SiteLists {
         out.challengePaths = list("phrases", "challenge_paths")
         out.userOnly = list("gate", "user_only")
         out.ownWindowUserOnly = list("gate", "own_window_user_only")
+        out.systemDialogs = list("gate", "system_dialogs")
         return out
     }
 

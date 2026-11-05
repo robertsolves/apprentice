@@ -1053,6 +1053,13 @@ extension SelfTest {
         var noTab = proposed
         noTab.tab = nil
         check(Device.caller(Approvals.replay(noTab, by: oneSession, model: "m", project: nil, byUser: false)).who == Device.caller(oneSession).who, "approve: an agent's approved action is that agent's")
+        let dialog = Covered.Row(owner: "UserNotificationCenter", pid: 50, frame: CGRect(x: 100, y: 100, width: 50, height: 50))
+        let other = Covered.Row(owner: "Other", pid: 60, frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        let dialogs = ["UserNotificationCenter"]
+        check(Covered.over(CGPoint(x: 120, y: 120), app: 7, own: 8, hit: nil, rows: [dialog, other], dialogs: dialogs) == "UserNotificationCenter", "covered: a macOS dialog over the target stops a click")
+        check(Covered.over(CGPoint(x: 300, y: 300), app: 7, own: 8, hit: nil, rows: [dialog, other], dialogs: dialogs) == nil, "covered: a window that lets the click through is not in the way")
+        check(Covered.over(CGPoint(x: 300, y: 300), app: 7, own: 8, hit: 60, rows: [dialog, other], dialogs: dialogs) == "Other", "covered: another app that would take the click stops it")
+        check(Covered.over(CGPoint(x: 300, y: 300), app: 7, own: 8, hit: 7, rows: [other], dialogs: dialogs) == nil && Covered.over(CGPoint(x: 300, y: 300), app: 7, own: 8, hit: 99, rows: [other], dialogs: dialogs) == nil, "covered: the app itself, and a process with no window there such as a page's, are fine")
         check(!VM.controlPath.contains("vms/"), "vm: the ssh socket's path does not grow with the VM's name")
         check(OwnWindow.mayBind(bundle: id, accessory: false, pid: 100, daemon: 7), "own window: the app's window may be bound")
         check(!OwnWindow.mayBind(bundle: id, accessory: true, pid: 100, daemon: 7) && !OwnWindow.mayBind(bundle: id, accessory: false, pid: 7, daemon: 7)
