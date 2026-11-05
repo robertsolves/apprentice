@@ -6,6 +6,12 @@ import Darwin
 if CommandLine.arguments.count > 2, CommandLine.arguments[1] == "__pty" {
     let TIOCSCTTY: UInt = 0x2000_7461
     _ = ioctl(0, TIOCSCTTY, CInt(0))
+    // An ignored signal stays ignored through exec, so a window started from a background job, or one that ignores
+    // SIGPIPE itself, would hand its tabs a Ctrl+C that does nothing. A program in a terminal starts with the defaults.
+    for sig in [SIGINT, SIGQUIT, SIGTERM, SIGHUP, SIGPIPE, SIGTSTP, SIGTTIN, SIGTTOU, SIGCHLD] { signal(sig, SIG_DFL) }
+    var none = sigset_t()
+    sigemptyset(&none)
+    sigprocmask(SIG_SETMASK, &none, nil)
     let program = Array(CommandLine.arguments.dropFirst(2))
     var argv = program.map { strdup($0) } + [nil]
     execv(program[0], &argv)

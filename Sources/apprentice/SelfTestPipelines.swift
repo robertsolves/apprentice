@@ -823,6 +823,9 @@ extension SelfTest {
         check(Proc.parse(raw) == ["x", "--flag"] && !Proc.argv(getpid()).isEmpty && Proc.parent(getpid()) > 0, "tab: a process's arguments are read, without its environment")
 
         // A tab's program has the terminal as its own, so the window can see it and ctrl+C reaches it.
+        // As when started from a background job, which begins with SIGINT and SIGPIPE ignored: the program must not inherit that.
+        let oldInt = signal(SIGINT, SIG_IGN), oldPipe = signal(SIGPIPE, SIG_IGN)
+        defer { signal(SIGINT, oldInt); signal(SIGPIPE, oldPipe) }
         let pty = Pty(shell: "/bin/sleep", args: ["30"], dir: FileManager.default.temporaryDirectory, onData: { _ in }, onExit: { _ in })
         check(waitFor(5) { pty.pid > 0 && pty.foreground == pty.pid }, "tab: its program holds the terminal (front \(pty.foreground), pid \(pty.pid))")
         check(Proc.argv(pty.pid).first == "/bin/sleep", "tab: and is the program itself, with nothing left of how it started")
