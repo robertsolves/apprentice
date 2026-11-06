@@ -977,6 +977,11 @@ enum SelfTest {
         tight.jitter = 30
         let draws = (0..<50).compactMap { _ in Schedules.fireTime(tight, after: now)?.at }
         check(draws.allSatisfy { $0 > now }, "jitter never puts the next run in the past")
+        var everyDay = Schedules.Schedule(id: "d", name: "d", kind: .run, target: "true")
+        everyDay.daily = "09:00"
+        everyDay.jitter = 45
+        let days = Schedules.preview(everyDay).map { cal.startOfDay(for: $0) }
+        check(Set(days).count == days.count, "a daily schedule's next runs are one a day, however early each is drawn")
         var cron = weekly
         cron.weekly = nil
         cron.cron = "30 8 * * *"

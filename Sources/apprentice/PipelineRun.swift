@@ -71,6 +71,13 @@ struct RunState: Codable {
     var status = "running"
     var reason: String? = nil
     var pid: Int32? = nil
+    /// A step as it reads to a person: one still marked running in a run that has ended stopped with it. The file keeps
+    /// the mark, which is how `resume` knows to run it again.
+    func shownStatus(_ step: String) -> String? {
+        let status = steps[step]?.status
+        return status == "running" && self.status != "running" ? "stopped" : status
+    }
+
     var steps: [String: Step] = [:]
     var pending: [String] = []
     var path: [String] = []
@@ -348,6 +355,7 @@ extension Pipelines {
     /// Whether a step may use the screen. A file with no settings at all is a straight line from before steps had
     /// settings, so its steps keep the screen, one at a time; once a file has settings, only `ui: true` does.
     static func hasScreen(_ step: Step, in p: Pipeline) -> Bool {
+        if step.shell != nil { return false }
         if step.ui { return true }
         return !p.steps.contains(where: \.hasSettings)
     }
@@ -525,7 +533,8 @@ final class PipelineEngine {
     private func say(_ text: String) {
         printLock.lock()
         defer { printLock.unlock() }
-        FileHandle.standardOutput.write(Data(text.utf8))
+        // Whoever started the run may be gone (a closed tab, a window that quit): the run goes on without them.
+        try? FileHandle.standardOutput.write(contentsOf: Data(text.utf8))
     }
 
     private func blocked(_ id: String) -> Bool {
@@ -561,7 +570,8 @@ final class PipelineEngine {
                 state.pending.removeAll { $0 == id }
                 running.insert(id)
                 state.steps[id]?.status = "running"
-                state.path.append(id)
+                // A step answered after waiting carries on: it is one visit on the way, not two.
+                if state.path.last != id { state.path.append(id) }
             }
             let idle = running.isEmpty && ready.isEmpty
             lock.unlock()

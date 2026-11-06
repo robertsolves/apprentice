@@ -671,6 +671,8 @@ final class AppModel: ObservableObject {
     /// The pipeline open in the Pipelines screen (unsaved when it has no file), and a counter that
     /// reloads the editor when another one is chosen.
     @Published var pipelineDraft: Pipelines.Pipeline?
+    /// The pipeline about to open should show its runs: someone asked to see one.
+    var pipelineOpensRuns = false
     @Published var pipelineEdits = 0
     /// Pipeline runs parked on something only the user can settle.
     @Published var waitingRuns: [Runs.Waiting] = []
@@ -863,8 +865,9 @@ final class AppModel: ObservableObject {
     }
 
     /// Shows a pipeline in the Pipelines screen's editor (a new one when it has no file).
-    func editPipeline(_ p: Pipelines.Pipeline) {
+    func editPipeline(_ p: Pipelines.Pipeline, runs: Bool = false) {
         pipelineDraft = p
+        pipelineOpensRuns = runs
         pipelineEdits += 1
         let owner = p.project.flatMap { folder in projects.first { $0.id == folder.standardizedFileURL.path || $0.id == folder.path } }
         if let shown = owner ?? workProject { show(project: shown, tab: .pipelines) }

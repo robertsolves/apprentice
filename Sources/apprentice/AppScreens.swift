@@ -618,7 +618,8 @@ struct PipelineEditor: View {
         }
         .onAppear {
             load()
-            if waiting { tab = .runs }
+            if waiting || model.pipelineOpensRuns { tab = .runs }
+            model.pipelineOpensRuns = false
             DispatchQueue.global().async {
                 let found = AgentCLIs.installed()
                 DispatchQueue.main.async { installed = found }

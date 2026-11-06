@@ -174,6 +174,8 @@ struct PipelineCanvas: View {
             .onEnded { _ in dragStart = nil; moved() })
         .accessibilityElement(children: .combine)
         .accessibilityLabel(c.title)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { selected = c.id; selectedGate = nil }
     }
 
     /// The dot a wire is dragged from.

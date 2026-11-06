@@ -34,7 +34,7 @@ enum PipelineCLI {
         var out = ["Run \(s.run): \(s.status)" + (s.reason.map { ", \($0)" } ?? "") + " · path: " + s.path.joined(separator: " → ")]
         for id in s.path.reduce(into: [String](), { if !$0.contains($1) { $0.append($1) } }) {
             let st = s.steps[id]
-            out.append("- \(id): \(st?.status ?? "?")" + (st?.agent.map { ", \($0)" } ?? "") + (st?.reason.map { ": \($0)" } ?? ""))
+            out.append("- \(id): \(s.shownStatus(id) ?? "?")" + (st?.agent.map { ", \($0)" } ?? "") + (st?.reason.map { ": \($0)" } ?? ""))
             if let result = (try? Data(contentsOf: dir.appendingPathComponent("nodes/\(id)/result.json"))).flatMap({ try? JSONDecoder().decode(StepResult.self, from: $0) }), result.tries.count > 1 {
                 out.append("  tried: " + result.tries.map { "\($0.agent) \($0.limit == nil ? $0.outcome : "out of usage")" }.joined(separator: ", "))
             }

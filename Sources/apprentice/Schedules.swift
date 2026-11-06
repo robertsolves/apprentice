@@ -309,11 +309,13 @@ enum Schedules {
             from = max(next, base)
         }
         while out.count < count {
-            guard var next = fireTime(s, after: from)?.at else { break }
+            guard let fire = fireTime(s, after: from) else { break }
+            var next = fire.at
             // A quiet shift can land a run before the base it came from; keep going forward regardless.
             if next <= from { next = from.addingTimeInterval(60) }
             out.append(next)
-            from = next
+            // From the plain time, as the timer does: a run jittered early would otherwise count its own base as the next.
+            from = max(next, fire.base)
         }
         return out
     }

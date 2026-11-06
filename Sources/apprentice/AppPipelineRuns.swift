@@ -101,7 +101,7 @@ struct PipelineRunsPanel: View {
             ForEach(run.state.path.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }, id: \.self) { id in
                 let st = run.state.steps[id]
                 HStack(alignment: .firstTextBaseline, spacing: Theme.s2) {
-                    Image(systemName: icon(st?.status)).foregroundStyle(tint(st?.status)).font(.system(size: 11))
+                    Image(systemName: icon(run.state.shownStatus(id))).foregroundStyle(tint(run.state.shownStatus(id))).font(.system(size: 11))
                     Text(id).font(Theme.body)
                     if let a = st?.agent { Text(a).font(Theme.caption).foregroundStyle(.secondary) }
                     if let why = st?.why { Text(why).font(Theme.caption).foregroundStyle(.tertiary).lineLimit(1) }

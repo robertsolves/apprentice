@@ -150,7 +150,7 @@ struct RunBar: View {
                 Text(q.text.components(separatedBy: .newlines).first ?? "").font(Theme.caption).foregroundStyle(.primary).lineLimit(1).help(q.text)
             }
             Spacer(minLength: Theme.s2)
-            Button(parked.isEmpty ? "See it" : "Answer") { if let p = s.file.flatMap({ try? Pipelines.find($0) }) { model.editPipeline(p) } }
+            Button(parked.isEmpty ? "See it" : "Answer") { if let p = s.file.flatMap({ try? Pipelines.find($0) }) { model.editPipeline(p, runs: true) } }
                 .buttonStyle(.borderless)
         }
     }
@@ -278,16 +278,18 @@ enum RunTest {
 ///     click <x> <y>   a click, in the window's points from its top-left
 ///     text <words>    types into whatever has the keyboard
 ///     key <name>      return | cmd+return | escape | tab
-///     focus <n>       gives the control the keyboard
+///     focus <n>       gives the control the keyboard, whether or not the window is in front
+///     select <n>      selects a list's row, whether or not the window is in front
 ///     term <words>    types into the terminal on screen, then Return
 ///     screen          the terminal's lines
 ///     resize <w> <h>  the window, to see that what is inside follows
+///     shot <file>     a PNG of the window as it draws itself, with no Screen Recording (glass such as the sidebar comes out blank)
 enum UIDrive {
-    private static var nodes: [NSAccessibilityProtocol] = []
     private static var keep: Timer?
 
     private static var target: NSWindow? {
-        NSApp.modalWindow ?? NSApp.keyWindow?.attachedSheet ?? NSApp.mainWindow?.attachedSheet ?? NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first { $0.isVisible }
+        let shown = NSApp.keyWindow ?? NSApp.mainWindow ?? NSApp.windows.first { $0.isVisible && !$0.isSheet }
+        return NSApp.modalWindow ?? shown?.attachedSheet ?? shown
     }
 
     static func run(model: AppModel, folder: String) {
@@ -296,28 +298,86 @@ enum UIDrive {
         let timer = Timer(timeInterval: 0.2, repeats: true) { _ in
             guard let line = try? String(contentsOf: input, encoding: .utf8) else { return }
             try? FileManager.default.removeItem(at: input)
-            let answer = handle(line.trimmingCharacters(in: .whitespacesAndNewlines), model: model)
-            try? answer.write(to: output, atomically: true, encoding: .utf8)
+            let command = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            // While an alert runs, an accessibility call from here would wait on this same thread. Alerts are plain AppKit.
+            if let alert = NSApp.modalWindow {
+                try? modal(alert, command).write(to: output, atomically: true, encoding: .utf8)
+                return
+            }
+            if ["tree", "press", "focus", "select"].contains(command.split(separator: " ").first.map(String.init) ?? "") {
+                try? client(command).write(to: output, atomically: true, encoding: .utf8)
+                return
+            }
+            try? handle(command, model: model).write(to: output, atomically: true, encoding: .utf8)
         }
         // Common modes: the timer has to go on firing while an alert or a menu is open.
         RunLoop.main.add(timer, forMode: .common)
         keep = timer
     }
 
-    private static func walk(_ node: Any, depth: Int, into out: inout [String], filter: String?) {
-        guard let e = node as? NSAccessibilityProtocol, depth < 40 else { return }
-        let role = e.accessibilityRole()?.rawValue.replacingOccurrences(of: "AX", with: "") ?? "?"
-        let label = [e.accessibilityLabel(), e.accessibilityTitle(), e.accessibilityValue().flatMap { $0 as? String }, e.accessibilityHelp()]
-            .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " | ")
-        let plain = ["Group", "ScrollArea", "SplitGroup", "Unknown", "Window", "?", "Layout Area"].contains(role) && label.isEmpty
-        if !plain {
-            nodes.append(e)
-            let f = e.accessibilityFrame()
-            let w = target?.frame ?? .zero
-            let line = "\(nodes.count - 1) \(role) \"\(String(label.prefix(90)))\" @\(Int(f.minX - w.minX)),\(Int(w.maxY - f.maxY)) \(Int(f.width))x\(Int(f.height))" + (e.isAccessibilityEnabled() ? "" : " disabled")
+    private static var found: [AXUIElement] = []
+
+    private static func modal(_ alert: NSWindow, _ line: String) -> String {
+        var texts: [String] = [], buttons: [NSButton] = []
+        func look(_ view: NSView) {
+            if let b = view as? NSButton { buttons.append(b) } else if let t = view as? NSTextField { texts.append(t.stringValue) }
+            view.subviews.forEach(look)
+        }
+        if let view = alert.contentView { look(view) }
+        let parts = line.split(separator: " ", maxSplits: 1).map(String.init)
+        if parts.first == "press", parts.count > 1, let n = Int(parts[1]), buttons.indices.contains(n) {
+            let b = buttons[n]
+            // Not the main queue: the press that opened this alert is still on it, waiting.
+            RunLoop.main.perform(inModes: [.common]) { b.performClick(nil) }
+            return "pressed \(b.title)"
+        }
+        return (["window \"alert\" modal"] + texts.map { "text \"\($0)\"" } + buttons.enumerated().map { "\($0.offset) Button \"\($0.element.title)\"" }).joined(separator: "\n")
+    }
+
+    /// What any accessibility client sees: SwiftUI's controls exist only there. In this process these calls run on the
+    /// caller's thread, so they stay on the main one: off it, one takes TextKit's lock while the window lays out.
+    private static func client(_ line: String) -> String {
+        let parts = line.split(separator: " ", maxSplits: 1).map(String.init)
+        let app = AXUIElementCreateApplication(getpid())
+        AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        switch parts[0] {
+        case "tree":
+            // A modal alert, the one window that takes anything while it is up, comes first.
+            let all = windows(of: app)
+            guard let window = all.first(where: { $0.windowID.map(Int.init) == NSApp.modalWindow?.windowNumber }) ?? all.first else { return "no window" }
+            found = []
+            var out = ["window \"\(window.string(kAXTitleAttribute) ?? "")\""]
+            walk(window, origin: window.frame?.origin ?? .zero, depth: 0, into: &out, filter: parts.count > 1 ? parts[1].lowercased() : nil)
+            return out.joined(separator: "\n")
+        case "press":
+            guard parts.count > 1, let n = Int(parts[1]), found.indices.contains(n) else { return "no such control" }
+            let e = found[n]
+            // Afterwards, so a press that opens a modal alert does not hold this answer inside it.
+            DispatchQueue.main.async { AXUIElementPerformAction(e, kAXPressAction as CFString) }
+            return "pressed \(n)"
+        case "focus":
+            guard parts.count > 1, let n = Int(parts[1]), found.indices.contains(n) else { return "no such control" }
+            return "focused \(n): \(AXUIElementSetAttributeValue(found[n], kAXFocusedAttribute as CFString, kCFBooleanTrue).rawValue)"
+        case "select":
+            guard parts.count > 1, let n = Int(parts[1]), found.indices.contains(n) else { return "no such control" }
+            return "selected \(n): \(AXUIElementSetAttributeValue(found[n], kAXSelectedAttribute as CFString, kCFBooleanTrue).rawValue)"
+        default:
+            return "unknown command"
+        }
+    }
+
+    private static func walk(_ e: AXUIElement, origin: CGPoint, depth: Int, into out: inout [String], filter: String?) {
+        guard depth < 40 else { return }
+        let role = (e.string(kAXRoleAttribute) ?? "?").replacingOccurrences(of: "AX", with: "")
+        let label = [kAXTitleAttribute, kAXDescriptionAttribute, kAXValueAttribute, kAXHelpAttribute].compactMap { e.string($0) }.filter { !$0.isEmpty }.joined(separator: " | ")
+        if !["Group", "ScrollArea", "SplitGroup", "Unknown", "Window", "?", "LayoutArea", "Image", "ScrollBar"].contains(role) || !label.isEmpty {
+            found.append(e)
+            let f = e.frame ?? .zero
+            let enabled = (e.attr(kAXEnabledAttribute) as? Bool) ?? true
+            let line = "\(found.count - 1) \(role) \"\(String(label.replacingOccurrences(of: "\n", with: " ").prefix(90)))\" @\(Int(f.minX - origin.x)),\(Int(f.minY - origin.y)) \(Int(f.width))x\(Int(f.height))" + (enabled ? "" : " disabled")
             if filter == nil || line.lowercased().contains(filter!) { out.append(line) }
         }
-        for child in e.accessibilityChildren() ?? [] { walk(child, depth: depth + 1, into: &out, filter: filter) }
+        for child in e.children { walk(child, origin: origin, depth: depth + 1, into: &out, filter: filter) }
     }
 
     private static func keyEvent(_ code: UInt16, _ chars: String, _ flags: NSEvent.ModifierFlags = []) {
@@ -333,29 +393,18 @@ enum UIDrive {
         let rest = parts.count > 1 ? parts[1] : ""
         guard let w = target else { return "no window" }
         switch parts.first ?? "" {
-        case "tree":
-            nodes = []
-            var out = ["window \"\(w.title)\" \(Int(w.frame.width))x\(Int(w.frame.height))" + (NSApp.modalWindow != nil ? " modal" : "") + (w.isSheet ? " sheet" : "")]
-            walk(w, depth: 0, into: &out, filter: rest.isEmpty ? nil : rest.lowercased())
-            return out.joined(separator: "\n")
-        case "press":
-            guard let n = Int(rest), nodes.indices.contains(n) else { return "no such control" }
-            DispatchQueue.main.async { _ = nodes[n].accessibilityPerformPress() }
-            return "pressed \(n)"
-        case "focus":
-            guard let n = Int(rest), nodes.indices.contains(n) else { return "no such control" }
-            nodes[n].setAccessibilityFocused(true)
-            return "focused \(n), responder \(w.firstResponder.map { String(describing: type(of: $0)) } ?? "nil")"
         case "click":
             let xy = rest.split(separator: " ").compactMap { Double($0) }
             guard xy.count == 2 else { return "click x y" }
             let p = NSPoint(x: xy[0], y: w.frame.height - xy[1])
+            // A window that is not key takes a click as its activation only, and this one stays behind the person's work.
+            if !w.isKeyWindow { w.makeKey() }
             func mouse(_ type: NSEvent.EventType) -> NSEvent? {
                 NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: w.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
             }
-            // The release is queued first: a button's press waits for it, and sending it afterwards would never be reached.
+            // Both queued, in order, as a hand's would be: a button's press waits for the release, and a gesture sees each.
+            if let down = mouse(.leftMouseDown) { NSApp.postEvent(down, atStart: false) }
             if let up = mouse(.leftMouseUp) { NSApp.postEvent(up, atStart: false) }
-            if let down = mouse(.leftMouseDown) { NSApp.sendEvent(down) }
             return "clicked \(xy), hit \(w.contentView?.hitTest(p).map { String(describing: type(of: $0)) } ?? "nil"), responder \(w.firstResponder.map { String(describing: type(of: $0)) } ?? "nil")"
         case "text":
             if let view = w.firstResponder as? NSTextView { view.insertText(rest, replacementRange: view.selectedRange()); return "typed into \(type(of: view))" }
@@ -375,6 +424,12 @@ enum UIDrive {
             tab.send(rest)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { tab.send("\r") }
             return "sent to \(tab.title)"
+        case "shot":
+            // The window as it draws itself, so it needs no Screen Recording.
+            guard let view = w.contentView?.superview ?? w.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return "no picture" }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            guard let png = rep.representation(using: .png, properties: [:]), (try? png.write(to: URL(fileURLWithPath: rest))) != nil else { return "could not write \(rest)" }
+            return "saved \(rest)"
         case "resize":
             let size = rest.split(separator: " ").compactMap { Double($0) }
             guard size.count == 2 else { return "resize w h" }

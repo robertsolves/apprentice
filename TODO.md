@@ -13,6 +13,7 @@ It runs: Debian guests under Tart (2 GB disk, 2 GB memory each) or on a server (
 - Several VMs share one ssh key. Per-VM keys would let one be revoked alone.
 - The VM's question window (`agent/vm/ask.py`) has no apprentice icon and does not notice when the caller stops waiting, unlike the Mac's (`Ask.waiting`).
 - Only `ask` and `confirm` watch their caller. The other windows (start-up options, challenge and cooldown checks in `SiteRules`, the VM's "show me") stay open after the agent gives up; pass `caller:` to `Ask.show` there too.
+- A detached VM's app raises its own Local Network prompt: see whether the app's grant can cover it.
 
 ## Code structure
 
@@ -72,6 +73,11 @@ The window (`apprentice app`), schedules and away are built; FEATURES.md lists w
 - Away resume by the journal: `Away.decide` (proceed / redo / needs-you) is written and tested but nothing calls it, and there is no field undo, so a return always makes the task needs-you. An undo must check the focused field holds exactly the unit's text (its digest), in the unit's window, and press its keys through `gate()` and `Borrow.run`, never while the user is at the Mac.
 - Schedules written by hand: the daemon runs whatever `schedules.toml` holds, so an agent with a shell can add one without the gate (as it could a crontab). A record of what the user approved (a keyed hash in the keychain) would let the daemon skip entries nobody approved.
 - With an ad hoc signature, `Peer.isApp` trusts whatever code is in `~/.apprentice/Apprentice.app`, which a same-user process can replace; with a signing identity it checks the certificate (`kit.sh` already warns when it signs ad hoc).
+- After saving a new schedule its detail stays closed: select it, as a new pipeline is.
+- The sidebar's selection follows the system accent on global screens and is grey on projects, and the buttons use the system accent where the design says one blue.
+- A pipeline's First and Last labels float over the cards, and cards behind the panel look clickable. Go to Run can fall below a small window.
+- Finished runs' tabs share one title, so two runs of a pipeline look alike.
+- `pipeline status` says a run is `running` while its only step waits for the user; the window says "waiting for an answer".
 
 ## Install
 
@@ -103,6 +109,9 @@ The window (`apprentice app`), schedules and away are built; FEATURES.md lists w
 
 - The VM's helper (`agent/vm/helper.py`) has no tests of its own; it is checked against a live VM by hand.
 - `Limits.beforeAction` at the per-minute cap waits (from /interview-code; a real wait, so it needs a clock it can stub).
+- `scripts/uitest.sh drive` cannot choose in a popup menu (menu tracking holds the main thread) or drag: add both, then cover "New project" with no VM and canvas drags in it. Canvas drags were last tested with the real cursor.
+- The test copy's VMs screen lists the person's real VMs, since Tart's are shared: give the copy a way to hide them, so nobody starts one from a test.
+- Not yet tested end to end with real agents: a directed run at edit level, urgent and board messages (stand-ins in `selftest` only), Claude in a tab, a run first and last prompts with a real model.
 
 ## Releases
 
