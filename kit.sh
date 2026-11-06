@@ -64,38 +64,36 @@ else
   echo "         so Accessibility and Screen Recording grants survive rebuilds."
 fi
 
-# A link left by an earlier packaged install: replace it with the new file, repackaged below.
-[ -L "$bin" ] && rm -f "$bin"
-mv -f "$new" "$bin"
-
 # What was installed, from where: `apprentice version` prints the commit, and apprentice finds its clone here.
 commit="$(git -C "$root" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 [ -n "$(git -C "$root" status --porcelain --untracked-files=no 2>/dev/null)" ] && commit="$commit-dirty"
-printf '{"clone":"%s","commit":"%s","built":"%s","bin":"%s"}\n' "$root" "$commit" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$bin" \
-  >"$HOME/.apprentice/install.json"
-# The window app: the same binary in a real bundle, signed with the same identity, so the Accessibility and
-# Screen Recording grants stay with it across rebuilds (`apprentice app` opens it).
-"$bin" app --install || echo "warning: could not build ~/.apprentice/Apprentice.app"
 # One executable, one package: Apprentice.app's own binary is the window (no arguments) and the CLI and
 # daemon (with arguments), and ~/.local/bin/apprentice only links to it. The Accessibility and Screen
 # Recording entries then belong to the one app, signed once with one identity, so dragging Apprentice.app into
 # the two lists is all it takes and a rebuild never leaves a stale grant behind.
+# It is made and signed to one side and moved in whole. macOS gives the grants to the app, so a loose binary has none: left
+# at $bin or named by install.json for even a moment, whatever started from it then would ask for them again.
 app="/Applications/Apprentice.app"
-local_app="$HOME/.apprentice/Apprentice.app"
 exe="$app/Contents/MacOS/apprentice"
-if [ -d "$local_app" ]; then
-  rm -rf "$app"
-  ditto "$local_app" "$app" && rm -rf "$local_app"
-fi
-if [ -x "$exe" ]; then
-  rm -rf "$app/Contents/Helpers"
-  # The window runs the Linux VMs itself (VMHost.swift), which takes the virtualization entitlement.
-  codesign --force --options runtime --entitlements "$root/scripts/app.entitlements" --sign "${id:--}" "$app"
-  rm -f "$bin"
+staged="/Applications/.Apprentice.new.app"
+rm -rf "$staged"
+if "$new" app --bundle "$staged" >/dev/null \
+  && codesign --force --options runtime --entitlements "$root/scripts/app.entitlements" --sign "${id:--}" "$staged"; then
+  old="/Applications/.Apprentice.old.$$.app"
+  [ -d "$app" ] && mv "$app" "$old"
+  mv "$staged" "$app"
+  rm -rf "$old" "$new" "$HOME/.apprentice/Apprentice.app"
   ln -sfn "$exe" "$bin"
   printf '{"clone":"%s","commit":"%s","built":"%s","bin":"%s"}\n' "$root" "$commit" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$exe" \
     >"$HOME/.apprentice/install.json"
   echo "packaged: $bin → $exe"
+else
+  rm -rf "$staged"
+  echo "warning: could not make $app: installing the bare binary, which has no Accessibility grant" >&2
+  [ -L "$bin" ] && rm -f "$bin"
+  mv -f "$new" "$bin"
+  printf '{"clone":"%s","commit":"%s","built":"%s","bin":"%s"}\n' "$root" "$commit" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$bin" \
+    >"$HOME/.apprentice/install.json"
 fi
 # State holds URLs, page titles, screenshots and perhaps an API key: this user only.
 chmod 700 "$HOME/.apprentice"

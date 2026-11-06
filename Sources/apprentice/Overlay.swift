@@ -505,7 +505,8 @@ enum Overlay {
         // Back on screen if a display went away or the window was dragged off.
         if !NSScreen.screens.contains(where: { $0.visibleFrame.intersects(p.frame) }) { place(p) }
         Ask.keepOnScreen(p)
-        p.orderFrontRegardless()
+        // Once, when it comes back: its level keeps it above windows, and doing this on every tick fights anything else up there.
+        if !p.isVisible { p.orderFrontRegardless() }
     }
 
     /// Fits the panel to its content, keeping the corner nearest the screen's edge where it is.

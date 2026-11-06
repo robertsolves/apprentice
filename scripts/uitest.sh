@@ -56,8 +56,8 @@ F
     printf '[agent.%s]\nlabel = "Stand-in %s"\nopen = "%s"\ndetect = ["fakerun"]\nrun = ["%s/bin/fakerun", "{prompt}"]\nskills_dir = ".claude/skills"\ncommands_dir = ".claude/commands"\nskill_prefix = "/"\n\n' "$c" "$c" "$c" "$home" >>"$home/.apprentice/agents.toml"
   done
   touch "$home/.apprentice/welcome-done"
-  # The test home's daemon would put a second icon in the user's menu bar, and one that outlives the test.
-  printf '[agent]\nmenu_bar = false\n' >"$home/.apprentice/config.toml"
+  # The test home's daemon must not look like a second apprentice: no icon in the menu bar or the Dock, no status box.
+  printf '[agent]\nmenu_bar = false\ndock_icon = false\noverlay = false\n' >"$home/.apprentice/config.toml"
   export APPRENTICE_HOME="$home/.apprentice" PATH="$home/bin:$PATH"
   if [ ! -d "$home/Demo" ]; then
     (cd "$home" && "$bin" project new Demo --no-vm --dir "$home/Demo" --about "UI test project" >/dev/null)

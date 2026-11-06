@@ -69,6 +69,11 @@ enum Daemon {
             if !background { print("apprentice daemon already running") }
             return
         }
+        // Before anything shows. A daemon that is on its way out gets a moment; one that holds on is `stop`'s to end.
+        guard poll(timeout: 5, interval: 0.1, { InstanceLock.take("daemon") ? true : nil }) != nil else {
+            let who = InstanceLock.holder("daemon").map { "pid \($0)" } ?? "another process"
+            throw Fail(5, "another apprentice daemon (\(who)) holds this home but does not answer: `apprentice stop` ends it")
+        }
         try requireAccessibility()
         Pause.on = false
         let app = NSApplication.shared

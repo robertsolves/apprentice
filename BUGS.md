@@ -29,11 +29,6 @@ Suggested fix: reproduce by running the two checks in a loop and printing the ru
 Cause: `while Rest.seen(at), ring <= 6` has no attempt bound, and `ring` is not guaranteed to advance.
 Suggested fix: try a fixed number of rings (1...6) and, if all are taken, return the original point (or widen the ring) after a bounded number of draws; never loop on the predicate alone.
 
-### F28 · `apprentice stop` says "not running" while a half-dead daemon keeps the socket — 2026-11-06
-Confirmed once: `osascript` quitting the app by bundle identifier reached the daemon (it has the same identifier as the window), which then stopped answering but did not exit, and `stop` reported nothing to stop.
-Cause: suspected; the daemon's `NSApplication` takes a quit Apple Event and is left without its queue.
-Suggested fix: have the daemon exit cleanly on a quit event, and have `stop` signal the pid behind the socket when `ping` gets no answer.
-
 ### F29 · A run's parallel-step checks failed once under load (suspected, may be F21) — 2026-11-06
 `selftest` run while a test copy of the window was open failed `SelfTest.swift:532`, `:535` and `:538` (join summaries, merged work, worktrees removed); the next four runs passed them.
 Cause: not found.

@@ -250,13 +250,31 @@ enum Wire {
         }
     }
 
+    /// The person asked for it to stop, so one that will not answer is ended: politely, then for good.
+    private static func end(_ pid: pid_t) -> (Bool, String) {
+        func left(_ seconds: Double) -> Bool { poll(timeout: seconds, interval: 0.1) { InstanceLock.holder("daemon") == nil ? true : nil } != nil }
+        if !left(3) {
+            kill(pid, SIGTERM)
+            if !left(3) {
+                kill(pid, SIGKILL)
+                if !left(2) { return (false, "pid \(pid) did not stop") }
+            }
+        }
+        unlink(Store.socketPath)
+        try? FileManager.default.removeItem(atPath: Store.pidPath)
+        return (true, "stopped")
+    }
+
     static func stopDaemon() -> (Bool, String) {
         if let fd = connect() {
             setTimeout(fd, 5)
             _ = roundTrip(fd, Request(cmd: "stop"))
             let gone = poll(timeout: 3, interval: 0.1) { ping() ? nil : true } != nil
-            return gone ? (true, "stopped") : (false, "the daemon is still running: it may be busy with a command")
+            guard gone else { return (false, "the daemon is still running: it may be busy with a command") }
+            // No answer is not the same as gone: one that stopped answering still holds the lock, the box and the Dock icon.
+            return InstanceLock.holder("daemon").map(end) ?? (true, "stopped")
         }
+        if let pid = InstanceLock.holder("daemon") { return end(pid) }
         // No socket: either nothing runs, or the daemon is too busy to accept. Clear what a crash
         // left behind only once the process is gone, so a second `stop` still finds a live pid.
         func clear() {
@@ -402,6 +420,47 @@ final class UnixServer {
 /// it, so the same binary would get Accessibility and Screen Recording as the terminal, the window or an
 /// agent's shell, whichever ran it, and the grants would change with the caller. Started this way, the
 /// daemon and every grant check are apprentice's own binary, the one entry the user switches on.
+/// One process of a kind for one home, held by the kernel: a crash lets it go, and there is no stale file to clear. Each
+/// daemon that gets past it would draw its own status box over the others', and take the others' keys for the person's.
+/// In this home's state folder, so a VM's daemon and a test copy have their own.
+enum InstanceLock {
+    private static var held: [String: Int32] = [:]
+
+    private static func path(_ name: String) -> String {
+        try? FileManager.default.createDirectory(at: Store.stateDir, withIntermediateDirectories: true)
+        return Store.stateDir.appendingPathComponent("\(name).lock").path
+    }
+
+    /// True once this process holds it, for as long as it runs. Not inherited: what this process starts does not hold it.
+    static func take(_ name: String) -> Bool {
+        if held[name] != nil { return true }
+        let fd = open(path(name), O_RDWR | O_CREAT | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { return true }
+        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else { close(fd); return false }
+        ftruncate(fd, 0)
+        let pid = "\(getpid())"
+        _ = pid.withCString { write(fd, $0, strlen($0)) }
+        held[name] = fd
+        return true
+    }
+
+    /// Which other process holds it, if one does.
+    static func holder(_ name: String) -> pid_t? {
+        if held[name] != nil { return nil }
+        let fd = open(path(name), O_RDONLY | O_CREAT | O_CLOEXEC, 0o600)
+        guard fd >= 0 else { return nil }
+        defer { close(fd) }
+        if flock(fd, LOCK_SH | LOCK_NB) == 0 { flock(fd, LOCK_UN); return nil }
+        var bytes = [CChar](repeating: 0, count: 16)
+        guard read(fd, &bytes, 15) > 0 else { return nil }
+        return pid_t(String(cString: bytes).trimmingCharacters(in: .whitespacesAndNewlines))
+    }
+
+    static func release(_ name: String) {
+        if let fd = held.removeValue(forKey: name) { close(fd) }
+    }
+}
+
 enum Own {
     /// `responsibility_spawnattrs_setdisclaim`, as Terminal uses for its shells; private, so looked up.
     static func disclaim(_ attr: inout posix_spawnattr_t?) {

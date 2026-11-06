@@ -18,10 +18,10 @@ enum AppBundle {
     /// True inside the bundle: then this process is the window, not the CLI.
     static var inBundle: Bool { Bundle.main.bundleIdentifier == identifier }
 
-    /// A window already open, so a second `apprentice app` only brings it forward.
+    /// A window already open for this home, so a second `apprentice app` only brings it forward. The lock says so, not the
+    /// identifier: a daemon, a CLI inside the bundle and a test copy all share that.
     static var runningInstance: NSRunningApplication? {
-        // A daemon the window started runs from inside the bundle, so it has the same identifier and is not a window.
-        NSRunningApplication.runningApplications(withBundleIdentifier: identifier).first { $0.processIdentifier != getpid() && Proc.argv($0.processIdentifier).dropFirst().first != "serve" }
+        InstanceLock.holder("window").flatMap { NSRunningApplication(processIdentifier: $0) }
     }
 
     /// Builds the bundle if the binary changed, then opens it. False when it could not be built.
@@ -164,6 +164,11 @@ enum AppBundle {
 enum AppMain {
     static func run() -> Never {
         if !AppBundle.inBundle { AppBundle.launchFromCLI() }
+        // One window for one home, whoever started this one and however close together.
+        guard InstanceLock.take("window") else {
+            AppBundle.runningInstance?.activate()
+            exit(0)
+        }
         if !Wire.ping() { try? Wire.startDaemon() }
         let app = NSApplication.shared
         let delegate = AppDelegate()

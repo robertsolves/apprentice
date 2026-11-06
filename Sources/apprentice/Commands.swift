@@ -66,12 +66,31 @@ func mayAskForAccessibility(lastAsked: Date?, now: Date = Date(), throwaway: Boo
     return lastAsked.map { now.timeIntervalSince($0) >= 3600 } ?? true
 }
 
+/// The installed app is what holds the grant. Any other copy (a build folder, the file kit.sh signs on the way) could never
+/// be granted however often it asked, and each ask is one more dialog for the person.
+func isGrantableCopy(_ executable: String) -> Bool {
+    URL(fileURLWithPath: executable).resolvingSymlinksInPath().path.contains(".app/Contents/MacOS/")
+}
+
 func requireAccessibility() throws {
     guard AXIsProcessTrusted() else {
         let stamp = Store.url("accessibility-asked")
         let last = (try? stamp.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+        let exe = Bundle.main.executablePath ?? CommandLine.arguments[0]
+        guard isGrantableCopy(exe) else {
+            throw Fail(7, "this copy of apprentice (\(exe)) is not the installed app, which holds the Accessibility grant: run ~/.local/bin/apprentice, or scripts/uitest.sh for a test copy")
+        }
         if mayAskForAccessibility(lastAsked: last, throwaway: ProcessInfo.processInfo.environment["APPRENTICE_HOME"] != nil) {
             try? Data().write(to: stamp, options: .atomic)
+            // Who asked, so a prompt nobody expected can be traced.
+            let line = "\(ISO8601DateFormatter().string(from: Date())) \(exe) pid \(getpid()) parent \(getppid()) \(CommandLine.arguments.dropFirst().prefix(2).joined(separator: " "))\n"
+            let asked = Store.url("accessibility-asked.log")
+            if !FileManager.default.fileExists(atPath: asked.path) { FileManager.default.createFile(atPath: asked.path, contents: nil) }
+            if let log = try? FileHandle(forWritingTo: asked) {
+                _ = try? log.seekToEnd()
+                try? log.write(contentsOf: Data(line.utf8))
+                try? log.close()
+            }
             let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
             _ = AXIsProcessTrustedWithOptions(options)
         }
