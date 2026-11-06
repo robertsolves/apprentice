@@ -83,8 +83,13 @@ run() {
   exec "$app/Contents/MacOS/apprentice"
 }
 
-# A daemon the test started, so it does not stay behind (its own folder, so never the user's).
-stop() { APPRENTICE_HOME="$home/.apprentice" "$bin" stop >/dev/null 2>&1 || true; pkill -f "$work/Apprentice Test.app" 2>/dev/null || true; }
+# The window first, since an open window starts its daemon again, then that daemon (its own folder, so never the user's).
+stop() {
+  pkill -f "$work/Apprentice Test.app" 2>/dev/null || true
+  sleep 0.5
+  APPRENTICE_HOME="$home/.apprentice" "$home/bin/apprentice" stop >/dev/null 2>&1 || true
+  pkill -f "$home/bin/apprentice serve" 2>/dev/null || true
+}
 
 drive() {
   rm -f "$work/drive/out"
