@@ -321,6 +321,7 @@ func gate(_ session: Session, _ target: Target, _ e: Element?, _ summary: String
           submits: Bool = false, focus: Element? = nil) throws {
     var warn = warn
     if session.ownWindow {
+        if let refusal = OwnWindow.insideRefusal(host: OwnWindow.caller.host, tab: OwnWindow.caller.tab, window: session.pid) { throw Fail(4, refusal) }
         let request = Approvals.request
         let focused = target.app.attr(kAXFocusedWindowAttribute) as! AXUIElement?
         let sheet = (focused?.attr(kAXRoleAttribute) as? String) == "AXSheet"
@@ -673,7 +674,10 @@ enum Commands {
     /// could bind to one and answer for the user. The app's window is one, since the user wants apprentice to operate
     /// it like any app, and `OwnWindow` keeps what is the user's out of its reach.
     static func refuseOwnWindow(_ app: NSRunningApplication) throws {
-        if OwnWindow.mayBind(bundle: app.bundleIdentifier, accessory: app.activationPolicy != .regular, pid: app.processIdentifier, daemon: getpid()) { return }
+        if OwnWindow.mayBind(bundle: app.bundleIdentifier, accessory: app.activationPolicy != .regular, pid: app.processIdentifier, daemon: getpid()) {
+            if let refusal = OwnWindow.insideRefusal(host: OwnWindow.caller.host, tab: OwnWindow.caller.tab, window: app.processIdentifier) { throw Fail(4, refusal) }
+            return
+        }
         let name = (app.localizedName ?? "").lowercased()
         let exe = app.executableURL?.path ?? ""
         if app.processIdentifier == getpid() || app.bundleIdentifier == AppBundle.identifier

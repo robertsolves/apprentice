@@ -14,11 +14,6 @@ Seen as three identical commits, "Session 2026-11-04-ec6f31: 57 steps on System 
 Cause: not confirmed. `Sessions.archiveCurrent` may run before the new session is known to have started, and commit again each time.
 Suggested fix: archive only once a new session has really begun, or skip the commit when the copy has not changed.
 
-### F19 · Typing an emoji from a clipboard of promises recurses until the daemon crashes — 2026-11-05
-Confirmed by reading the code: `Keys.paste` (`Input.swift`) returns `type(text, fast: true)` when the clipboard holds items but none can be read (file promises, a Continuity item), and `Keys.typeChar` pastes any character the layout cannot type (an emoji, CJK) by calling `Keys.paste` again with the same clipboard. Each call starts the other, so the stack overflows: the daemon dies, and the command that was typing never returns.
-Cause: the fallback in `paste` is not a fallback the way `type` needs it; `type` sends untypeable characters back to `paste`.
-Suggested fix: give `paste` a `pasting: Bool`/`force` flag (or a private `pasteNow`) so the type path can clear the clipboard, put the character in, paste it and restore nothing; type a character it still cannot place fails with exit 5 instead of recursing. Add a selftest with a stub pasteboard.
-
 ### F20 · Approving a proposal drops the project it came from, so the project's caps are skipped — 2026-11-05
 Confirmed by reading the code: `Approvals.Pending` (`State.swift`) keeps `cmd`, `args` and `tab`, not the project, and `Commands.approve` re-dispatches `Request(cmd: p.cmd, args: p.args)`. The daemon takes `Project.dir` from that request, which is the approver's folder. Approving from the window or the menu bar (the app runs with no project folder) therefore runs the step with `Project.dir = nil`, so `Budgets.check` (`SiteRules.swift`) applies neither the project's `budgets.json` caps nor its `limits.json` counts. A step the project's tighter cap would refuse is let through, and the project's activity is not recorded.
 Cause: the pending proposal does not carry the context it was made in; only the re-dispatched arguments survive.
@@ -33,3 +28,13 @@ Suggested fix: reproduce by running the two checks in a loop and printing the ru
 `Mouse.fresh` (`Input.swift`) redraws a point while it is one a recent rest used, but only grows `ring` half the time; with `ring == 6` it stays 6 and loops. On a small control clicked over and over (a pagination arrow), enough of its nearby pixels can be in `Rest` that every draw is a hit, and the command never gets to click.
 Cause: `while Rest.seen(at), ring <= 6` has no attempt bound, and `ring` is not guaranteed to advance.
 Suggested fix: try a fixed number of rings (1...6) and, if all are taken, return the original point (or widen the ring) after a bounded number of draws; never loop on the predicate alone.
+
+### F28 · `apprentice stop` says "not running" while a half-dead daemon keeps the socket — 2026-11-06
+Confirmed once: `osascript` quitting the app by bundle identifier reached the daemon (it has the same identifier as the window), which then stopped answering but did not exit, and `stop` reported nothing to stop.
+Cause: suspected; the daemon's `NSApplication` takes a quit Apple Event and is left without its queue.
+Suggested fix: have the daemon exit cleanly on a quit event, and have `stop` signal the pid behind the socket when `ping` gets no answer.
+
+### F29 · A run's parallel-step checks failed once under load (suspected, may be F21) — 2026-11-06
+`selftest` run while a test copy of the window was open failed `SelfTest.swift:532`, `:535` and `:538` (join summaries, merged work, worktrees removed); the next four runs passed them.
+Cause: not found.
+Suggested fix: run the parallel-step scenario in a loop with the machine loaded, and log what each check saw when it fails.

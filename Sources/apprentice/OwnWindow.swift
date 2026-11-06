@@ -10,6 +10,17 @@ enum OwnWindow {
         bundle == AppBundle.identifier && !accessory && pid != daemon
     }
 
+    /// The window the caller runs inside, for this command: a tab, or an agent or run started in one. Nil for the person.
+    static var caller: (host: pid_t?, tab: String?) = (nil, nil)
+
+    /// Why this caller cannot operate the window, nil when it can. Whatever runs in a tab is part of what it would be
+    /// operating: its keys come back to it as its own input, and its clicks can close the tab it runs in. A schedule's
+    /// tab name is only a name: it runs outside the window.
+    static func insideRefusal(host: pid_t?, tab: String?, window: pid_t) -> String? {
+        guard host == window || (tab.map { !$0.isEmpty && !$0.hasPrefix("schedule:") } ?? false) else { return nil }
+        return "this runs inside apprentice's own window, so operating that window would type into itself. Name another app (`session --app <name>`), or have an agent outside the window, or the user, do it"
+    }
+
     /// Whether a control is one the user alone presses, by its name. `[gate] own_window_user_only` lists them.
     static func userOnly(_ e: Element?, words: [String] = SiteLists.current.ownWindowUserOnly) -> Bool {
         guard let e else { return false }

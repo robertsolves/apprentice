@@ -301,15 +301,14 @@ enum Keys {
     /// `newline` is the key a line break in the text is typed with: plain return in apps, or shift+return
     /// where return would send (a chat composer on a web page), so text with line breaks never goes out
     /// in pieces.
-    static func typeChar(_ ch: Character, newline: String = "return") {
+    static func typeChar(_ ch: Character, newline: String = "return") throws {
         if ch == "\n" || ch == "\r\n" || ch == "\r" {
             try? press(newline)
             return
         }
         if Remote.active { return Remote.typeChar(ch) }
         guard let strokes = strokes(for: ch) else {
-            try? paste(String(ch))
-            return
+            return try paste(String(ch))
         }
         var held: CGEventFlags = []
         for s in strokes {
@@ -364,6 +363,10 @@ enum Keys {
     static func type(_ text: String, fast: Bool = false, corrections: Bool = false, newline: String = "return") throws {
         let began = Date()
         defer { Timing.add("type", Date().timeIntervalSince(began)) }
+        // Before the first key, so a text that cannot be finished is not left half typed.
+        if !Remote.active, pasteRoute(readable: clipboardItems().count, items: NSPasteboard.general.pasteboardItems?.count ?? 0, typeable: keysType(text)) == .refuse {
+            throw Fail(5, unpasteable)
+        }
         Pace.sleep(Rand.uniform(0.08...0.2))
         let rate = fast || !corrections ? 0 : Config.current.pace.keyErrorRate
         var prev: Character?
@@ -408,12 +411,12 @@ enum Keys {
                let near = neighbours[key].flatMap({ Rand.pick(Array($0)) }) {
                 slips += 1
                 if !Remote.active { release() }
-                typeChar(ch.isUppercase ? Character(near.uppercased()) : near)
+                try typeChar(ch.isUppercase ? Character(near.uppercased()) : near)
                 // Noticed a key or two late: the next letters go in first, then all of them come out.
                 let ahead = chars[(index + 1)...].prefix(slip.run - 1).prefix { !$0.isNewline && Keys.strokes(for: $0)?.count == 1 }
                 for c in ahead {
                     Pace.sleep(Rand.uniform(0.06...0.14))
-                    typeChar(c)
+                    try typeChar(c)
                 }
                 Pace.sleep(slip.notice)
                 for n in 0...ahead.count {
@@ -456,7 +459,7 @@ enum Keys {
             } else {
                 // A line break, an accent typed as two keys, a pasted character, or the VM: one at a time.
                 if !Remote.active { release() }
-                typeChar(ch, newline: newline)
+                try typeChar(ch, newline: newline)
                 Pace.sleep(gap)
                 lastDown = nil
             }
@@ -479,15 +482,12 @@ enum Keys {
         // The VM has no clipboard of this Mac's; its address bar is typed into quickly instead.
         if Remote.active { return try type(text, fast: true) }
         let board = NSPasteboard.general
-        // Lazily provided types (promises, Continuity items) have no data yet: they are skipped, and an item
-        // left with no type is not put back as an empty entry.
-        let saved = (board.pasteboardItems ?? []).map { item in
-            item.types.reduce(into: [NSPasteboard.PasteboardType: Data]()) { out, type in
-                if let data = item.data(forType: type) { out[type] = data }
-            }
-        }.filter { !$0.isEmpty }
-        // A clipboard that cannot be put back (file promises, a Continuity item) is left alone: type instead.
-        if saved.isEmpty, !(board.pasteboardItems ?? []).isEmpty { return try type(text, fast: true) }
+        let saved = clipboardItems()
+        switch pasteRoute(readable: saved.count, items: board.pasteboardItems?.count ?? 0, typeable: keysType(text)) {
+        case .paste: break
+        case .type: return try type(text, fast: true)
+        case .refuse: throw Fail(5, unpasteable)
+        }
         // Runs on every exit, so a throw between the clear and the paste still gives the clipboard back.
         defer {
             if !saved.isEmpty {
@@ -504,6 +504,31 @@ enum Keys {
         Pace.sleep(0.05)
         try press("cmd+v")
         Pace.sleep(0.25)
+    }
+
+    enum PasteRoute { case paste, type, refuse }
+
+    /// `paste` falls back on typing and `type` on pasting, for what the other cannot do, so only one may hand over: a
+    /// clipboard that cannot be put back is typed instead, and a character no key types then has no way in at all.
+    static func pasteRoute(readable: Int, items: Int, typeable: Bool) -> PasteRoute {
+        if readable > 0 || items == 0 { return .paste }
+        return typeable ? .type : .refuse
+    }
+
+    static let unpasteable = "this text has a character no key on this keyboard types, and the clipboard holds something apprentice cannot put back afterwards (a file or an item from another device). Copy some plain text, or ask the user to, and try again"
+
+    /// The clipboard as it can be put back. Lazily provided types (promises, Continuity items) have no data yet: they are
+    /// skipped, and an item left with no type is not put back as an empty entry.
+    private static func clipboardItems() -> [[NSPasteboard.PasteboardType: Data]] {
+        (NSPasteboard.general.pasteboardItems ?? []).map { item in
+            item.types.reduce(into: [NSPasteboard.PasteboardType: Data]()) { out, type in
+                if let data = item.data(forType: type) { out[type] = data }
+            }
+        }.filter { !$0.isEmpty }
+    }
+
+    private static func keysType(_ text: String) -> Bool {
+        text.allSatisfy { $0.isNewline || strokes(for: $0) != nil }
     }
 
     /// Marks every event apprentice posts, so monitors can tell them from the person's own input. Drawn

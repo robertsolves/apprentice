@@ -118,6 +118,7 @@ enum Daemon {
                 let aside = Commands.asides.contains(req.cmd) && Daemon.queue(for: req) !== Daemon.queue
                 if !aside {
                     Store.model = req.model
+                    OwnWindow.caller = req.user == true ? (nil, nil) : (req.host, req.tab)
                     if let host = req.host, req.user != true {
                         Handback.agentHost = host
                     }

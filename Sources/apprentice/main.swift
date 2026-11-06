@@ -92,10 +92,10 @@ func done(_ code: Int32) -> Never {
 
 func fail(_ error: Error) -> Never {
     if let f = error as? Fail {
-        FileHandle.standardError.write(Data((f.message + "\n").utf8))
+        try? FileHandle.standardError.write(contentsOf: Data((f.message + "\n").utf8))
         done(f.code)
     }
-    FileHandle.standardError.write(Data(("\(error)\n").utf8))
+    try? FileHandle.standardError.write(contentsOf: Data(("\(error)\n").utf8))
     done(5)
 }
 

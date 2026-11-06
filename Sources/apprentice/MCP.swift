@@ -278,7 +278,7 @@ enum MCP {
     static func reply(_ id: Any, _ kind: String, _ body: [String: Any]) {
         let msg: [String: Any] = ["jsonrpc": "2.0", "id": id, kind: body]
         guard let data = try? JSONSerialization.data(withJSONObject: msg) else { return }
-        FileHandle.standardOutput.write(data)
-        FileHandle.standardOutput.write(Data([0x0A]))
+        // The client may have gone: that is the end of this server, not a crash.
+        do { try FileHandle.standardOutput.write(contentsOf: data + Data([0x0A])) } catch { exit(0) }
     }
 }

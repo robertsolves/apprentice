@@ -461,7 +461,7 @@ enum VM {
 
     static func setup() throws -> String {
         var out: [String] = []
-        func say(_ line: String) { FileHandle.standardError.write(Data((line + "\n").utf8)); out.append(line) }
+        func say(_ line: String) { try? FileHandle.standardError.write(contentsOf: Data((line + "\n").utf8)); out.append(line) }
         if host == nil, tartPath == nil {
             say("installing tart…")
             let r = run("/bin/bash", [files.appendingPathComponent("get-tart.sh").path])

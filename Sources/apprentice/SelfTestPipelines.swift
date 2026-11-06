@@ -1062,6 +1062,10 @@ extension SelfTest {
         check(Covered.over(CGPoint(x: 300, y: 300), app: 7, own: 8, hit: 7, rows: [other], dialogs: dialogs) == nil && Covered.over(CGPoint(x: 300, y: 300), app: 7, own: 8, hit: 99, rows: [other], dialogs: dialogs) == nil, "covered: the app itself, and a process with no window there such as a page's, are fine")
         check(!VM.controlPath.contains("vms/"), "vm: the ssh socket's path does not grow with the VM's name")
         check(OwnWindow.mayBind(bundle: id, accessory: false, pid: 100, daemon: 7), "own window: the app's window may be bound")
+        check(OwnWindow.insideRefusal(host: 100, tab: nil, window: 100) != nil && OwnWindow.insideRefusal(host: nil, tab: "tab-1", window: 100) != nil, "own window: what runs inside it cannot operate it")
+        check(OwnWindow.insideRefusal(host: 55, tab: nil, window: 100) == nil && OwnWindow.insideRefusal(host: nil, tab: nil, window: 100) == nil && OwnWindow.insideRefusal(host: nil, tab: "schedule:abc", window: 100) == nil, "own window: an agent outside it, or a schedule, can")
+        check(Keys.pasteRoute(readable: 0, items: 1, typeable: false) == .refuse, "paste: a character no key types and a clipboard that cannot be put back stop, rather than type and paste in turn")
+        check(Keys.pasteRoute(readable: 0, items: 1, typeable: true) == .type && Keys.pasteRoute(readable: 1, items: 1, typeable: false) == .paste && Keys.pasteRoute(readable: 0, items: 0, typeable: false) == .paste, "paste: otherwise it pastes, or types what the keys can")
         check(!OwnWindow.mayBind(bundle: id, accessory: true, pid: 100, daemon: 7) && !OwnWindow.mayBind(bundle: id, accessory: false, pid: 7, daemon: 7)
               && !OwnWindow.mayBind(bundle: "com.apple.finder", accessory: false, pid: 100, daemon: 7), "own window: the daemon's windows, where the user answers, may not")
         func button(_ name: String, _ label: String = "button") -> Element { Element(id: 1, path: [0], label: label, name: name, value: nil, frame: [0, 0, 10, 10], offscreen: false, gated: false) }
